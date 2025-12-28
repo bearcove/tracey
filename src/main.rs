@@ -14,6 +14,7 @@ use color_eyre::eyre::{Result, WrapErr};
 use config::Config;
 use coverage::CoverageReport;
 use facet_args as args;
+use lexer::RefVerb;
 use owo_colors::OwoColorize;
 use spec::SpecManifest;
 use std::path::PathBuf;
@@ -187,6 +188,31 @@ fn print_report(report: &CoverageReport, verbose: bool) {
         report.covered_rules.len(),
         report.total_rules
     );
+
+    // Show verb breakdown
+    let verb_order = [
+        RefVerb::Define,
+        RefVerb::Impl,
+        RefVerb::Verify,
+        RefVerb::Depends,
+        RefVerb::Related,
+    ];
+    let mut verb_counts: Vec<(&str, usize)> = Vec::new();
+    for verb in &verb_order {
+        if let Some(by_rule) = report.references_by_verb.get(verb) {
+            let count: usize = by_rule.values().map(|v| v.len()).sum();
+            if count > 0 {
+                verb_counts.push((verb.as_str(), count));
+            }
+        }
+    }
+    if !verb_counts.is_empty() {
+        let breakdown: Vec<String> = verb_counts
+            .iter()
+            .map(|(verb, count)| format!("{} {}", count, verb))
+            .collect();
+        println!("  References: {}", breakdown.join(", ").dimmed());
+    }
     println!();
 
     // Invalid references (errors)
@@ -198,10 +224,11 @@ fn print_report(report: &CoverageReport, verbose: bool) {
         );
         for r in &report.invalid_references {
             println!(
-                "  {} {}:{} - unknown rule [{}]",
+                "  {} {}:{} - unknown rule [{} {}]",
                 "-".red(),
                 r.file,
                 r.line,
+                r.verb.as_str().dimmed(),
                 r.rule_id.yellow()
             );
         }
@@ -225,29 +252,50 @@ fn print_report(report: &CoverageReport, verbose: bool) {
         println!();
     }
 
-    // Verbose: show all references
-    if verbose && !report.references_by_rule.is_empty() {
-        println!(
-            "{} Covered Rules ({}):",
-            "+".green().bold(),
-            report.covered_rules.len()
-        );
+    // Verbose: show all references grouped by verb
+    if verbose && !report.references_by_verb.is_empty() {
+        for verb in &verb_order {
+            if let Some(by_rule) = report.references_by_verb.get(verb) {
+                if by_rule.is_empty() {
+                    continue;
+                }
 
-        let mut rules: Vec<_> = report.references_by_rule.keys().collect();
-        rules.sort();
+                let total_refs: usize = by_rule.values().map(|v| v.len()).sum();
+                let verb_icon = match verb {
+                    RefVerb::Define => "◉",
+                    RefVerb::Impl => "+",
+                    RefVerb::Verify => "✓",
+                    RefVerb::Depends => "→",
+                    RefVerb::Related => "~",
+                };
+                let verb_color = match verb {
+                    RefVerb::Define => verb.as_str().blue().to_string(),
+                    RefVerb::Impl => verb.as_str().green().to_string(),
+                    RefVerb::Verify => verb.as_str().cyan().to_string(),
+                    RefVerb::Depends => verb.as_str().magenta().to_string(),
+                    RefVerb::Related => verb.as_str().dimmed().to_string(),
+                };
 
-        for rule_id in rules {
-            let refs = &report.references_by_rule[rule_id];
-            println!(
-                "  {} [{}] ({} references)",
-                "+".green(),
-                rule_id.green(),
-                refs.len()
-            );
-            for r in refs {
-                println!("      {}:{}", r.file.dimmed(), r.line.to_string().dimmed());
+                println!(
+                    "{} {} ({} references across {} rules):",
+                    verb_icon.bold(),
+                    verb_color,
+                    total_refs,
+                    by_rule.len()
+                );
+
+                let mut rules: Vec<_> = by_rule.keys().collect();
+                rules.sort();
+
+                for rule_id in rules {
+                    let refs = &by_rule[rule_id];
+                    println!("  [{}] ({} refs)", rule_id.green(), refs.len());
+                    for r in refs {
+                        println!("      {}:{}", r.file.dimmed(), r.line.to_string().dimmed());
+                    }
+                }
+                println!();
             }
         }
-        println!();
     }
 }

@@ -1,6 +1,6 @@
 //! Coverage analysis and reporting
 
-use crate::lexer::RuleReference;
+use crate::lexer::{RefVerb, RuleReference};
 use crate::spec::SpecManifest;
 use std::collections::{HashMap, HashSet};
 
@@ -22,8 +22,12 @@ pub struct CoverageReport {
     /// References to rules that don't exist in the spec
     pub invalid_references: Vec<RuleReference>,
 
-    /// All valid references, grouped by rule ID
+    /// All valid references, grouped by rule ID (kept for API compatibility)
+    #[allow(dead_code)]
     pub references_by_rule: HashMap<String, Vec<RuleReference>>,
+
+    /// References grouped by verb type, then by rule ID
+    pub references_by_verb: HashMap<RefVerb, HashMap<String, Vec<RuleReference>>>,
 }
 
 impl CoverageReport {
@@ -36,11 +40,21 @@ impl CoverageReport {
         let mut covered_rules = HashSet::new();
         let mut invalid_references = Vec::new();
         let mut references_by_rule: HashMap<String, Vec<RuleReference>> = HashMap::new();
+        let mut references_by_verb: HashMap<RefVerb, HashMap<String, Vec<RuleReference>>> =
+            HashMap::new();
 
         for reference in references {
             if manifest.has_rule(&reference.rule_id) {
                 covered_rules.insert(reference.rule_id.clone());
                 references_by_rule
+                    .entry(reference.rule_id.clone())
+                    .or_default()
+                    .push(reference.clone());
+
+                // Also group by verb
+                references_by_verb
+                    .entry(reference.verb)
+                    .or_default()
                     .entry(reference.rule_id.clone())
                     .or_default()
                     .push(reference);
@@ -60,6 +74,7 @@ impl CoverageReport {
             uncovered_rules,
             invalid_references,
             references_by_rule,
+            references_by_verb,
         }
     }
 
