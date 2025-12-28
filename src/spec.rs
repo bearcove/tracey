@@ -1,10 +1,12 @@
 //! Spec manifest fetching and parsing
 //!
-//! Fetches `_rules.json` from a spec URL and parses the rule definitions.
+//! Fetches `_rules.json` from a spec URL or loads from a local file,
+//! and parses the rule definitions.
 
 use eyre::{Result, WrapErr};
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::path::Path;
 
 /// A rule definition from the spec manifest
 #[derive(Debug, Clone, Deserialize)]
@@ -23,23 +25,26 @@ pub struct SpecManifest {
 
 impl SpecManifest {
     /// Fetch a spec manifest from a URL
-    pub async fn fetch(url: &str) -> Result<Self> {
-        let response = reqwest::get(url)
-            .await
+    pub fn fetch(url: &str) -> Result<Self> {
+        let mut response = ureq::get(url)
+            .call()
             .wrap_err_with(|| format!("Failed to fetch spec manifest from {}", url))?;
 
-        if !response.status().is_success() {
-            eyre::bail!(
-                "Failed to fetch spec manifest from {}: HTTP {}",
-                url,
-                response.status()
-            );
-        }
-
         let manifest: SpecManifest = response
-            .json()
-            .await
+            .body_mut()
+            .read_json()
             .wrap_err_with(|| format!("Failed to parse spec manifest from {}", url))?;
+
+        Ok(manifest)
+    }
+
+    /// Load a spec manifest from a local file
+    pub fn load(path: &Path) -> Result<Self> {
+        let content = std::fs::read_to_string(path)
+            .wrap_err_with(|| format!("Failed to read spec manifest from {}", path.display()))?;
+
+        let manifest: SpecManifest = serde_json::from_str(&content)
+            .wrap_err_with(|| format!("Failed to parse spec manifest from {}", path.display()))?;
 
         Ok(manifest)
     }

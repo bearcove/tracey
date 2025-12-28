@@ -39,8 +39,7 @@ struct Args {
     verbose: bool,
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     color_eyre::install()?;
 
     let args: Args =
@@ -56,21 +55,50 @@ async fn main() -> Result<()> {
 
     let config = load_config(&config_path)?;
 
+    // Get the directory containing the config file for resolving relative paths
+    let config_dir = config_path
+        .parent()
+        .ok_or_else(|| eyre::eyre!("Config path has no parent directory"))?;
+
     let threshold = args.threshold.unwrap_or(0.0);
     let mut all_passing = true;
 
     for spec_config in &config.specs {
         let spec_name = &spec_config.name.value;
-        let rules_url = &spec_config.rules_url.value;
 
-        eprintln!(
-            "{} Fetching spec manifest for {}...",
-            "->".blue().bold(),
-            spec_name.cyan()
-        );
-
-        // Fetch the spec manifest
-        let manifest = SpecManifest::fetch(rules_url).await?;
+        // Load manifest from either URL or local file
+        let manifest = match (&spec_config.rules_url, &spec_config.rules_file) {
+            (Some(url), None) => {
+                eprintln!(
+                    "{} Fetching spec manifest for {}...",
+                    "->".blue().bold(),
+                    spec_name.cyan()
+                );
+                SpecManifest::fetch(&url.value)?
+            }
+            (None, Some(file)) => {
+                let file_path = config_dir.join(&file.path);
+                eprintln!(
+                    "{} Loading spec manifest for {} from {}...",
+                    "->".blue().bold(),
+                    spec_name.cyan(),
+                    file_path.display()
+                );
+                SpecManifest::load(&file_path)?
+            }
+            (Some(_), Some(_)) => {
+                eyre::bail!(
+                    "Spec '{}' has both rules_url and rules_file - please specify only one",
+                    spec_name
+                );
+            }
+            (None, None) => {
+                eyre::bail!(
+                    "Spec '{}' has neither rules_url nor rules_file - please specify one",
+                    spec_name
+                );
+            }
+        };
 
         eprintln!(
             "   Found {} rules in spec",

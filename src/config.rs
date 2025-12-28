@@ -22,8 +22,13 @@ pub struct SpecConfig {
 
     /// URL to the spec's _rules.json manifest
     /// e.g., "https://rapace.dev/_rules.json"
-    #[facet(kdl::child)]
-    pub rules_url: RulesUrl,
+    #[facet(kdl::child, default)]
+    pub rules_url: Option<RulesUrl>,
+
+    /// Path to a local _rules.json file (relative to the config file)
+    /// e.g., "specs/my-spec/_rules.json"
+    #[facet(kdl::child, default)]
+    pub rules_file: Option<RulesFile>,
 
     /// Glob patterns for Rust files to scan
     /// Defaults to ["**/*.rs"] if not specified
@@ -45,6 +50,12 @@ pub struct Name {
 pub struct RulesUrl {
     #[facet(kdl::argument)]
     pub value: String,
+}
+
+#[derive(Debug, Facet)]
+pub struct RulesFile {
+    #[facet(kdl::argument)]
+    pub path: String,
 }
 
 #[derive(Debug, Facet)]

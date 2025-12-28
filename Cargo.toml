@@ -21,9 +21,8 @@ facet-kdl = "0.35"
 color-eyre = "0.6"
 eyre = "0.6"
 
-# Async runtime for HTTP fetching
-tokio = { version = "1", features = ["full"] }
-reqwest = { version = "0.12", features = ["json"] }
+# HTTP fetching
+ureq = { version = "3", features = ["json"] }
 
 # JSON for parsing _rules.json
 serde = { version = "1", features = ["derive"] }
