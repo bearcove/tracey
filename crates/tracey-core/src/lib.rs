@@ -102,7 +102,9 @@ mod spec;
 
 pub use coverage::CoverageReport;
 pub use lexer::{ParseWarning, RefVerb, RuleReference, Rules, SourceSpan, WarningKind};
-pub use sources::{MemorySources, PathSources, Sources, SUPPORTED_EXTENSIONS, is_supported_extension};
+pub use sources::{
+    MemorySources, PathSources, SUPPORTED_EXTENSIONS, Sources, is_supported_extension,
+};
 pub use spec::{RuleInfo, SpecManifest};
 
 #[cfg(feature = "walk")]

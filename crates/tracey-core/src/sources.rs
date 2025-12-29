@@ -8,28 +8,28 @@ use std::path::{Path, PathBuf};
 /// File extensions that tracey knows how to scan for rule references.
 /// These all use `//` and `/* */` comment syntax.
 pub const SUPPORTED_EXTENSIONS: &[&str] = &[
-    "rs",    // Rust
-    "swift", // Swift
-    "ts",    // TypeScript
-    "tsx",   // TypeScript JSX
-    "js",    // JavaScript
-    "jsx",   // JavaScript JSX
-    "go",    // Go
-    "c",     // C
-    "h",     // C headers
-    "cpp",   // C++
-    "hpp",   // C++ headers
-    "cc",    // C++
-    "cxx",   // C++
-    "m",     // Objective-C
-    "mm",    // Objective-C++
-    "java",  // Java
-    "kt",    // Kotlin
-    "kts",   // Kotlin script
-    "scala", // Scala
-    "groovy",// Groovy
-    "cs",    // C#
-    "zig",   // Zig
+    "rs",     // Rust
+    "swift",  // Swift
+    "ts",     // TypeScript
+    "tsx",    // TypeScript JSX
+    "js",     // JavaScript
+    "jsx",    // JavaScript JSX
+    "go",     // Go
+    "c",      // C
+    "h",      // C headers
+    "cpp",    // C++
+    "hpp",    // C++ headers
+    "cc",     // C++
+    "cxx",    // C++
+    "m",      // Objective-C
+    "mm",     // Objective-C++
+    "java",   // Java
+    "kt",     // Kotlin
+    "kts",    // Kotlin script
+    "scala",  // Scala
+    "groovy", // Groovy
+    "cs",     // C#
+    "zig",    // Zig
 ];
 
 /// Check if a file extension is supported for scanning
@@ -182,7 +182,10 @@ impl Sources for WalkSources {
                 let path = entry.path();
 
                 // Only supported file extensions
-                if path.extension().is_none_or(|ext| !is_supported_extension(ext)) {
+                if path
+                    .extension()
+                    .is_none_or(|ext| !is_supported_extension(ext))
+                {
                     return ignore::WalkState::Continue;
                 }
 
@@ -350,16 +353,16 @@ mod tests {
     #[test]
     fn test_memory_sources_jsdoc_comments() {
         // JSDoc-style comments (/** */) should work too
-        let rules = Rules::extract(
-            MemorySources::new()
-                .add("api.ts", r#"
+        let rules = Rules::extract(MemorySources::new().add(
+            "api.ts",
+            r#"
                     /**
                      * Handles user authentication.
                      * [impl auth.login]
                      */
                     function login() {}
-                "#),
-        )
+                "#,
+        ))
         .unwrap();
 
         assert_eq!(rules.len(), 1);
@@ -382,14 +385,14 @@ mod tests {
     #[test]
     fn test_supported_extensions() {
         use std::ffi::OsStr;
-        
+
         assert!(is_supported_extension(OsStr::new("rs")));
         assert!(is_supported_extension(OsStr::new("swift")));
         assert!(is_supported_extension(OsStr::new("ts")));
         assert!(is_supported_extension(OsStr::new("tsx")));
         assert!(is_supported_extension(OsStr::new("js")));
         assert!(is_supported_extension(OsStr::new("go")));
-        
+
         assert!(!is_supported_extension(OsStr::new("md")));
         assert!(!is_supported_extension(OsStr::new("txt")));
         assert!(!is_supported_extension(OsStr::new("json")));
