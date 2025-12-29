@@ -217,9 +217,9 @@ fn run_coverage_command(args: Args) -> Result<()> {
     for spec_config in &config.specs {
         let spec_name = &spec_config.name.value;
 
-        // Load manifest from either URL or local file
-        let manifest = match (&spec_config.rules_url, &spec_config.rules_file) {
-            (Some(url), None) => {
+        // Load manifest from URL, local file, or markdown glob
+        let manifest = match (&spec_config.rules_url, &spec_config.rules_file, &spec_config.rules_glob) {
+            (Some(url), None, None) => {
                 eprintln!(
                     "{} Fetching spec manifest for {}...",
                     "->".blue().bold(),
@@ -227,7 +227,7 @@ fn run_coverage_command(args: Args) -> Result<()> {
                 );
                 SpecManifest::fetch(&url.value)?
             }
-            (None, Some(file)) => {
+            (None, Some(file), None) => {
                 let file_path = config_dir.join(&file.path);
                 eprintln!(
                     "{} Loading spec manifest for {} from {}...",
@@ -237,15 +237,24 @@ fn run_coverage_command(args: Args) -> Result<()> {
                 );
                 SpecManifest::load(&file_path)?
             }
-            (Some(_), Some(_)) => {
+            (None, None, Some(glob)) => {
+                eprintln!(
+                    "{} Extracting rules for {} from markdown files matching {}...",
+                    "->".blue().bold(),
+                    spec_name.cyan(),
+                    glob.pattern.cyan()
+                );
+                load_manifest_from_glob(&project_root, &glob.pattern)?
+            }
+            (None, None, None) => {
                 eyre::bail!(
-                    "Spec '{}' has both rules_url and rules_file - please specify only one",
+                    "Spec '{}' has no rules source - please specify rules_url, rules_file, or rules_glob",
                     spec_name
                 );
             }
-            (None, None) => {
+            _ => {
                 eyre::bail!(
-                    "Spec '{}' has neither rules_url nor rules_file - please specify one",
+                    "Spec '{}' has multiple rules sources - please specify only one of rules_url, rules_file, or rules_glob",
                     spec_name
                 );
             }
@@ -317,6 +326,132 @@ fn run_coverage_command(args: Args) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Load a SpecManifest by extracting rules from markdown files matching a glob pattern
+fn load_manifest_from_glob(root: &PathBuf, pattern: &str) -> Result<SpecManifest> {
+    use ignore::WalkBuilder;
+    use std::collections::HashMap;
+
+    let mut rules_manifest = RulesManifest::new();
+    let mut file_count = 0;
+
+    // Walk the directory tree
+    let walker = WalkBuilder::new(root)
+        .follow_links(true)
+        .hidden(false)
+        .git_ignore(true)
+        .build();
+
+    for entry in walker {
+        let entry = entry?;
+        let path = entry.path();
+
+        // Only process .md files
+        if path.extension().is_none_or(|ext| ext != "md") {
+            continue;
+        }
+
+        // Check if the path matches the glob pattern
+        let relative = path.strip_prefix(root).unwrap_or(path);
+        let relative_str = relative.to_string_lossy();
+
+        if !matches_glob(&relative_str, pattern) {
+            continue;
+        }
+
+        // Read and extract rules
+        let content = std::fs::read_to_string(path)
+            .wrap_err_with(|| format!("Failed to read {}", path.display()))?;
+
+        let result = MarkdownProcessor::process(&content)
+            .wrap_err_with(|| format!("Failed to process {}", path.display()))?;
+
+        if !result.rules.is_empty() {
+            eprintln!(
+                "   {} {} rules from {}",
+                "Found".green(),
+                result.rules.len(),
+                relative_str
+            );
+            file_count += 1;
+
+            // Build manifest for this file (no base URL needed for coverage checking)
+            let file_manifest = RulesManifest::from_rules(&result.rules, "");
+            let duplicates = rules_manifest.merge(&file_manifest);
+
+            if !duplicates.is_empty() {
+                for dup in &duplicates {
+                    eprintln!(
+                        "   {} Duplicate rule '{}' in {}",
+                        "!".yellow().bold(),
+                        dup.id.red(),
+                        relative_str
+                    );
+                }
+                eyre::bail!(
+                    "Found {} duplicate rule IDs in markdown files",
+                    duplicates.len()
+                );
+            }
+        }
+    }
+
+    if file_count == 0 {
+        eyre::bail!(
+            "No markdown files with rules found matching pattern '{}'",
+            pattern
+        );
+    }
+
+    // Convert RulesManifest to SpecManifest
+    let spec_rules: HashMap<String, tracey_core::RuleInfo> = rules_manifest
+        .rules
+        .into_iter()
+        .map(|(id, entry)| (id, tracey_core::RuleInfo { url: entry.url }))
+        .collect();
+
+    Ok(SpecManifest { rules: spec_rules })
+}
+
+/// Simple glob pattern matching
+fn matches_glob(path: &str, pattern: &str) -> bool {
+    // Handle **/*.md pattern
+    if pattern == "**/*.md" {
+        return path.ends_with(".md");
+    }
+
+    // Handle prefix/**/*.md patterns like "docs/**/*.md"
+    if let Some(rest) = pattern.strip_suffix("/**/*.md") {
+        return path.starts_with(rest) && path.ends_with(".md");
+    }
+
+    // Handle prefix/** patterns
+    if let Some(prefix) = pattern.strip_suffix("/**") {
+        return path.starts_with(prefix);
+    }
+
+    // Handle exact matches
+    if !pattern.contains('*') {
+        return path == pattern;
+    }
+
+    // Fallback: simple contains check for the non-wildcard parts
+    let parts: Vec<&str> = pattern.split('*').filter(|s| !s.is_empty()).collect();
+    if parts.is_empty() {
+        return true;
+    }
+
+    let mut remaining = path;
+    for part in parts {
+        if let Some(idx) = remaining.find(part) {
+            remaining = &remaining[idx + part.len()..];
+        } else {
+            return false;
+        }
+    }
+
+    true
 }
 
 fn find_project_root() -> Result<PathBuf> {

@@ -34,5 +34,8 @@ serde_json = { workspace = true }
 # Pretty output
 owo-colors = { workspace = true }
 
+# File walking (for rules_glob)
+ignore = { workspace = true }
+
 # Syntax highlighting for miette
 syntect = { workspace = true }
