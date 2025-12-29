@@ -42,8 +42,7 @@
       --yellow: light-dark(#d97706, #e0af68);
       --yellow-dim: light-dark(#fef3c7, #3d3520);
       --purple: light-dark(#7c3aed, #bb9af7);
-      
-
+      --bg-outer: light-dark(#e5e7eb, #0d0e12);
       
       --max-width: 1200px;
     }
@@ -52,7 +51,7 @@
     
     body {
       font-family: 'Public Sans', system-ui, -apple-system, sans-serif;
-      background: var(--bg);
+      background: var(--bg-outer);
       color: var(--fg);
       line-height: 1.5;
     }
@@ -73,6 +72,12 @@
       display: flex;
       flex-direction: column;
       height: 100vh;
+      width: var(--max-width);
+      max-width: 100%;
+      margin: 0 auto;
+      background: var(--bg);
+      border-left: 1px solid var(--border);
+      border-right: 1px solid var(--border);
     }
     
     .header {
@@ -85,8 +90,6 @@
     .header-inner {
       display: flex;
       align-items: stretch;
-      max-width: var(--max-width);
-      margin: 0 auto;
       width: 100%;
       margin-bottom: -1px; /* tabs overlap the border */
     }
@@ -100,7 +103,6 @@
       align-items: center;
       padding: 0.75rem 1.25rem;
       margin-left: auto;
-      border-left: 1px solid var(--border);
     }
     
     .logo:hover {
@@ -174,8 +176,6 @@
       flex: 1;
       display: flex;
       overflow: hidden;
-      max-width: var(--max-width);
-      margin: 0 auto;
       width: 100%;
     }
     
@@ -187,8 +187,6 @@
       padding: 1rem 1.5rem;
       border-bottom: 1px solid var(--border);
       background: var(--bg-secondary);
-      max-width: var(--max-width);
-      margin: 0 auto;
       width: 100%;
       position: relative;
       z-index: 50;
@@ -325,6 +323,7 @@
       justify-content: space-between;
       gap: 0.5rem;
       padding: 0.35rem 0.5rem;
+      padding-left: calc(0.5rem + 1rem + 0.25rem); /* match folder: padding + icon width + gap */
       border-radius: 4px;
       cursor: pointer;
       font-size: 0.875rem;
@@ -469,6 +468,47 @@
       display: flex;
       align-items: center;
       gap: 0.25rem;
+      position: relative;
+    }
+    
+    .annotation-count {
+      font-size: 0.6rem;
+      min-width: 1.2em;
+      height: 1.2em;
+      padding: 0 0.25rem;
+      border-radius: 3px;
+      background: var(--accent-dim);
+      color: var(--accent);
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+    
+    .annotation-badges {
+      display: none;
+      position: absolute;
+      right: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.25rem;
+      gap: 0.25rem;
+      flex-wrap: wrap;
+      max-width: 300px;
+      z-index: 50;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    
+    .line-annotations:hover .annotation-badges {
+      display: flex;
+    }
+    
+    .line-annotations:hover .annotation-count {
+      display: none;
     }
     
     .annotation-badge {
@@ -732,34 +772,38 @@
     .spec-refs {
       display: flex;
       flex-wrap: wrap;
-      gap: 0.5rem;
+      gap: 0.35rem;
       margin: 0.25rem 0 0.5rem 0;
       font-size: 0.75rem;
-    }
-    
-    .spec-refs-group {
-      display: flex;
-      align-items: center;
-      gap: 0.35rem;
-      flex-wrap: wrap;
-    }
-    
-    .spec-refs-label {
-      color: var(--fg-dim);
-      font-weight: 500;
     }
     
     .spec-ref {
       font-family: 'IBM Plex Mono', monospace;
       text-decoration: none;
-      padding: 0.1rem 0.35rem;
+      padding: 0.15rem 0.4rem;
       border-radius: 3px;
       background: var(--bg-secondary);
       border: 1px solid var(--border);
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
     }
     
     .spec-ref:hover {
       border-color: var(--accent);
+    }
+    
+    .spec-ref-icon {
+      width: 0.9em;
+      height: 0.9em;
+      flex-shrink: 0;
+    }
+    
+    .spec-ref-icon-impl {
+      color: var(--green);
+    }
+    
+    .spec-ref-icon-verify {
       color: var(--accent);
     }
     
@@ -1508,9 +1552,13 @@
     // Tab icons
     const TAB_ICONS = {
       coverage: html`<svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>`,
-      tree: html`<svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h7v7H3z"/><path d="M14 3h7v7h-7z"/><path d="M14 14h7v7h-7z"/><path d="M3 14h7v7H3z"/></svg>`,
+      tree: html`<svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`,
       spec: html`<svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>`,
     };
+    
+    // Icons for impl/verify refs
+    const ICON_IMPL = `<svg class="spec-ref-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 18l6-6-6-6"/><path d="M8 6l-6 6 6 6"/></svg>`;
+    const ICON_VERIFY = `<svg class="spec-ref-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9 12l2 2 4-4"/></svg>`;
 
     function Header({ view, onViewChange }) {
       const handleNavClick = (e, newView) => {
@@ -1720,9 +1768,8 @@
               <table class="rules-table">
                 <thead>
                   <tr>
-                    <th style="width: 35%">Rule</th>
-                    <th style="width: 32.5%">Implementations</th>
-                    <th style="width: 32.5%">Tests</th>
+                    <th style="width: 45%">Rule</th>
+                    <th style="width: 55%">References</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1736,34 +1783,31 @@
                         ${rule.text && html`<div class="rule-text" dangerouslySetInnerHTML=${{ __html: renderRuleText(rule.text) }} />`}
                       </td>
                       <td class="rule-refs" onClick=${(e) => e.stopPropagation()}>
-                        ${rule.implRefs.length > 0 
-                          ? rule.implRefs.map(r => html`
-                              <${FileRef} 
-                                key=${r.file + ':' + r.line}
-                                file=${r.file} 
-                                line=${r.line} 
-                                type="impl"
-                                editor=${editor}
-                                config=${config}
-                                onSelectFile=${onSelectFile}
-                              />
-                            `)
-                          : html`<span style="color: var(--fg-dim)">—</span>`
-                        }
-                      </td>
-                      <td class="rule-refs" onClick=${(e) => e.stopPropagation()}>
-                        ${rule.verifyRefs.length > 0 
-                          ? rule.verifyRefs.map(r => html`
-                              <${FileRef} 
-                                key=${r.file + ':' + r.line}
-                                file=${r.file} 
-                                line=${r.line} 
-                                type="verify"
-                                editor=${editor}
-                                config=${config}
-                                onSelectFile=${onSelectFile}
-                              />
-                            `)
+                        ${rule.implRefs.length > 0 || rule.verifyRefs.length > 0
+                          ? html`
+                              ${rule.implRefs.map(r => html`
+                                <${FileRef} 
+                                  key=${'impl:' + r.file + ':' + r.line}
+                                  file=${r.file} 
+                                  line=${r.line} 
+                                  type="impl"
+                                  editor=${editor}
+                                  config=${config}
+                                  onSelectFile=${onSelectFile}
+                                />
+                              `)}
+                              ${rule.verifyRefs.map(r => html`
+                                <${FileRef} 
+                                  key=${'verify:' + r.file + ':' + r.line}
+                                  file=${r.file} 
+                                  line=${r.line} 
+                                  type="verify"
+                                  editor=${editor}
+                                  config=${config}
+                                  onSelectFile=${onSelectFile}
+                                />
+                              `)}
+                            `
                           : html`<span style="color: var(--fg-dim)">—</span>`
                         }
                       </td>
@@ -1838,8 +1882,20 @@
       `;
     }
 
-    function FileTree({ node, selectedFile, onSelectFile, depth = 0, search }) {
-      const [open, setOpen] = useState(depth < 2);
+    function FileTree({ node, selectedFile, onSelectFile, depth = 0, search, parentPath = '' }) {
+      // Check if selected file is in this subtree
+      const currentPath = parentPath ? `${parentPath}/${node.name}` : node.name;
+      const containsSelectedFile = selectedFile && selectedFile.startsWith(currentPath + '/');
+      const hasSelectedFile = selectedFile && (containsSelectedFile || node.files.some(f => f.path === selectedFile));
+      
+      const [open, setOpen] = useState(depth < 2 || hasSelectedFile);
+      
+      // Auto-expand when selected file changes to be in this subtree
+      useEffect(() => {
+        if (hasSelectedFile && !open) {
+          setOpen(true);
+        }
+      }, [selectedFile, hasSelectedFile]);
       
       const folders = Object.values(node.children).sort((a, b) => a.name.localeCompare(b.name));
       const files = node.files.sort((a, b) => a.name.localeCompare(b.name));
@@ -1861,6 +1917,7 @@
                 onSelectFile=${onSelectFile}
                 depth=${depth + 1}
                 search=${search}
+                parentPath=""
               />
             `)}
             ${files.filter(f => matchesSearch(f.path)).map(f => html`
@@ -1902,6 +1959,7 @@
                 onSelectFile=${onSelectFile}
                 depth=${depth + 1}
                 search=${search}
+                parentPath=${currentPath}
               />
             `)}
             ${files.filter(f => matchesSearch(f.path)).map(f => html`
@@ -2035,16 +2093,17 @@
                 />
                 ${anno && anno.ruleRefs.size > 0 && html`
                   <span class="line-annotations">
-                    ${[...anno.ruleRefs].slice(0, 2).map(ref => html`
-                      <a 
-                        class="annotation-badge" 
-                        href=${buildUrl('spec', { rule: ref })}
-                        onClick=${(e) => { e.preventDefault(); onSelectRule(ref); }}
-                      >${ref}</a>
-                    `)}
-                    ${anno.ruleRefs.size > 2 && html`
-                      <span class="annotation-badge">+${anno.ruleRefs.size - 2}</span>
-                    `}
+                    <span class="annotation-count" title=${[...anno.ruleRefs].join(', ')}>${anno.ruleRefs.size}</span>
+                    <span class="annotation-badges">
+                      ${[...anno.ruleRefs].map(ref => html`
+                        <a 
+                          key=${ref}
+                          class="annotation-badge" 
+                          href=${buildUrl('spec', { rule: ref })}
+                          onClick=${(e) => { e.preventDefault(); onSelectRule(ref); }}
+                        >${ref}</a>
+                      `)}
+                    </span>
                   </span>
                 `}
               </div>
@@ -2099,31 +2158,40 @@
         let content = spec.content;
         
         // Replace r[rule.id] with styled markers + reference links
-        content = content.replace(/r\[([^\]]+)\]/g, (match, ruleId) => {
+        // Only match at start of file or after a blank line, at the beginning of a line
+        content = content.replace(/(^|\n\n)r\[([^\]]+)\]/g, (match, prefix, ruleId) => {
           const coverage = ruleCoverage.get(ruleId);
           const status = coverage?.status || 'uncovered';
           const rule = coverage?.rule;
           
-          // Build reference tags
+          // Build reference tags with icons (same as Coverage tab)
+          const iconImpl = `<svg class="spec-ref-icon spec-ref-icon-impl" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 18l6-6-6-6"/><path d="M8 6l-6 6 6 6"/></svg>`;
+          const iconVerify = `<svg class="spec-ref-icon spec-ref-icon-verify" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9 12l2 2 4-4"/></svg>`;
+          
+          // Helper to get just filename from path
+          const getFileName = (path) => path.split('/').pop();
+          
           let refHtml = '';
           if (rule) {
+            const allRefs = [];
             if (rule.implRefs && rule.implRefs.length > 0) {
-              const refs = rule.implRefs.map(r => 
-                `<a class="spec-ref spec-ref-impl" href="/tree/${r.file}:${r.line}" data-file="${r.file}" data-line="${r.line}">${r.file}:${r.line}</a>`
-              ).join('');
-              refHtml += `<span class="spec-refs-group"><span class="spec-refs-label">impl:</span>${refs}</span>`;
+              rule.implRefs.forEach(r => {
+                allRefs.push(`<a class="spec-ref spec-ref-impl" href="/tree/${r.file}:${r.line}" data-file="${r.file}" data-line="${r.line}" title="${r.file}:${r.line}">${iconImpl}${getFileName(r.file)}:${r.line}</a>`);
+              });
             }
             if (rule.verifyRefs && rule.verifyRefs.length > 0) {
-              const refs = rule.verifyRefs.map(r => 
-                `<a class="spec-ref spec-ref-verify" href="/tree/${r.file}:${r.line}" data-file="${r.file}" data-line="${r.line}">${r.file}:${r.line}</a>`
-              ).join('');
-              refHtml += `<span class="spec-refs-group"><span class="spec-refs-label">test:</span>${refs}</span>`;
+              rule.verifyRefs.forEach(r => {
+                allRefs.push(`<a class="spec-ref spec-ref-verify" href="/tree/${r.file}:${r.line}" data-file="${r.file}" data-line="${r.line}" title="${r.file}:${r.line}">${iconVerify}${getFileName(r.file)}:${r.line}</a>`);
+              });
+            }
+            if (allRefs.length > 0) {
+              refHtml = allRefs.join('');
             }
           }
           
           const icon = `<svg class="rule-marker-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/><path d="M9 15l2 2 4-4"/></svg>`;
           
-          return `<a class="rule-marker ${status}" href="/spec/${ruleId}" data-rule="${ruleId}">${icon}${ruleId}</a>${refHtml ? `<div class="spec-refs">${refHtml}</div>` : ''}`;
+          return `${prefix}<a class="rule-marker ${status}" href="/spec/${ruleId}" data-rule="${ruleId}">${icon}${ruleId}</a>${refHtml ? `<div class="spec-refs">${refHtml}</div>` : ''}`;
         });
         
         let html = marked.parse(content);
@@ -2190,8 +2258,8 @@
         if (!contentRef.current || !contentBodyRef.current) return;
         const el = contentRef.current.querySelector(`[id="${slug}"]`);
         if (el) {
-          const targetScrollTop = el.offsetTop - 20;
-          contentBodyRef.current.scrollTo({ top: Math.max(0, targetScrollTop), behavior: 'smooth' });
+          const targetScrollTop = el.offsetTop - 100;
+          contentBodyRef.current.scrollTo({ top: Math.max(0, targetScrollTop) });
           setActiveHeading(slug);
         }
       }, []);
