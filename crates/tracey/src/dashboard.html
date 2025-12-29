@@ -99,7 +99,8 @@
       display: flex;
       align-items: center;
       padding: 0.75rem 1.25rem;
-      border-right: 1px solid var(--border);
+      margin-left: auto;
+      border-left: 1px solid var(--border);
     }
     
     .logo:hover {
@@ -123,6 +124,7 @@
       text-decoration: none;
       display: flex;
       align-items: center;
+      gap: 0.5rem;
     }
     
     .nav-tab:hover {
@@ -134,6 +136,11 @@
       color: var(--accent);
       border-bottom: 2px solid var(--accent);
       background: var(--bg);
+    }
+    
+    .tab-icon {
+      width: 1rem;
+      height: 1rem;
     }
     
     .search-box {
@@ -668,7 +675,9 @@
     
     /* Rule marker in spec */
     .rule-marker {
-      display: block;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
       width: fit-content;
       background: var(--accent-dim);
       color: var(--accent);
@@ -677,6 +686,17 @@
       padding: 0.1rem 0.35rem;
       border-radius: 3px;
       margin: 0.15rem 0;
+      text-decoration: none;
+    }
+    
+    a.rule-marker:hover {
+      filter: brightness(1.1);
+    }
+    
+    .rule-marker-icon {
+      width: 0.9em;
+      height: 0.9em;
+      flex-shrink: 0;
     }
     
     .rule-marker.covered {
@@ -692,6 +712,63 @@
     .rule-marker.uncovered {
       background: var(--red-dim);
       color: var(--red);
+    }
+    
+    .rule-marker-highlighted {
+      animation: rule-highlight-pulse 3s ease-out;
+    }
+    
+    @keyframes rule-highlight-pulse {
+      0%, 20% {
+        box-shadow: 0 0 0 4px var(--accent);
+        transform: scale(1.05);
+      }
+      100% {
+        box-shadow: 0 0 0 0 transparent;
+        transform: scale(1);
+      }
+    }
+    
+    .spec-refs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin: 0.25rem 0 0.5rem 0;
+      font-size: 0.75rem;
+    }
+    
+    .spec-refs-group {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      flex-wrap: wrap;
+    }
+    
+    .spec-refs-label {
+      color: var(--fg-dim);
+      font-weight: 500;
+    }
+    
+    .spec-ref {
+      font-family: 'IBM Plex Mono', monospace;
+      text-decoration: none;
+      padding: 0.1rem 0.35rem;
+      border-radius: 3px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+    }
+    
+    .spec-ref:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    
+    .spec-ref-impl {
+      color: var(--green);
+    }
+    
+    .spec-ref-verify {
+      color: var(--accent);
     }
     
     /* Empty state */
@@ -1428,6 +1505,13 @@
       emacs: html`<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2M12 4C16.42 4 20 7.58 20 12C20 16.42 16.42 20 12 20C7.58 20 4 16.42 4 12C4 7.58 7.58 4 12 4M8 7V17H16V15H10V7H8Z"/></svg>`,
     };
 
+    // Tab icons
+    const TAB_ICONS = {
+      coverage: html`<svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>`,
+      tree: html`<svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h7v7H3z"/><path d="M14 3h7v7h-7z"/><path d="M14 14h7v7h-7z"/><path d="M3 14h7v7H3z"/></svg>`,
+      spec: html`<svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>`,
+    };
+
     function Header({ view, onViewChange }) {
       const handleNavClick = (e, newView) => {
         e.preventDefault();
@@ -1437,27 +1521,25 @@
       return html`
         <header class="header">
           <div class="header-inner">
-            <a href="/forward" class="logo" onClick=${(e) => handleNavClick(e, 'forward')}>tracey</a>
-            
             <nav class="nav">
               <a 
                 href="/forward"
                 class="nav-tab ${view === 'forward' ? 'active' : ''}"
                 onClick=${(e) => handleNavClick(e, 'forward')}
-              >Coverage</a>
+              >${TAB_ICONS.coverage}<span>Coverage</span></a>
               <a 
                 href="/tree"
                 class="nav-tab ${view === 'tree' ? 'active' : ''}"
                 onClick=${(e) => handleNavClick(e, 'tree')}
-              >Tree</a>
+              >${TAB_ICONS.tree}<span>Tree</span></a>
               <a 
                 href="/spec"
                 class="nav-tab ${view === 'spec' ? 'active' : ''}"
                 onClick=${(e) => handleNavClick(e, 'spec')}
-              >Spec</a>
+              >${TAB_ICONS.spec}<span>Spec</span></a>
             </nav>
             
-
+            <a href="/forward" class="logo" onClick=${(e) => handleNavClick(e, 'forward')}>tracey</a>
           </div>
         </header>
       `;
@@ -1894,9 +1976,9 @@
             if (lineElement) {
               const container = codeViewRef.current.closest('.content-body');
               if (container) {
-                // Calculate position to leave ~5 lines above, plus extra for header
+                // Calculate position to leave ~5 lines above, plus extra for headers
                 const lineHeight = lineElement.offsetHeight;
-                const headerOffset = 60; // approximate header height
+                const headerOffset = 120; // header + stats bar
                 const targetScrollTop = lineElement.offsetTop - (lineHeight * 5) - headerOffset;
                 container.scrollTo({ top: Math.max(0, targetScrollTop) });
               }
@@ -2016,11 +2098,32 @@
         if (!spec) return '';
         let content = spec.content;
         
-        // Replace r[rule.id] with styled markers
+        // Replace r[rule.id] with styled markers + reference links
         content = content.replace(/r\[([^\]]+)\]/g, (match, ruleId) => {
           const coverage = ruleCoverage.get(ruleId);
           const status = coverage?.status || 'uncovered';
-          return `<span class="rule-marker ${status}" data-rule="${ruleId}">${ruleId}</span>`;
+          const rule = coverage?.rule;
+          
+          // Build reference tags
+          let refHtml = '';
+          if (rule) {
+            if (rule.implRefs && rule.implRefs.length > 0) {
+              const refs = rule.implRefs.map(r => 
+                `<a class="spec-ref spec-ref-impl" href="/tree/${r.file}:${r.line}" data-file="${r.file}" data-line="${r.line}">${r.file}:${r.line}</a>`
+              ).join('');
+              refHtml += `<span class="spec-refs-group"><span class="spec-refs-label">impl:</span>${refs}</span>`;
+            }
+            if (rule.verifyRefs && rule.verifyRefs.length > 0) {
+              const refs = rule.verifyRefs.map(r => 
+                `<a class="spec-ref spec-ref-verify" href="/tree/${r.file}:${r.line}" data-file="${r.file}" data-line="${r.line}">${r.file}:${r.line}</a>`
+              ).join('');
+              refHtml += `<span class="spec-refs-group"><span class="spec-refs-label">test:</span>${refs}</span>`;
+            }
+          }
+          
+          const icon = `<svg class="rule-marker-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/><path d="M9 15l2 2 4-4"/></svg>`;
+          
+          return `<a class="rule-marker ${status}" href="/spec/${ruleId}" data-rule="${ruleId}">${icon}${ruleId}</a>${refHtml ? `<div class="spec-refs">${refHtml}</div>` : ''}`;
         });
         
         let html = marked.parse(content);
@@ -2093,23 +2196,68 @@
         }
       }, []);
       
-      // Handle clicks on headings in the markdown
+      // Handle clicks on headings, rule markers, and spec refs in the markdown
       useEffect(() => {
         if (!contentRef.current) return;
         
-        const handleHeadingClick = (e) => {
+        const handleClick = (e) => {
+          // Handle heading clicks
           const heading = e.target.closest('h1[id], h2[id], h3[id], h4[id]');
           if (heading) {
             const slug = heading.id;
-            // Copy link to clipboard or update URL
             const url = `${window.location.origin}${window.location.pathname}#${slug}`;
             navigator.clipboard?.writeText(url);
+            return;
+          }
+          
+          // Handle rule marker clicks
+          const ruleMarker = e.target.closest('a.rule-marker[data-rule]');
+          if (ruleMarker) {
+            e.preventDefault();
+            const ruleId = ruleMarker.dataset.rule;
+            onSelectRule(ruleId);
+            return;
+          }
+          
+          // Handle spec ref clicks
+          const specRef = e.target.closest('a.spec-ref');
+          if (specRef) {
+            e.preventDefault();
+            const file = specRef.dataset.file;
+            const line = parseInt(specRef.dataset.line, 10);
+            onSelectFile(file, line);
+            return;
           }
         };
         
-        contentRef.current.addEventListener('click', handleHeadingClick);
-        return () => contentRef.current?.removeEventListener('click', handleHeadingClick);
-      }, [processedContent]);
+        contentRef.current.addEventListener('click', handleClick);
+        return () => contentRef.current?.removeEventListener('click', handleClick);
+      }, [processedContent, onSelectRule, onSelectFile]);
+      
+      // Scroll to and highlight selected rule
+      useEffect(() => {
+        if (!selectedRule || !contentRef.current || !contentBodyRef.current || !processedContent) return;
+        
+        // Small delay to ensure DOM is ready
+        const timeoutId = setTimeout(() => {
+          const ruleEl = contentRef.current.querySelector(`[data-rule="${selectedRule}"]`);
+          if (ruleEl) {
+            // Scroll to rule with offset for header
+            const targetScrollTop = ruleEl.offsetTop - 150;
+            contentBodyRef.current.scrollTo({ top: Math.max(0, targetScrollTop) });
+            
+            // Add highlight class
+            ruleEl.classList.add('rule-marker-highlighted');
+            
+            // Remove highlight after animation
+            setTimeout(() => {
+              ruleEl.classList.remove('rule-marker-highlighted');
+            }, 3000);
+          }
+        }, 150);
+        
+        return () => clearTimeout(timeoutId);
+      }, [selectedRule, processedContent]);
 
       if (!spec) {
         return html`
