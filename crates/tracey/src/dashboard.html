@@ -14,44 +14,38 @@
       "preact": "https://esm.sh/preact@10.25.4",
       "preact/hooks": "https://esm.sh/preact@10.25.4/hooks",
       "htm": "https://esm.sh/htm@3.1.1",
-      "marked": "https://esm.sh/marked@15.0.6"
+      "marked": "https://esm.sh/marked@15.0.6",
+      "@arborium/arborium": "https://esm.sh/@arborium/arborium"
     }
   }
   </script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@arborium/arborium@2.4.6/dist/themes/base.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@arborium/arborium@2.4.6/dist/themes/tokyo-night.css">
   <style>
     :root {
       color-scheme: light dark;
-      --bg: light-dark(#f8f9fa, #1a1b26);
-      --bg-secondary: light-dark(#ffffff, #24283b);
-      --fg: light-dark(#1a1b26, #a9b1d6);
-      --fg-muted: light-dark(#6b7280, #565f89);
-      --fg-dim: light-dark(#9ca3af, #414868);
+      --bg: light-dark(#f8f9fa, #13141a);
+      --bg-secondary: light-dark(#ffffff, #1a1b26);
+      --bg-sidebar: light-dark(#f3f4f6, #16171d);
+      --fg: light-dark(#1a1b26, #c0caf5);
+      --fg-muted: light-dark(#6b7280, #737aa2);
+      --fg-dim: light-dark(#9ca3af, #565f89);
       --border: light-dark(#e5e5e5, #292e42);
       --hover: light-dark(#f0f0f2, #1f2335);
+      --hover-subtle: light-dark(#f8f8fa, #1a1d2a);
       --accent: light-dark(#2563eb, #7aa2f7);
       --accent-dim: light-dark(#dbeafe, #1e3a5f);
-      --green: light-dark(#16a34a, #9ece6a);
-      --green-dim: light-dark(#dcfce7, #1a2e1a);
+      --green: light-dark(#16a34a, #73daca);
+      --green-dim: light-dark(#dcfce7, #1a2e2a);
       --red: light-dark(#dc2626, #f7768e);
       --red-dim: light-dark(#fee2e2, #2d1f1f);
       --yellow: light-dark(#d97706, #e0af68);
       --yellow-dim: light-dark(#fef3c7, #3d3520);
       --purple: light-dark(#7c3aed, #bb9af7);
       
-      /* Syntax highlighting - Tokyo Night inspired */
-      --syn-keyword: light-dark(#7c3aed, #bb9af7);
-      --syn-string: light-dark(#16a34a, #9ece6a);
-      --syn-number: light-dark(#d97706, #ff9e64);
-      --syn-comment: light-dark(#6b7280, #565f89);
-      --syn-function: light-dark(#2563eb, #7aa2f7);
-      --syn-type: light-dark(#0891b2, #2ac3de);
-      --syn-macro: light-dark(#7c3aed, #bb9af7);
-      --syn-attribute: light-dark(#d97706, #e0af68);
-      --syn-operator: light-dark(#dc2626, #89ddff);
-      --syn-punctuation: light-dark(#6b7280, #9aa5ce);
-      --syn-variable: var(--fg);
-      --syn-constant: light-dark(#d97706, #ff9e64);
-      --syn-lifetime: light-dark(#dc2626, #f7768e);
+
+      
+      --max-width: 1200px;
     }
     
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -82,12 +76,19 @@
     }
     
     .header {
-      display: flex;
-      align-items: center;
-      gap: 1.5rem;
-      padding: 0.75rem 1.5rem;
-      border-bottom: 1px solid var(--border);
       background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border);
+      position: relative;
+      z-index: 100;
+    }
+    
+    .header-inner {
+      display: flex;
+      align-items: stretch;
+      max-width: var(--max-width);
+      margin: 0 auto;
+      width: 100%;
+      margin-bottom: -1px; /* tabs overlap the border */
     }
     
     .logo {
@@ -95,33 +96,44 @@
       font-size: 1.1rem;
       color: var(--fg);
       text-decoration: none;
+      display: flex;
+      align-items: center;
+      padding: 0.75rem 1.25rem;
+      border-right: 1px solid var(--border);
+    }
+    
+    .logo:hover {
+      background: var(--hover-subtle);
     }
     
     .nav {
       display: flex;
-      gap: 0.25rem;
     }
     
-    .nav-btn {
-      padding: 0.4rem 0.75rem;
+    .nav-tab {
+      padding: 0.75rem 1.25rem;
       background: transparent;
       color: var(--fg-muted);
       border: none;
-      border-radius: 6px;
+      border-bottom: 2px solid transparent;
       cursor: pointer;
-      font-size: 0.85rem;
+      font-size: 0.9rem;
       font-family: inherit;
       transition: all 0.15s;
+      text-decoration: none;
+      display: flex;
+      align-items: center;
     }
     
-    .nav-btn:hover {
-      background: var(--hover);
+    .nav-tab:hover {
+      background: var(--hover-subtle);
       color: var(--fg);
     }
     
-    .nav-btn.active {
-      background: var(--accent);
-      color: white;
+    .nav-tab.active {
+      color: var(--accent);
+      border-bottom: 2px solid var(--accent);
+      background: var(--bg);
     }
     
     .search-box {
@@ -155,15 +167,24 @@
       flex: 1;
       display: flex;
       overflow: hidden;
+      max-width: var(--max-width);
+      margin: 0 auto;
+      width: 100%;
     }
     
     /* Stats bar */
     .stats-bar {
       display: flex;
+      align-items: center;
       gap: 2rem;
       padding: 1rem 1.5rem;
       border-bottom: 1px solid var(--border);
       background: var(--bg-secondary);
+      max-width: var(--max-width);
+      margin: 0 auto;
+      width: 100%;
+      position: relative;
+      z-index: 50;
     }
     
     .stat {
@@ -189,11 +210,29 @@
     .stat-value.warn { color: var(--yellow); }
     .stat-value.bad { color: var(--red); }
     
+    .stat.clickable {
+      cursor: pointer;
+      padding: 0.5rem;
+      margin: -0.5rem;
+      border-radius: 6px;
+      transition: background 0.15s;
+    }
+    
+    .stat.clickable:hover {
+      background: var(--hover);
+    }
+    
+    .stats-controls {
+      display: flex;
+      gap: 0.75rem;
+      margin-left: auto;
+    }
+    
     /* Sidebar */
     .sidebar {
       width: 280px;
       border-right: 1px solid var(--border);
-      background: var(--bg-secondary);
+      background: var(--bg-sidebar);
       display: flex;
       flex-direction: column;
       overflow: hidden;
@@ -224,16 +263,23 @@
     .tree-folder-header {
       display: flex;
       align-items: center;
+      justify-content: space-between;
       gap: 0.25rem;
       padding: 0.35rem 0.5rem;
       border-radius: 4px;
       cursor: pointer;
-      font-size: 0.8rem;
-      color: var(--fg-muted);
+      font-size: 0.875rem;
+      color: var(--fg);
     }
     
     .tree-folder-header:hover {
       background: var(--hover);
+    }
+    
+    .tree-folder-left {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
     }
     
     .tree-folder-icon {
@@ -246,6 +292,16 @@
     .tree-folder.open > .tree-folder-header .tree-folder-icon {
       transform: rotate(90deg);
     }
+    
+    .folder-badge {
+      font-size: 0.7rem;
+      padding: 0.1rem 0.4rem;
+      border-radius: 4px;
+      font-weight: 500;
+    }
+    .folder-badge.full { background: var(--green-dim); color: var(--green); }
+    .folder-badge.partial { background: var(--yellow-dim); color: var(--yellow); }
+    .folder-badge.none { background: var(--red-dim); color: var(--red); }
     
     .tree-folder-children {
       display: none;
@@ -264,8 +320,7 @@
       padding: 0.35rem 0.5rem;
       border-radius: 4px;
       cursor: pointer;
-      font-size: 0.8rem;
-      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.875rem;
     }
     
     .tree-file:hover {
@@ -322,42 +377,78 @@
     /* Code view */
     .code-view {
       font-family: 'IBM Plex Mono', monospace;
-      font-size: 0.85rem;
+      font-size: 0.75rem;
       line-height: 1.6;
     }
     
     .code-line {
       display: flex;
-      min-height: 1.6em;
+      min-height: 1.5em;
     }
     
     .code-line:hover {
-      background: var(--hover);
+      background: var(--hover-subtle);
     }
     
-    .code-line.covered {
-      background: var(--green-dim);
-    }
-    
-    .code-line.uncovered {
-      background: var(--red-dim);
-    }
-    
-    .code-line:hover.covered {
-      background: color-mix(in srgb, var(--green-dim), var(--hover));
-    }
-    
-    .code-line:hover.uncovered {
-      background: color-mix(in srgb, var(--red-dim), var(--hover));
+    .code-line.highlighted {
+      background: var(--yellow-dim);
     }
     
     .line-number {
       width: 4rem;
-      padding: 0 1rem 0 0.5rem;
+      padding: 0 0.75rem 0 0.5rem;
       text-align: right;
       color: var(--fg-dim);
       user-select: none;
       flex-shrink: 0;
+      cursor: pointer;
+      position: relative;
+      border-left: 3px solid transparent;
+    }
+    
+    .code-line.covered .line-number {
+      border-left-color: var(--green);
+    }
+    
+    .code-line.uncovered .line-number {
+      border-left-color: var(--red);
+    }
+    
+    .line-number:hover {
+      color: var(--accent);
+    }
+    
+    .line-popover {
+      position: absolute;
+      left: 100%;
+      top: 50%;
+      transform: translateY(-50%);
+      margin-left: 0.5rem;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 100;
+      white-space: nowrap;
+    }
+    
+    .popover-btn {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 0.75rem;
+      color: var(--fg);
+      text-decoration: none;
+      font-size: 0.8rem;
+    }
+    
+    .popover-btn:hover {
+      background: var(--hover);
+    }
+    
+    .popover-btn svg {
+      width: 1rem;
+      height: 1rem;
     }
     
     .line-content {
@@ -381,6 +472,14 @@
       color: var(--accent);
       font-weight: 500;
       white-space: nowrap;
+      text-decoration: none;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    
+    a.annotation-badge:hover {
+      background: var(--accent);
+      color: white;
     }
     
     /* Rules table */
@@ -401,6 +500,7 @@
       background: var(--bg-secondary);
       position: sticky;
       top: 0;
+      z-index: 10;
     }
     
     .rules-table td {
@@ -410,7 +510,7 @@
     }
     
     .rules-table tr:hover td {
-      background: var(--hover);
+      background: var(--hover-subtle);
     }
     
     .rule-id {
@@ -424,6 +524,14 @@
       font-size: 0.85rem;
       color: var(--fg-muted);
       margin-top: 0.25rem;
+    }
+    
+    .rule-text code {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 90%;
+      background: var(--hover);
+      padding: 0.1rem 0.3rem;
+      border-radius: 3px;
     }
     
     .rule-refs {
@@ -482,7 +590,7 @@
     
     /* Markdown content */
     .markdown {
-      padding: 1.5rem;
+      padding: 0.75rem 2rem 1.5rem 2rem;
       font-size: 0.9rem;
       line-height: 1.7;
     }
@@ -491,6 +599,11 @@
       margin: 1.5rem 0 0.75rem;
       font-weight: 600;
       color: var(--fg);
+      cursor: pointer;
+    }
+    
+    .markdown h1:hover, .markdown h2:hover, .markdown h3:hover, .markdown h4:hover {
+      color: var(--accent);
     }
     
     .markdown h1 { font-size: 1.5rem; }
@@ -539,16 +652,31 @@
       color: var(--fg-muted);
     }
     
+    /* RFC 2119 keyword highlighting */
+    kw-must, kw-must-not, kw-required, kw-shall, kw-shall-not {
+      color: var(--red);
+      font-weight: 600;
+    }
+    kw-should, kw-should-not, kw-recommended, kw-not-recommended {
+      color: var(--yellow);
+      font-weight: 600;
+    }
+    kw-may, kw-optional {
+      color: var(--accent);
+      font-weight: 600;
+    }
+    
     /* Rule marker in spec */
     .rule-marker {
-      display: inline-block;
+      display: block;
+      width: fit-content;
       background: var(--accent-dim);
       color: var(--accent);
       font-family: 'IBM Plex Mono', monospace;
-      font-size: 0.8rem;
-      padding: 0.2rem 0.5rem;
-      border-radius: 4px;
-      margin: 0.25rem 0;
+      font-size: 0.75rem;
+      padding: 0.1rem 0.35rem;
+      border-radius: 3px;
+      margin: 0.15rem 0;
     }
     
     .rule-marker.covered {
@@ -576,20 +704,196 @@
       font-size: 0.9rem;
     }
     
-    /* Syntax highlighting classes */
-    .syn-keyword { color: var(--syn-keyword); font-weight: 500; }
-    .syn-string { color: var(--syn-string); }
-    .syn-number { color: var(--syn-number); }
-    .syn-comment { color: var(--syn-comment); font-style: italic; }
-    .syn-function { color: var(--syn-function); }
-    .syn-type { color: var(--syn-type); }
-    .syn-macro { color: var(--syn-macro); }
-    .syn-attribute { color: var(--syn-attribute); }
-    .syn-operator { color: var(--syn-operator); }
-    .syn-punctuation { color: var(--syn-punctuation); }
-    .syn-variable { color: var(--syn-variable); }
-    .syn-constant { color: var(--syn-constant); }
-    .syn-lifetime { color: var(--syn-lifetime); }
+    
+    /* Custom dropdowns */
+    .custom-dropdown {
+      position: relative;
+      display: inline-block;
+    }
+    .dropdown-selected {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.4rem 0.6rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.85rem;
+      color: var(--fg);
+      min-width: 90px;
+    }
+    .dropdown-selected:hover {
+      background: var(--hover);
+    }
+    .dropdown-selected svg {
+      width: 1rem;
+      height: 1rem;
+      flex-shrink: 0;
+    }
+    .dropdown-selected svg path {
+      fill: currentColor;
+    }
+    .dropdown-selected .chevron {
+      margin-left: auto;
+      opacity: 0.5;
+    }
+    .dropdown-selected .chevron path {
+      fill: none;
+      stroke: currentColor;
+    }
+    .dropdown-menu {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      margin-top: 4px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 100;
+      min-width: 100%;
+      display: none;
+    }
+    .custom-dropdown.open .dropdown-menu {
+      display: block;
+    }
+    .dropdown-option {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 0.75rem;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.85rem;
+      color: var(--fg-muted);
+      white-space: nowrap;
+    }
+    .dropdown-option:first-child {
+      border-radius: 5px 5px 0 0;
+    }
+    .dropdown-option:last-child {
+      border-radius: 0 0 5px 5px;
+    }
+    .dropdown-option:hover {
+      background: var(--hover);
+    }
+    .dropdown-option.active {
+      background: var(--hover);
+      color: var(--fg);
+    }
+    .dropdown-option svg {
+      width: 1rem;
+      height: 1rem;
+      flex-shrink: 0;
+    }
+    .dropdown-option svg path {
+      fill: currentColor;
+    }
+    
+    /* Level dots */
+    .level-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .level-dot-all { background: var(--fg-muted); }
+    .level-dot-must { background: var(--red); }
+    .level-dot-should { background: var(--yellow); }
+    .level-dot-may { background: var(--accent); }
+    
+    /* File reference styling */
+    .ref-line {
+      white-space: nowrap;
+      margin-bottom: 0.35rem;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .ref-line:last-child {
+      margin-bottom: 0;
+    }
+    .ref-icon {
+      width: 1em;
+      height: 1em;
+      flex-shrink: 0;
+      opacity: 0.7;
+    }
+    .ref-icon-impl { color: var(--green); }
+    .ref-icon-verify { color: var(--accent); }
+    .file-link {
+      text-decoration: none;
+      display: inline-flex;
+    }
+    .file-link:hover .file-name {
+      text-decoration: underline;
+    }
+    .file-path {
+      color: var(--fg-dim);
+    }
+    .file-name {
+      color: var(--accent);
+    }
+    .file-line {
+      color: var(--green);
+    }
+    
+
+    
+    /* Header controls */
+    .header-controls {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-left: auto;
+    }
+    
+    /* Rule ID with icon */
+    .rule-id-row {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .rule-icon {
+      width: 1em;
+      height: 1em;
+      color: var(--fg-dim);
+      flex-shrink: 0;
+    }
+    
+    /* Outline tree */
+    .outline-tree {
+      padding: 0.5rem;
+    }
+    
+    .outline-item {
+      padding: 0.35rem 0.5rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.875rem;
+      color: var(--fg-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    
+    .outline-item:hover {
+      background: var(--hover);
+      color: var(--fg);
+    }
+    
+    .outline-item.active {
+      background: var(--accent-dim);
+      color: var(--accent);
+    }
+    
+    .outline-level-1 { padding-left: 0.5rem; font-weight: 500; }
+    .outline-level-2 { padding-left: 1.25rem; }
+    .outline-level-3 { padding-left: 2rem; }
+    .outline-level-4 { padding-left: 2.75rem; font-size: 0.8rem; }
   </style>
 </head>
 <body>
@@ -599,8 +903,12 @@
     import { useState, useEffect, useMemo, useCallback, useRef } from 'preact/hooks';
     import htm from 'htm';
     import { marked } from 'marked';
+    import { highlight } from '@arborium/arborium';
 
     const html = htm.bind(h);
+    
+    // Cache for highlighted code
+    const highlightCache = new Map();
 
     // ========================================================================
     // API
@@ -620,33 +928,49 @@
       const path = window.location.pathname;
       const params = new URLSearchParams(window.location.search);
       
-      if (path.startsWith('/reverse')) {
-        return { 
-          view: 'reverse', 
-          file: params.get('file'),
-          line: params.get('line') ? parseInt(params.get('line'), 10) : null,
-        };
+      // /tree or /tree/path/to/file.rs:123
+      if (path === '/tree' || path.startsWith('/tree/')) {
+        const rest = path.length > 6 ? path.slice(6) : ''; // Remove '/tree/'
+        if (rest) {
+          const colonIdx = rest.lastIndexOf(':');
+          if (colonIdx !== -1) {
+            const file = rest.slice(0, colonIdx);
+            const line = parseInt(rest.slice(colonIdx + 1), 10);
+            return { view: 'tree', file, line: isNaN(line) ? null : line };
+          }
+          return { view: 'tree', file: rest, line: null };
+        }
+        return { view: 'tree', file: null, line: null };
       }
+      // /spec or /spec/rule.id
       if (path.startsWith('/spec')) {
-        return { 
-          view: 'spec',
-          rule: params.get('rule'),
-        };
+        const rule = path.length > 5 ? path.slice(6) : params.get('rule');
+        return { view: 'spec', rule };
       }
       // Default to forward
       return { 
         view: 'forward',
-        rule: params.get('rule'),
+        filter: params.get('filter'), // 'impl' or 'verify' or null
       };
     }
     
     function buildUrl(view, params = {}) {
-      const searchParams = new URLSearchParams();
-      for (const [key, value] of Object.entries(params)) {
-        if (value != null) searchParams.set(key, value);
+      if (view === 'tree') {
+        const { file, line } = params;
+        if (file) {
+          return line ? `/tree/${file}:${line}` : `/tree/${file}`;
+        }
+        return '/tree';
       }
+      if (view === 'spec') {
+        const { rule } = params;
+        return rule ? `/spec/${rule}` : '/spec';
+      }
+      // forward
+      const searchParams = new URLSearchParams();
+      if (params.filter) searchParams.set('filter', params.filter);
       const query = searchParams.toString();
-      return `/${view}${query ? '?' + query : ''}`;
+      return `/forward${query ? '?' + query : ''}`;
     }
     
     function navigate(view, params = {}, replace = false) {
@@ -770,7 +1094,7 @@
     // ========================================================================
     
     function buildFileTree(files) {
-      const root = { name: '', children: {}, files: [] };
+      const root = { name: '', children: {}, files: [], totalUnits: 0, coveredUnits: 0 };
       
       for (const file of files) {
         const parts = file.path.split('/');
@@ -779,7 +1103,7 @@
         for (let i = 0; i < parts.length - 1; i++) {
           const part = parts[i];
           if (!current.children[part]) {
-            current.children[part] = { name: part, children: {}, files: [] };
+            current.children[part] = { name: part, children: {}, files: [], totalUnits: 0, coveredUnits: 0 };
           }
           current = current.children[part];
         }
@@ -787,6 +1111,29 @@
         current.files.push({ ...file, name: parts[parts.length - 1] });
       }
       
+      // Compute folder coverage recursively
+      function computeCoverage(node) {
+        let total = 0;
+        let covered = 0;
+        
+        // Add files in this folder
+        for (const f of node.files) {
+          total += f.totalUnits || 0;
+          covered += f.coveredUnits || 0;
+        }
+        
+        // Add children folders
+        for (const child of Object.values(node.children)) {
+          computeCoverage(child);
+          total += child.totalUnits;
+          covered += child.coveredUnits;
+        }
+        
+        node.totalUnits = total;
+        node.coveredUnits = covered;
+      }
+      
+      computeCoverage(root);
       return root;
     }
 
@@ -804,55 +1151,158 @@
       return 'bad';
     }
 
-    // Simple Rust syntax highlighter
-    function highlightRust(code) {
-      const keywords = /\b(as|async|await|break|const|continue|crate|dyn|else|enum|extern|false|fn|for|if|impl|in|let|loop|match|mod|move|mut|pub|ref|return|self|Self|static|struct|super|trait|true|type|unsafe|use|where|while)\b/g;
-      const types = /\b(bool|char|f32|f64|i8|i16|i32|i64|i128|isize|str|u8|u16|u32|u64|u128|usize|String|Vec|Option|Result|Box|Rc|Arc|Cell|RefCell|HashMap|HashSet|BTreeMap|BTreeSet|Path|PathBuf)\b/g;
-      const macros = /\b([a-z_][a-z0-9_]*!)/g;
-      const strings = /(r#*"[\s\S]*?"#*|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)')/g;
-      const comments = /(\/\/.*$|\/\*[\s\S]*?\*\/)/gm;
-      const numbers = /\b(\d+(?:\.\d+)?(?:_\d+)*(?:i8|i16|i32|i64|i128|isize|u8|u16|u32|u64|u128|usize|f32|f64)?)\b/g;
-      const lifetimes = /('(?:[a-z_][a-z0-9_]*))/g;
-      const attributes = /(#\[[\s\S]*?\])/g;
+    // Render rule text with backticks -> <code> and RFC 2119 keywords highlighted
+    function renderRuleText(text) {
+      if (!text) return '';
       
       // Escape HTML first
-      let escaped = code
+      let result = text
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');
       
-      // Apply highlighting (order matters - strings/comments first to avoid nested highlighting)
-      const tokens = [];
-      let result = escaped;
-      
-      // Extract strings and comments first
-      result = result.replace(strings, (m) => {
-        const id = `__STRING_${tokens.length}__`;
-        tokens.push(`<span class="syn-string">${m}</span>`);
-        return id;
-      });
-      
-      result = result.replace(comments, (m) => {
-        const id = `__COMMENT_${tokens.length}__`;
-        tokens.push(`<span class="syn-comment">${m}</span>`);
-        return id;
-      });
-      
-      // Then other syntax
-      result = result.replace(attributes, '<span class="syn-attribute">$1</span>');
-      result = result.replace(macros, '<span class="syn-macro">$1</span>');
-      result = result.replace(keywords, '<span class="syn-keyword">$1</span>');
-      result = result.replace(types, '<span class="syn-type">$1</span>');
-      result = result.replace(lifetimes, '<span class="syn-lifetime">$1</span>');
-      result = result.replace(numbers, '<span class="syn-number">$1</span>');
-      
-      // Restore tokens
-      for (let i = 0; i < tokens.length; i++) {
-        result = result.replace(`__STRING_${i}__`, tokens[i]);
-        result = result.replace(`__COMMENT_${i}__`, tokens[i]);
+      // Process `code` (backticks)
+      let inCode = false;
+      let processed = '';
+      for (const char of result) {
+        if (char === '`') {
+          if (inCode) {
+            processed += '</code>';
+            inCode = false;
+          } else {
+            processed += '<code>';
+            inCode = true;
+          }
+        } else {
+          processed += char;
+        }
       }
+      if (inCode) processed += '</code>';
+      result = processed;
+      
+      // Wrap RFC 2119 keywords (order matters - longer phrases first)
+      result = result
+        .replace(/\bMUST NOT\b/g, '<kw-must-not>MUST NOT</kw-must-not>')
+        .replace(/\bSHALL NOT\b/g, '<kw-shall-not>SHALL NOT</kw-shall-not>')
+        .replace(/\bSHOULD NOT\b/g, '<kw-should-not>SHOULD NOT</kw-should-not>')
+        .replace(/\bNOT RECOMMENDED\b/g, '<kw-not-recommended>NOT RECOMMENDED</kw-not-recommended>')
+        .replace(/\bMUST\b/g, '<kw-must>MUST</kw-must>')
+        .replace(/\bREQUIRED\b/g, '<kw-required>REQUIRED</kw-required>')
+        .replace(/\bSHALL\b/g, '<kw-shall>SHALL</kw-shall>')
+        .replace(/\bSHOULD\b/g, '<kw-should>SHOULD</kw-should>')
+        .replace(/\bRECOMMENDED\b/g, '<kw-recommended>RECOMMENDED</kw-recommended>')
+        .replace(/\bMAY\b/g, '<kw-may>MAY</kw-may>')
+        .replace(/\bOPTIONAL\b/g, '<kw-optional>OPTIONAL</kw-optional>');
       
       return result;
+    }
+
+    // Highlight code using arborium (async, with caching)
+    async function highlightCode(code, lang = 'rust') {
+      const cacheKey = `${lang}:${code}`;
+      if (highlightCache.has(cacheKey)) {
+        return highlightCache.get(cacheKey);
+      }
+      try {
+        const highlighted = await highlight(lang, code);
+        highlightCache.set(cacheKey, highlighted);
+        return highlighted;
+      } catch (e) {
+        console.warn('Highlight failed:', e);
+        // Fallback: escape HTML
+        return code
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+      }
+    }
+    
+    // Split highlighted HTML into self-contained lines
+    // Each line will have properly balanced open/close tags
+    function splitHighlightedHtml(html) {
+      // Use DOMParser for robust HTML parsing
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(`<div>${html}</div>`, 'text/html');
+      const container = doc.body.firstChild;
+      
+      const lines = [];
+      let currentLine = '';
+      let openTags = []; // Stack of {tag, attrs}
+      
+      function processNode(node) {
+        if (node.nodeType === Node.TEXT_NODE) {
+          const text = node.textContent;
+          for (const char of text) {
+            if (char === '\n') {
+              // Close tags, push line, reopen tags
+              for (let j = openTags.length - 1; j >= 0; j--) {
+                currentLine += `</${openTags[j].tag}>`;
+              }
+              lines.push(currentLine);
+              currentLine = '';
+              for (const t of openTags) {
+                currentLine += `<${t.tag}${t.attrs}>`;
+              }
+            } else {
+              currentLine += char === '<' ? '&lt;' : char === '>' ? '&gt;' : char === '&' ? '&amp;' : char;
+            }
+          }
+        } else if (node.nodeType === Node.ELEMENT_NODE) {
+          const tag = node.tagName.toLowerCase();
+          let attrs = '';
+          for (const attr of node.attributes) {
+            attrs += ` ${attr.name}="${attr.value.replace(/"/g, '&quot;')}"`;
+          }
+          
+          currentLine += `<${tag}${attrs}>`;
+          openTags.push({ tag, attrs });
+          
+          for (const child of node.childNodes) {
+            processNode(child);
+          }
+          
+          openTags.pop();
+          currentLine += `</${tag}>`;
+        }
+      }
+      
+      for (const child of container.childNodes) {
+        processNode(child);
+      }
+      
+      // Push final line if any content remains
+      if (currentLine) {
+        lines.push(currentLine);
+      }
+      
+      return lines;
+    }
+
+    // Hook to highlight a file and split into lines
+    function useHighlightedLines(content, lang = 'rust') {
+      const [lines, setLines] = useState(null);
+      
+      useEffect(() => {
+        if (!content) {
+          setLines(null);
+          return;
+        }
+        
+        let cancelled = false;
+        
+        highlightCode(content, lang).then(highlighted => {
+          if (cancelled) return;
+          // arborium wraps in <pre><code>...</code></pre>, extract inner content
+          const match = highlighted.match(/<pre[^>]*><code[^>]*>([\s\S]*)<\/code><\/pre>/);
+          const inner = match ? match[1] : highlighted;
+          // Split into self-contained lines with balanced tags
+          setLines(splitHighlightedHtml(inner));
+        });
+        
+        return () => { cancelled = true; };
+      }, [content, lang]);
+      
+      return lines;
     }
 
     // ========================================================================
@@ -863,23 +1313,40 @@
       const { data, error, version } = useApi();
       const route = useRouter();
       const [search, setSearch] = useState('');
+      const [level, setLevel] = useState(() => localStorage.getItem('tracey-level') || 'all');
+      const [editor, setEditor] = useState(() => localStorage.getItem('tracey-editor') || 'zed');
+
+      // Persist level/editor to localStorage
+      const handleLevelChange = useCallback((newLevel) => {
+        setLevel(newLevel);
+        localStorage.setItem('tracey-level', newLevel);
+      }, []);
+
+      const handleEditorChange = useCallback((newEditor) => {
+        setEditor(newEditor);
+        localStorage.setItem('tracey-editor', newEditor);
+      }, []);
 
       if (error) return html`<div class="loading">Error: ${error}</div>`;
       if (!data) return html`<div class="loading">Loading...</div>`;
 
       const { config, forward, reverse } = data;
-      const { view, file, rule, line } = route;
+      const { view, file, rule, line, filter } = route;
 
       const handleViewChange = useCallback((newView) => {
         navigate(newView, {}, false);
       }, []);
 
       const handleSelectFile = useCallback((filePath, lineNum = null) => {
-        navigate('reverse', { file: filePath, line: lineNum }, false);
+        navigate('tree', { file: filePath, line: lineNum }, false);
       }, []);
 
       const handleSelectRule = useCallback((ruleId) => {
         navigate('spec', { rule: ruleId }, false);
+      }, []);
+      
+      const handleFilterChange = useCallback((newFilter) => {
+        navigate('forward', { filter: newFilter }, false);
       }, []);
 
       return html`
@@ -887,30 +1354,37 @@
           <${Header} 
             view=${view} 
             onViewChange=${handleViewChange}
-            search=${search}
-            onSearchChange=${setSearch}
-            version=${version}
           />
           
           ${view === 'forward' && html`
             <${ForwardView} 
-              data=${forward} 
+              data=${forward}
+              config=${config}
               search=${search}
-              selectedRule=${rule}
+              onSearchChange=${setSearch}
+              level=${level}
+              onLevelChange=${handleLevelChange}
+              editor=${editor}
+              onEditorChange=${handleEditorChange}
+              filter=${filter}
+              onFilterChange=${handleFilterChange}
               onSelectRule=${handleSelectRule}
               onSelectFile=${handleSelectFile}
             />
           `}
           
-          ${view === 'reverse' && html`
-            <${ReverseView} 
+          ${view === 'tree' && html`
+            <${TreeView} 
               data=${reverse}
-              forward=${forward}
               config=${config}
               search=${search}
+              onSearchChange=${setSearch}
+              editor=${editor}
+              onEditorChange=${handleEditorChange}
               selectedFile=${file}
               selectedLine=${line}
               onSelectFile=${handleSelectFile}
+              onSelectRule=${handleSelectRule}
             />
           `}
           
@@ -927,7 +1401,34 @@
       `;
     }
 
-    function Header({ view, onViewChange, search, onSearchChange, version }) {
+    // Editor configurations
+    const EDITORS = {
+      zed: { name: 'Zed', urlTemplate: (path, line) => `zed://file/${path}:${line}` },
+      vscode: { name: 'VS Code', urlTemplate: (path, line) => `vscode://file/${path}:${line}` },
+      idea: { name: 'IntelliJ', urlTemplate: (path, line) => `idea://open?file=${path}&line=${line}` },
+      sublime: { name: 'Sublime', urlTemplate: (path, line) => `subl://open?url=file://${path}&line=${line}` },
+      vim: { name: 'Vim', urlTemplate: (path, line) => `mvim://open?url=file://${path}&line=${line}` },
+      emacs: { name: 'Emacs', urlTemplate: (path, line) => `emacs://open?url=file://${path}&line=${line}` },
+    };
+
+    const LEVELS = {
+      all: { name: 'All', dotClass: 'level-dot-all' },
+      must: { name: 'MUST', dotClass: 'level-dot-must' },
+      should: { name: 'SHOULD', dotClass: 'level-dot-should' },
+      may: { name: 'MAY', dotClass: 'level-dot-may' },
+    };
+
+    // Editor icons (SVG paths)
+    const EDITOR_ICONS = {
+      zed: html`<svg viewBox="0 0 90 90" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M8.4375 5.625C6.8842 5.625 5.625 6.8842 5.625 8.4375V70.3125H0V8.4375C0 3.7776 3.7776 0 8.4375 0H83.7925C87.551 0 89.4333 4.5442 86.7756 7.20186L40.3642 53.6133H53.4375V47.8125H59.0625V55.0195C59.0625 57.3495 57.1737 59.2383 54.8438 59.2383H34.7392L25.0712 68.9062H68.9062V33.75H74.5312V68.9062C74.5312 72.0128 72.0128 74.5312 68.9062 74.5312H19.4462L9.60248 84.375H81.5625C83.1158 84.375 84.375 83.1158 84.375 81.5625V19.6875H90V81.5625C90 86.2224 86.2224 90 81.5625 90H6.20749C2.44898 90 0.566723 85.4558 3.22438 82.7981L49.46 36.5625H36.5625V42.1875H30.9375V35.1562C30.9375 32.8263 32.8263 30.9375 35.1562 30.9375H55.085L64.9288 21.0938H21.0938V56.25H15.4688V21.0938C15.4688 17.9871 17.9871 15.4688 21.0938 15.4688H70.5538L80.3975 5.625H8.4375Z"/></svg>`,
+      vscode: html`<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><path d="M74.9 11L45.3 40.4L22.7 22.1L11 27.9V72.1L22.7 77.9L45.3 59.6L74.9 89L100 77.9V22.1L74.9 11ZM22.7 60.1V39.9L35.5 50L22.7 60.1ZM74.9 60.1L52.8 50L74.9 39.9V60.1Z"/></svg>`,
+      idea: html`<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg"><path d="M14 103h100V25H14v78zm8-70h12v62H22V33zm50 54H44v-8h28v8zm6-46h12v54H78V41z"/></svg>`,
+      sublime: html`<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M21 3L3 9.25V11.5L21 17.75V15.25L8.25 11.5L21 7.75V3M3 12.25V14.5L21 20.75V18.25L8.25 14.5L3 12.25Z"/></svg>`,
+      vim: html`<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 2L3 7V17L12 22L21 17V7L12 2M12 4.5L18 8V16L12 19.5L6 16V8L12 4.5M12 7L8 9.5V14.5L12 17L16 14.5V9.5L12 7Z"/></svg>`,
+      emacs: html`<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2M12 4C16.42 4 20 7.58 20 12C20 16.42 16.42 20 12 20C7.58 20 4 16.42 4 12C4 7.58 7.58 4 12 4M8 7V17H16V15H10V7H8Z"/></svg>`,
+    };
+
+    function Header({ view, onViewChange }) {
       const handleNavClick = (e, newView) => {
         e.preventDefault();
         onViewChange(newView);
@@ -935,57 +1436,121 @@
 
       return html`
         <header class="header">
-          <a href="/forward" class="logo" onClick=${(e) => handleNavClick(e, 'forward')}>tracey</a>
-          <nav class="nav">
-            <a 
-              href="/forward"
-              class="nav-btn ${view === 'forward' ? 'active' : ''}"
-              onClick=${(e) => handleNavClick(e, 'forward')}
-            >Forward</a>
-            <a 
-              href="/reverse"
-              class="nav-btn ${view === 'reverse' ? 'active' : ''}"
-              onClick=${(e) => handleNavClick(e, 'reverse')}
-            >Reverse</a>
-            <a 
-              href="/spec"
-              class="nav-btn ${view === 'spec' ? 'active' : ''}"
-              onClick=${(e) => handleNavClick(e, 'spec')}
-            >Spec</a>
-          </nav>
-          <div class="search-box">
-            <input
-              type="text"
-              class="search-input"
-              placeholder="Search rules, files... (Ctrl+K)"
-              value=${search}
-              onInput=${(e) => onSearchChange(e.target.value)}
-            />
+          <div class="header-inner">
+            <a href="/forward" class="logo" onClick=${(e) => handleNavClick(e, 'forward')}>tracey</a>
+            
+            <nav class="nav">
+              <a 
+                href="/forward"
+                class="nav-tab ${view === 'forward' ? 'active' : ''}"
+                onClick=${(e) => handleNavClick(e, 'forward')}
+              >Coverage</a>
+              <a 
+                href="/tree"
+                class="nav-tab ${view === 'tree' ? 'active' : ''}"
+                onClick=${(e) => handleNavClick(e, 'tree')}
+              >Tree</a>
+              <a 
+                href="/spec"
+                class="nav-tab ${view === 'spec' ? 'active' : ''}"
+                onClick=${(e) => handleNavClick(e, 'spec')}
+              >Spec</a>
+            </nav>
+            
+
           </div>
-          ${version && html`<span style="font-size: 0.75rem; color: var(--fg-dim);">v${version}</span>`}
         </header>
       `;
     }
 
-    function ForwardView({ data, search, selectedRule, onSelectRule, onSelectFile }) {
+    // Helper to split file path into dir and filename
+    function splitPath(filePath) {
+      const lastSlash = filePath.lastIndexOf('/');
+      if (lastSlash === -1) return { dir: '', name: filePath };
+      return { dir: filePath.slice(0, lastSlash + 1), name: filePath.slice(lastSlash + 1) };
+    }
+
+    // File reference component with icon
+    function FileRef({ file, line, type, editor, config, onSelectFile }) {
+      const { dir, name } = splitPath(file);
+      const fullPath = config?.projectRoot ? `${config.projectRoot}/${file}` : file;
+      const editorUrl = EDITORS[editor]?.urlTemplate(fullPath, line) || '#';
+      
+      const iconImpl = html`<svg class="ref-icon ref-icon-impl" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 18l6-6-6-6"/><path d="M8 6l-6 6 6 6"/></svg>`;
+      const iconVerify = html`<svg class="ref-icon ref-icon-verify" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9 12l2 2 4-4"/></svg>`;
+      
+      return html`
+        <div class="ref-line">
+          ${type === 'impl' ? iconImpl : iconVerify}
+          <a 
+            class="file-link" 
+            href=${editorUrl}
+            onClick=${(e) => { e.preventDefault(); onSelectFile(file, line); }}
+            title="Open in editor"
+          >
+            <span class="file-path">${dir}</span>
+            <span class="file-name">${name}</span>
+            <span class="file-line">:${line}</span>
+          </a>
+        </div>
+      `;
+    }
+
+    function ForwardView({ data, config, search, onSearchChange, level, onLevelChange, editor, onEditorChange, filter, onFilterChange, onSelectRule, onSelectFile }) {
+      const [levelOpen, setLevelOpen] = useState(false);
+      const [editorOpen, setEditorOpen] = useState(false);
+      
+      // Close dropdowns when clicking outside
+      useEffect(() => {
+        const handleClick = (e) => {
+          if (!e.target.closest('#level-dropdown')) setLevelOpen(false);
+          if (!e.target.closest('#editor-dropdown')) setEditorOpen(false);
+        };
+        document.addEventListener('click', handleClick);
+        return () => document.removeEventListener('click', handleClick);
+      }, []);
+      
       const allRules = useMemo(() => 
         data.specs.flatMap(s => s.rules.map(r => ({ ...r, spec: s.name }))),
         [data]
       );
       
       const filteredRules = useMemo(() => {
-        if (!search) return allRules;
-        const q = search.toLowerCase();
-        return allRules.filter(r => 
-          r.id.toLowerCase().includes(q) ||
-          (r.text && r.text.toLowerCase().includes(q))
-        );
-      }, [allRules, search]);
+        let rules = allRules;
+        
+        // Filter by level
+        if (level !== 'all') {
+          rules = rules.filter(r => r.level?.toLowerCase() === level);
+        }
+        
+        // Filter by coverage (impl or verify)
+        if (filter === 'impl') {
+          rules = rules.filter(r => r.implRefs.length === 0);
+        } else if (filter === 'verify') {
+          rules = rules.filter(r => r.verifyRefs.length === 0);
+        }
+        
+        // Filter by search
+        if (search) {
+          const q = search.toLowerCase();
+          rules = rules.filter(r => 
+            r.id.toLowerCase().includes(q) ||
+            (r.text && r.text.toLowerCase().includes(q))
+          );
+        }
+        
+        return rules;
+      }, [allRules, search, level, filter]);
 
       const stats = useMemo(() => {
-        const total = allRules.length;
-        const impl = allRules.filter(r => r.implRefs.length > 0).length;
-        const verify = allRules.filter(r => r.verifyRefs.length > 0).length;
+        // Stats are based on level-filtered rules (not coverage filter)
+        let rules = allRules;
+        if (level !== 'all') {
+          rules = rules.filter(r => r.level?.toLowerCase() === level);
+        }
+        const total = rules.length;
+        const impl = rules.filter(r => r.implRefs.length > 0).length;
+        const verify = rules.filter(r => r.verifyRefs.length > 0).length;
         return {
           total,
           impl,
@@ -993,7 +1558,10 @@
           implPct: total ? (impl / total) * 100 : 0,
           verifyPct: total ? (verify / total) * 100 : 0,
         };
-      }, [allRules]);
+      }, [allRules, level]);
+
+      // Markdown icon
+      const mdIcon = html`<svg class="rule-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/><path d="M9 15l2 2 4-4"/></svg>`;
 
       return html`
         <div class="stats-bar">
@@ -1001,13 +1569,67 @@
             <span class="stat-label">Rules</span>
             <span class="stat-value">${stats.total}</span>
           </div>
-          <div class="stat">
-            <span class="stat-label">Impl Coverage</span>
+          <div class="stat clickable" onClick=${() => onFilterChange(filter === 'impl' ? null : 'impl')}>
+            <span class="stat-label">Impl Coverage ${filter === 'impl' ? '(filtered)' : ''}</span>
             <span class="stat-value ${getStatClass(stats.implPct)}">${stats.implPct.toFixed(1)}%</span>
           </div>
-          <div class="stat">
-            <span class="stat-label">Test Coverage</span>
+          <div class="stat clickable" onClick=${() => onFilterChange(filter === 'verify' ? null : 'verify')}>
+            <span class="stat-label">Test Coverage ${filter === 'verify' ? '(filtered)' : ''}</span>
             <span class="stat-value ${getStatClass(stats.verifyPct)}">${stats.verifyPct.toFixed(1)}%</span>
+          </div>
+          
+          <div class="search-box">
+            <input
+              type="text"
+              class="search-input"
+              placeholder="Search rules... (Ctrl+K)"
+              value=${search}
+              onInput=${(e) => onSearchChange(e.target.value)}
+            />
+          </div>
+          
+          <div class="stats-controls">
+            <!-- Level dropdown -->
+            <div class="custom-dropdown ${levelOpen ? 'open' : ''}" id="level-dropdown">
+              <div class="dropdown-selected" onClick=${(e) => { e.stopPropagation(); setLevelOpen(!levelOpen); }}>
+                <span class="level-dot ${LEVELS[level].dotClass}"></span>
+                <span>${LEVELS[level].name}</span>
+                <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+              </div>
+              <div class="dropdown-menu">
+                ${Object.entries(LEVELS).map(([key, cfg]) => html`
+                  <div 
+                    key=${key}
+                    class="dropdown-option ${level === key ? 'active' : ''}" 
+                    onClick=${() => { onLevelChange(key); setLevelOpen(false); }}
+                  >
+                    <span class="level-dot ${cfg.dotClass}"></span>
+                    <span>${cfg.name}</span>
+                  </div>
+                `)}
+              </div>
+            </div>
+            
+            <!-- Editor dropdown -->
+            <div class="custom-dropdown ${editorOpen ? 'open' : ''}" id="editor-dropdown">
+              <div class="dropdown-selected" onClick=${(e) => { e.stopPropagation(); setEditorOpen(!editorOpen); }}>
+                ${EDITOR_ICONS[editor]}
+                <span>${EDITORS[editor].name}</span>
+                <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+              </div>
+              <div class="dropdown-menu">
+                ${Object.entries(EDITORS).map(([key, cfg]) => html`
+                  <div 
+                    key=${key}
+                    class="dropdown-option ${editor === key ? 'active' : ''}" 
+                    onClick=${() => { onEditorChange(key); setEditorOpen(false); }}
+                  >
+                    ${EDITOR_ICONS[key]}
+                    <span>${cfg.name}</span>
+                  </div>
+                `)}
+              </div>
+            </div>
           </div>
         </div>
         <div class="main">
@@ -1023,31 +1645,42 @@
                 </thead>
                 <tbody>
                   ${filteredRules.map(rule => html`
-                    <tr key=${rule.id}>
+                    <tr key=${rule.id} onClick=${() => onSelectRule(rule.id)} style="cursor: pointer;">
                       <td>
-                        <div class="rule-id">${rule.id}</div>
-                        ${rule.text && html`<div class="rule-text">${rule.text}</div>`}
+                        <div class="rule-id-row">
+                          ${mdIcon}
+                          <span class="rule-id">${rule.id}</span>
+                        </div>
+                        ${rule.text && html`<div class="rule-text" dangerouslySetInnerHTML=${{ __html: renderRuleText(rule.text) }} />`}
                       </td>
-                      <td class="rule-refs">
+                      <td class="rule-refs" onClick=${(e) => e.stopPropagation()}>
                         ${rule.implRefs.length > 0 
                           ? rule.implRefs.map(r => html`
-                              <a 
-                                class="rule-ref impl" 
-                                href=${buildUrl('reverse', { file: r.file, line: r.line })}
-                                onClick=${(e) => { e.preventDefault(); onSelectFile(r.file, r.line); }}
-                              >${r.file}:${r.line}</a>
+                              <${FileRef} 
+                                key=${r.file + ':' + r.line}
+                                file=${r.file} 
+                                line=${r.line} 
+                                type="impl"
+                                editor=${editor}
+                                config=${config}
+                                onSelectFile=${onSelectFile}
+                              />
                             `)
                           : html`<span style="color: var(--fg-dim)">—</span>`
                         }
                       </td>
-                      <td class="rule-refs">
+                      <td class="rule-refs" onClick=${(e) => e.stopPropagation()}>
                         ${rule.verifyRefs.length > 0 
                           ? rule.verifyRefs.map(r => html`
-                              <a 
-                                class="rule-ref verify" 
-                                href=${buildUrl('reverse', { file: r.file, line: r.line })}
-                                onClick=${(e) => { e.preventDefault(); onSelectFile(r.file, r.line); }}
-                              >${r.file}:${r.line}</a>
+                              <${FileRef} 
+                                key=${r.file + ':' + r.line}
+                                file=${r.file} 
+                                line=${r.line} 
+                                type="verify"
+                                editor=${editor}
+                                config=${config}
+                                onSelectFile=${onSelectFile}
+                              />
                             `)
                           : html`<span style="color: var(--fg-dim)">—</span>`
                         }
@@ -1062,7 +1695,7 @@
       `;
     }
 
-    function ReverseView({ data, forward, config, search, selectedFile, selectedLine, onSelectFile }) {
+    function TreeView({ data, config, search, editor, onEditorChange, selectedFile, selectedLine, onSelectFile, onSelectRule }) {
       const fileTree = useMemo(() => buildFileTree(data.files), [data.files]);
       const file = useFile(selectedFile);
 
@@ -1113,7 +1746,7 @@
             ${file ? html`
               <div class="content-header">${file.path}</div>
               <div class="content-body">
-                <${CodeView} file=${file} />
+                <${CodeView} file=${file} config=${config} editor=${editor} selectedLine=${selectedLine} onSelectRule=${onSelectRule} />
               </div>
             ` : html`
               <div class="empty-state">Select a file to view coverage</div>
@@ -1165,13 +1798,18 @@
 
       if (search && !hasMatchingFiles) return null;
 
+      const folderBadge = getCoverageBadge(node.coveredUnits, node.totalUnits);
+
       return html`
         <div class="tree-folder ${open ? 'open' : ''}">
           <div class="tree-folder-header" onClick=${() => setOpen(!open)}>
-            <svg class="tree-folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M9 18l6-6-6-6"/>
-            </svg>
-            <span>${node.name}</span>
+            <div class="tree-folder-left">
+              <svg class="tree-folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M9 18l6-6-6-6"/>
+              </svg>
+              <span>${node.name}</span>
+            </div>
+            <span class="folder-badge ${folderBadge.class}">${folderBadge.text}</span>
           </div>
           <div class="tree-folder-children">
             ${folders.map(f => html`
@@ -1211,8 +1849,12 @@
       `;
     }
 
-    function CodeView({ file }) {
-      const lines = file.content.split('\n');
+    function CodeView({ file, config, editor, selectedLine, onSelectRule }) {
+      const rawLines = file.content.split('\n');
+      const highlightedLines = useHighlightedLines(file.content, 'rust');
+      const [popoverLine, setPopoverLine] = useState(null);
+      const [highlightedLineNum, setHighlightedLineNum] = useState(null);
+      const codeViewRef = useRef(null);
       
       // Build line annotations
       const lineAnnotations = useMemo(() => {
@@ -1232,28 +1874,91 @@
         return annotations;
       }, [file]);
 
+      // Use highlighted lines if available, otherwise show raw (escaped)
+      const displayLines = highlightedLines || rawLines.map(line => 
+        line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      );
+      
+      // Build editor URL for a line
+      const getEditorUrl = (lineNum) => {
+        const fullPath = config?.projectRoot ? `${config.projectRoot}/${file.path}` : file.path;
+        return EDITORS[editor]?.urlTemplate(fullPath, lineNum) || '#';
+      };
+      
+      // Scroll to selected line when it changes
+      useEffect(() => {
+        if (selectedLine && codeViewRef.current && displayLines) {
+          // Use requestAnimationFrame to ensure DOM is rendered
+          requestAnimationFrame(() => {
+            const lineElement = codeViewRef.current?.querySelector(`[data-line="${selectedLine}"]`);
+            if (lineElement) {
+              const container = codeViewRef.current.closest('.content-body');
+              if (container) {
+                // Calculate position to leave ~5 lines above, plus extra for header
+                const lineHeight = lineElement.offsetHeight;
+                const headerOffset = 60; // approximate header height
+                const targetScrollTop = lineElement.offsetTop - (lineHeight * 5) - headerOffset;
+                container.scrollTo({ top: Math.max(0, targetScrollTop) });
+              }
+              // Highlight the line (permanent until navigation changes)
+              setHighlightedLineNum(selectedLine);
+            }
+          });
+        }
+      }, [selectedLine, file.path, displayLines]);
+      
+      // Close popover when clicking outside
+      useEffect(() => {
+        const handleClick = (e) => {
+          if (!e.target.closest('.line-popover') && !e.target.closest('.line-number')) {
+            setPopoverLine(null);
+          }
+        };
+        document.addEventListener('click', handleClick);
+        return () => document.removeEventListener('click', handleClick);
+      }, []);
+
       return html`
-        <div class="code-view">
-          ${lines.map((line, i) => {
+        <div class="code-view" ref=${codeViewRef}>
+          ${displayLines.map((lineHtml, i) => {
             const lineNum = i + 1;
             const anno = lineAnnotations.get(lineNum);
             const covered = anno && anno.ruleRefs.size > 0;
             const inUnit = anno && anno.units.length > 0;
+            const isHighlighted = highlightedLineNum === lineNum;
             
             return html`
               <div 
-                key=${lineNum} 
-                class="code-line ${inUnit ? (covered ? 'covered' : 'uncovered') : ''}"
+                key=${lineNum}
+                data-line=${lineNum}
+                class="code-line ${inUnit ? (covered ? 'covered' : 'uncovered') : ''} ${isHighlighted ? 'highlighted' : ''}"
               >
-                <span class="line-number">${lineNum}</span>
+                <span 
+                  class="line-number" 
+                  onClick=${(e) => { e.stopPropagation(); setPopoverLine(popoverLine === lineNum ? null : lineNum); }}
+                >
+                  ${lineNum}
+                  ${popoverLine === lineNum && html`
+                    <div class="line-popover">
+                      <a href=${getEditorUrl(lineNum)} class="popover-btn" title="Open in ${EDITORS[editor]?.name}">
+                        ${EDITOR_ICONS[editor]}
+                        <span>Open in ${EDITORS[editor]?.name}</span>
+                      </a>
+                    </div>
+                  `}
+                </span>
                 <span 
                   class="line-content"
-                  dangerouslySetInnerHTML=${{ __html: highlightRust(line) || ' ' }}
+                  dangerouslySetInnerHTML=${{ __html: lineHtml || ' ' }}
                 />
                 ${anno && anno.ruleRefs.size > 0 && html`
                   <span class="line-annotations">
                     ${[...anno.ruleRefs].slice(0, 2).map(ref => html`
-                      <span class="annotation-badge">${ref}</span>
+                      <a 
+                        class="annotation-badge" 
+                        href=${buildUrl('spec', { rule: ref })}
+                        onClick=${(e) => { e.preventDefault(); onSelectRule(ref); }}
+                      >${ref}</a>
                     `)}
                     ${anno.ruleRefs.size > 2 && html`
                       <span class="annotation-badge">+${anno.ruleRefs.size - 2}</span>
@@ -1269,6 +1974,9 @@
 
     function SpecView({ config, forward, selectedRule, onSelectRule, onSelectFile }) {
       const spec = useSpec(config.specs[0]?.name);
+      const [activeHeading, setActiveHeading] = useState(null);
+      const contentRef = useRef(null);
+      const contentBodyRef = useRef(null);
       
       // Build rule coverage map
       const ruleCoverage = useMemo(() => {
@@ -1286,16 +1994,26 @@
         return map;
       }, [forward]);
 
-      if (!spec) {
-        return html`
-          <div class="main">
-            <div class="empty-state">Loading spec...</div>
-          </div>
-        `;
-      }
+      // Extract headings from markdown and generate slugs
+      const headings = useMemo(() => {
+        if (!spec) return [];
+        const result = [];
+        const lines = spec.content.split('\n');
+        for (const line of lines) {
+          const match = line.match(/^(#{1,4})\s+(.+)$/);
+          if (match) {
+            const level = match[1].length;
+            const text = match[2].trim();
+            const slug = text.toLowerCase().replace(/[^\w]+/g, '-').replace(/^-|-$/g, '');
+            result.push({ level, text, slug });
+          }
+        }
+        return result;
+      }, [spec]);
 
-      // Process markdown to inject rule markers
+      // Process markdown to inject rule markers and add IDs to headings
       const processedContent = useMemo(() => {
+        if (!spec) return '';
         let content = spec.content;
         
         // Replace r[rule.id] with styled markers
@@ -1305,18 +2023,128 @@
           return `<span class="rule-marker ${status}" data-rule="${ruleId}">${ruleId}</span>`;
         });
         
-        return marked.parse(content);
-      }, [spec, ruleCoverage]);
+        let html = marked.parse(content);
+        
+        // Add IDs to headings
+        headings.forEach(h => {
+          // Match the heading tag and add id attribute
+          const headingRegex = new RegExp(`(<h${h.level}>)(${h.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})(</h${h.level}>)`, 'i');
+          html = html.replace(headingRegex, `<h${h.level} id="${h.slug}" data-slug="${h.slug}">$2$3`);
+        });
+        
+        return html;
+      }, [spec, ruleCoverage, headings]);
+
+      // Set up intersection observer for headings
+      useEffect(() => {
+        if (!contentRef.current || !contentBodyRef.current || headings.length === 0) return;
+        
+        // Small delay to ensure DOM is ready
+        const timeoutId = setTimeout(() => {
+          const headingElements = contentRef.current.querySelectorAll('h1[id], h2[id], h3[id], h4[id]');
+          if (headingElements.length === 0) return;
+          
+          const observer = new IntersectionObserver(
+            (entries) => {
+              // Track which headings are visible
+              const visibleHeadings = [];
+              entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                  visibleHeadings.push({
+                    id: entry.target.id,
+                    top: entry.boundingClientRect.top
+                  });
+                }
+              });
+              
+              // Set the topmost visible heading as active
+              if (visibleHeadings.length > 0) {
+                visibleHeadings.sort((a, b) => a.top - b.top);
+                setActiveHeading(visibleHeadings[0].id);
+              }
+            },
+            {
+              root: contentBodyRef.current,
+              rootMargin: '-5% 0px -70% 0px',
+              threshold: 0
+            }
+          );
+          
+          headingElements.forEach(el => observer.observe(el));
+          
+          // Set initial active heading
+          if (headings.length > 0) {
+            setActiveHeading(headings[0].slug);
+          }
+          
+          return () => observer.disconnect();
+        }, 100);
+        
+        return () => clearTimeout(timeoutId);
+      }, [processedContent, headings]);
+
+      const scrollToHeading = useCallback((slug) => {
+        if (!contentRef.current || !contentBodyRef.current) return;
+        const el = contentRef.current.querySelector(`[id="${slug}"]`);
+        if (el) {
+          const targetScrollTop = el.offsetTop - 20;
+          contentBodyRef.current.scrollTo({ top: Math.max(0, targetScrollTop), behavior: 'smooth' });
+          setActiveHeading(slug);
+        }
+      }, []);
+      
+      // Handle clicks on headings in the markdown
+      useEffect(() => {
+        if (!contentRef.current) return;
+        
+        const handleHeadingClick = (e) => {
+          const heading = e.target.closest('h1[id], h2[id], h3[id], h4[id]');
+          if (heading) {
+            const slug = heading.id;
+            // Copy link to clipboard or update URL
+            const url = `${window.location.origin}${window.location.pathname}#${slug}`;
+            navigator.clipboard?.writeText(url);
+          }
+        };
+        
+        contentRef.current.addEventListener('click', handleHeadingClick);
+        return () => contentRef.current?.removeEventListener('click', handleHeadingClick);
+      }, [processedContent]);
+
+      if (!spec) {
+        return html`
+          <div class="main">
+            <div class="empty-state">Loading spec...</div>
+          </div>
+        `;
+      }
 
       return html`
         <div class="main">
+          <div class="sidebar">
+            <div class="sidebar-header">Outline</div>
+            <div class="sidebar-content">
+              <div class="outline-tree">
+                ${headings.map(h => html`
+                  <div 
+                    key=${h.slug}
+                    class="outline-item outline-level-${h.level} ${activeHeading === h.slug ? 'active' : ''}"
+                    onClick=${() => scrollToHeading(h.slug)}
+                  >
+                    ${h.text}
+                  </div>
+                `)}
+              </div>
+            </div>
+          </div>
           <div class="content">
             <div class="content-header">
               ${spec.sourceFile || spec.name}
             </div>
-            <div class="content-body">
+            <div class="content-body" ref=${contentBodyRef}>
               <div 
                 class="markdown"
+                ref=${contentRef}
                 dangerouslySetInnerHTML=${{ __html: processedContent }}
               />
             </div>
