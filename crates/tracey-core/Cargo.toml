@@ -1,0 +1,28 @@
+[package]
+name = "tracey-core"
+version = "0.1.0"
+description = "Core library for tracey - spec coverage analysis"
+keywords = ["specification", "coverage", "traceability", "testing", "documentation"]
+categories = ["development-tools"]
+readme = "README.md"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[features]
+default = ["walk", "parallel"]
+walk = ["dep:ignore"]
+parallel = ["dep:rayon"]
+fetch = ["dep:ureq"]
+
+[dependencies]
+facet = { workspace = true }
+eyre = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Optional
+ignore = { workspace = true, optional = true }
+rayon = { workspace = true, optional = true }
+ureq = { workspace = true, optional = true }

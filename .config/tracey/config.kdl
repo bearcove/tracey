@@ -1,0 +1,4 @@
+spec {
+    name "test-spec"
+    rules_file "test_rules.json"
+}

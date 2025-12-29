@@ -1,30 +1,32 @@
-[package]
-name = "tracey"
-version = "0.3.0"
+[workspace]
+members = ["crates/*"]
+resolver = "3"
+
+[workspace.package]
 edition = "2024"
-description = "CLI tool to measure spec coverage in Rust codebases"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/bearcove/tracey"
 authors = ["Amos Wenger <amos@bearcove.eu>"]
-keywords = ["specification", "coverage", "traceability", "testing", "documentation"]
-categories = ["development-tools", "command-line-utilities"]
-readme = "README.md"
-rust-version = "1.85"
 
-[dependencies]
-# Facet ecosystem for config parsing and CLI
+[workspace.dependencies]
+# Internal
+tracey-core = { path = "crates/tracey-core" }
+
+# Facet ecosystem
 facet = "0.35"
 facet-args = "0.35"
 facet-kdl = "0.35"
 
 # Error handling
-color-eyre = "0.6"
 eyre = "0.6"
+color-eyre = "0.6"
+miette = { version = "7", features = ["fancy-no-backtrace"] }
+thiserror = "2"
 
 # HTTP fetching
 ureq = { version = "3", features = ["json"] }
 
-# JSON for parsing _rules.json
+# Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
@@ -36,3 +38,6 @@ rayon = "1"
 
 # Pretty output
 owo-colors = "4"
+
+# Syntax highlighting for miette
+syntect = "5"
