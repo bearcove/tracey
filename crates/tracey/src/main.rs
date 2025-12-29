@@ -2290,6 +2290,10 @@ fn load_manifest_from_glob(root: &PathBuf, pattern: &str) -> Result<SpecManifest
 
 /// Simple glob pattern matching
 fn matches_glob(path: &str, pattern: &str) -> bool {
+    // Make path separators consistent in case of windows
+    let path = path.replace('\\', "/");
+    let pattern = pattern.replace('\\', "/");
+
     // Handle **/*.md pattern
     if pattern == "**/*.md" {
         return path.ends_with(".md");
@@ -2316,7 +2320,7 @@ fn matches_glob(path: &str, pattern: &str) -> bool {
         return true;
     }
 
-    let mut remaining = path;
+    let mut remaining = path.as_str();
     for part in parts {
         if let Some(idx) = remaining.find(part) {
             remaining = &remaining[idx + part.len()..];

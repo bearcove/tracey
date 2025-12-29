@@ -223,10 +223,11 @@ fn is_included(path: &Path, root: &Path, patterns: &[String]) -> bool {
     }
 
     let relative = path.strip_prefix(root).unwrap_or(path);
-    let relative_str = relative.to_string_lossy();
+    let relative_str = relative.to_string_lossy().replace('\\', "/");
 
     for pattern in patterns {
-        if matches_glob(&relative_str, pattern) {
+        let pattern = pattern.replace('\\', "/");
+        if matches_glob(&relative_str, &pattern) {
             return true;
         }
     }
@@ -237,10 +238,11 @@ fn is_included(path: &Path, root: &Path, patterns: &[String]) -> bool {
 #[cfg(feature = "walk")]
 fn is_excluded(path: &Path, root: &Path, patterns: &[String]) -> bool {
     let relative = path.strip_prefix(root).unwrap_or(path);
-    let relative_str = relative.to_string_lossy();
+    let relative_str = relative.to_string_lossy().replace('\\', "/");
 
     for pattern in patterns {
-        if matches_glob(&relative_str, pattern) {
+        let pattern = pattern.replace('\\', "/");
+        if matches_glob(&relative_str, &pattern) {
             return true;
         }
     }
@@ -250,6 +252,9 @@ fn is_excluded(path: &Path, root: &Path, patterns: &[String]) -> bool {
 
 #[cfg(feature = "walk")]
 fn matches_glob(path: &str, pattern: &str) -> bool {
+    assert!(!path.contains('\\'));
+    assert!(!pattern.contains('\\'));
+
     // Handle **/*.ext patterns (e.g., **/*.rs, **/*.swift, **/*.ts)
     if let Some(ext) = pattern.strip_prefix("**/*.") {
         return path.ends_with(&format!(".{}", ext));
