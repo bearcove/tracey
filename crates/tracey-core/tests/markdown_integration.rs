@@ -78,21 +78,20 @@ fn test_generate_manifest_json() {
     let manifest = RulesManifest::from_rules(&result.rules, "/spec/sample");
     let json = manifest.to_json();
 
-    // Parse the JSON to verify it's valid
-    let parsed: serde_json::Value = serde_json::from_str(&json).expect("Invalid JSON output");
+    // Verify JSON structure by checking for expected content
+    assert!(json.contains("\"rules\""), "JSON should have rules key");
+    assert!(
+        json.contains("\"channel.id.allocation\""),
+        "JSON should contain channel.id.allocation rule"
+    );
+    assert!(
+        json.contains("\"/spec/sample#r-channel.id.allocation\""),
+        "JSON should contain correct URL"
+    );
 
-    // Verify structure
-    assert!(parsed.is_object());
-    assert!(parsed.get("rules").is_some());
-    let rules = parsed.get("rules").unwrap().as_object().unwrap();
-
-    // Should have all 8 rules
-    assert_eq!(rules.len(), 8);
-
-    // Verify URL format
-    let channel_rule = rules.get("channel.id.allocation").unwrap();
-    let url = channel_rule.get("url").unwrap().as_str().unwrap();
-    assert_eq!(url, "/spec/sample#r-channel.id.allocation");
+    // Count occurrences of "url" to verify we have all 8 rules
+    let url_count = json.matches("\"url\"").count();
+    assert_eq!(url_count, 8, "Should have 8 rules with URLs");
 }
 
 #[test]

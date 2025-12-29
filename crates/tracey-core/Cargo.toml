@@ -19,9 +19,8 @@ markdown = []
 
 [dependencies]
 facet = { workspace = true }
+facet-json = { workspace = true }
 eyre = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
 
 # Optional
 ignore = { workspace = true, optional = true }

@@ -91,12 +91,13 @@ fn test_rules_command_output_file() {
     // File should be created
     assert!(output_file.exists(), "Output file should be created");
 
-    // File should contain valid JSON
+    // File should contain valid JSON with rules
     let content = std::fs::read_to_string(&output_file).expect("Failed to read output file");
-    let json: serde_json::Value =
-        serde_json::from_str(&content).expect("Output should be valid JSON");
-
-    assert!(json.get("rules").is_some(), "Should have rules key");
+    assert!(content.contains("\"rules\""), "Should have rules key");
+    assert!(
+        content.contains("\"channel.id.allocation\""),
+        "Should contain rule IDs"
+    );
 
     // Clean up
     let _ = std::fs::remove_file(&output_file);

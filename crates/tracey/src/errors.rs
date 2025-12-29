@@ -1,42 +1,49 @@
 //! Miette-based error reporting with syntax highlighting
 
-#![allow(unused_assignments)]
+// The facet-error derive generates pattern matches that don't use opaque fields
+#![allow(unused_variables, unused_assignments)]
 
+use facet::Facet;
 use miette::{Diagnostic, NamedSource, SourceSpan};
 use std::path::Path;
-use thiserror::Error;
 use tracey_core::{ParseWarning, WarningKind};
 
-/// Error for unknown verb in rule reference
-#[derive(Debug, Error, Diagnostic)]
-#[error("Unknown verb '{verb}'")]
-#[diagnostic(
-    code(tracey::unknown_verb),
-    help("Valid verbs are: define, impl, verify, depends, related")
-)]
-pub struct UnknownVerbError {
-    pub verb: String,
+/// Parse warning errors
+#[derive(Debug, Facet, Diagnostic)]
+#[facet(derive(Error))]
+#[repr(u8)]
+pub enum ParseError {
+    /// Unknown verb '{verb}'
+    #[diagnostic(
+        code(tracey::unknown_verb),
+        help("Valid verbs are: define, impl, verify, depends, related")
+    )]
+    UnknownVerb {
+        verb: String,
 
-    #[source_code]
-    pub src: NamedSource<String>,
+        #[facet(opaque)]
+        #[source_code]
+        src: NamedSource<String>,
 
-    #[label("this verb is not recognized")]
-    pub span: SourceSpan,
-}
+        #[facet(opaque)]
+        #[label("this verb is not recognized")]
+        span: SourceSpan,
+    },
 
-/// Error for malformed rule reference
-#[derive(Debug, Error, Diagnostic)]
-#[error("Malformed rule reference")]
-#[diagnostic(
-    code(tracey::malformed_reference),
-    help("Rule references should be in the format [verb rule.id] or [rule.id]")
-)]
-pub struct MalformedReferenceError {
-    #[source_code]
-    pub src: NamedSource<String>,
+    /// Malformed rule reference
+    #[diagnostic(
+        code(tracey::malformed_reference),
+        help("Rule references should be in the format [verb rule.id] or [rule.id]")
+    )]
+    MalformedReference {
+        #[facet(opaque)]
+        #[source_code]
+        src: NamedSource<String>,
 
-    #[label("invalid syntax")]
-    pub span: SourceSpan,
+        #[facet(opaque)]
+        #[label("invalid syntax")]
+        span: SourceSpan,
+    },
 }
 
 /// Convert a ParseWarning into a miette diagnostic
@@ -49,12 +56,14 @@ pub fn warning_to_diagnostic(
     let span = SourceSpan::new(warning.span.offset.into(), warning.span.length);
 
     match &warning.kind {
-        WarningKind::UnknownVerb(verb) => Some(Box::new(UnknownVerbError {
+        WarningKind::UnknownVerb(verb) => Some(Box::new(ParseError::UnknownVerb {
             verb: verb.clone(),
             src,
             span,
         })),
-        WarningKind::MalformedReference => Some(Box::new(MalformedReferenceError { src, span })),
+        WarningKind::MalformedReference => {
+            Some(Box::new(ParseError::MalformedReference { src, span }))
+        }
     }
 }
 

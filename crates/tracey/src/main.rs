@@ -70,8 +70,11 @@ enum Command {
 }
 
 fn main() -> Result<()> {
-    // Set up miette for fancy error reporting
-    miette::set_hook(Box::new(|_| {
+    // Set up syntax highlighting for miette
+    miette_arborium::install_global().ok();
+
+    // Set up miette for fancy error reporting (ignore if already set)
+    let _ = miette::set_hook(Box::new(|_| {
         Box::new(
             miette::MietteHandlerOpts::new()
                 .terminal_links(true)
@@ -80,7 +83,7 @@ fn main() -> Result<()> {
                 .tab_width(4)
                 .build(),
         )
-    }))?;
+    }));
 
     let args: Args =
         facet_args::from_std_args().wrap_err("Failed to parse command line arguments")?;

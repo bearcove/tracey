@@ -2,19 +2,18 @@
 
 use eyre::{Result, WrapErr};
 use facet::Facet;
-use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::Path;
 
 /// A rule definition from the spec manifest
-#[derive(Debug, Clone, Deserialize, Facet)]
+#[derive(Debug, Clone, Facet)]
 pub struct RuleInfo {
     /// URL fragment to link to this rule
     pub url: String,
 }
 
 /// The spec manifest structure (from _rules.json)
-#[derive(Debug, Clone, Deserialize, Facet)]
+#[derive(Debug, Clone, Facet)]
 pub struct SpecManifest {
     /// Map of rule IDs to their info
     pub rules: HashMap<String, RuleInfo>,
@@ -23,7 +22,7 @@ pub struct SpecManifest {
 impl SpecManifest {
     /// Parse a spec manifest from JSON string
     pub fn from_json(json: &str) -> Result<Self> {
-        serde_json::from_str(json).wrap_err("Failed to parse spec manifest JSON")
+        facet_json::from_str(json).wrap_err("Failed to parse spec manifest JSON")
     }
 
     /// Load a spec manifest from a local file
@@ -42,12 +41,13 @@ impl SpecManifest {
             .call()
             .wrap_err_with(|| format!("Failed to fetch spec manifest from {}", url))?;
 
-        let manifest: SpecManifest = response
+        let body = response
             .body_mut()
-            .read_json()
-            .wrap_err_with(|| format!("Failed to parse spec manifest from {}", url))?;
+            .read_to_string()
+            .wrap_err_with(|| format!("Failed to read response body from {}", url))?;
 
-        Ok(manifest)
+        Self::from_json(&body)
+            .wrap_err_with(|| format!("Failed to parse spec manifest from {}", url))
     }
 
     /// Get the set of all rule IDs in this manifest

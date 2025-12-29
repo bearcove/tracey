@@ -123,38 +123,13 @@ impl RulesManifest {
     ///
     /// [impl manifest.format.json]
     pub fn to_json(&self) -> String {
-        serde_json::to_string_pretty(self).expect("failed to serialize rules manifest to JSON")
+        facet_json::to_string_pretty(self)
     }
 }
 
 impl Default for RulesManifest {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-// Implement Serialize manually to match the expected JSON format
-impl serde::Serialize for RulesManifest {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeMap;
-        let mut map = serializer.serialize_map(Some(1))?;
-        map.serialize_entry("rules", &self.rules)?;
-        map.end()
-    }
-}
-
-impl serde::Serialize for ManifestRuleEntry {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeMap;
-        let mut map = serializer.serialize_map(Some(1))?;
-        map.serialize_entry("url", &self.url)?;
-        map.end()
     }
 }
 

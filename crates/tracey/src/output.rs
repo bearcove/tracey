@@ -1,7 +1,7 @@
 //! Output formatting for coverage reports
 
+use facet::Facet;
 use owo_colors::OwoColorize;
-use serde::Serialize;
 use tracey_core::{CoverageReport, RefVerb};
 
 /// Output format
@@ -185,31 +185,31 @@ fn render_text(report: &CoverageReport, verbose: bool) -> String {
     output
 }
 
-#[derive(Serialize)]
-struct JsonReport<'a> {
-    spec_name: &'a str,
+#[derive(Facet)]
+struct JsonReport {
+    spec_name: String,
     total_rules: usize,
     covered_rules: usize,
-    uncovered_rules: Vec<&'a String>,
+    uncovered_rules: Vec<String>,
     coverage_percent: f64,
-    invalid_references: Vec<JsonReference<'a>>,
-    references: Vec<JsonReference<'a>>,
+    invalid_references: Vec<JsonReference>,
+    references: Vec<JsonReference>,
 }
 
-#[derive(Serialize)]
-struct JsonReference<'a> {
-    verb: &'a str,
-    rule_id: &'a str,
+#[derive(Facet)]
+struct JsonReference {
+    verb: String,
+    rule_id: String,
     file: String,
     line: usize,
 }
 
 fn render_json(report: &CoverageReport) -> String {
-    let mut uncovered: Vec<_> = report.uncovered_rules.iter().collect();
+    let mut uncovered: Vec<_> = report.uncovered_rules.iter().cloned().collect();
     uncovered.sort();
 
     let json_report = JsonReport {
-        spec_name: &report.spec_name,
+        spec_name: report.spec_name.clone(),
         total_rules: report.total_rules,
         covered_rules: report.covered_rules.len(),
         uncovered_rules: uncovered,
@@ -218,8 +218,8 @@ fn render_json(report: &CoverageReport) -> String {
             .invalid_references
             .iter()
             .map(|r| JsonReference {
-                verb: r.verb.as_str(),
-                rule_id: &r.rule_id,
+                verb: r.verb.as_str().to_string(),
+                rule_id: r.rule_id.clone(),
                 file: r.file.display().to_string(),
                 line: r.line,
             })
@@ -229,15 +229,15 @@ fn render_json(report: &CoverageReport) -> String {
             .values()
             .flatten()
             .map(|r| JsonReference {
-                verb: r.verb.as_str(),
-                rule_id: &r.rule_id,
+                verb: r.verb.as_str().to_string(),
+                rule_id: r.rule_id.clone(),
                 file: r.file.display().to_string(),
                 line: r.line,
             })
             .collect(),
     };
 
-    serde_json::to_string_pretty(&json_report).unwrap_or_else(|_| "{}".to_string())
+    facet_json::to_string_pretty(&json_report)
 }
 
 fn render_markdown(report: &CoverageReport, verbose: bool) -> String {
