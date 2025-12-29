@@ -1071,9 +1071,15 @@ fn render_matrix_html(rows: &[MatrixRow], project_root: &std::path::Path) -> Str
     let mut output = String::new();
 
     // Get absolute project root for editor links
-    let abs_root = project_root
-        .canonicalize()
-        .unwrap_or_else(|_| project_root.to_path_buf());
+    let abs_root = if cfg!(not(windows)) {
+        project_root
+            .canonicalize()
+            .unwrap_or_else(|_| project_root.to_path_buf())
+    } else {
+        // Canonicalize on windows converts the path to use extended length path syntax.
+        // This is a lot less compatible with all sorts of things and can't deal with linux-style path separators.
+        project_root.to_path_buf()
+    };
     let root_str = abs_root.display().to_string();
 
     output.push_str("<!DOCTYPE html>\n<html>\n<head>\n");
@@ -2019,7 +2025,7 @@ document.addEventListener('click', (e) => {{
         // Parse "path:line" format
         if let Some((path, line)) = r.rsplit_once(':') {
             // Split path into directory and filename
-            let (dir, filename) = if let Some(pos) = path.rfind('/') {
+            let (dir, filename) = if let Some(pos) = path.rfind(std::path::MAIN_SEPARATOR) {
                 (&path[..=pos], &path[pos + 1..])
             } else {
                 ("", path)
