@@ -10,7 +10,7 @@ authors = ["Amos Wenger <amos@bearcove.eu>"]
 
 [workspace.dependencies]
 # Internal
-tracey-core = { path = "crates/tracey-core" }
+tracey-core = { path = "crates/tracey-core", version = "0.5.0" }
 
 # Facet ecosystem
 facet = "0.35"
