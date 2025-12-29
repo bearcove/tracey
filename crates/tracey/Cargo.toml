@@ -61,5 +61,8 @@ tokio = { workspace = true }
 notify = { workspace = true }
 notify-debouncer-mini = { workspace = true }
 
+# URL decoding for API
+urlencoding = "2.1"
+
 [dev-dependencies]
 facet-value = { workspace = true }

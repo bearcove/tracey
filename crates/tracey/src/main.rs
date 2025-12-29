@@ -8,6 +8,7 @@ mod config;
 mod errors;
 mod output;
 mod serve;
+mod serve2;
 
 use config::Config;
 use eyre::{Result, WrapErr};
