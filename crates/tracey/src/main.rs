@@ -561,7 +561,7 @@ fn run_at_command(location: String, config: Option<PathBuf>, format: Option<Stri
             .collect();
         println!(
             "{}",
-            facet_format_json::to_string_pretty(&output).expect("JSON serialization failed")
+            facet_json::to_string_pretty(&output).expect("JSON serialization failed")
         );
     } else {
         // Text output - show path relative to cwd if possible
@@ -742,7 +742,7 @@ fn run_impact_command(
         };
         println!(
             "{}",
-            facet_format_json::to_string_pretty(&output).expect("JSON serialization failed")
+            facet_json::to_string_pretty(&output).expect("JSON serialization failed")
         );
     } else {
         // Text output
@@ -1163,7 +1163,7 @@ fn render_matrix_json(rows: &[MatrixRow]) -> String {
         })
         .collect();
 
-    facet_format_json::to_string_pretty(&json_rows).expect("JSON serialization failed")
+    facet_json::to_string_pretty(&json_rows).expect("JSON serialization failed")
 }
 
 fn render_matrix_html(rows: &[MatrixRow], project_root: &std::path::Path) -> String {
@@ -1761,21 +1761,21 @@ function initSearch() {{
     hasImpl: !!row.querySelector('.ref-icon-impl'),
     hasVerify: !!row.querySelector('.ref-icon-verify'),
   }}));
-  
+
   fuse = new Fuse(ruleRows, {{
     keys: ['ruleId', 'desc', 'refs'],
     threshold: 0.3,
     ignoreLocation: true,
     includeMatches: true,
   }});
-  
+
   markInstance = new Mark(document.querySelector('tbody'));
 }}
 
 function setCoverageFilter(filter) {{
   const implStat = document.getElementById('stat-impl');
   const verifyStat = document.getElementById('stat-verify');
-  
+
   if (coverageFilter === filter) {{
     // Toggle off
     coverageFilter = null;
@@ -1793,12 +1793,12 @@ function filterTable() {{
   const filter = document.getElementById('filter').value;
   const levelFilter = currentLevel;
   const rows = document.querySelectorAll('tbody tr');
-  
+
   // Clear previous highlights
   if (markInstance) {{
     markInstance.unmark();
   }}
-  
+
   // Determine which rows match the search
   let matchingIndices = new Set();
   if (filter === '') {{
@@ -1809,12 +1809,12 @@ function filterTable() {{
     const results = fuse.search(filter);
     results.forEach(result => matchingIndices.add(result.item.index));
   }}
-  
+
   let currentSectionHeader = null;
   let currentSectionVisible = false;
   let totalRules = 0;
   let hiddenRules = 0;
-  
+
   rows.forEach((row, idx) => {{
     if (row.classList.contains('section-header')) {{
       // Hide section header initially, show if any child matches
@@ -1826,13 +1826,13 @@ function filterTable() {{
       row.style.display = 'none';
       return;
     }}
-    
+
     totalRules++;
-    
+
     // Find the ruleRow index for this row
     const ruleRowIdx = ruleRows.findIndex(r => r.row === row);
     const matchesText = ruleRowIdx >= 0 && matchingIndices.has(ruleRowIdx);
-    
+
     // Check level filter by looking for keyword elements in the row
     let matchesLevel = true;
     if (levelFilter === 'must') {{
@@ -1842,7 +1842,7 @@ function filterTable() {{
     }} else if (levelFilter === 'may') {{
       matchesLevel = !!row.querySelector('kw-may, kw-optional');
     }}
-    
+
     // Check coverage filter
     let matchesCoverage = true;
     if (coverageFilter && ruleRowIdx >= 0) {{
@@ -1853,22 +1853,22 @@ function filterTable() {{
         matchesCoverage = !ruleRow.hasVerify;
       }}
     }}
-    
+
     const visible = matchesText && matchesLevel && matchesCoverage;
     row.style.display = visible ? '' : 'none';
-    
+
     if (visible) {{
       currentSectionVisible = true;
     }} else {{
       hiddenRules++;
     }}
   }});
-  
+
   // Handle last section header
   if (currentSectionHeader && currentSectionVisible) {{
     currentSectionHeader.style.display = '';
   }}
-  
+
   // Update filter notice
   const notice = document.getElementById('filter-notice');
   const noticeText = document.getElementById('filter-notice-text');
@@ -1878,7 +1878,7 @@ function filterTable() {{
   }} else {{
     notice.classList.remove('visible');
   }}
-  
+
   // Highlight matches
   if (filter && markInstance) {{
     markInstance.mark(filter, {{

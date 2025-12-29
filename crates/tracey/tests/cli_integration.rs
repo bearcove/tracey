@@ -28,8 +28,7 @@ fn json_get_str<'a>(obj: &'a facet_value::Value, key: &str) -> &'a str {
 
 /// Helper to parse JSON array output
 fn parse_json_array(json: &str) -> facet_value::VArray {
-    let parsed: facet_value::Value =
-        facet_format_json::from_str(json).expect("Should be valid JSON");
+    let parsed: facet_value::Value = facet_json::from_str(json).expect("Should be valid JSON");
     parsed.as_array().expect("Should be an array").clone()
 }
 

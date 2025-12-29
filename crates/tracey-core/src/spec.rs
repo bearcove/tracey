@@ -46,7 +46,7 @@ pub struct SpecManifest {
 impl SpecManifest {
     /// Parse a spec manifest from JSON string
     pub fn from_json(json: &str) -> Result<Self> {
-        facet_format_json::from_str(json).wrap_err("Failed to parse spec manifest JSON")
+        facet_json::from_str(json).wrap_err("Failed to parse spec manifest JSON")
     }
 
     /// Load a spec manifest from a local file
