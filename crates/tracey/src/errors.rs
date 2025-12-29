@@ -12,6 +12,7 @@ use tracey_core::{ParseWarning, WarningKind};
     code(tracey::unknown_verb),
     help("Valid verbs are: define, impl, verify, depends, related")
 )]
+#[allow(dead_code)]
 pub struct UnknownVerbError {
     pub verb: String,
 
@@ -29,6 +30,7 @@ pub struct UnknownVerbError {
     code(tracey::malformed_reference),
     help("Rule references should be in the format [verb rule.id] or [rule.id]")
 )]
+#[allow(dead_code)]
 pub struct MalformedReferenceError {
     #[source_code]
     pub src: NamedSource<String>,
