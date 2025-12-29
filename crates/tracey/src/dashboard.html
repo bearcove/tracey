@@ -1,0 +1,1252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>tracey</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&family=Public+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <script type="importmap">
+  {
+    "imports": {
+      "preact": "https://esm.sh/preact@10.25.4",
+      "preact/hooks": "https://esm.sh/preact@10.25.4/hooks",
+      "htm": "https://esm.sh/htm@3.1.1",
+      "marked": "https://esm.sh/marked@15.0.6"
+    }
+  }
+  </script>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: light-dark(#f8f9fa, #1a1b26);
+      --bg-secondary: light-dark(#ffffff, #24283b);
+      --fg: light-dark(#1a1b26, #a9b1d6);
+      --fg-muted: light-dark(#6b7280, #565f89);
+      --fg-dim: light-dark(#9ca3af, #414868);
+      --border: light-dark(#e5e5e5, #292e42);
+      --hover: light-dark(#f0f0f2, #1f2335);
+      --accent: light-dark(#2563eb, #7aa2f7);
+      --accent-dim: light-dark(#dbeafe, #1e3a5f);
+      --green: light-dark(#16a34a, #9ece6a);
+      --green-dim: light-dark(#dcfce7, #1a2e1a);
+      --red: light-dark(#dc2626, #f7768e);
+      --red-dim: light-dark(#fee2e2, #2d1f1f);
+      --yellow: light-dark(#d97706, #e0af68);
+      --yellow-dim: light-dark(#fef3c7, #3d3520);
+      --purple: light-dark(#7c3aed, #bb9af7);
+      
+      /* Syntax highlighting - Tokyo Night inspired */
+      --syn-keyword: light-dark(#7c3aed, #bb9af7);
+      --syn-string: light-dark(#16a34a, #9ece6a);
+      --syn-number: light-dark(#d97706, #ff9e64);
+      --syn-comment: light-dark(#6b7280, #565f89);
+      --syn-function: light-dark(#2563eb, #7aa2f7);
+      --syn-type: light-dark(#0891b2, #2ac3de);
+      --syn-macro: light-dark(#7c3aed, #bb9af7);
+      --syn-attribute: light-dark(#d97706, #e0af68);
+      --syn-operator: light-dark(#dc2626, #89ddff);
+      --syn-punctuation: light-dark(#6b7280, #9aa5ce);
+      --syn-variable: var(--fg);
+      --syn-constant: light-dark(#d97706, #ff9e64);
+      --syn-lifetime: light-dark(#dc2626, #f7768e);
+    }
+    
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    
+    body {
+      font-family: 'Public Sans', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      line-height: 1.5;
+    }
+    
+    #app { min-height: 100vh; display: flex; flex-direction: column; }
+    
+    .loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      color: var(--fg-muted);
+      font-size: 0.9rem;
+    }
+    
+    /* Layout */
+    .layout {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+    
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+      padding: 0.75rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-secondary);
+    }
+    
+    .logo {
+      font-weight: 600;
+      font-size: 1.1rem;
+      color: var(--fg);
+      text-decoration: none;
+    }
+    
+    .nav {
+      display: flex;
+      gap: 0.25rem;
+    }
+    
+    .nav-btn {
+      padding: 0.4rem 0.75rem;
+      background: transparent;
+      color: var(--fg-muted);
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      font-family: inherit;
+      transition: all 0.15s;
+    }
+    
+    .nav-btn:hover {
+      background: var(--hover);
+      color: var(--fg);
+    }
+    
+    .nav-btn.active {
+      background: var(--accent);
+      color: white;
+    }
+    
+    .search-box {
+      flex: 1;
+      max-width: 400px;
+      margin-left: auto;
+    }
+    
+    .search-input {
+      width: 100%;
+      padding: 0.5rem 0.75rem;
+      background: var(--bg);
+      color: var(--fg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 0.85rem;
+      font-family: inherit;
+    }
+    
+    .search-input:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-dim);
+    }
+    
+    .search-input::placeholder {
+      color: var(--fg-dim);
+    }
+    
+    .main {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+    
+    /* Stats bar */
+    .stats-bar {
+      display: flex;
+      gap: 2rem;
+      padding: 1rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-secondary);
+    }
+    
+    .stat {
+      display: flex;
+      flex-direction: column;
+      gap: 0.125rem;
+    }
+    
+    .stat-label {
+      font-size: 0.75rem;
+      color: var(--fg-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    
+    .stat-value {
+      font-size: 1.25rem;
+      font-weight: 600;
+      font-family: 'IBM Plex Mono', monospace;
+    }
+    
+    .stat-value.good { color: var(--green); }
+    .stat-value.warn { color: var(--yellow); }
+    .stat-value.bad { color: var(--red); }
+    
+    /* Sidebar */
+    .sidebar {
+      width: 280px;
+      border-right: 1px solid var(--border);
+      background: var(--bg-secondary);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    
+    .sidebar-header {
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border);
+      font-weight: 500;
+      font-size: 0.85rem;
+      color: var(--fg-muted);
+    }
+    
+    .sidebar-content {
+      flex: 1;
+      overflow-y: auto;
+    }
+    
+    /* File tree */
+    .file-tree {
+      padding: 0.5rem;
+    }
+    
+    .tree-folder {
+      user-select: none;
+    }
+    
+    .tree-folder-header {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      padding: 0.35rem 0.5rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.8rem;
+      color: var(--fg-muted);
+    }
+    
+    .tree-folder-header:hover {
+      background: var(--hover);
+    }
+    
+    .tree-folder-icon {
+      width: 1rem;
+      height: 1rem;
+      color: var(--fg-dim);
+      transition: transform 0.15s;
+    }
+    
+    .tree-folder.open > .tree-folder-header .tree-folder-icon {
+      transform: rotate(90deg);
+    }
+    
+    .tree-folder-children {
+      display: none;
+      padding-left: 1rem;
+    }
+    
+    .tree-folder.open > .tree-folder-children {
+      display: block;
+    }
+    
+    .tree-file {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      padding: 0.35rem 0.5rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.8rem;
+      font-family: 'IBM Plex Mono', monospace;
+    }
+    
+    .tree-file:hover {
+      background: var(--hover);
+    }
+    
+    .tree-file.selected {
+      background: var(--accent-dim);
+      color: var(--accent);
+    }
+    
+    .tree-file-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    
+    .tree-file-badge {
+      font-size: 0.7rem;
+      padding: 0.1rem 0.4rem;
+      border-radius: 4px;
+      font-weight: 500;
+    }
+    
+    .tree-file-badge.full { background: var(--green-dim); color: var(--green); }
+    .tree-file-badge.partial { background: var(--yellow-dim); color: var(--yellow); }
+    .tree-file-badge.none { background: var(--red-dim); color: var(--red); }
+    
+    /* Content area */
+    .content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: var(--bg);
+    }
+    
+    .content-header {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 0.5rem 1rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-secondary);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.85rem;
+    }
+    
+    .content-body {
+      flex: 1;
+      overflow: auto;
+    }
+    
+    /* Code view */
+    .code-view {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.85rem;
+      line-height: 1.6;
+    }
+    
+    .code-line {
+      display: flex;
+      min-height: 1.6em;
+    }
+    
+    .code-line:hover {
+      background: var(--hover);
+    }
+    
+    .code-line.covered {
+      background: var(--green-dim);
+    }
+    
+    .code-line.uncovered {
+      background: var(--red-dim);
+    }
+    
+    .code-line:hover.covered {
+      background: color-mix(in srgb, var(--green-dim), var(--hover));
+    }
+    
+    .code-line:hover.uncovered {
+      background: color-mix(in srgb, var(--red-dim), var(--hover));
+    }
+    
+    .line-number {
+      width: 4rem;
+      padding: 0 1rem 0 0.5rem;
+      text-align: right;
+      color: var(--fg-dim);
+      user-select: none;
+      flex-shrink: 0;
+    }
+    
+    .line-content {
+      flex: 1;
+      padding-right: 1rem;
+      white-space: pre;
+    }
+    
+    .line-annotations {
+      padding: 0 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+    }
+    
+    .annotation-badge {
+      font-size: 0.65rem;
+      padding: 0.1rem 0.35rem;
+      border-radius: 3px;
+      background: var(--accent-dim);
+      color: var(--accent);
+      font-weight: 500;
+      white-space: nowrap;
+    }
+    
+    /* Rules table */
+    .rules-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    
+    .rules-table th {
+      text-align: left;
+      padding: 0.75rem 1rem;
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--fg-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-secondary);
+      position: sticky;
+      top: 0;
+    }
+    
+    .rules-table td {
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    
+    .rules-table tr:hover td {
+      background: var(--hover);
+    }
+    
+    .rule-id {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--accent);
+    }
+    
+    .rule-text {
+      font-size: 0.85rem;
+      color: var(--fg-muted);
+      margin-top: 0.25rem;
+    }
+    
+    .rule-refs {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.8rem;
+    }
+    
+    .rule-ref {
+      display: block;
+      color: var(--fg-muted);
+      text-decoration: none;
+      padding: 0.125rem 0;
+    }
+    
+    .rule-ref:hover {
+      color: var(--accent);
+    }
+    
+    .rule-ref.impl { color: var(--green); }
+    .rule-ref.verify { color: var(--accent); }
+    
+    /* Split view */
+    .split-view {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+    
+    .split-pane {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      min-width: 0;
+    }
+    
+    .split-pane + .split-pane {
+      border-left: 1px solid var(--border);
+    }
+    
+    .split-pane-header {
+      padding: 0.5rem 1rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-secondary);
+      font-size: 0.85rem;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    
+    .split-pane-content {
+      flex: 1;
+      overflow: auto;
+    }
+    
+    /* Markdown content */
+    .markdown {
+      padding: 1.5rem;
+      font-size: 0.9rem;
+      line-height: 1.7;
+    }
+    
+    .markdown h1, .markdown h2, .markdown h3, .markdown h4 {
+      margin: 1.5rem 0 0.75rem;
+      font-weight: 600;
+      color: var(--fg);
+    }
+    
+    .markdown h1 { font-size: 1.5rem; }
+    .markdown h2 { font-size: 1.25rem; }
+    .markdown h3 { font-size: 1.1rem; }
+    
+    .markdown p {
+      margin: 0.75rem 0;
+    }
+    
+    .markdown code {
+      font-family: 'IBM Plex Mono', monospace;
+      background: var(--hover);
+      padding: 0.15rem 0.35rem;
+      border-radius: 4px;
+      font-size: 0.85em;
+    }
+    
+    .markdown pre {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1rem;
+      overflow-x: auto;
+      margin: 1rem 0;
+    }
+    
+    .markdown pre code {
+      background: none;
+      padding: 0;
+    }
+    
+    .markdown ul, .markdown ol {
+      margin: 0.75rem 0;
+      padding-left: 1.5rem;
+    }
+    
+    .markdown li {
+      margin: 0.25rem 0;
+    }
+    
+    .markdown blockquote {
+      border-left: 3px solid var(--accent);
+      margin: 1rem 0;
+      padding-left: 1rem;
+      color: var(--fg-muted);
+    }
+    
+    /* Rule marker in spec */
+    .rule-marker {
+      display: inline-block;
+      background: var(--accent-dim);
+      color: var(--accent);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.8rem;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      margin: 0.25rem 0;
+    }
+    
+    .rule-marker.covered {
+      background: var(--green-dim);
+      color: var(--green);
+    }
+    
+    .rule-marker.partial {
+      background: var(--yellow-dim);
+      color: var(--yellow);
+    }
+    
+    .rule-marker.uncovered {
+      background: var(--red-dim);
+      color: var(--red);
+    }
+    
+    /* Empty state */
+    .empty-state {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: var(--fg-muted);
+      font-size: 0.9rem;
+    }
+    
+    /* Syntax highlighting classes */
+    .syn-keyword { color: var(--syn-keyword); font-weight: 500; }
+    .syn-string { color: var(--syn-string); }
+    .syn-number { color: var(--syn-number); }
+    .syn-comment { color: var(--syn-comment); font-style: italic; }
+    .syn-function { color: var(--syn-function); }
+    .syn-type { color: var(--syn-type); }
+    .syn-macro { color: var(--syn-macro); }
+    .syn-attribute { color: var(--syn-attribute); }
+    .syn-operator { color: var(--syn-operator); }
+    .syn-punctuation { color: var(--syn-punctuation); }
+    .syn-variable { color: var(--syn-variable); }
+    .syn-constant { color: var(--syn-constant); }
+    .syn-lifetime { color: var(--syn-lifetime); }
+  </style>
+</head>
+<body>
+  <div id="app"><div class="loading">Loading...</div></div>
+  <script type="module">
+    import { h, render, Fragment } from 'preact';
+    import { useState, useEffect, useMemo, useCallback, useRef } from 'preact/hooks';
+    import htm from 'htm';
+    import { marked } from 'marked';
+
+    const html = htm.bind(h);
+
+    // ========================================================================
+    // API
+    // ========================================================================
+    
+    async function fetchJson(url) {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    }
+
+    // ========================================================================
+    // Hooks
+    // ========================================================================
+    
+    function useLiveReload() {
+      useEffect(() => {
+        let active = true;
+        let lastVersion = null;
+
+        async function poll() {
+          try {
+            const data = await fetchJson('/api/version');
+            if (lastVersion !== null && data.version !== lastVersion) {
+              window.location.reload();
+            }
+            lastVersion = data.version;
+          } catch (e) {
+            console.warn('Version poll failed:', e);
+          }
+          if (active) setTimeout(poll, 500);
+        }
+
+        poll();
+        return () => { active = false; };
+      }, []);
+    }
+
+    function useApi() {
+      const [data, setData] = useState(null);
+      const [error, setError] = useState(null);
+
+      useEffect(() => {
+        Promise.all([
+          fetchJson('/api/config'),
+          fetchJson('/api/forward'),
+          fetchJson('/api/reverse'),
+        ]).then(([config, forward, reverse]) => {
+          setData({ config, forward, reverse });
+        }).catch(e => setError(e.message));
+      }, []);
+
+      return { data, error };
+    }
+
+    function useFile(path) {
+      const [file, setFile] = useState(null);
+      
+      useEffect(() => {
+        if (!path) {
+          setFile(null);
+          return;
+        }
+        fetchJson('/api/file?path=' + encodeURIComponent(path))
+          .then(setFile)
+          .catch(e => {
+            console.error('Failed to load file:', e);
+            setFile(null);
+          });
+      }, [path]);
+
+      return file;
+    }
+
+    function useSpec(name) {
+      const [spec, setSpec] = useState(null);
+      
+      useEffect(() => {
+        if (!name) {
+          setSpec(null);
+          return;
+        }
+        fetchJson('/api/spec?name=' + encodeURIComponent(name))
+          .then(setSpec)
+          .catch(e => {
+            console.error('Failed to load spec:', e);
+            setSpec(null);
+          });
+      }, [name]);
+
+      return spec;
+    }
+
+    // ========================================================================
+    // Utils
+    // ========================================================================
+    
+    function buildFileTree(files) {
+      const root = { name: '', children: {}, files: [] };
+      
+      for (const file of files) {
+        const parts = file.path.split('/');
+        let current = root;
+        
+        for (let i = 0; i < parts.length - 1; i++) {
+          const part = parts[i];
+          if (!current.children[part]) {
+            current.children[part] = { name: part, children: {}, files: [] };
+          }
+          current = current.children[part];
+        }
+        
+        current.files.push({ ...file, name: parts[parts.length - 1] });
+      }
+      
+      return root;
+    }
+
+    function getCoverageBadge(covered, total) {
+      if (total === 0) return { class: 'none', text: '-' };
+      const pct = (covered / total) * 100;
+      if (pct === 100) return { class: 'full', text: '100%' };
+      if (pct >= 50) return { class: 'partial', text: Math.round(pct) + '%' };
+      return { class: 'none', text: Math.round(pct) + '%' };
+    }
+
+    function getStatClass(pct) {
+      if (pct >= 80) return 'good';
+      if (pct >= 50) return 'warn';
+      return 'bad';
+    }
+
+    // Simple Rust syntax highlighter
+    function highlightRust(code) {
+      const keywords = /\b(as|async|await|break|const|continue|crate|dyn|else|enum|extern|false|fn|for|if|impl|in|let|loop|match|mod|move|mut|pub|ref|return|self|Self|static|struct|super|trait|true|type|unsafe|use|where|while)\b/g;
+      const types = /\b(bool|char|f32|f64|i8|i16|i32|i64|i128|isize|str|u8|u16|u32|u64|u128|usize|String|Vec|Option|Result|Box|Rc|Arc|Cell|RefCell|HashMap|HashSet|BTreeMap|BTreeSet|Path|PathBuf)\b/g;
+      const macros = /\b([a-z_][a-z0-9_]*!)/g;
+      const strings = /(r#*"[\s\S]*?"#*|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)')/g;
+      const comments = /(\/\/.*$|\/\*[\s\S]*?\*\/)/gm;
+      const numbers = /\b(\d+(?:\.\d+)?(?:_\d+)*(?:i8|i16|i32|i64|i128|isize|u8|u16|u32|u64|u128|usize|f32|f64)?)\b/g;
+      const lifetimes = /('(?:[a-z_][a-z0-9_]*))/g;
+      const attributes = /(#\[[\s\S]*?\])/g;
+      
+      // Escape HTML first
+      let escaped = code
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+      
+      // Apply highlighting (order matters - strings/comments first to avoid nested highlighting)
+      const tokens = [];
+      let result = escaped;
+      
+      // Extract strings and comments first
+      result = result.replace(strings, (m) => {
+        const id = `__STRING_${tokens.length}__`;
+        tokens.push(`<span class="syn-string">${m}</span>`);
+        return id;
+      });
+      
+      result = result.replace(comments, (m) => {
+        const id = `__COMMENT_${tokens.length}__`;
+        tokens.push(`<span class="syn-comment">${m}</span>`);
+        return id;
+      });
+      
+      // Then other syntax
+      result = result.replace(attributes, '<span class="syn-attribute">$1</span>');
+      result = result.replace(macros, '<span class="syn-macro">$1</span>');
+      result = result.replace(keywords, '<span class="syn-keyword">$1</span>');
+      result = result.replace(types, '<span class="syn-type">$1</span>');
+      result = result.replace(lifetimes, '<span class="syn-lifetime">$1</span>');
+      result = result.replace(numbers, '<span class="syn-number">$1</span>');
+      
+      // Restore tokens
+      for (let i = 0; i < tokens.length; i++) {
+        result = result.replace(`__STRING_${i}__`, tokens[i]);
+        result = result.replace(`__COMMENT_${i}__`, tokens[i]);
+      }
+      
+      return result;
+    }
+
+    // ========================================================================
+    // Components
+    // ========================================================================
+    
+    function App() {
+      const { data, error } = useApi();
+      const [view, setView] = useState('forward');
+      const [search, setSearch] = useState('');
+      const [selectedFile, setSelectedFile] = useState(null);
+      const [selectedRule, setSelectedRule] = useState(null);
+      
+      useLiveReload();
+
+      if (error) return html`<div class="loading">Error: ${error}</div>`;
+      if (!data) return html`<div class="loading">Loading...</div>`;
+
+      const { config, forward, reverse } = data;
+
+      return html`
+        <div class="layout">
+          <${Header} 
+            view=${view} 
+            onViewChange=${setView}
+            search=${search}
+            onSearchChange=${setSearch}
+          />
+          
+          ${view === 'forward' && html`
+            <${ForwardView} 
+              data=${forward} 
+              search=${search}
+              selectedRule=${selectedRule}
+              onSelectRule=${setSelectedRule}
+              onSelectFile=${(file) => { setSelectedFile(file); setView('reverse'); }}
+            />
+          `}
+          
+          ${view === 'reverse' && html`
+            <${ReverseView} 
+              data=${reverse}
+              forward=${forward}
+              config=${config}
+              search=${search}
+              selectedFile=${selectedFile}
+              onSelectFile=${setSelectedFile}
+            />
+          `}
+          
+          ${view === 'spec' && html`
+            <${SpecView}
+              config=${config}
+              forward=${forward}
+              selectedRule=${selectedRule}
+              onSelectRule=${setSelectedRule}
+              onSelectFile=${(file) => { setSelectedFile(file); setView('reverse'); }}
+            />
+          `}
+        </div>
+      `;
+    }
+
+    function Header({ view, onViewChange, search, onSearchChange }) {
+      return html`
+        <header class="header">
+          <a href="/" class="logo">tracey</a>
+          <nav class="nav">
+            <button 
+              class="nav-btn ${view === 'forward' ? 'active' : ''}"
+              onClick=${() => onViewChange('forward')}
+            >Forward</button>
+            <button 
+              class="nav-btn ${view === 'reverse' ? 'active' : ''}"
+              onClick=${() => onViewChange('reverse')}
+            >Reverse</button>
+            <button 
+              class="nav-btn ${view === 'spec' ? 'active' : ''}"
+              onClick=${() => onViewChange('spec')}
+            >Spec</button>
+          </nav>
+          <div class="search-box">
+            <input
+              type="text"
+              class="search-input"
+              placeholder="Search rules, files... (Ctrl+K)"
+              value=${search}
+              onInput=${(e) => onSearchChange(e.target.value)}
+            />
+          </div>
+        </header>
+      `;
+    }
+
+    function ForwardView({ data, search, selectedRule, onSelectRule, onSelectFile }) {
+      const allRules = useMemo(() => 
+        data.specs.flatMap(s => s.rules.map(r => ({ ...r, spec: s.name }))),
+        [data]
+      );
+      
+      const filteredRules = useMemo(() => {
+        if (!search) return allRules;
+        const q = search.toLowerCase();
+        return allRules.filter(r => 
+          r.id.toLowerCase().includes(q) ||
+          (r.text && r.text.toLowerCase().includes(q))
+        );
+      }, [allRules, search]);
+
+      const stats = useMemo(() => {
+        const total = allRules.length;
+        const impl = allRules.filter(r => r.implRefs.length > 0).length;
+        const verify = allRules.filter(r => r.verifyRefs.length > 0).length;
+        return {
+          total,
+          impl,
+          verify,
+          implPct: total ? (impl / total) * 100 : 0,
+          verifyPct: total ? (verify / total) * 100 : 0,
+        };
+      }, [allRules]);
+
+      return html`
+        <div class="stats-bar">
+          <div class="stat">
+            <span class="stat-label">Rules</span>
+            <span class="stat-value">${stats.total}</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Impl Coverage</span>
+            <span class="stat-value ${getStatClass(stats.implPct)}">${stats.implPct.toFixed(1)}%</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Test Coverage</span>
+            <span class="stat-value ${getStatClass(stats.verifyPct)}">${stats.verifyPct.toFixed(1)}%</span>
+          </div>
+        </div>
+        <div class="main">
+          <div class="content">
+            <div class="content-body">
+              <table class="rules-table">
+                <thead>
+                  <tr>
+                    <th style="width: 35%">Rule</th>
+                    <th style="width: 32.5%">Implementations</th>
+                    <th style="width: 32.5%">Tests</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${filteredRules.map(rule => html`
+                    <tr key=${rule.id}>
+                      <td>
+                        <div class="rule-id">${rule.id}</div>
+                        ${rule.text && html`<div class="rule-text">${rule.text}</div>`}
+                      </td>
+                      <td class="rule-refs">
+                        ${rule.implRefs.length > 0 
+                          ? rule.implRefs.map(r => html`
+                              <a 
+                                class="rule-ref impl" 
+                                href="#"
+                                onClick=${(e) => { e.preventDefault(); onSelectFile(r.file); }}
+                              >${r.file}:${r.line}</a>
+                            `)
+                          : html`<span style="color: var(--fg-dim)">—</span>`
+                        }
+                      </td>
+                      <td class="rule-refs">
+                        ${rule.verifyRefs.length > 0 
+                          ? rule.verifyRefs.map(r => html`
+                              <a 
+                                class="rule-ref verify" 
+                                href="#"
+                                onClick=${(e) => { e.preventDefault(); onSelectFile(r.file); }}
+                              >${r.file}:${r.line}</a>
+                            `)
+                          : html`<span style="color: var(--fg-dim)">—</span>`
+                        }
+                      </td>
+                    </tr>
+                  `)}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function ReverseView({ data, forward, config, search, selectedFile, onSelectFile }) {
+      const fileTree = useMemo(() => buildFileTree(data.files), [data.files]);
+      const file = useFile(selectedFile);
+
+      const filteredFiles = useMemo(() => {
+        if (!search) return data.files;
+        const q = search.toLowerCase();
+        return data.files.filter(f => f.path.toLowerCase().includes(q));
+      }, [data.files, search]);
+
+      const stats = {
+        total: data.totalUnits,
+        covered: data.coveredUnits,
+        pct: data.totalUnits ? (data.coveredUnits / data.totalUnits) * 100 : 0,
+      };
+
+      return html`
+        <div class="stats-bar">
+          <div class="stat">
+            <span class="stat-label">Code Units</span>
+            <span class="stat-value">${stats.total}</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Spec Coverage</span>
+            <span class="stat-value ${getStatClass(stats.pct)}">${stats.pct.toFixed(1)}%</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Covered</span>
+            <span class="stat-value good">${stats.covered}</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Uncovered</span>
+            <span class="stat-value ${stats.total - stats.covered > 0 ? 'bad' : 'good'}">${stats.total - stats.covered}</span>
+          </div>
+        </div>
+        <div class="main">
+          <div class="sidebar">
+            <div class="sidebar-header">Files</div>
+            <div class="sidebar-content">
+              <${FileTree} 
+                node=${fileTree} 
+                selectedFile=${selectedFile}
+                onSelectFile=${onSelectFile}
+                search=${search}
+              />
+            </div>
+          </div>
+          <div class="content">
+            ${file ? html`
+              <div class="content-header">${file.path}</div>
+              <div class="content-body">
+                <${CodeView} file=${file} />
+              </div>
+            ` : html`
+              <div class="empty-state">Select a file to view coverage</div>
+            `}
+          </div>
+        </div>
+      `;
+    }
+
+    function FileTree({ node, selectedFile, onSelectFile, depth = 0, search }) {
+      const [open, setOpen] = useState(depth < 2);
+      
+      const folders = Object.values(node.children).sort((a, b) => a.name.localeCompare(b.name));
+      const files = node.files.sort((a, b) => a.name.localeCompare(b.name));
+
+      // Filter if searching
+      const matchesSearch = (path) => {
+        if (!search) return true;
+        return path.toLowerCase().includes(search.toLowerCase());
+      };
+
+      if (depth === 0) {
+        return html`
+          <div class="file-tree">
+            ${folders.map(f => html`
+              <${FileTree} 
+                key=${f.name}
+                node=${f} 
+                selectedFile=${selectedFile}
+                onSelectFile=${onSelectFile}
+                depth=${depth + 1}
+                search=${search}
+              />
+            `)}
+            ${files.filter(f => matchesSearch(f.path)).map(f => html`
+              <${FileTreeFile} 
+                key=${f.path}
+                file=${f}
+                selected=${selectedFile === f.path}
+                onClick=${() => onSelectFile(f.path)}
+              />
+            `)}
+          </div>
+        `;
+      }
+
+      const hasMatchingFiles = files.some(f => matchesSearch(f.path)) || 
+        folders.some(f => Object.values(f.children).length > 0 || f.files.some(ff => matchesSearch(ff.path)));
+
+      if (search && !hasMatchingFiles) return null;
+
+      return html`
+        <div class="tree-folder ${open ? 'open' : ''}">
+          <div class="tree-folder-header" onClick=${() => setOpen(!open)}>
+            <svg class="tree-folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9 18l6-6-6-6"/>
+            </svg>
+            <span>${node.name}</span>
+          </div>
+          <div class="tree-folder-children">
+            ${folders.map(f => html`
+              <${FileTree} 
+                key=${f.name}
+                node=${f} 
+                selectedFile=${selectedFile}
+                onSelectFile=${onSelectFile}
+                depth=${depth + 1}
+                search=${search}
+              />
+            `)}
+            ${files.filter(f => matchesSearch(f.path)).map(f => html`
+              <${FileTreeFile} 
+                key=${f.path}
+                file=${f}
+                selected=${selectedFile === f.path}
+                onClick=${() => onSelectFile(f.path)}
+              />
+            `)}
+          </div>
+        </div>
+      `;
+    }
+
+    function FileTreeFile({ file, selected, onClick }) {
+      const badge = getCoverageBadge(file.coveredUnits, file.totalUnits);
+      
+      return html`
+        <div 
+          class="tree-file ${selected ? 'selected' : ''}"
+          onClick=${onClick}
+        >
+          <span class="tree-file-name">${file.name}</span>
+          <span class="tree-file-badge ${badge.class}">${badge.text}</span>
+        </div>
+      `;
+    }
+
+    function CodeView({ file }) {
+      const lines = file.content.split('\n');
+      
+      // Build line annotations
+      const lineAnnotations = useMemo(() => {
+        const annotations = new Map();
+        for (const unit of file.units) {
+          for (let line = unit.startLine; line <= unit.endLine; line++) {
+            if (!annotations.has(line)) {
+              annotations.set(line, { units: [], ruleRefs: new Set() });
+            }
+            const anno = annotations.get(line);
+            anno.units.push(unit);
+            for (const ref of unit.ruleRefs) {
+              anno.ruleRefs.add(ref);
+            }
+          }
+        }
+        return annotations;
+      }, [file]);
+
+      return html`
+        <div class="code-view">
+          ${lines.map((line, i) => {
+            const lineNum = i + 1;
+            const anno = lineAnnotations.get(lineNum);
+            const covered = anno && anno.ruleRefs.size > 0;
+            const inUnit = anno && anno.units.length > 0;
+            
+            return html`
+              <div 
+                key=${lineNum} 
+                class="code-line ${inUnit ? (covered ? 'covered' : 'uncovered') : ''}"
+              >
+                <span class="line-number">${lineNum}</span>
+                <span 
+                  class="line-content"
+                  dangerouslySetInnerHTML=${{ __html: highlightRust(line) || ' ' }}
+                />
+                ${anno && anno.ruleRefs.size > 0 && html`
+                  <span class="line-annotations">
+                    ${[...anno.ruleRefs].slice(0, 2).map(ref => html`
+                      <span class="annotation-badge">${ref}</span>
+                    `)}
+                    ${anno.ruleRefs.size > 2 && html`
+                      <span class="annotation-badge">+${anno.ruleRefs.size - 2}</span>
+                    `}
+                  </span>
+                `}
+              </div>
+            `;
+          })}
+        </div>
+      `;
+    }
+
+    function SpecView({ config, forward, selectedRule, onSelectRule, onSelectFile }) {
+      const spec = useSpec(config.specs[0]?.name);
+      
+      // Build rule coverage map
+      const ruleCoverage = useMemo(() => {
+        const map = new Map();
+        for (const s of forward.specs) {
+          for (const r of s.rules) {
+            const hasImpl = r.implRefs.length > 0;
+            const hasVerify = r.verifyRefs.length > 0;
+            map.set(r.id, { 
+              rule: r,
+              status: hasImpl && hasVerify ? 'covered' : hasImpl || hasVerify ? 'partial' : 'uncovered'
+            });
+          }
+        }
+        return map;
+      }, [forward]);
+
+      if (!spec) {
+        return html`
+          <div class="main">
+            <div class="empty-state">Loading spec...</div>
+          </div>
+        `;
+      }
+
+      // Process markdown to inject rule markers
+      const processedContent = useMemo(() => {
+        let content = spec.content;
+        
+        // Replace r[rule.id] with styled markers
+        content = content.replace(/r\[([^\]]+)\]/g, (match, ruleId) => {
+          const coverage = ruleCoverage.get(ruleId);
+          const status = coverage?.status || 'uncovered';
+          return `<span class="rule-marker ${status}" data-rule="${ruleId}">${ruleId}</span>`;
+        });
+        
+        return marked.parse(content);
+      }, [spec, ruleCoverage]);
+
+      return html`
+        <div class="main">
+          <div class="content">
+            <div class="content-header">
+              ${spec.sourceFile || spec.name}
+            </div>
+            <div class="content-body">
+              <div 
+                class="markdown"
+                dangerouslySetInnerHTML=${{ __html: processedContent }}
+              />
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // ========================================================================
+    // Mount
+    // ========================================================================
+    
+    render(html`<${App} />`, document.getElementById('app'));
+
+    // Global keyboard shortcuts
+    document.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        document.querySelector('.search-input')?.focus();
+      }
+    });
+  </script>
+</body>
+</html>
