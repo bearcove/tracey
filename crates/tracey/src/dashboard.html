@@ -1482,6 +1482,7 @@
       const [search, setSearch] = useState('');
       const [level, setLevel] = useState(() => localStorage.getItem('tracey-level') || 'all');
       const [editor, setEditor] = useState(() => localStorage.getItem('tracey-editor') || 'zed');
+      const [scrollPositions, setScrollPositions] = useState({});
 
       // Persist level/editor to localStorage
       const handleLevelChange = useCallback((newLevel) => {
@@ -1562,6 +1563,8 @@
               selectedRule=${rule}
               onSelectRule=${handleSelectRule}
               onSelectFile=${handleSelectFile}
+              scrollPosition=${scrollPositions.spec || 0}
+              onScrollChange=${(pos) => setScrollPositions(prev => ({ ...prev, spec: pos }))}
             />
           `}
         </div>
@@ -2159,11 +2162,12 @@
       `;
     }
 
-    function SpecView({ config, forward, selectedRule, onSelectRule, onSelectFile }) {
+    function SpecView({ config, forward, selectedRule, onSelectRule, onSelectFile, scrollPosition, onScrollChange }) {
       const spec = useSpec(config.specs[0]?.name);
       const [activeHeading, setActiveHeading] = useState(null);
       const contentRef = useRef(null);
       const contentBodyRef = useRef(null);
+      const initialScrollPosition = useRef(scrollPosition);
       
       // Build rule coverage map
       const ruleCoverage = useMemo(() => {
@@ -2309,6 +2313,20 @@
         return () => clearTimeout(timeoutId);
       }, [processedContent, headings]);
 
+      // Track scroll position changes
+      useEffect(() => {
+        if (!contentBodyRef.current) return;
+        
+        const handleScroll = () => {
+          if (onScrollChange) {
+            onScrollChange(contentBodyRef.current.scrollTop);
+          }
+        };
+        
+        contentBodyRef.current.addEventListener('scroll', handleScroll, { passive: true });
+        return () => contentBodyRef.current?.removeEventListener('scroll', handleScroll);
+      }, [onScrollChange]);
+
       const scrollToHeading = useCallback((slug) => {
         if (!contentRef.current || !contentBodyRef.current) return;
         const el = contentRef.current.querySelector(`[id="${slug}"]`);
@@ -2357,29 +2375,46 @@
         return () => contentRef.current?.removeEventListener('click', handleClick);
       }, [processedContent, onSelectRule, onSelectFile]);
       
-      // Scroll to and highlight selected rule
+      // Scroll to selected rule, or restore scroll position
       useEffect(() => {
-        if (!selectedRule || !contentRef.current || !contentBodyRef.current || !processedContent) return;
+        if (!processedContent) return;
         
-        // Small delay to ensure DOM is ready
-        const timeoutId = setTimeout(() => {
-          const ruleEl = contentRef.current.querySelector(`[data-rule="${selectedRule}"]`);
-          if (ruleEl) {
-            // Scroll to rule with offset for header
-            const targetScrollTop = ruleEl.offsetTop - 150;
-            contentBodyRef.current.scrollTo({ top: Math.max(0, targetScrollTop) });
+        // Use requestAnimationFrame to ensure DOM is updated after render
+        let cancelled = false;
+        requestAnimationFrame(() => {
+          if (cancelled) return;
+          // Double RAF to ensure layout is complete
+          requestAnimationFrame(() => {
+            if (cancelled || !contentRef.current || !contentBodyRef.current) return;
             
-            // Add highlight class
-            ruleEl.classList.add('rule-marker-highlighted');
-            
-            // Remove highlight after animation
-            setTimeout(() => {
-              ruleEl.classList.remove('rule-marker-highlighted');
-            }, 3000);
-          }
-        }, 150);
+            if (selectedRule) {
+              // Navigate to specific rule
+              const ruleEl = contentRef.current.querySelector(`[data-rule="${selectedRule}"]`);
+              if (ruleEl) {
+                // Use getBoundingClientRect relative to the scroll container
+                const containerRect = contentBodyRef.current.getBoundingClientRect();
+                const ruleRect = ruleEl.getBoundingClientRect();
+                const currentScroll = contentBodyRef.current.scrollTop;
+                const targetScrollTop = currentScroll + (ruleRect.top - containerRect.top) - 150;
+                contentBodyRef.current.scrollTo({ top: Math.max(0, targetScrollTop) });
+                
+                // Add highlight class
+                ruleEl.classList.add('rule-marker-highlighted');
+                
+                // Remove highlight after animation
+                setTimeout(() => {
+                  ruleEl.classList.remove('rule-marker-highlighted');
+                }, 3000);
+              }
+            } else if (initialScrollPosition.current > 0) {
+              // Restore previous scroll position (only on initial mount)
+              contentBodyRef.current.scrollTo({ top: initialScrollPosition.current });
+              initialScrollPosition.current = 0; // Clear so we don't restore again
+            }
+          });
+        });
         
-        return () => clearTimeout(timeoutId);
+        return () => { cancelled = true; };
       }, [selectedRule, processedContent]);
 
       if (!spec) {
