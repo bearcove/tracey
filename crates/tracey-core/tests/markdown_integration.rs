@@ -1,4 +1,5 @@
 //! Integration tests for markdown processing
+#![cfg(feature = "markdown")]
 
 use std::path::Path;
 use tracey_core::markdown::{MarkdownProcessor, RulesManifest};

@@ -41,6 +41,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "arborium-rust"
+version = "2.4.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2111efc44bb3579fac7d968997cda89f1c4064fbff0986ecdf25960192d94ff3"
+dependencies = [
+ "arborium-sysroot",
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
 name = "arborium-sysroot"
 version = "2.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -989,6 +1000,8 @@ dependencies = [
 name = "tracey-core"
 version = "0.5.0"
 dependencies = [
+ "arborium",
+ "arborium-rust",
  "eyre",
  "facet",
  "facet-format-json",

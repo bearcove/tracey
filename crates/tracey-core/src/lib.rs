@@ -113,6 +113,9 @@ pub mod markdown;
 mod sources;
 mod spec;
 
+#[cfg(feature = "reverse")]
+pub mod code_units;
+
 pub use coverage::CoverageReport;
 pub use lexer::{ParseWarning, RefVerb, RuleReference, Rules, SourceSpan, WarningKind};
 pub use sources::{

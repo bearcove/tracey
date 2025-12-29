@@ -47,3 +47,7 @@ owo-colors = "4"
 
 # Syntax highlighting for miette
 miette-arborium = "2"
+
+# Tree-sitter parsing (for reverse traceability)
+arborium = { version = "2", default-features = false }
+arborium-rust = "2"
