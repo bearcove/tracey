@@ -5,19 +5,16 @@
 //! manifest to produce coverage reports.
 
 mod config;
-mod coverage;
-mod lexer;
-mod scanner;
-mod spec;
+mod errors;
+mod output;
 
-use color_eyre::eyre::{Result, WrapErr};
 use config::Config;
-use coverage::CoverageReport;
+use eyre::{Result, WrapErr};
 use facet_args as args;
-use lexer::RefVerb;
+use output::{OutputFormat, render_report};
 use owo_colors::OwoColorize;
-use spec::SpecManifest;
 use std::path::PathBuf;
+use tracey_core::{CoverageReport, Rules, SpecManifest, WalkSources};
 
 /// CLI arguments
 #[derive(Debug, facet::Facet)]
@@ -37,10 +34,24 @@ struct Args {
     /// Show verbose output including all references
     #[facet(args::named, args::short = 'v', default)]
     verbose: bool,
+
+    /// Output format: text, json, markdown, html
+    #[facet(args::named, args::short = 'f', default)]
+    format: Option<String>,
 }
 
 fn main() -> Result<()> {
-    color_eyre::install()?;
+    // Set up miette for fancy error reporting
+    miette::set_hook(Box::new(|_| {
+        Box::new(
+            miette::MietteHandlerOpts::new()
+                .terminal_links(true)
+                .unicode(true)
+                .context_lines(2)
+                .tab_width(4)
+                .build(),
+        )
+    }))?;
 
     let args: Args =
         facet_args::from_std_args().wrap_err("Failed to parse command line arguments")?;
@@ -61,6 +72,12 @@ fn main() -> Result<()> {
         .ok_or_else(|| eyre::eyre!("Config path has no parent directory"))?;
 
     let threshold = args.threshold.unwrap_or(0.0);
+    let format = args
+        .format
+        .as_ref()
+        .and_then(|f| OutputFormat::from_str(f))
+        .unwrap_or_default();
+
     let mut all_passing = true;
 
     for spec_config in &config.specs {
@@ -102,7 +119,7 @@ fn main() -> Result<()> {
 
         eprintln!(
             "   Found {} rules in spec",
-            manifest.rules.len().to_string().green()
+            manifest.len().to_string().green()
         );
 
         // Scan source files
@@ -128,18 +145,33 @@ fn main() -> Result<()> {
                 .collect()
         };
 
-        let references = scanner::scan_directory(&project_root, &include, &exclude)?;
+        let rules = Rules::extract(
+            WalkSources::new(&project_root)
+                .include(include)
+                .exclude(exclude),
+        )?;
 
         eprintln!(
             "   Found {} rule references",
-            references.len().to_string().green()
+            rules.len().to_string().green()
         );
 
+        // Print any warnings
+        if !rules.warnings.is_empty() {
+            eprintln!(
+                "{} {} parse warnings:",
+                "!".yellow().bold(),
+                rules.warnings.len()
+            );
+            errors::print_warnings(&rules.warnings, &|path| std::fs::read_to_string(path).ok());
+        }
+
         // Compute coverage
-        let report = CoverageReport::compute(spec_name.clone(), &manifest, references);
+        let report = CoverageReport::compute(spec_name, &manifest, &rules);
 
         // Print report
-        print_report(&report, args.verbose);
+        let output = render_report(&report, format, args.verbose);
+        print!("{}", output);
 
         if !report.is_passing(threshold) {
             all_passing = false;
@@ -188,142 +220,4 @@ fn load_config(path: &PathBuf) -> Result<Config> {
         .wrap_err_with(|| format!("Failed to parse config file: {}", path.display()))?;
 
     Ok(config)
-}
-
-fn print_report(report: &CoverageReport, verbose: bool) {
-    println!();
-    println!(
-        "{} {} Coverage Report",
-        "##".bold(),
-        report.spec_name.cyan().bold()
-    );
-    println!();
-
-    // Coverage summary
-    let percent = report.coverage_percent();
-    let percent_str = format!("{:.1}%", percent);
-    let color_percent = if percent >= 80.0 {
-        percent_str.green().to_string()
-    } else if percent >= 50.0 {
-        percent_str.yellow().to_string()
-    } else {
-        percent_str.red().to_string()
-    };
-
-    println!(
-        "Coverage: {} ({}/{} rules)",
-        color_percent,
-        report.covered_rules.len(),
-        report.total_rules
-    );
-
-    // Show verb breakdown
-    let verb_order = [
-        RefVerb::Define,
-        RefVerb::Impl,
-        RefVerb::Verify,
-        RefVerb::Depends,
-        RefVerb::Related,
-    ];
-    let mut verb_counts: Vec<(&str, usize)> = Vec::new();
-    for verb in &verb_order {
-        if let Some(by_rule) = report.references_by_verb.get(verb) {
-            let count: usize = by_rule.values().map(|v| v.len()).sum();
-            if count > 0 {
-                verb_counts.push((verb.as_str(), count));
-            }
-        }
-    }
-    if !verb_counts.is_empty() {
-        let breakdown: Vec<String> = verb_counts
-            .iter()
-            .map(|(verb, count)| format!("{} {}", count, verb))
-            .collect();
-        println!("  References: {}", breakdown.join(", ").dimmed());
-    }
-    println!();
-
-    // Invalid references (errors)
-    if !report.invalid_references.is_empty() {
-        println!(
-            "{} Invalid References ({}):",
-            "!".red().bold(),
-            report.invalid_references.len()
-        );
-        for r in &report.invalid_references {
-            println!(
-                "  {} {}:{} - unknown rule [{} {}]",
-                "-".red(),
-                r.file,
-                r.line,
-                r.verb.as_str().dimmed(),
-                r.rule_id.yellow()
-            );
-        }
-        println!();
-    }
-
-    // Uncovered rules
-    if !report.uncovered_rules.is_empty() {
-        println!(
-            "{} Uncovered Rules ({}):",
-            "?".yellow().bold(),
-            report.uncovered_rules.len()
-        );
-
-        let mut uncovered: Vec<_> = report.uncovered_rules.iter().collect();
-        uncovered.sort();
-
-        for rule_id in uncovered {
-            println!("  {} [{}]", "-".yellow(), rule_id.dimmed());
-        }
-        println!();
-    }
-
-    // Verbose: show all references grouped by verb
-    if verbose && !report.references_by_verb.is_empty() {
-        for verb in &verb_order {
-            if let Some(by_rule) = report.references_by_verb.get(verb) {
-                if by_rule.is_empty() {
-                    continue;
-                }
-
-                let total_refs: usize = by_rule.values().map(|v| v.len()).sum();
-                let verb_icon = match verb {
-                    RefVerb::Define => "◉",
-                    RefVerb::Impl => "+",
-                    RefVerb::Verify => "✓",
-                    RefVerb::Depends => "→",
-                    RefVerb::Related => "~",
-                };
-                let verb_color = match verb {
-                    RefVerb::Define => verb.as_str().blue().to_string(),
-                    RefVerb::Impl => verb.as_str().green().to_string(),
-                    RefVerb::Verify => verb.as_str().cyan().to_string(),
-                    RefVerb::Depends => verb.as_str().magenta().to_string(),
-                    RefVerb::Related => verb.as_str().dimmed().to_string(),
-                };
-
-                println!(
-                    "{} {} ({} references across {} rules):",
-                    verb_icon.bold(),
-                    verb_color,
-                    total_refs,
-                    by_rule.len()
-                );
-
-                let mut rules: Vec<_> = by_rule.keys().collect();
-                rules.sort();
-
-                for rule_id in rules {
-                    let refs = &by_rule[rule_id];
-                    println!("  [{}] ({} refs)", rule_id.green(), refs.len());
-                    for r in refs {
-                        println!("      {}:{}", r.file.dimmed(), r.line.to_string().dimmed());
-                    }
-                }
-                println!();
-            }
-        }
-    }
 }

@@ -1,30 +1,42 @@
-//! Spec manifest fetching and parsing
-//!
-//! Fetches `_rules.json` from a spec URL or loads from a local file,
-//! and parses the rule definitions.
+//! Spec manifest loading and parsing
 
 use eyre::{Result, WrapErr};
+use facet::Facet;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::Path;
 
 /// A rule definition from the spec manifest
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Facet)]
 pub struct RuleInfo {
     /// URL fragment to link to this rule
-    #[allow(dead_code)]
     pub url: String,
 }
 
 /// The spec manifest structure (from _rules.json)
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Facet)]
 pub struct SpecManifest {
     /// Map of rule IDs to their info
     pub rules: HashMap<String, RuleInfo>,
 }
 
 impl SpecManifest {
+    /// Parse a spec manifest from JSON string
+    pub fn from_json(json: &str) -> Result<Self> {
+        serde_json::from_str(json).wrap_err("Failed to parse spec manifest JSON")
+    }
+
+    /// Load a spec manifest from a local file
+    pub fn load(path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref();
+        let content = std::fs::read_to_string(path)
+            .wrap_err_with(|| format!("Failed to read spec manifest from {}", path.display()))?;
+        Self::from_json(&content)
+            .wrap_err_with(|| format!("Failed to parse spec manifest from {}", path.display()))
+    }
+
     /// Fetch a spec manifest from a URL
+    #[cfg(feature = "fetch")]
     pub fn fetch(url: &str) -> Result<Self> {
         let mut response = ureq::get(url)
             .call()
@@ -34,17 +46,6 @@ impl SpecManifest {
             .body_mut()
             .read_json()
             .wrap_err_with(|| format!("Failed to parse spec manifest from {}", url))?;
-
-        Ok(manifest)
-    }
-
-    /// Load a spec manifest from a local file
-    pub fn load(path: &Path) -> Result<Self> {
-        let content = std::fs::read_to_string(path)
-            .wrap_err_with(|| format!("Failed to read spec manifest from {}", path.display()))?;
-
-        let manifest: SpecManifest = serde_json::from_str(&content)
-            .wrap_err_with(|| format!("Failed to parse spec manifest from {}", path.display()))?;
 
         Ok(manifest)
     }
@@ -60,8 +61,17 @@ impl SpecManifest {
     }
 
     /// Get the URL for a rule
-    #[allow(dead_code)]
     pub fn get_rule_url(&self, id: &str) -> Option<&str> {
         self.rules.get(id).map(|r| r.url.as_str())
+    }
+
+    /// Number of rules in this manifest
+    pub fn len(&self) -> usize {
+        self.rules.len()
+    }
+
+    /// Whether this manifest has no rules
+    pub fn is_empty(&self) -> bool {
+        self.rules.is_empty()
     }
 }

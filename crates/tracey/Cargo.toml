@@ -1,0 +1,38 @@
+[package]
+name = "tracey"
+version = "0.4.0"
+description = "CLI tool to measure spec coverage in Rust codebases"
+keywords = ["specification", "coverage", "traceability", "testing", "documentation"]
+categories = ["development-tools", "command-line-utilities"]
+readme = "../../README.md"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "tracey"
+path = "src/main.rs"
+
+[dependencies]
+tracey-core = { workspace = true, features = ["walk", "parallel", "fetch"] }
+
+# Facet ecosystem for config parsing and CLI
+facet = { workspace = true }
+facet-args = { workspace = true }
+facet-kdl = { workspace = true }
+
+# Error handling
+eyre = { workspace = true }
+miette = { workspace = true }
+thiserror = { workspace = true }
+
+# Serialization (for JSON output)
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Pretty output
+owo-colors = { workspace = true }
+
+# Syntax highlighting for miette
+syntect = { workspace = true }

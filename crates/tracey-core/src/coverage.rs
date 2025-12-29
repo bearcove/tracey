@@ -1,11 +1,12 @@
 //! Coverage analysis and reporting
 
-use crate::lexer::{RefVerb, RuleReference};
+use crate::lexer::{RefVerb, RuleReference, Rules};
 use crate::spec::SpecManifest;
+use facet::Facet;
 use std::collections::{HashMap, HashSet};
 
 /// Coverage analysis results for a single spec
-#[derive(Debug)]
+#[derive(Debug, Facet)]
 pub struct CoverageReport {
     /// Name of the spec
     pub spec_name: String,
@@ -22,8 +23,7 @@ pub struct CoverageReport {
     /// References to rules that don't exist in the spec
     pub invalid_references: Vec<RuleReference>,
 
-    /// All valid references, grouped by rule ID (kept for API compatibility)
-    #[allow(dead_code)]
+    /// All valid references, grouped by rule ID
     pub references_by_rule: HashMap<String, Vec<RuleReference>>,
 
     /// References grouped by verb type, then by rule ID
@@ -31,19 +31,16 @@ pub struct CoverageReport {
 }
 
 impl CoverageReport {
-    /// Compute coverage from references and manifest
-    pub fn compute(
-        spec_name: String,
-        manifest: &SpecManifest,
-        references: Vec<RuleReference>,
-    ) -> Self {
+    /// Compute coverage from rules and manifest
+    pub fn compute(spec_name: impl Into<String>, manifest: &SpecManifest, rules: &Rules) -> Self {
+        let spec_name = spec_name.into();
         let mut covered_rules = HashSet::new();
         let mut invalid_references = Vec::new();
         let mut references_by_rule: HashMap<String, Vec<RuleReference>> = HashMap::new();
         let mut references_by_verb: HashMap<RefVerb, HashMap<String, Vec<RuleReference>>> =
             HashMap::new();
 
-        for reference in references {
+        for reference in &rules.references {
             if manifest.has_rule(&reference.rule_id) {
                 covered_rules.insert(reference.rule_id.clone());
                 references_by_rule
@@ -57,9 +54,9 @@ impl CoverageReport {
                     .or_default()
                     .entry(reference.rule_id.clone())
                     .or_default()
-                    .push(reference);
+                    .push(reference.clone());
             } else {
-                invalid_references.push(reference);
+                invalid_references.push(reference.clone());
             }
         }
 
@@ -86,7 +83,7 @@ impl CoverageReport {
         (self.covered_rules.len() as f64 / self.total_rules as f64) * 100.0
     }
 
-    /// Whether the coverage is "passing" (no invalid refs, > threshold coverage)
+    /// Whether the coverage is "passing" (no invalid refs, >= threshold coverage)
     pub fn is_passing(&self, threshold: f64) -> bool {
         self.invalid_references.is_empty() && self.coverage_percent() >= threshold
     }
