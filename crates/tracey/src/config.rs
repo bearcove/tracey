@@ -30,6 +30,12 @@ pub struct SpecConfig {
     #[facet(kdl::child, default)]
     pub rules_file: Option<RulesFile>,
 
+    /// Glob pattern for markdown spec files to extract rules from
+    /// e.g., "docs/spec/**/*.md"
+    /// Rules will be extracted from r[rule.id] syntax in the markdown
+    #[facet(kdl::child, default)]
+    pub rules_glob: Option<RulesGlob>,
+
     /// Glob patterns for Rust files to scan
     /// Defaults to ["**/*.rs"] if not specified
     #[facet(kdl::children, default)]
@@ -56,6 +62,12 @@ pub struct RulesUrl {
 pub struct RulesFile {
     #[facet(kdl::argument)]
     pub path: String,
+}
+
+#[derive(Debug, Facet)]
+pub struct RulesGlob {
+    #[facet(kdl::argument)]
+    pub pattern: String,
 }
 
 #[derive(Debug, Facet)]

@@ -15,6 +15,7 @@ default = ["walk", "parallel"]
 walk = ["dep:ignore"]
 parallel = ["dep:rayon"]
 fetch = ["dep:ureq"]
+markdown = []
 
 [dependencies]
 facet = { workspace = true }

@@ -15,7 +15,7 @@ name = "tracey"
 path = "src/main.rs"
 
 [dependencies]
-tracey-core = { workspace = true, features = ["walk", "parallel", "fetch"] }
+tracey-core = { workspace = true, features = ["walk", "parallel", "fetch", "markdown"] }
 
 # Facet ecosystem for config parsing and CLI
 facet = { workspace = true }
@@ -33,6 +33,9 @@ serde_json = { workspace = true }
 
 # Pretty output
 owo-colors = { workspace = true }
+
+# File walking (for rules_glob)
+ignore = { workspace = true }
 
 # Syntax highlighting for miette
 syntect = { workspace = true }

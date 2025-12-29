@@ -14,11 +14,16 @@ use facet_args as args;
 use output::{OutputFormat, render_report};
 use owo_colors::OwoColorize;
 use std::path::PathBuf;
+use tracey_core::markdown::{MarkdownProcessor, RulesManifest};
 use tracey_core::{CoverageReport, Rules, SpecManifest, WalkSources};
 
 /// CLI arguments
 #[derive(Debug, facet::Facet)]
 struct Args {
+    /// Subcommand to run
+    #[facet(args::subcommand)]
+    command: Option<Command>,
+
     /// Path to config file (default: .config/tracey/config.kdl)
     #[facet(args::named, args::short = 'c', default)]
     config: Option<PathBuf>,
@@ -40,6 +45,30 @@ struct Args {
     format: Option<String>,
 }
 
+/// Subcommands
+#[derive(Debug, facet::Facet)]
+#[repr(u8)]
+enum Command {
+    /// Extract rules from markdown spec documents and generate _rules.json
+    Rules {
+        /// Markdown files to process
+        #[facet(args::positional)]
+        files: Vec<PathBuf>,
+
+        /// Base URL for rule links (e.g., "/spec/core")
+        #[facet(args::named, args::short = 'b', default)]
+        base_url: Option<String>,
+
+        /// Output file for _rules.json (default: stdout)
+        #[facet(args::named, args::short = 'o', default)]
+        output: Option<PathBuf>,
+
+        /// Also output transformed markdown (to directory)
+        #[facet(args::named, default)]
+        markdown_out: Option<PathBuf>,
+    },
+}
+
 fn main() -> Result<()> {
     // Set up miette for fancy error reporting
     miette::set_hook(Box::new(|_| {
@@ -56,6 +85,106 @@ fn main() -> Result<()> {
     let args: Args =
         facet_args::from_std_args().wrap_err("Failed to parse command line arguments")?;
 
+    match args.command {
+        Some(Command::Rules {
+            files,
+            base_url,
+            output,
+            markdown_out,
+        }) => run_rules_command(files, base_url, output, markdown_out),
+        None => run_coverage_command(args),
+    }
+}
+
+fn run_rules_command(
+    files: Vec<PathBuf>,
+    base_url: Option<String>,
+    output: Option<PathBuf>,
+    markdown_out: Option<PathBuf>,
+) -> Result<()> {
+    if files.is_empty() {
+        eyre::bail!("No markdown files specified. Usage: tracey rules <file.md>...");
+    }
+
+    let base_url = base_url.as_deref().unwrap_or("");
+    let mut manifest = RulesManifest::new();
+    let mut all_duplicates = Vec::new();
+
+    for file_path in &files {
+        eprintln!(
+            "{} Processing {}...",
+            "->".blue().bold(),
+            file_path.display()
+        );
+
+        let content = std::fs::read_to_string(file_path)
+            .wrap_err_with(|| format!("Failed to read {}", file_path.display()))?;
+
+        let result = MarkdownProcessor::process(&content)
+            .wrap_err_with(|| format!("Failed to process {}", file_path.display()))?;
+
+        eprintln!("   Found {} rules", result.rules.len().to_string().green());
+
+        // Build manifest for this file
+        let file_manifest = RulesManifest::from_rules(&result.rules, base_url);
+        let duplicates = manifest.merge(&file_manifest);
+
+        if !duplicates.is_empty() {
+            all_duplicates.extend(duplicates);
+        }
+
+        // Optionally write transformed markdown
+        if let Some(ref out_dir) = markdown_out {
+            std::fs::create_dir_all(out_dir)?;
+            let out_file = out_dir.join(
+                file_path
+                    .file_name()
+                    .ok_or_else(|| eyre::eyre!("Invalid file path"))?,
+            );
+            std::fs::write(&out_file, &result.output)
+                .wrap_err_with(|| format!("Failed to write {}", out_file.display()))?;
+            eprintln!("   Wrote transformed markdown to {}", out_file.display());
+        }
+    }
+
+    // Report any duplicates
+    if !all_duplicates.is_empty() {
+        eprintln!(
+            "\n{} Found {} duplicate rule IDs across files:",
+            "!".yellow().bold(),
+            all_duplicates.len()
+        );
+        for dup in &all_duplicates {
+            eprintln!(
+                "   {} defined at {} and {}",
+                dup.id.red(),
+                dup.first_url,
+                dup.second_url
+            );
+        }
+        eyre::bail!("Duplicate rule IDs found");
+    }
+
+    // Output the manifest
+    let json = manifest.to_json();
+
+    if let Some(ref out_path) = output {
+        std::fs::write(out_path, &json)
+            .wrap_err_with(|| format!("Failed to write {}", out_path.display()))?;
+        eprintln!(
+            "\n{} Wrote {} rules to {}",
+            "OK".green().bold(),
+            manifest.rules.len(),
+            out_path.display()
+        );
+    } else {
+        println!("{}", json);
+    }
+
+    Ok(())
+}
+
+fn run_coverage_command(args: Args) -> Result<()> {
     // Find project root (look for Cargo.toml)
     let project_root = find_project_root()?;
 
@@ -83,9 +212,13 @@ fn main() -> Result<()> {
     for spec_config in &config.specs {
         let spec_name = &spec_config.name.value;
 
-        // Load manifest from either URL or local file
-        let manifest = match (&spec_config.rules_url, &spec_config.rules_file) {
-            (Some(url), None) => {
+        // Load manifest from URL, local file, or markdown glob
+        let manifest = match (
+            &spec_config.rules_url,
+            &spec_config.rules_file,
+            &spec_config.rules_glob,
+        ) {
+            (Some(url), None, None) => {
                 eprintln!(
                     "{} Fetching spec manifest for {}...",
                     "->".blue().bold(),
@@ -93,7 +226,7 @@ fn main() -> Result<()> {
                 );
                 SpecManifest::fetch(&url.value)?
             }
-            (None, Some(file)) => {
+            (None, Some(file), None) => {
                 let file_path = config_dir.join(&file.path);
                 eprintln!(
                     "{} Loading spec manifest for {} from {}...",
@@ -103,15 +236,24 @@ fn main() -> Result<()> {
                 );
                 SpecManifest::load(&file_path)?
             }
-            (Some(_), Some(_)) => {
+            (None, None, Some(glob)) => {
+                eprintln!(
+                    "{} Extracting rules for {} from markdown files matching {}...",
+                    "->".blue().bold(),
+                    spec_name.cyan(),
+                    glob.pattern.cyan()
+                );
+                load_manifest_from_glob(&project_root, &glob.pattern)?
+            }
+            (None, None, None) => {
                 eyre::bail!(
-                    "Spec '{}' has both rules_url and rules_file - please specify only one",
+                    "Spec '{}' has no rules source - please specify rules_url, rules_file, or rules_glob",
                     spec_name
                 );
             }
-            (None, None) => {
+            _ => {
                 eyre::bail!(
-                    "Spec '{}' has neither rules_url nor rules_file - please specify one",
+                    "Spec '{}' has multiple rules sources - please specify only one of rules_url, rules_file, or rules_glob",
                     spec_name
                 );
             }
@@ -183,6 +325,132 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Load a SpecManifest by extracting rules from markdown files matching a glob pattern
+fn load_manifest_from_glob(root: &PathBuf, pattern: &str) -> Result<SpecManifest> {
+    use ignore::WalkBuilder;
+    use std::collections::HashMap;
+
+    let mut rules_manifest = RulesManifest::new();
+    let mut file_count = 0;
+
+    // Walk the directory tree
+    let walker = WalkBuilder::new(root)
+        .follow_links(true)
+        .hidden(false)
+        .git_ignore(true)
+        .build();
+
+    for entry in walker {
+        let entry = entry?;
+        let path = entry.path();
+
+        // Only process .md files
+        if path.extension().is_none_or(|ext| ext != "md") {
+            continue;
+        }
+
+        // Check if the path matches the glob pattern
+        let relative = path.strip_prefix(root).unwrap_or(path);
+        let relative_str = relative.to_string_lossy();
+
+        if !matches_glob(&relative_str, pattern) {
+            continue;
+        }
+
+        // Read and extract rules
+        let content = std::fs::read_to_string(path)
+            .wrap_err_with(|| format!("Failed to read {}", path.display()))?;
+
+        let result = MarkdownProcessor::process(&content)
+            .wrap_err_with(|| format!("Failed to process {}", path.display()))?;
+
+        if !result.rules.is_empty() {
+            eprintln!(
+                "   {} {} rules from {}",
+                "Found".green(),
+                result.rules.len(),
+                relative_str
+            );
+            file_count += 1;
+
+            // Build manifest for this file (no base URL needed for coverage checking)
+            let file_manifest = RulesManifest::from_rules(&result.rules, "");
+            let duplicates = rules_manifest.merge(&file_manifest);
+
+            if !duplicates.is_empty() {
+                for dup in &duplicates {
+                    eprintln!(
+                        "   {} Duplicate rule '{}' in {}",
+                        "!".yellow().bold(),
+                        dup.id.red(),
+                        relative_str
+                    );
+                }
+                eyre::bail!(
+                    "Found {} duplicate rule IDs in markdown files",
+                    duplicates.len()
+                );
+            }
+        }
+    }
+
+    if file_count == 0 {
+        eyre::bail!(
+            "No markdown files with rules found matching pattern '{}'",
+            pattern
+        );
+    }
+
+    // Convert RulesManifest to SpecManifest
+    let spec_rules: HashMap<String, tracey_core::RuleInfo> = rules_manifest
+        .rules
+        .into_iter()
+        .map(|(id, entry)| (id, tracey_core::RuleInfo { url: entry.url }))
+        .collect();
+
+    Ok(SpecManifest { rules: spec_rules })
+}
+
+/// Simple glob pattern matching
+fn matches_glob(path: &str, pattern: &str) -> bool {
+    // Handle **/*.md pattern
+    if pattern == "**/*.md" {
+        return path.ends_with(".md");
+    }
+
+    // Handle prefix/**/*.md patterns like "docs/**/*.md"
+    if let Some(rest) = pattern.strip_suffix("/**/*.md") {
+        return path.starts_with(rest) && path.ends_with(".md");
+    }
+
+    // Handle prefix/** patterns
+    if let Some(prefix) = pattern.strip_suffix("/**") {
+        return path.starts_with(prefix);
+    }
+
+    // Handle exact matches
+    if !pattern.contains('*') {
+        return path == pattern;
+    }
+
+    // Fallback: simple contains check for the non-wildcard parts
+    let parts: Vec<&str> = pattern.split('*').filter(|s| !s.is_empty()).collect();
+    if parts.is_empty() {
+        return true;
+    }
+
+    let mut remaining = path;
+    for part in parts {
+        if let Some(idx) = remaining.find(part) {
+            remaining = &remaining[idx + part.len()..];
+        } else {
+            return false;
+        }
+    }
+
+    true
 }
 
 fn find_project_root() -> Result<PathBuf> {
