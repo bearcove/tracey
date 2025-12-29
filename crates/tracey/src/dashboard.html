@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <title>tracey</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iNiIgZmlsbD0iIzFhMWIyNiIvPjxwYXRoIGQ9Ik04IDI0IEwxNCA4IEwxOCAxNiBMMjQgOCIgc3Ryb2tlPSIjN2FhMmY3IiBzdHJva2Utd2lkdGg9IjMiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIgZmlsbD0ibm9uZSIvPjxjaXJjbGUgY3g9IjgiIGN5PSIyNCIgcj0iMi41IiBmaWxsPSIjNzNkYWNhIi8+PGNpcmNsZSBjeD0iMjQiIGN5PSI4IiByPSIyLjUiIGZpbGw9IiM3M2RhY2EiLz48L3N2Zz4=">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&family=Public+Sans:wght@400;500;600&display=swap" rel="stylesheet">
@@ -1094,19 +1095,19 @@
       const path = window.location.pathname;
       const params = new URLSearchParams(window.location.search);
       
-      // /tree or /tree/path/to/file.rs:123
-      if (path === '/tree' || path.startsWith('/tree/')) {
-        const rest = path.length > 6 ? path.slice(6) : ''; // Remove '/tree/'
+      // /sources or /sources/path/to/file.rs:123
+      if (path === '/sources' || path.startsWith('/sources/')) {
+        const rest = path.length > 9 ? path.slice(9) : ''; // Remove '/sources/'
         if (rest) {
           const colonIdx = rest.lastIndexOf(':');
           if (colonIdx !== -1) {
             const file = rest.slice(0, colonIdx);
             const line = parseInt(rest.slice(colonIdx + 1), 10);
-            return { view: 'tree', file, line: isNaN(line) ? null : line };
+            return { view: 'sources', file, line: isNaN(line) ? null : line };
           }
-          return { view: 'tree', file: rest, line: null };
+          return { view: 'sources', file: rest, line: null };
         }
-        return { view: 'tree', file: null, line: null };
+        return { view: 'sources', file: null, line: null };
       }
       // /spec or /spec/rule.id
       if (path.startsWith('/spec')) {
@@ -1121,12 +1122,12 @@
     }
     
     function buildUrl(view, params = {}) {
-      if (view === 'tree') {
+      if (view === 'sources') {
         const { file, line } = params;
         if (file) {
-          return line ? `/tree/${file}:${line}` : `/tree/${file}`;
+          return line ? `/sources/${file}:${line}` : `/sources/${file}`;
         }
-        return '/tree';
+        return '/sources';
       }
       if (view === 'spec') {
         const { rule } = params;
@@ -1504,7 +1505,7 @@
       }, []);
 
       const handleSelectFile = useCallback((filePath, lineNum = null) => {
-        navigate('tree', { file: filePath, line: lineNum }, false);
+        navigate('sources', { file: filePath, line: lineNum }, false);
       }, []);
 
       const handleSelectRule = useCallback((ruleId) => {
@@ -1539,8 +1540,8 @@
             />
           `}
           
-          ${view === 'tree' && html`
-            <${TreeView} 
+          ${view === 'sources' && html`
+            <${SourcesView} 
               data=${reverse}
               config=${config}
               search=${search}
@@ -1596,9 +1597,9 @@
 
     // Tab icons
     const TAB_ICONS = {
-      coverage: html`<svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>`,
-      tree: html`<svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`,
-      spec: html`<svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>`,
+      specification: html`<svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>`,
+      coverage: html`<svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>`,
+      sources: html`<svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`,
     };
     
     // Icons for impl/verify refs
@@ -1616,20 +1617,20 @@
           <div class="header-inner">
             <nav class="nav">
               <a 
+                href="/spec"
+                class="nav-tab ${view === 'spec' ? 'active' : ''}"
+                onClick=${(e) => handleNavClick(e, 'spec')}
+              >${TAB_ICONS.specification}<span>Specification</span></a>
+              <a 
                 href="/forward"
                 class="nav-tab ${view === 'forward' ? 'active' : ''}"
                 onClick=${(e) => handleNavClick(e, 'forward')}
               >${TAB_ICONS.coverage}<span>Coverage</span></a>
               <a 
-                href="/tree"
-                class="nav-tab ${view === 'tree' ? 'active' : ''}"
-                onClick=${(e) => handleNavClick(e, 'tree')}
-              >${TAB_ICONS.tree}<span>Tree</span></a>
-              <a 
-                href="/spec"
-                class="nav-tab ${view === 'spec' ? 'active' : ''}"
-                onClick=${(e) => handleNavClick(e, 'spec')}
-              >${TAB_ICONS.spec}<span>Spec</span></a>
+                href="/sources"
+                class="nav-tab ${view === 'sources' ? 'active' : ''}"
+                onClick=${(e) => handleNavClick(e, 'sources')}
+              >${TAB_ICONS.sources}<span>Sources</span></a>
             </nav>
             
             <a href="/forward" class="logo" onClick=${(e) => handleNavClick(e, 'forward')}>tracey</a>
@@ -1866,7 +1867,7 @@
       `;
     }
 
-    function TreeView({ data, config, search, editor, onEditorChange, selectedFile, selectedLine, onSelectFile, onSelectRule }) {
+    function SourcesView({ data, config, search, editor, onEditorChange, selectedFile, selectedLine, onSelectFile, onSelectRule }) {
       const fileTree = useMemo(() => buildFileTree(data.files), [data.files]);
       const file = useFile(selectedFile);
 
