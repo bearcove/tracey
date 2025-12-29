@@ -4,44 +4,39 @@
 #![allow(unused_variables, unused_assignments)]
 
 use facet::Facet;
+use facet_miette as diagnostic;
 use miette::{Diagnostic, NamedSource, SourceSpan};
 use std::path::Path;
 use tracey_core::{ParseWarning, WarningKind};
 
 /// Parse warning errors
-#[derive(Debug, Facet, Diagnostic)]
-#[facet(derive(Error))]
+#[derive(Debug, Facet)]
+#[facet(derive(Error, facet_miette::Diagnostic))]
 #[repr(u8)]
 pub enum ParseError {
     /// Unknown verb '{verb}'
-    #[diagnostic(
-        code(tracey::unknown_verb),
-        help("Valid verbs are: define, impl, verify, depends, related")
-    )]
+    #[facet(diagnostic::code = "tracey::unknown_verb")]
+    #[facet(diagnostic::help = "Valid verbs are: define, impl, verify, depends, related")]
     UnknownVerb {
         verb: String,
 
-        #[facet(opaque)]
-        #[source_code]
+        #[facet(opaque, diagnostic::source_code)]
         src: NamedSource<String>,
 
-        #[facet(opaque)]
-        #[label("this verb is not recognized")]
+        #[facet(opaque, diagnostic::label = "this verb is not recognized")]
         span: SourceSpan,
     },
 
     /// Malformed rule reference
-    #[diagnostic(
-        code(tracey::malformed_reference),
-        help("Rule references should be in the format [verb rule.id] or [rule.id]")
+    #[facet(diagnostic::code = "tracey::malformed_reference")]
+    #[facet(
+        diagnostic::help = "Rule references should be in the format [verb rule.id] or [rule.id]"
     )]
     MalformedReference {
-        #[facet(opaque)]
-        #[source_code]
+        #[facet(opaque, diagnostic::source_code)]
         src: NamedSource<String>,
 
-        #[facet(opaque)]
-        #[label("invalid syntax")]
+        #[facet(opaque, diagnostic::label = "invalid syntax")]
         span: SourceSpan,
     },
 }

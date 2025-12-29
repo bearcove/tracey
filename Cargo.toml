@@ -16,16 +16,17 @@ authors = ["Amos Wenger <amos@bearcove.eu>"]
 # Internal
 tracey-core = { path = "crates/tracey-core", version = "0.5.0" }
 
-# Facet ecosystem
-facet = "0.35"
-facet-args = "0.35"
-facet-kdl = "0.35"
-facet-json = "0.35"
+# Facet ecosystem (from git for facet-miette support)
+facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-args = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-kdl = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-error = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-miette = { git = "https://github.com/facet-rs/facet", branch = "main" }
 
 # Error handling
 eyre = "0.6"
 miette = { version = "7", features = ["fancy-no-backtrace"] }
-facet-error = "0.35"
 
 # HTTP fetching
 ureq = "3"
