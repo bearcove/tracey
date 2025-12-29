@@ -8,7 +8,7 @@ use facet::Facet;
 use facet_kdl as kdl;
 
 /// Root configuration for tracey
-#[derive(Debug, Facet)]
+#[derive(Debug, Clone, Facet)]
 pub struct Config {
     /// Specifications to track coverage against
     #[facet(kdl::children, default)]
@@ -16,7 +16,7 @@ pub struct Config {
 }
 
 /// Configuration for a single specification
-#[derive(Debug, Facet)]
+#[derive(Debug, Clone, Facet)]
 pub struct SpecConfig {
     /// Name of the spec (for display purposes)
     ///
@@ -50,37 +50,37 @@ pub struct SpecConfig {
     pub exclude: Vec<Exclude>,
 }
 
-#[derive(Debug, Facet)]
+#[derive(Debug, Clone, Facet)]
 pub struct Name {
     #[facet(kdl::argument)]
     pub value: String,
 }
 
-#[derive(Debug, Facet)]
+#[derive(Debug, Clone, Facet)]
 pub struct RulesUrl {
     #[facet(kdl::argument)]
     pub value: String,
 }
 
-#[derive(Debug, Facet)]
+#[derive(Debug, Clone, Facet)]
 pub struct RulesFile {
     #[facet(kdl::argument)]
     pub path: String,
 }
 
-#[derive(Debug, Facet)]
+#[derive(Debug, Clone, Facet)]
 pub struct RulesGlob {
     #[facet(kdl::argument)]
     pub pattern: String,
 }
 
-#[derive(Debug, Facet)]
+#[derive(Debug, Clone, Facet)]
 pub struct Include {
     #[facet(kdl::argument)]
     pub pattern: String,
 }
 
-#[derive(Debug, Facet)]
+#[derive(Debug, Clone, Facet)]
 pub struct Exclude {
     #[facet(kdl::argument)]
     pub pattern: String,

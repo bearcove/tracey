@@ -7,6 +7,7 @@
 mod config;
 mod errors;
 mod output;
+mod serve;
 
 use config::Config;
 use eyre::{Result, WrapErr};
@@ -136,6 +137,21 @@ enum Command {
         #[facet(args::named, default)]
         open: bool,
     },
+
+    /// Start an interactive dashboard server with live reload
+    Serve {
+        /// Path to config file (default: .config/tracey/config.kdl)
+        #[facet(args::named, args::short = 'c', default)]
+        config: Option<PathBuf>,
+
+        /// Port to serve on (default: 3000)
+        #[facet(args::named, args::short = 'p', default)]
+        port: Option<u16>,
+
+        /// Open the dashboard in your browser
+        #[facet(args::named, default)]
+        open: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -201,6 +217,9 @@ fn main() -> Result<()> {
         }) => run_matrix_command(
             config, format, uncovered, no_verify, level, status, prefix, output, open,
         ),
+        Some(Command::Serve { config, port, open }) => {
+            serve::run(config, port.unwrap_or(3000), open)
+        }
         None => run_coverage_command(args),
     }
 }
@@ -2262,7 +2281,10 @@ document.addEventListener('click', (e) => {{
 }
 
 /// Load a SpecManifest by extracting rules from markdown files matching a glob pattern
-fn load_manifest_from_glob(root: &PathBuf, pattern: &str) -> Result<SpecManifest> {
+pub(crate) fn load_manifest_from_glob(
+    root: &std::path::Path,
+    pattern: &str,
+) -> Result<SpecManifest> {
     use ignore::WalkBuilder;
     use std::collections::HashMap;
 
@@ -2402,7 +2424,7 @@ fn matches_glob(path: &str, pattern: &str) -> bool {
     true
 }
 
-fn find_project_root() -> Result<PathBuf> {
+pub(crate) fn find_project_root() -> Result<PathBuf> {
     let mut current = std::env::current_dir()?;
 
     loop {
@@ -2417,7 +2439,7 @@ fn find_project_root() -> Result<PathBuf> {
     }
 }
 
-fn load_config(path: &PathBuf) -> Result<Config> {
+pub(crate) fn load_config(path: &PathBuf) -> Result<Config> {
     if !path.exists() {
         eyre::bail!(
             "Config file not found at {}\n\n\

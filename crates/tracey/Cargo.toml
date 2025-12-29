@@ -24,7 +24,7 @@ name = "tracey"
 path = "src/main.rs"
 
 [dependencies]
-tracey-core = { workspace = true, features = ["walk", "parallel", "fetch", "markdown"] }
+tracey-core = { workspace = true, features = ["walk", "parallel", "fetch", "markdown", "reverse"] }
 
 # Facet ecosystem for config parsing and CLI
 facet = { workspace = true }
@@ -52,6 +52,14 @@ html-escape = "0.2.13"
 
 # Open files in browser
 open = "5"
+
+# HTTP server for serve command
+async_tiny = { workspace = true }
+tokio = { workspace = true }
+
+# File watching for live reload
+notify = { workspace = true }
+notify-debouncer-mini = { workspace = true }
 
 [dev-dependencies]
 facet-value = { workspace = true }

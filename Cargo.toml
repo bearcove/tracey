@@ -51,3 +51,11 @@ miette-arborium = "2"
 # Tree-sitter parsing (for reverse traceability)
 arborium = { version = "2", default-features = false }
 arborium-rust = "2"
+
+# HTTP server for serve command
+async_tiny = "0.4"
+tokio = { version = "1", default-features = false, features = ["rt", "net", "sync", "time"] }
+
+# File watching for live reload
+notify = "8"
+notify-debouncer-mini = "0.6"
