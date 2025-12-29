@@ -52,6 +52,19 @@
 //! Channel IDs MUST be allocated sequentially starting from 0.
 //! ```
 //!
+//! Rules can also include metadata attributes:
+//!
+//! ```markdown
+//! r[channel.id.allocation status=stable level=must since=1.0]
+//! Channel IDs MUST be allocated sequentially starting from 0.
+//!
+//! r[experimental.feature status=draft]
+//! This feature is under development.
+//!
+//! r[old.behavior status=deprecated until=3.0]
+//! This behavior is deprecated and will be removed.
+//! ```
+//!
 //! Extract rules and generate manifests:
 //!
 //! ```
@@ -70,7 +83,7 @@
 //! assert_eq!(result.rules[0].id, "my.rule.id");
 //!
 //! // Generate _rules.json manifest
-//! let manifest = RulesManifest::from_rules(&result.rules, "/spec");
+//! let manifest = RulesManifest::from_rules(&result.rules, "/spec", None);
 //! println!("{}", manifest.to_json());
 //!
 //! // The transformed output has HTML anchors for rendering

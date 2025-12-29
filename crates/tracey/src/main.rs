@@ -97,6 +97,41 @@ enum Command {
         #[facet(args::named, args::short = 'f', default)]
         format: Option<String>,
     },
+
+    /// Generate a traceability matrix showing rules × code artifacts
+    Matrix {
+        /// Path to config file (default: .config/tracey/config.kdl)
+        #[facet(args::named, args::short = 'c', default)]
+        config: Option<PathBuf>,
+
+        /// Output format: markdown, csv, json, html (default: markdown)
+        #[facet(args::named, args::short = 'f', default)]
+        format: Option<String>,
+
+        /// Only show uncovered rules
+        #[facet(args::named, default)]
+        uncovered: bool,
+
+        /// Only show rules missing verification/tests
+        #[facet(args::named, default)]
+        no_verify: bool,
+
+        /// Filter by requirement level (must, should, may)
+        #[facet(args::named, default)]
+        level: Option<String>,
+
+        /// Filter by status (draft, stable, deprecated, removed)
+        #[facet(args::named, default)]
+        status: Option<String>,
+
+        /// Filter by rule ID prefix (e.g., "channel.")
+        #[facet(args::named, default)]
+        prefix: Option<String>,
+
+        /// Output file (default: stdout)
+        #[facet(args::named, args::short = 'o', default)]
+        output: Option<PathBuf>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -149,6 +184,18 @@ fn main() -> Result<()> {
             config,
             format,
         }) => run_impact_command(rule_id, config, format),
+        Some(Command::Matrix {
+            config,
+            format,
+            uncovered,
+            no_verify,
+            level,
+            status,
+            prefix,
+            output,
+        }) => run_matrix_command(
+            config, format, uncovered, no_verify, level, status, prefix, output,
+        ),
         None => run_coverage_command(args),
     }
 }
@@ -183,7 +230,8 @@ fn run_rules_command(
         eprintln!("   Found {} rules", result.rules.len().to_string().green());
 
         // Build manifest for this file
-        let file_manifest = RulesManifest::from_rules(&result.rules, base_url);
+        let source_file = file_path.to_string_lossy();
+        let file_manifest = RulesManifest::from_rules(&result.rules, base_url, Some(&source_file));
         let duplicates = manifest.merge(&file_manifest);
 
         if !duplicates.is_empty() {
@@ -691,6 +739,646 @@ fn run_impact_command(
     Ok(())
 }
 
+/// Matrix output format
+#[derive(Debug, Clone, Copy, Default)]
+enum MatrixFormat {
+    #[default]
+    Markdown,
+    Csv,
+    Json,
+    Html,
+}
+
+impl MatrixFormat {
+    fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "markdown" | "md" => Some(Self::Markdown),
+            "csv" => Some(Self::Csv),
+            "json" => Some(Self::Json),
+            "html" => Some(Self::Html),
+            _ => None,
+        }
+    }
+}
+
+/// A row in the traceability matrix
+#[derive(Debug, Clone)]
+struct MatrixRow {
+    rule_id: String,
+    /// URL to the rule in the spec (for web links)
+    url: String,
+    /// Source file where the rule is defined (relative path)
+    source_file: Option<String>,
+    /// Line number where the rule is defined
+    source_line: Option<usize>,
+    /// The rule text/description
+    text: Option<String>,
+    status: Option<String>,
+    level: Option<String>,
+    impl_refs: Vec<String>,
+    verify_refs: Vec<String>,
+    depends_refs: Vec<String>,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_matrix_command(
+    config: Option<PathBuf>,
+    format: Option<String>,
+    uncovered_only: bool,
+    no_verify_only: bool,
+    level_filter: Option<String>,
+    status_filter: Option<String>,
+    prefix_filter: Option<String>,
+    output: Option<PathBuf>,
+) -> Result<()> {
+    use tracey_core::RefVerb;
+
+    let project_root = find_project_root()?;
+    let config_path = config.unwrap_or_else(|| project_root.join(".config/tracey/config.kdl"));
+    let config = load_config(&config_path)?;
+
+    let format = format
+        .as_ref()
+        .and_then(|f| MatrixFormat::from_str(f))
+        .unwrap_or_default();
+
+    let config_dir = config_path
+        .parent()
+        .ok_or_else(|| eyre::eyre!("Config path has no parent directory"))?;
+
+    let mut all_rows: Vec<MatrixRow> = Vec::new();
+
+    for spec_config in &config.specs {
+        let spec_name = &spec_config.name.value;
+
+        // Load manifest
+        let manifest = match (
+            &spec_config.rules_url,
+            &spec_config.rules_file,
+            &spec_config.rules_glob,
+        ) {
+            (Some(url), None, None) => {
+                eprintln!(
+                    "{} Fetching spec manifest for {}...",
+                    "->".blue().bold(),
+                    spec_name.cyan()
+                );
+                SpecManifest::fetch(&url.value)?
+            }
+            (None, Some(file), None) => {
+                let file_path = config_dir.join(&file.path);
+                eprintln!(
+                    "{} Loading spec manifest for {} from {}...",
+                    "->".blue().bold(),
+                    spec_name.cyan(),
+                    file_path.display()
+                );
+                SpecManifest::load(&file_path)?
+            }
+            (None, None, Some(glob)) => {
+                eprintln!(
+                    "{} Extracting rules for {} from markdown files matching {}...",
+                    "->".blue().bold(),
+                    spec_name.cyan(),
+                    glob.pattern.cyan()
+                );
+                load_manifest_from_glob(&project_root, &glob.pattern)?
+            }
+            (None, None, None) => {
+                eyre::bail!(
+                    "Spec '{}' has no rules source - please specify rules_url, rules_file, or rules_glob",
+                    spec_name
+                );
+            }
+            _ => {
+                eyre::bail!(
+                    "Spec '{}' has multiple rules sources - please specify only one of rules_url, rules_file, or rules_glob",
+                    spec_name
+                );
+            }
+        };
+
+        // Scan source files
+        eprintln!("{} Scanning source files...", "->".blue().bold());
+
+        let include: Vec<String> = if spec_config.include.is_empty() {
+            tracey_core::SUPPORTED_EXTENSIONS
+                .iter()
+                .map(|ext| format!("**/*.{}", ext))
+                .collect()
+        } else {
+            spec_config
+                .include
+                .iter()
+                .map(|i| i.pattern.clone())
+                .collect()
+        };
+
+        let exclude: Vec<String> = if spec_config.exclude.is_empty() {
+            vec!["target/**".to_string()]
+        } else {
+            spec_config
+                .exclude
+                .iter()
+                .map(|e| e.pattern.clone())
+                .collect()
+        };
+
+        let rules = Rules::extract(
+            WalkSources::new(&project_root)
+                .include(include)
+                .exclude(exclude),
+        )?;
+
+        // Build matrix rows
+        for (rule_id, rule_info) in &manifest.rules {
+            // Apply filters
+            if let Some(ref prefix) = prefix_filter
+                && !rule_id.starts_with(prefix)
+            {
+                continue;
+            }
+
+            if let Some(ref status) = status_filter
+                && rule_info.status.as_deref() != Some(status)
+            {
+                continue;
+            }
+
+            if let Some(ref level) = level_filter
+                && rule_info.level.as_deref() != Some(level)
+            {
+                continue;
+            }
+
+            // Collect references by verb
+            let mut impl_refs = Vec::new();
+            let mut verify_refs = Vec::new();
+            let mut depends_refs = Vec::new();
+
+            for r in &rules.references {
+                if r.rule_id == *rule_id {
+                    let relative = r.file.strip_prefix(&project_root).unwrap_or(&r.file);
+                    let location = format!("{}:{}", relative.display(), r.line);
+                    match r.verb {
+                        RefVerb::Impl | RefVerb::Define => impl_refs.push(location),
+                        RefVerb::Verify => verify_refs.push(location),
+                        RefVerb::Depends | RefVerb::Related => depends_refs.push(location),
+                    }
+                }
+            }
+
+            // Apply uncovered/no-verify filters
+            if uncovered_only && (!impl_refs.is_empty() || !verify_refs.is_empty()) {
+                continue;
+            }
+
+            if no_verify_only && !verify_refs.is_empty() {
+                continue;
+            }
+
+            all_rows.push(MatrixRow {
+                rule_id: rule_id.clone(),
+                url: rule_info.url.clone(),
+                source_file: rule_info.source_file.clone(),
+                source_line: rule_info.source_line,
+                text: rule_info.text.clone(),
+                status: rule_info.status.clone(),
+                level: rule_info.level.clone(),
+                impl_refs,
+                verify_refs,
+                depends_refs,
+            });
+        }
+    }
+
+    // Sort by rule ID
+    all_rows.sort_by(|a, b| a.rule_id.cmp(&b.rule_id));
+
+    // Generate output
+    let output_str = match format {
+        MatrixFormat::Markdown => render_matrix_markdown(&all_rows),
+        MatrixFormat::Csv => render_matrix_csv(&all_rows),
+        MatrixFormat::Json => render_matrix_json(&all_rows),
+        MatrixFormat::Html => render_matrix_html(&all_rows, &project_root),
+    };
+
+    if let Some(ref out_path) = output {
+        std::fs::write(out_path, &output_str)
+            .wrap_err_with(|| format!("Failed to write {}", out_path.display()))?;
+        eprintln!(
+            "\n{} Wrote matrix to {}",
+            "OK".green().bold(),
+            out_path.display()
+        );
+    } else {
+        print!("{}", output_str);
+    }
+
+    Ok(())
+}
+
+fn render_matrix_markdown(rows: &[MatrixRow]) -> String {
+    let mut output = String::new();
+
+    output.push_str("| Rule | Status | Level | impl | verify | depends |\n");
+    output.push_str("|------|--------|-------|------|--------|--------|\n");
+
+    for row in rows {
+        let status = row.status.as_deref().unwrap_or("-");
+        let level = row.level.as_deref().unwrap_or("-");
+        let impl_str = if row.impl_refs.is_empty() {
+            "-".to_string()
+        } else {
+            row.impl_refs.join(", ")
+        };
+        let verify_str = if row.verify_refs.is_empty() {
+            "-".to_string()
+        } else {
+            row.verify_refs.join(", ")
+        };
+        let depends_str = if row.depends_refs.is_empty() {
+            "-".to_string()
+        } else {
+            row.depends_refs.join(", ")
+        };
+
+        output.push_str(&format!(
+            "| {} | {} | {} | {} | {} | {} |\n",
+            row.rule_id, status, level, impl_str, verify_str, depends_str
+        ));
+    }
+
+    output
+}
+
+fn render_matrix_csv(rows: &[MatrixRow]) -> String {
+    let mut output = String::new();
+
+    output.push_str("rule,status,level,impl,verify,depends\n");
+
+    for row in rows {
+        let status = row.status.as_deref().unwrap_or("");
+        let level = row.level.as_deref().unwrap_or("");
+        let impl_str = row.impl_refs.join(";");
+        let verify_str = row.verify_refs.join(";");
+        let depends_str = row.depends_refs.join(";");
+
+        // Escape fields that might contain commas
+        let escape = |s: &str| {
+            if s.contains(',') || s.contains('"') || s.contains('\n') {
+                format!("\"{}\"", s.replace('"', "\"\""))
+            } else {
+                s.to_string()
+            }
+        };
+
+        output.push_str(&format!(
+            "{},{},{},{},{},{}\n",
+            escape(&row.rule_id),
+            escape(status),
+            escape(level),
+            escape(&impl_str),
+            escape(&verify_str),
+            escape(&depends_str)
+        ));
+    }
+
+    output
+}
+
+fn render_matrix_json(rows: &[MatrixRow]) -> String {
+    let json_rows: Vec<serde_json::Value> = rows
+        .iter()
+        .map(|row| {
+            serde_json::json!({
+                "rule_id": row.rule_id,
+                "url": row.url,
+                "text": row.text,
+                "status": row.status,
+                "level": row.level,
+                "impl": row.impl_refs,
+                "verify": row.verify_refs,
+                "depends": row.depends_refs,
+            })
+        })
+        .collect();
+
+    serde_json::to_string_pretty(&json_rows).unwrap_or_else(|_| "[]".to_string())
+}
+
+fn render_matrix_html(rows: &[MatrixRow], project_root: &std::path::Path) -> String {
+    let mut output = String::new();
+
+    // Get absolute project root for editor links
+    let abs_root = project_root
+        .canonicalize()
+        .unwrap_or_else(|_| project_root.to_path_buf());
+    let root_str = abs_root.display().to_string();
+
+    output.push_str("<!DOCTYPE html>\n<html>\n<head>\n");
+    output.push_str("<meta charset=\"utf-8\">\n");
+    output.push_str("<meta name=\"color-scheme\" content=\"light dark\">\n");
+    output.push_str("<title>Traceability Matrix</title>\n");
+    output.push_str("<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n");
+    output.push_str("<link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>\n");
+    output.push_str("<link href=\"https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Public+Sans:wght@400;500;600&display=swap\" rel=\"stylesheet\">\n");
+    // Tokyo Night inspired color palette
+    // Light: clean whites and grays with subtle blue tints
+    // Dark: deep blue-grays from Tokyo Night
+    output.push_str("<style>\n");
+    output.push_str(
+        r#":root {
+  color-scheme: light dark;
+}
+body {
+  font-family: 'Public Sans', system-ui, sans-serif;
+  margin: 2rem;
+  background: light-dark(#f5f5f7, #1a1b26);
+  color: light-dark(#1a1b26, #a9b1d6);
+}
+h1 {
+  font-weight: 600;
+  color: light-dark(#1a1b26, #c0caf5);
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.9em;
+}
+th, td {
+  border: 1px solid light-dark(#d5d5db, #292e42);
+  padding: 8px;
+  text-align: left;
+}
+th {
+  background-color: light-dark(#e8e8ed, #24283b);
+  position: sticky;
+  top: 0;
+  font-family: 'Public Sans', system-ui, sans-serif;
+  font-weight: 600;
+  color: light-dark(#1a1b26, #c0caf5);
+}
+tr:nth-child(even) {
+  background-color: light-dark(#fafafe, #1f2335);
+}
+tr:hover {
+  background-color: light-dark(#e8e8f0, #292e42);
+}
+.covered {
+  background-color: light-dark(#ddf4dd, #1a2f1a);
+}
+.covered:hover {
+  background-color: light-dark(#c8ecc8, #243d24);
+}
+.partial {
+  background-color: light-dark(#fff0d9, #2d2a1a);
+}
+.partial:hover {
+  background-color: light-dark(#ffe4bf, #3d3824);
+}
+.uncovered {
+  background-color: light-dark(#fde2e2, #2d1a1a);
+}
+.uncovered:hover {
+  background-color: light-dark(#fcd0d0, #3d2424);
+}
+.status-draft {
+  color: light-dark(#6b7280, #565f89);
+  font-style: italic;
+}
+.status-deprecated {
+  color: light-dark(#b45309, #e0af68);
+  text-decoration: line-through;
+}
+.status-removed {
+  color: light-dark(#9ca3af, #414868);
+  text-decoration: line-through;
+}
+.controls {
+  margin-bottom: 1rem;
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  font-family: 'Public Sans', system-ui, sans-serif;
+}
+#filter, #editor-select {
+  padding: 0.5rem 0.75rem;
+  font-family: inherit;
+  background: light-dark(#fff, #24283b);
+  color: light-dark(#1a1b26, #a9b1d6);
+  border: 1px solid light-dark(#d5d5db, #414868);
+  border-radius: 6px;
+}
+#filter {
+  width: 300px;
+}
+#filter:focus, #editor-select:focus {
+  outline: none;
+  border-color: light-dark(#7aa2f7, #7aa2f7);
+  box-shadow: 0 0 0 2px light-dark(rgba(122, 162, 247, 0.2), rgba(122, 162, 247, 0.3));
+}
+#filter::placeholder {
+  color: light-dark(#9ca3af, #565f89);
+}
+.file-link, .spec-link {
+  color: light-dark(#2563eb, #7aa2f7);
+  text-decoration: none;
+}
+.file-link:hover, .spec-link:hover {
+  text-decoration: underline;
+  color: light-dark(#1d4ed8, #89b4fa);
+}
+.spec-link {
+  font-weight: 500;
+}
+.desc {
+  max-width: 400px;
+  font-size: 0.9em;
+  color: light-dark(#4b5563, #737aa2);
+  font-family: 'Public Sans', system-ui, sans-serif;
+}
+label {
+  color: light-dark(#374151, #9aa5ce);
+}
+"#,
+    );
+    output.push_str("</style>\n");
+
+    // JavaScript for filtering and editor switching
+    output.push_str("<script>\n");
+    output.push_str(&format!(
+        r#"const PROJECT_ROOT = "{}";
+
+const EDITORS = {{
+  zed: {{ name: "Zed", urlTemplate: (path, line) => `zed://file/${{path}}:${{line}}` }},
+  vscode: {{ name: "VS Code", urlTemplate: (path, line) => `vscode://file/${{path}}:${{line}}` }},
+}};
+
+function getEditor() {{
+  return localStorage.getItem('tracey-editor') || 'zed';
+}}
+
+function setEditor(editor) {{
+  localStorage.setItem('tracey-editor', editor);
+  updateAllLinks();
+}}
+
+function updateAllLinks() {{
+  const editor = getEditor();
+  const config = EDITORS[editor];
+  // Update file links (impl/verify/depends columns)
+  document.querySelectorAll('.file-link').forEach(link => {{
+    const path = link.dataset.path;
+    const line = link.dataset.line;
+    const fullPath = PROJECT_ROOT + '/' + path;
+    link.href = config.urlTemplate(fullPath, line);
+  }});
+  // Update spec links (rule column)
+  document.querySelectorAll('.spec-link').forEach(link => {{
+    const path = link.dataset.path;
+    const line = link.dataset.line || '1';
+    if (path) {{
+      const fullPath = PROJECT_ROOT + '/' + path;
+      link.href = config.urlTemplate(fullPath, line);
+    }}
+  }});
+}}
+
+function filterTable() {{
+  const filter = document.getElementById('filter').value.toLowerCase();
+  const rows = document.querySelectorAll('tbody tr');
+  rows.forEach(row => {{
+    const text = row.textContent.toLowerCase();
+    row.style.display = text.includes(filter) ? '' : 'none';
+  }});
+}}
+
+document.addEventListener('DOMContentLoaded', () => {{
+  const select = document.getElementById('editor-select');
+  select.value = getEditor();
+  updateAllLinks();
+}});
+"#,
+        root_str.replace('\\', "\\\\").replace('"', "\\\"")
+    ));
+    output.push_str("</script>\n");
+    output.push_str("</head>\n<body>\n");
+    output.push_str("<h1>Traceability Matrix</h1>\n");
+    output.push_str("<div class=\"controls\">\n");
+    output.push_str(
+        "<input type=\"text\" id=\"filter\" placeholder=\"Filter rules...\" onkeyup=\"filterTable()\">\n",
+    );
+    output.push_str("<label for=\"editor-select\">Open in:</label>\n");
+    output.push_str("<select id=\"editor-select\" onchange=\"setEditor(this.value)\">\n");
+    output.push_str("<option value=\"zed\">Zed</option>\n");
+    output.push_str("<option value=\"vscode\">VS Code</option>\n");
+    output.push_str("</select>\n");
+    output.push_str("</div>\n");
+    output.push_str("<table>\n");
+    output.push_str("<thead>\n");
+    output.push_str(
+        "<tr><th>Rule</th><th>Description</th><th>Status</th><th>Level</th><th>impl</th><th>verify</th><th>depends</th></tr>\n",
+    );
+    output.push_str("</thead>\n");
+    output.push_str("<tbody>\n");
+
+    // Helper to format file references as links
+    let format_refs = |refs: &[String]| -> String {
+        if refs.is_empty() {
+            "-".to_string()
+        } else {
+            refs.iter()
+                .map(|r| {
+                    // Parse "path:line" format
+                    if let Some((path, line)) = r.rsplit_once(':') {
+                        format!(
+                            "<a class=\"file-link\" data-path=\"{}\" data-line=\"{}\" href=\"#\">{}</a>",
+                            html_escape::encode_double_quoted_attribute(path),
+                            line,
+                            html_escape::encode_text(r)
+                        )
+                    } else {
+                        html_escape::encode_text(r).to_string()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("<br>")
+        }
+    };
+
+    for row in rows {
+        let has_impl = !row.impl_refs.is_empty();
+        let has_verify = !row.verify_refs.is_empty();
+        let row_class = if has_impl && has_verify {
+            "covered"
+        } else if has_impl || has_verify {
+            "partial"
+        } else {
+            "uncovered"
+        };
+
+        let status = row.status.as_deref().unwrap_or("-");
+        let level = row.level.as_deref().unwrap_or("-");
+        let status_class = match status {
+            "draft" => "status-draft",
+            "deprecated" => "status-deprecated",
+            "removed" => "status-removed",
+            _ => "",
+        };
+
+        // Format rule ID as a link to the spec file (opened in editor)
+        let rule_cell = match (&row.source_file, row.source_line) {
+            (Some(source_file), Some(source_line)) => {
+                format!(
+                    "<a href=\"#\" class=\"spec-link {}\" data-path=\"{}\" data-line=\"{}\">{}</a>",
+                    status_class,
+                    html_escape::encode_double_quoted_attribute(source_file),
+                    source_line,
+                    html_escape::encode_text(&row.rule_id)
+                )
+            }
+            (Some(source_file), None) => {
+                format!(
+                    "<a href=\"#\" class=\"spec-link {}\" data-path=\"{}\" data-line=\"1\">{}</a>",
+                    status_class,
+                    html_escape::encode_double_quoted_attribute(source_file),
+                    html_escape::encode_text(&row.rule_id)
+                )
+            }
+            _ => {
+                format!(
+                    "<span class=\"{}\">{}</span>",
+                    status_class,
+                    html_escape::encode_text(&row.rule_id)
+                )
+            }
+        };
+
+        // Format description
+        let desc_cell = match &row.text {
+            Some(text) if !text.is_empty() => html_escape::encode_text(text).to_string(),
+            _ => "-".to_string(),
+        };
+
+        let impl_str = format_refs(&row.impl_refs);
+        let verify_str = format_refs(&row.verify_refs);
+        let depends_str = format_refs(&row.depends_refs);
+
+        output.push_str(&format!(
+            "<tr class=\"{}\"><td>{}</td><td class=\"desc\">{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>\n",
+            row_class, rule_cell, desc_cell, status, level, impl_str, verify_str, depends_str
+        ));
+    }
+
+    output.push_str("</tbody>\n");
+    output.push_str("</table>\n");
+    output.push_str("</body>\n</html>\n");
+
+    output
+}
+
 /// Load a SpecManifest by extracting rules from markdown files matching a glob pattern
 fn load_manifest_from_glob(root: &PathBuf, pattern: &str) -> Result<SpecManifest> {
     use ignore::WalkBuilder;
@@ -740,7 +1428,7 @@ fn load_manifest_from_glob(root: &PathBuf, pattern: &str) -> Result<SpecManifest
             file_count += 1;
 
             // Build manifest for this file (no base URL needed for coverage checking)
-            let file_manifest = RulesManifest::from_rules(&result.rules, "");
+            let file_manifest = RulesManifest::from_rules(&result.rules, "", Some(&relative_str));
             let duplicates = rules_manifest.merge(&file_manifest);
 
             if !duplicates.is_empty() {
@@ -771,7 +1459,22 @@ fn load_manifest_from_glob(root: &PathBuf, pattern: &str) -> Result<SpecManifest
     let spec_rules: HashMap<String, tracey_core::RuleInfo> = rules_manifest
         .rules
         .into_iter()
-        .map(|(id, entry)| (id, tracey_core::RuleInfo { url: entry.url }))
+        .map(|(id, entry)| {
+            (
+                id,
+                tracey_core::RuleInfo {
+                    url: entry.url,
+                    source_file: entry.source_file,
+                    source_line: entry.source_line,
+                    text: entry.text,
+                    status: entry.status,
+                    level: entry.level,
+                    since: entry.since,
+                    until: entry.until,
+                    tags: entry.tags,
+                },
+            )
+        })
         .collect();
 
     Ok(SpecManifest { rules: spec_rules })

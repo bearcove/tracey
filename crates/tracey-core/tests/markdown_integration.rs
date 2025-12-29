@@ -75,7 +75,7 @@ fn test_generate_manifest_json() {
     let markdown = read_fixture("sample_spec.md");
     let result = MarkdownProcessor::process(&markdown).expect("Failed to process markdown");
 
-    let manifest = RulesManifest::from_rules(&result.rules, "/spec/sample");
+    let manifest = RulesManifest::from_rules(&result.rules, "/spec/sample", Some("sample_spec.md"));
     let json = manifest.to_json();
 
     // Verify JSON structure by checking for expected content
@@ -115,8 +115,8 @@ Only in second.
     let result1 = MarkdownProcessor::process(markdown1).unwrap();
     let result2 = MarkdownProcessor::process(markdown2).unwrap();
 
-    let mut manifest1 = RulesManifest::from_rules(&result1.rules, "/doc1");
-    let manifest2 = RulesManifest::from_rules(&result2.rules, "/doc2");
+    let mut manifest1 = RulesManifest::from_rules(&result1.rules, "/doc1", Some("doc1.md"));
+    let manifest2 = RulesManifest::from_rules(&result2.rules, "/doc2", Some("doc2.md"));
 
     let duplicates = manifest1.merge(&manifest2);
 

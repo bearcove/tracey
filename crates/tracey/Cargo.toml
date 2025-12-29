@@ -48,3 +48,4 @@ miette-arborium = { workspace = true }
 
 # JSON output
 serde_json = { workspace = true }
+html-escape = "0.2.13"

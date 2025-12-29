@@ -10,6 +10,30 @@ use std::path::Path;
 pub struct RuleInfo {
     /// URL fragment to link to this rule
     pub url: String,
+    /// The source file where this rule is defined (relative path)
+    #[facet(default)]
+    pub source_file: Option<String>,
+    /// The line number where this rule is defined (1-indexed)
+    #[facet(default)]
+    pub source_line: Option<usize>,
+    /// The text content of the rule (first paragraph after the marker)
+    #[facet(default)]
+    pub text: Option<String>,
+    /// Lifecycle status (draft, stable, deprecated, removed)
+    #[facet(default)]
+    pub status: Option<String>,
+    /// RFC 2119 requirement level (must, should, may)
+    #[facet(default)]
+    pub level: Option<String>,
+    /// Version when this rule was introduced
+    #[facet(default)]
+    pub since: Option<String>,
+    /// Version when this rule will be/was deprecated or removed
+    #[facet(default)]
+    pub until: Option<String>,
+    /// Custom tags for categorization
+    #[facet(default)]
+    pub tags: Vec<String>,
 }
 
 /// The spec manifest structure (from _rules.json)
