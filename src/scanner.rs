@@ -2,8 +2,9 @@
 
 use crate::lexer::{RuleReference, extract_rule_references};
 use eyre::Result;
+use ignore::WalkBuilder;
+use rayon::prelude::*;
 use std::path::Path;
-use walkdir::WalkDir;
 
 /// Scan a directory for Rust files and extract all rule references
 pub fn scan_directory(
@@ -11,29 +12,38 @@ pub fn scan_directory(
     include_patterns: &[String],
     exclude_patterns: &[String],
 ) -> Result<Vec<RuleReference>> {
-    let mut all_references = Vec::new();
-
-    for entry in WalkDir::new(root)
+    // Collect all matching .rs files first
+    let rust_files: Vec<_> = WalkBuilder::new(root)
         .follow_links(true)
-        .into_iter()
-        .filter_entry(|e| !is_excluded(e.path(), root, exclude_patterns))
-    {
-        let entry = entry?;
-        let path = entry.path();
+        .hidden(false) // Don't skip hidden files (but .git is in .gitignore)
+        .git_ignore(true) // Respect .gitignore
+        .git_global(true) // Respect global gitignore
+        .git_exclude(true) // Respect .git/info/exclude
+        .build()
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            let path = entry.path();
+            // Only .rs files
+            path.extension().is_some_and(|ext| ext == "rs")
+                && !is_excluded(path, root, exclude_patterns)
+                && is_included(path, root, include_patterns)
+        })
+        .map(|entry| entry.into_path())
+        .collect();
 
-        // Skip directories
-        if path.is_dir() {
-            continue;
-        }
-
-        // Only process .rs files that match include patterns
-        if path.extension().is_some_and(|ext| ext == "rs")
-            && is_included(path, root, include_patterns)
-        {
+    // Process files in parallel
+    let results: Vec<Result<Vec<RuleReference>>> = rust_files
+        .par_iter()
+        .map(|path| {
             let content = std::fs::read_to_string(path)?;
-            let refs = extract_rule_references(path, &content)?;
-            all_references.extend(refs);
-        }
+            extract_rule_references(path, &content)
+        })
+        .collect();
+
+    // Collect all references, propagating any errors
+    let mut all_references = Vec::new();
+    for result in results {
+        all_references.extend(result?);
     }
 
     Ok(all_references)
