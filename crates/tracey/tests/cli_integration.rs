@@ -139,7 +139,9 @@ fn test_rules_command_no_files() {
     // Error can be either from argument parsing or explicit check
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("No markdown files") || stderr.contains("Error"),
+        stderr.contains("No markdown files")
+            || stderr.contains("missing_argument")
+            || stderr.contains("<files>"),
         "Should fail with error: {}",
         stderr
     );
@@ -207,6 +209,230 @@ fn test_rules_command_multiple_files() {
     assert!(
         stderr.contains("duplicate") || stderr.contains("Duplicate"),
         "Should mention duplicate: {}",
+        stderr
+    );
+}
+
+// ============================================================================
+// Tests for `tracey at` command
+// ============================================================================
+
+fn create_test_file(content: &str) -> (std::path::PathBuf, impl FnOnce()) {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    let id = COUNTER.fetch_add(1, Ordering::SeqCst);
+    let temp_dir = std::env::temp_dir().join(format!("tracey_at_test_{}", id));
+    let _ = std::fs::remove_dir_all(&temp_dir); // Clean up any leftovers
+    std::fs::create_dir_all(&temp_dir).expect("Failed to create temp dir");
+    let file_path = temp_dir.join("test.rs");
+    std::fs::write(&file_path, content).expect("Failed to write test file");
+    let cleanup_path = temp_dir.clone();
+    (file_path, move || {
+        let _ = std::fs::remove_dir_all(cleanup_path);
+    })
+}
+
+#[test]
+fn test_at_command_file() {
+    let (file_path, cleanup) = create_test_file(
+        r#"
+// [impl test.rule.one]
+fn foo() {}
+
+// [verify test.rule.two]
+fn bar() {}
+"#,
+    );
+
+    let output = tracey_bin()
+        .arg("at")
+        .arg(&file_path)
+        .output()
+        .expect("Failed to run tracey");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "Command should succeed: stdout={}, stderr={}",
+        stdout,
+        stderr
+    );
+    assert!(
+        stdout.contains("test.rule.one"),
+        "Should find test.rule.one: {}",
+        stdout
+    );
+    assert!(
+        stdout.contains("test.rule.two"),
+        "Should find test.rule.two: {}",
+        stdout
+    );
+
+    cleanup();
+}
+
+#[test]
+fn test_at_command_with_line() {
+    let (file_path, cleanup) = create_test_file(
+        r#"// line 1
+// [impl test.rule.one]
+fn foo() {}
+
+// [verify test.rule.two]
+fn bar() {}
+"#,
+    );
+
+    // Query specific line 2 where test.rule.one is
+    let location = format!("{}:2", file_path.display());
+    let output = tracey_bin()
+        .arg("at")
+        .arg(&location)
+        .output()
+        .expect("Failed to run tracey");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success(), "Command should succeed");
+    assert!(
+        stdout.contains("test.rule.one"),
+        "Should find test.rule.one at line 2: {}",
+        stdout
+    );
+    assert!(
+        !stdout.contains("test.rule.two"),
+        "Should NOT find test.rule.two at line 2: {}",
+        stdout
+    );
+
+    cleanup();
+}
+
+#[test]
+fn test_at_command_with_line_range() {
+    let (file_path, cleanup) = create_test_file(
+        r#"// line 1
+// [impl test.rule.one]
+// [impl test.rule.two]
+fn foo() {}
+
+// [verify test.rule.three]
+fn bar() {}
+"#,
+    );
+
+    // Query lines 2-3
+    let location = format!("{}:2-3", file_path.display());
+    let output = tracey_bin()
+        .arg("at")
+        .arg(&location)
+        .output()
+        .expect("Failed to run tracey");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success(), "Command should succeed");
+    assert!(
+        stdout.contains("test.rule.one"),
+        "Should find test.rule.one: {}",
+        stdout
+    );
+    assert!(
+        stdout.contains("test.rule.two"),
+        "Should find test.rule.two: {}",
+        stdout
+    );
+    assert!(
+        !stdout.contains("test.rule.three"),
+        "Should NOT find test.rule.three: {}",
+        stdout
+    );
+
+    cleanup();
+}
+
+#[test]
+fn test_at_command_json_output() {
+    let (file_path, cleanup) = create_test_file(
+        r#"
+// [impl test.rule.one]
+fn foo() {}
+"#,
+    );
+
+    let output = tracey_bin()
+        .arg("at")
+        .arg(&file_path)
+        .arg("-f")
+        .arg("json")
+        .output()
+        .expect("Failed to run tracey");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success(), "Command should succeed");
+
+    // Should be valid JSON
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("Should be valid JSON");
+    assert!(parsed.is_array(), "Should be an array");
+
+    let arr = parsed.as_array().unwrap();
+    assert_eq!(arr.len(), 1, "Should have one reference");
+    assert_eq!(arr[0]["rule_id"], "test.rule.one");
+    assert_eq!(arr[0]["verb"], "impl");
+
+    cleanup();
+}
+
+#[test]
+fn test_at_command_no_refs() {
+    let (file_path, cleanup) = create_test_file(
+        r#"
+// Just a regular comment
+fn foo() {}
+"#,
+    );
+
+    let output = tracey_bin()
+        .arg("at")
+        .arg(&file_path)
+        .output()
+        .expect("Failed to run tracey");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success(), "Command should succeed");
+    assert!(
+        stdout.contains("No rule references found"),
+        "Should indicate no refs: {}",
+        stdout
+    );
+
+    cleanup();
+}
+
+#[test]
+fn test_at_command_file_not_found() {
+    let output = tracey_bin()
+        .arg("at")
+        .arg("/nonexistent/path/to/file.rs")
+        .output()
+        .expect("Failed to run tracey");
+
+    assert!(
+        !output.status.success(),
+        "Command should fail for nonexistent file"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("not found")
+            || stderr.contains("Not found")
+            || stderr.contains("File not found"),
+        "Should mention file not found: {}",
         stderr
     );
 }

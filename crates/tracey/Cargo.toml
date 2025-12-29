@@ -36,3 +36,6 @@ ignore = { workspace = true }
 
 # Syntax highlighting for miette
 miette-arborium = { workspace = true }
+
+# JSON output
+serde_json = { workspace = true }
