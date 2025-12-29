@@ -26,6 +26,8 @@
 
 mod coverage;
 mod lexer;
+#[cfg(feature = "markdown")]
+pub mod markdown;
 mod sources;
 mod spec;
 
