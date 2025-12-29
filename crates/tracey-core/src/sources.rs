@@ -2,7 +2,42 @@
 
 use crate::lexer::{Rules, extract_from_content};
 use eyre::Result;
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
+
+/// File extensions that tracey knows how to scan for rule references.
+/// These all use `//` and `/* */` comment syntax.
+pub const SUPPORTED_EXTENSIONS: &[&str] = &[
+    "rs",    // Rust
+    "swift", // Swift
+    "ts",    // TypeScript
+    "tsx",   // TypeScript JSX
+    "js",    // JavaScript
+    "jsx",   // JavaScript JSX
+    "go",    // Go
+    "c",     // C
+    "h",     // C headers
+    "cpp",   // C++
+    "hpp",   // C++ headers
+    "cc",    // C++
+    "cxx",   // C++
+    "m",     // Objective-C
+    "mm",    // Objective-C++
+    "java",  // Java
+    "kt",    // Kotlin
+    "kts",   // Kotlin script
+    "scala", // Scala
+    "groovy",// Groovy
+    "cs",    // C#
+    "zig",   // Zig
+];
+
+/// Check if a file extension is supported for scanning
+pub fn is_supported_extension(ext: &OsStr) -> bool {
+    ext.to_str()
+        .map(|e| SUPPORTED_EXTENSIONS.contains(&e))
+        .unwrap_or(false)
+}
 
 /// Trait for providing source files to extract rules from
 pub trait Sources {
@@ -146,8 +181,8 @@ impl Sources for WalkSources {
 
                 let path = entry.path();
 
-                // Only .rs files
-                if path.extension().is_none_or(|ext| ext != "rs") {
+                // Only supported file extensions
+                if path.extension().is_none_or(|ext| !is_supported_extension(ext)) {
                     return ignore::WalkState::Continue;
                 }
 
@@ -212,14 +247,40 @@ fn is_excluded(path: &Path, root: &Path, patterns: &[String]) -> bool {
 
 #[cfg(feature = "walk")]
 fn matches_glob(path: &str, pattern: &str) -> bool {
-    // Handle the common case of **/*.rs
-    if pattern == "**/*.rs" {
-        return path.ends_with(".rs");
+    // Handle **/*.ext patterns (e.g., **/*.rs, **/*.swift, **/*.ts)
+    if let Some(ext) = pattern.strip_prefix("**/*.") {
+        return path.ends_with(&format!(".{}", ext));
     }
 
-    // Handle target/** exclusion
+    // Handle prefix/**/*.ext patterns (e.g., src/**/*.rs, Sources/**/*.swift)
+    if let Some(rest) = pattern.strip_prefix("**/") {
+        // Pattern like "**/foo/*.rs" - just check the suffix part
+        return matches_glob(path, rest);
+    }
+
+    // Handle prefix/** patterns (e.g., target/**)
     if let Some(prefix) = pattern.strip_suffix("/**") {
-        return path.starts_with(prefix);
+        return path.starts_with(prefix) || path.starts_with(&format!("{}/", prefix));
+    }
+
+    // Handle prefix/**/*.ext patterns (e.g., src/**/*.rs)
+    if let Some((prefix, suffix)) = pattern.split_once("/**/") {
+        if !path.starts_with(prefix) && !path.starts_with(&format!("{}/", prefix)) {
+            return false;
+        }
+        let after_prefix = path.strip_prefix(prefix).unwrap_or(path);
+        let after_prefix = after_prefix.strip_prefix('/').unwrap_or(after_prefix);
+        return matches_glob(after_prefix, suffix);
+    }
+
+    // Handle *.ext patterns (e.g., *.rs)
+    if let Some(ext) = pattern.strip_prefix("*.") {
+        return path.ends_with(&format!(".{}", ext));
+    }
+
+    // Handle exact matches
+    if !pattern.contains('*') {
+        return path == pattern;
     }
 
     // Fallback: simple contains check for the non-wildcard parts
@@ -254,5 +315,127 @@ mod tests {
         .unwrap();
 
         assert_eq!(rules.len(), 2);
+    }
+
+    #[test]
+    fn test_memory_sources_swift() {
+        let rules = Rules::extract(
+            MemorySources::new()
+                .add("Foo.swift", "// [impl swift.rule.one]")
+                .add("Bar.swift", "/* [verify swift.rule.two] */"),
+        )
+        .unwrap();
+
+        assert_eq!(rules.len(), 2);
+        assert_eq!(rules.references[0].rule_id, "swift.rule.one");
+        assert_eq!(rules.references[1].rule_id, "swift.rule.two");
+    }
+
+    #[test]
+    fn test_memory_sources_typescript() {
+        let rules = Rules::extract(
+            MemorySources::new()
+                .add("app.ts", "// [impl ts.rule.one]")
+                .add("component.tsx", "// [verify ts.rule.two]")
+                .add("utils.js", "/* [impl js.rule] */"),
+        )
+        .unwrap();
+
+        assert_eq!(rules.len(), 3);
+        assert_eq!(rules.references[0].rule_id, "ts.rule.one");
+        assert_eq!(rules.references[1].rule_id, "ts.rule.two");
+        assert_eq!(rules.references[2].rule_id, "js.rule");
+    }
+
+    #[test]
+    fn test_memory_sources_jsdoc_comments() {
+        // JSDoc-style comments (/** */) should work too
+        let rules = Rules::extract(
+            MemorySources::new()
+                .add("api.ts", r#"
+                    /**
+                     * Handles user authentication.
+                     * [impl auth.login]
+                     */
+                    function login() {}
+                "#),
+        )
+        .unwrap();
+
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules.references[0].rule_id, "auth.login");
+    }
+
+    #[test]
+    fn test_memory_sources_mixed_languages() {
+        let rules = Rules::extract(
+            MemorySources::new()
+                .add("lib.rs", "// [impl core.rust]")
+                .add("App.swift", "// [impl core.swift]")
+                .add("index.ts", "// [impl core.typescript]"),
+        )
+        .unwrap();
+
+        assert_eq!(rules.len(), 3);
+    }
+
+    #[test]
+    fn test_supported_extensions() {
+        use std::ffi::OsStr;
+        
+        assert!(is_supported_extension(OsStr::new("rs")));
+        assert!(is_supported_extension(OsStr::new("swift")));
+        assert!(is_supported_extension(OsStr::new("ts")));
+        assert!(is_supported_extension(OsStr::new("tsx")));
+        assert!(is_supported_extension(OsStr::new("js")));
+        assert!(is_supported_extension(OsStr::new("go")));
+        
+        assert!(!is_supported_extension(OsStr::new("md")));
+        assert!(!is_supported_extension(OsStr::new("txt")));
+        assert!(!is_supported_extension(OsStr::new("json")));
+    }
+
+    #[cfg(feature = "walk")]
+    mod glob_tests {
+        use super::super::matches_glob;
+
+        #[test]
+        fn test_matches_glob_star_star_ext() {
+            assert!(matches_glob("foo.rs", "**/*.rs"));
+            assert!(matches_glob("src/foo.rs", "**/*.rs"));
+            assert!(matches_glob("src/bar/baz.rs", "**/*.rs"));
+            assert!(!matches_glob("foo.swift", "**/*.rs"));
+
+            assert!(matches_glob("App.swift", "**/*.swift"));
+            assert!(matches_glob("Sources/App.swift", "**/*.swift"));
+            assert!(!matches_glob("App.rs", "**/*.swift"));
+
+            assert!(matches_glob("index.ts", "**/*.ts"));
+            assert!(matches_glob("src/components/Button.tsx", "**/*.tsx"));
+        }
+
+        #[test]
+        fn test_matches_glob_prefix_star_star() {
+            assert!(matches_glob("target/debug/foo", "target/**"));
+            assert!(matches_glob("target/release/bar", "target/**"));
+            assert!(!matches_glob("src/main.rs", "target/**"));
+        }
+
+        #[test]
+        fn test_matches_glob_prefix_star_star_ext() {
+            assert!(matches_glob("src/main.rs", "src/**/*.rs"));
+            assert!(matches_glob("src/foo/bar.rs", "src/**/*.rs"));
+            assert!(!matches_glob("tests/main.rs", "src/**/*.rs"));
+            assert!(!matches_glob("src/main.swift", "src/**/*.rs"));
+
+            assert!(matches_glob("Sources/App.swift", "Sources/**/*.swift"));
+            assert!(!matches_glob("Tests/AppTests.swift", "Sources/**/*.swift"));
+        }
+
+        #[test]
+        fn test_matches_glob_exact() {
+            assert!(matches_glob("foo.rs", "foo.rs"));
+            assert!(!matches_glob("bar.rs", "foo.rs"));
+        }
     }
 }

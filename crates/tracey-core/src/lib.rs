@@ -1,7 +1,7 @@
 //! tracey-core - Core library for spec coverage analysis
 //!
 //! This crate provides the building blocks for:
-//! - Extracting rule references from Rust source code
+//! - Extracting rule references from source code (Rust, Swift, TypeScript, and more)
 //! - Extracting rule definitions from markdown spec documents
 //! - Computing coverage against a spec manifest
 //!
@@ -12,9 +12,12 @@
 //! - `fetch` - Enable [`SpecManifest::fetch`] for HTTP fetching (brings in `ureq`)
 //! - `markdown` - Enable [`markdown`] module for extracting rules from spec documents
 //!
-//! # Extracting Rule References from Rust Code
+//! # Extracting Rule References from Source Code
 //!
-//! tracey recognizes rule references in Rust comments:
+//! tracey recognizes rule references in comments using `//` or `/* */` syntax.
+//! This works with Rust, Swift, TypeScript, JavaScript, Go, C/C++, and many other languages.
+//!
+//! See [`SUPPORTED_EXTENSIONS`] for the full list of supported file types.
 //!
 //! ```rust
 //! // [impl channel.id.parity] - implementation reference
@@ -99,7 +102,7 @@ mod spec;
 
 pub use coverage::CoverageReport;
 pub use lexer::{ParseWarning, RefVerb, RuleReference, Rules, SourceSpan, WarningKind};
-pub use sources::{MemorySources, PathSources, Sources};
+pub use sources::{MemorySources, PathSources, Sources, SUPPORTED_EXTENSIONS, is_supported_extension};
 pub use spec::{RuleInfo, SpecManifest};
 
 #[cfg(feature = "walk")]

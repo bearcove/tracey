@@ -2,11 +2,27 @@
 
 > **Note:** Looking for Tracy, the frame profiler? That's a different project: [wolfpld/tracy](https://github.com/wolfpld/tracy)
 
-A CLI tool and library to measure spec coverage in Rust codebases.
+A CLI tool and library to measure spec coverage in codebases.
 
 ## What it does
 
-tracey parses Rust source files to find references to specification rules (in the format `[rule.id]` in comments) and compares them against a spec manifest to produce coverage reports.
+tracey parses source files to find references to specification rules (in the format `[rule.id]` in comments) and compares them against a spec manifest to produce coverage reports.
+
+### Supported Languages
+
+tracey works with any language that uses `//` or `/* */` comment syntax:
+
+- **Rust** (.rs)
+- **Swift** (.swift)
+- **TypeScript/JavaScript** (.ts, .tsx, .js, .jsx)
+- **Go** (.go)
+- **C/C++** (.c, .h, .cpp, .hpp, .cc, .cxx)
+- **Objective-C** (.m, .mm)
+- **Java** (.java)
+- **Kotlin** (.kt, .kts)
+- **Scala** (.scala)
+- **C#** (.cs)
+- **Zig** (.zig)
 
 This enables **traceability** between your spec documents and implementation code.
 
@@ -34,18 +50,29 @@ Client-initiated channels MUST use odd IDs, server-initiated channels MUST use e
 
 ### 2. Reference rules in your code
 
-In your Rust code, reference spec rules in comments:
+Reference spec rules in comments. The syntax works across all supported languages:
 
+**Rust:**
 ```rust
 /// Allocates the next channel ID for this peer.
-///
-/// [impl channel.id.parity] - initiators use odd IDs, acceptors use even.
-/// [impl channel.id.allocation] - IDs are allocated sequentially.
-fn allocate_channel_id(&mut self) -> u32 {
-    let id = self.next_channel_id;
-    self.next_channel_id += 2;  // Skip to next ID with same parity
-    id
-}
+/// [impl channel.id.parity]
+fn allocate_channel_id(&mut self) -> u32 { ... }
+```
+
+**Swift:**
+```swift
+/// Allocates the next channel ID for this peer.
+/// [impl channel.id.parity]
+func allocateChannelId() -> UInt32 { ... }
+```
+
+**TypeScript:**
+```typescript
+/**
+ * Allocates the next channel ID for this peer.
+ * [impl channel.id.parity]
+ */
+function allocateChannelId(): number { ... }
 ```
 
 ### 3. Configure tracey
@@ -71,7 +98,7 @@ Output:
 -> Extracting rules for my-spec from markdown files matching docs/spec/**/*.md...
    Found 2 rules from docs/spec/channels.md
    Found 2 rules in spec
--> Scanning Rust files...
+-> Scanning source files...
    Found 2 rule references
 
 ## my-spec Coverage Report
@@ -82,7 +109,7 @@ Coverage: 100.0% (2/2 rules)
 
 ## Rule Reference Syntax
 
-tracey recognizes rule references in Rust comments with optional verbs:
+tracey recognizes rule references in comments with optional verbs:
 
 | Syntax | Description |
 |--------|-------------|
@@ -133,16 +160,33 @@ spec {
 
 ### Filtering source files
 
-Control which Rust files are scanned:
+Control which source files are scanned. By default, tracey scans all supported file types. You can restrict to specific patterns:
 
 ```kdl
 spec {
     name "my-spec"
     rules_glob "docs/**/*.md"
+    
+    // Rust only
     include "src/**/*.rs"
     include "crates/**/*.rs"
     exclude "target/**"
-    exclude "**/tests/**"
+}
+```
+
+For a multi-language project:
+
+```kdl
+spec {
+    name "my-protocol"
+    rules_glob "docs/**/*.md"
+    
+    // Scan Rust, Swift, and TypeScript
+    include "crates/**/*.rs"
+    include "Sources/**/*.swift"
+    include "src/**/*.ts"
+    include "src/**/*.tsx"
+    exclude "node_modules/**"
 }
 ```
 
@@ -215,11 +259,11 @@ println!("Found {} rules", processed.rules.len());
 let manifest = RulesManifest::from_rules(&processed.rules, "/spec");
 println!("{}", manifest.to_json());
 
-// Or scan Rust code for rule references
+// Or scan source files for rule references
 let rules = Rules::extract(
     WalkSources::new(".")
-        .include(["**/*.rs"])
-        .exclude(["target/**"])
+        .include(["**/*.rs", "**/*.swift", "**/*.ts"])
+        .exclude(["target/**", "node_modules/**"])
 )?;
 
 // Compute coverage

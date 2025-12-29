@@ -270,12 +270,16 @@ fn run_coverage_command(args: Args) -> Result<()> {
         );
 
         // Scan source files
-        eprintln!("{} Scanning Rust files...", "->".blue().bold());
+        eprintln!("{} Scanning source files...", "->".blue().bold());
 
         // [impl config.spec.include]
         // [impl walk.default-include]
         let include: Vec<String> = if spec_config.include.is_empty() {
-            vec!["**/*.rs".to_string()]
+            // Default: include all supported source file types
+            tracey_core::SUPPORTED_EXTENSIONS
+                .iter()
+                .map(|ext| format!("**/*.{}", ext))
+                .collect()
         } else {
             spec_config
                 .include
