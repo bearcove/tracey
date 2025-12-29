@@ -40,7 +40,7 @@ pub enum RefVerb {
 
 impl RefVerb {
     /// Parse a verb from its string representation
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s {
             "define" => Some(RefVerb::Define),
             "impl" => Some(RefVerb::Impl),
@@ -258,7 +258,7 @@ fn extract_references_from_text(
             if let Some(&(end_idx, next_char)) = chars.peek() {
                 if next_char == ' ' {
                     // Space after first word - might be [verb rule.id]
-                    if let Some(verb) = RefVerb::from_str(&first_word) {
+                    if let Some(verb) = RefVerb::parse(&first_word) {
                         chars.next(); // consume space
 
                         // Now read the rule ID

@@ -44,7 +44,7 @@ pub fn warning_to_diagnostic(
 ) -> Option<Box<dyn Diagnostic + Send + Sync + 'static>> {
     let content = source_cache(&warning.file)?;
     let src = NamedSource::new(warning.file.display().to_string(), content);
-    let span = SourceSpan::new(warning.span.offset.into(), warning.span.length.into());
+    let span = SourceSpan::new(warning.span.offset.into(), warning.span.length);
 
     match &warning.kind {
         WarningKind::UnknownVerb(verb) => Some(Box::new(UnknownVerbError {

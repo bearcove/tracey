@@ -1,6 +1,6 @@
 //! Source providers for rule extraction
 
-use crate::lexer::{extract_from_content, Rules};
+use crate::lexer::{Rules, extract_from_content};
 use eyre::Result;
 use std::path::{Path, PathBuf};
 
@@ -146,7 +146,7 @@ impl Sources for WalkSources {
                 let path = entry.path();
 
                 // Only .rs files
-                if !path.extension().is_some_and(|ext| ext == "rs") {
+                if path.extension().is_none_or(|ext| ext != "rs") {
                     return ignore::WalkState::Continue;
                 }
 

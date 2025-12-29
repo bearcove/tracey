@@ -11,8 +11,8 @@ mod output;
 use config::Config;
 use eyre::{Result, WrapErr};
 use facet_args as args;
+use output::{OutputFormat, render_report};
 use owo_colors::OwoColorize;
-use output::{render_report, OutputFormat};
 use std::path::PathBuf;
 use tracey_core::{CoverageReport, Rules, SpecManifest, WalkSources};
 

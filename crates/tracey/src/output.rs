@@ -87,7 +87,10 @@ fn render_text(report: &CoverageReport, verbose: bool) -> String {
             .iter()
             .map(|(verb, count)| format!("{} {}", count, verb))
             .collect();
-        output.push_str(&format!("  References: {}\n", breakdown.join(", ").dimmed()));
+        output.push_str(&format!(
+            "  References: {}\n",
+            breakdown.join(", ").dimmed()
+        ));
     }
     output.push('\n');
 
