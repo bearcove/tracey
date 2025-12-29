@@ -1083,6 +1083,12 @@ fn render_matrix_html(rows: &[MatrixRow], project_root: &std::path::Path) -> Str
     output.push_str("<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n");
     output.push_str("<link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>\n");
     output.push_str("<link href=\"https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Public+Sans:wght@400;500;600&display=swap\" rel=\"stylesheet\">\n");
+    output.push_str(
+        "<script src=\"https://cdn.jsdelivr.net/npm/fuse.js@7.0.0/dist/fuse.min.js\"></script>\n",
+    );
+    output.push_str(
+        "<script src=\"https://cdn.jsdelivr.net/npm/mark.js@8.11.1/dist/mark.min.js\"></script>\n",
+    );
     // Tokyo Night inspired color palette
     // Light: clean whites and grays with subtle blue tints
     // Dark: deep blue-grays from Tokyo Night
@@ -1113,7 +1119,7 @@ table {
 }
 th, td {
   border: 1px solid light-dark(#d5d5db, #292e42);
-  padding: 8px;
+  padding: 12px 16px;
   text-align: left;
 }
 th {
@@ -1199,16 +1205,18 @@ tr:hover {
 }
 .rule-cell {
   vertical-align: top;
+  padding-left: 2rem;
 }
 .rule-id {
-  font-weight: 500;
-  margin-bottom: 0.25rem;
+  font-size: 0.85em;
+  margin-bottom: 0.5rem;
 }
 .rule-desc {
-  font-size: 0.85em;
-  color: light-dark(#4b5563, #737aa2);
+  font-size: 1em;
+  color: light-dark(#374151, #a9b1d6);
   font-family: 'Public Sans', system-ui, sans-serif;
-  margin-top: 0.25rem;
+  margin-top: 0.5rem;
+  line-height: 1.5;
 }
 .rule-tags {
   display: inline-flex;
@@ -1257,6 +1265,10 @@ tr:hover {
 }
 .ref-line {
   white-space: nowrap;
+  margin-bottom: 0.35rem;
+}
+.ref-line:last-child {
+  margin-bottom: 0;
 }
 .ref-type {
   color: light-dark(#6b7280, #565f89);
@@ -1280,7 +1292,7 @@ label {
   font-weight: 600;
   font-size: 1.1em;
   color: light-dark(#1a1b26, #c0caf5);
-  padding: 0.75rem 8px;
+  padding: 0.75rem 16px;
   text-transform: capitalize;
   letter-spacing: 0.02em;
 }
@@ -1305,6 +1317,12 @@ kw-should, kw-should-not, kw-recommended, kw-not-recommended {
 kw-may, kw-optional {
   color: light-dark(#2563eb, #7aa2f7);
   font-weight: 600;
+}
+mark {
+  background: light-dark(#fef08a, #3d3520);
+  color: inherit;
+  padding: 0.1rem 0.15rem;
+  border-radius: 2px;
 }
 "#,
     );
@@ -1350,24 +1368,69 @@ function updateAllLinks() {{
   }});
 }}
 
+let fuse = null;
+let markInstance = null;
+let ruleRows = [];
+
+function initSearch() {{
+  const rows = document.querySelectorAll('tbody tr:not(.section-header)');
+  ruleRows = Array.from(rows).map((row, index) => ({{
+    index,
+    row,
+    ruleId: row.querySelector('.rule-id')?.textContent || '',
+    desc: row.querySelector('.rule-desc')?.textContent || '',
+    refs: row.querySelector('.refs-cell')?.textContent || '',
+  }}));
+  
+  fuse = new Fuse(ruleRows, {{
+    keys: ['ruleId', 'desc', 'refs'],
+    threshold: 0.3,
+    ignoreLocation: true,
+    includeMatches: true,
+  }});
+  
+  markInstance = new Mark(document.querySelector('tbody'));
+}}
+
 function filterTable() {{
-  const filter = document.getElementById('filter').value.toLowerCase();
+  const filter = document.getElementById('filter').value;
   const levelFilter = document.getElementById('level-filter').value;
   const rows = document.querySelectorAll('tbody tr');
-  let currentSectionVisible = false;
-  let currentSectionHeader = null;
   
-  rows.forEach(row => {{
+  // Clear previous highlights
+  if (markInstance) {{
+    markInstance.unmark();
+  }}
+  
+  // Determine which rows match the search
+  let matchingIndices = new Set();
+  if (filter === '') {{
+    // No search filter - all rows match
+    ruleRows.forEach(r => matchingIndices.add(r.index));
+  }} else if (fuse) {{
+    // Fuzzy search
+    const results = fuse.search(filter);
+    results.forEach(result => matchingIndices.add(result.item.index));
+  }}
+  
+  let currentSectionHeader = null;
+  let currentSectionVisible = false;
+  
+  rows.forEach((row, idx) => {{
     if (row.classList.contains('section-header')) {{
       // Hide section header initially, show if any child matches
+      if (currentSectionHeader && currentSectionVisible) {{
+        currentSectionHeader.style.display = '';
+      }}
       currentSectionHeader = row;
       currentSectionVisible = false;
       row.style.display = 'none';
       return;
     }}
     
-    const text = row.textContent.toLowerCase();
-    const matchesText = filter === '' || text.includes(filter);
+    // Find the ruleRow index for this row
+    const ruleRowIdx = ruleRows.findIndex(r => r.row === row);
+    const matchesText = ruleRowIdx >= 0 && matchingIndices.has(ruleRowIdx);
     
     // Check level filter by looking for keyword elements in the row
     let matchesLevel = true;
@@ -1382,17 +1445,30 @@ function filterTable() {{
     const visible = matchesText && matchesLevel;
     row.style.display = visible ? '' : 'none';
     
-    if (visible && currentSectionHeader) {{
-      currentSectionHeader.style.display = '';
+    if (visible) {{
       currentSectionVisible = true;
     }}
   }});
+  
+  // Handle last section header
+  if (currentSectionHeader && currentSectionVisible) {{
+    currentSectionHeader.style.display = '';
+  }}
+  
+  // Highlight matches
+  if (filter && markInstance) {{
+    markInstance.mark(filter, {{
+      separateWordSearch: false,
+      accuracy: 'partially',
+    }});
+  }}
 }}
 
 document.addEventListener('DOMContentLoaded', () => {{
   const select = document.getElementById('editor-select');
   select.value = getEditor();
   updateAllLinks();
+  initSearch();
 }});
 
 document.addEventListener('keydown', (e) => {{
