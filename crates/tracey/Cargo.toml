@@ -15,7 +15,7 @@ name = "tracey"
 path = "src/main.rs"
 
 [dependencies]
-tracey-core = { workspace = true, features = ["walk", "parallel", "fetch"] }
+tracey-core = { workspace = true, features = ["walk", "parallel", "fetch", "markdown"] }
 
 # Facet ecosystem for config parsing and CLI
 facet = { workspace = true }
