@@ -613,21 +613,107 @@
     }
 
     // ========================================================================
+    // Routing
+    // ========================================================================
+    
+    function parseRoute() {
+      const path = window.location.pathname;
+      const params = new URLSearchParams(window.location.search);
+      
+      if (path.startsWith('/reverse')) {
+        return { 
+          view: 'reverse', 
+          file: params.get('file'),
+          line: params.get('line') ? parseInt(params.get('line'), 10) : null,
+        };
+      }
+      if (path.startsWith('/spec')) {
+        return { 
+          view: 'spec',
+          rule: params.get('rule'),
+        };
+      }
+      // Default to forward
+      return { 
+        view: 'forward',
+        rule: params.get('rule'),
+      };
+    }
+    
+    function buildUrl(view, params = {}) {
+      const searchParams = new URLSearchParams();
+      for (const [key, value] of Object.entries(params)) {
+        if (value != null) searchParams.set(key, value);
+      }
+      const query = searchParams.toString();
+      return `/${view}${query ? '?' + query : ''}`;
+    }
+    
+    function navigate(view, params = {}, replace = false) {
+      const url = buildUrl(view, params);
+      if (replace) {
+        history.replaceState(null, '', url);
+      } else {
+        history.pushState(null, '', url);
+      }
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    }
+    
+    function useRouter() {
+      const [route, setRoute] = useState(parseRoute);
+      
+      useEffect(() => {
+        const handlePopState = () => setRoute(parseRoute());
+        window.addEventListener('popstate', handlePopState);
+        return () => window.removeEventListener('popstate', handlePopState);
+      }, []);
+      
+      return route;
+    }
+
+    // ========================================================================
     // Hooks
     // ========================================================================
     
-    function useLiveReload() {
+    function useApi() {
+      const [data, setData] = useState(null);
+      const [error, setError] = useState(null);
+      const [version, setVersion] = useState(null);
+
+      const fetchData = useCallback(async () => {
+        try {
+          const [config, forward, reverse] = await Promise.all([
+            fetchJson('/api/config'),
+            fetchJson('/api/forward'),
+            fetchJson('/api/reverse'),
+          ]);
+          setData({ config, forward, reverse });
+          setError(null);
+        } catch (e) {
+          setError(e.message);
+        }
+      }, []);
+
+      // Initial fetch
+      useEffect(() => {
+        fetchData();
+      }, [fetchData]);
+
+      // Poll for version changes and refetch if changed
       useEffect(() => {
         let active = true;
         let lastVersion = null;
 
         async function poll() {
+          if (!active) return;
           try {
-            const data = await fetchJson('/api/version');
-            if (lastVersion !== null && data.version !== lastVersion) {
-              window.location.reload();
+            const res = await fetchJson('/api/version');
+            if (lastVersion !== null && res.version !== lastVersion) {
+              console.log(`Version changed: ${lastVersion} -> ${res.version}, refetching...`);
+              await fetchData();
             }
-            lastVersion = data.version;
+            lastVersion = res.version;
+            setVersion(res.version);
           } catch (e) {
             console.warn('Version poll failed:', e);
           }
@@ -636,24 +722,9 @@
 
         poll();
         return () => { active = false; };
-      }, []);
-    }
+      }, [fetchData]);
 
-    function useApi() {
-      const [data, setData] = useState(null);
-      const [error, setError] = useState(null);
-
-      useEffect(() => {
-        Promise.all([
-          fetchJson('/api/config'),
-          fetchJson('/api/forward'),
-          fetchJson('/api/reverse'),
-        ]).then(([config, forward, reverse]) => {
-          setData({ config, forward, reverse });
-        }).catch(e => setError(e.message));
-      }, []);
-
-      return { data, error };
+      return { data, error, version, refetch: fetchData };
     }
 
     function useFile(path) {
@@ -789,35 +860,45 @@
     // ========================================================================
     
     function App() {
-      const { data, error } = useApi();
-      const [view, setView] = useState('forward');
+      const { data, error, version } = useApi();
+      const route = useRouter();
       const [search, setSearch] = useState('');
-      const [selectedFile, setSelectedFile] = useState(null);
-      const [selectedRule, setSelectedRule] = useState(null);
-      
-      useLiveReload();
 
       if (error) return html`<div class="loading">Error: ${error}</div>`;
       if (!data) return html`<div class="loading">Loading...</div>`;
 
       const { config, forward, reverse } = data;
+      const { view, file, rule, line } = route;
+
+      const handleViewChange = useCallback((newView) => {
+        navigate(newView, {}, false);
+      }, []);
+
+      const handleSelectFile = useCallback((filePath, lineNum = null) => {
+        navigate('reverse', { file: filePath, line: lineNum }, false);
+      }, []);
+
+      const handleSelectRule = useCallback((ruleId) => {
+        navigate('spec', { rule: ruleId }, false);
+      }, []);
 
       return html`
         <div class="layout">
           <${Header} 
             view=${view} 
-            onViewChange=${setView}
+            onViewChange=${handleViewChange}
             search=${search}
             onSearchChange=${setSearch}
+            version=${version}
           />
           
           ${view === 'forward' && html`
             <${ForwardView} 
               data=${forward} 
               search=${search}
-              selectedRule=${selectedRule}
-              onSelectRule=${setSelectedRule}
-              onSelectFile=${(file) => { setSelectedFile(file); setView('reverse'); }}
+              selectedRule=${rule}
+              onSelectRule=${handleSelectRule}
+              onSelectFile=${handleSelectFile}
             />
           `}
           
@@ -827,8 +908,9 @@
               forward=${forward}
               config=${config}
               search=${search}
-              selectedFile=${selectedFile}
-              onSelectFile=${setSelectedFile}
+              selectedFile=${file}
+              selectedLine=${line}
+              onSelectFile=${handleSelectFile}
             />
           `}
           
@@ -836,32 +918,40 @@
             <${SpecView}
               config=${config}
               forward=${forward}
-              selectedRule=${selectedRule}
-              onSelectRule=${setSelectedRule}
-              onSelectFile=${(file) => { setSelectedFile(file); setView('reverse'); }}
+              selectedRule=${rule}
+              onSelectRule=${handleSelectRule}
+              onSelectFile=${handleSelectFile}
             />
           `}
         </div>
       `;
     }
 
-    function Header({ view, onViewChange, search, onSearchChange }) {
+    function Header({ view, onViewChange, search, onSearchChange, version }) {
+      const handleNavClick = (e, newView) => {
+        e.preventDefault();
+        onViewChange(newView);
+      };
+
       return html`
         <header class="header">
-          <a href="/" class="logo">tracey</a>
+          <a href="/forward" class="logo" onClick=${(e) => handleNavClick(e, 'forward')}>tracey</a>
           <nav class="nav">
-            <button 
+            <a 
+              href="/forward"
               class="nav-btn ${view === 'forward' ? 'active' : ''}"
-              onClick=${() => onViewChange('forward')}
-            >Forward</button>
-            <button 
+              onClick=${(e) => handleNavClick(e, 'forward')}
+            >Forward</a>
+            <a 
+              href="/reverse"
               class="nav-btn ${view === 'reverse' ? 'active' : ''}"
-              onClick=${() => onViewChange('reverse')}
-            >Reverse</button>
-            <button 
+              onClick=${(e) => handleNavClick(e, 'reverse')}
+            >Reverse</a>
+            <a 
+              href="/spec"
               class="nav-btn ${view === 'spec' ? 'active' : ''}"
-              onClick=${() => onViewChange('spec')}
-            >Spec</button>
+              onClick=${(e) => handleNavClick(e, 'spec')}
+            >Spec</a>
           </nav>
           <div class="search-box">
             <input
@@ -872,6 +962,7 @@
               onInput=${(e) => onSearchChange(e.target.value)}
             />
           </div>
+          ${version && html`<span style="font-size: 0.75rem; color: var(--fg-dim);">v${version}</span>`}
         </header>
       `;
     }
@@ -942,8 +1033,8 @@
                           ? rule.implRefs.map(r => html`
                               <a 
                                 class="rule-ref impl" 
-                                href="#"
-                                onClick=${(e) => { e.preventDefault(); onSelectFile(r.file); }}
+                                href=${buildUrl('reverse', { file: r.file, line: r.line })}
+                                onClick=${(e) => { e.preventDefault(); onSelectFile(r.file, r.line); }}
                               >${r.file}:${r.line}</a>
                             `)
                           : html`<span style="color: var(--fg-dim)">—</span>`
@@ -954,8 +1045,8 @@
                           ? rule.verifyRefs.map(r => html`
                               <a 
                                 class="rule-ref verify" 
-                                href="#"
-                                onClick=${(e) => { e.preventDefault(); onSelectFile(r.file); }}
+                                href=${buildUrl('reverse', { file: r.file, line: r.line })}
+                                onClick=${(e) => { e.preventDefault(); onSelectFile(r.file, r.line); }}
                               >${r.file}:${r.line}</a>
                             `)
                           : html`<span style="color: var(--fg-dim)">—</span>`
@@ -971,7 +1062,7 @@
       `;
     }
 
-    function ReverseView({ data, forward, config, search, selectedFile, onSelectFile }) {
+    function ReverseView({ data, forward, config, search, selectedFile, selectedLine, onSelectFile }) {
       const fileTree = useMemo(() => buildFileTree(data.files), [data.files]);
       const file = useFile(selectedFile);
 

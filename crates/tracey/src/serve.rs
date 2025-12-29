@@ -141,8 +141,10 @@ struct DashboardData {
     code_units_by_file: BTreeMap<PathBuf, Vec<CodeUnit>>,
     /// Spec content by name
     specs_content: BTreeMap<String, ApiSpecData>,
-    /// Version number (incremented on each rebuild)
+    /// Version number (incremented only when content actually changes)
     version: u64,
+    /// Hash of forward + reverse JSON for change detection
+    content_hash: u64,
 }
 
 // ============================================================================
@@ -496,20 +498,39 @@ fn build_dashboard_data(
     // Sort files by path
     file_entries.sort_by(|a, b| a.path.cmp(&b.path));
 
+    let forward = ApiForwardData {
+        specs: forward_specs,
+    };
+    let reverse = ApiReverseData {
+        total_units,
+        covered_units,
+        files: file_entries,
+    };
+
+    // Compute content hash for change detection
+    let forward_json = forward.to_json();
+    let reverse_json = reverse.to_json();
+    let content_hash = simple_hash(&forward_json) ^ simple_hash(&reverse_json);
+
     Ok(DashboardData {
         config: api_config,
-        forward: ApiForwardData {
-            specs: forward_specs,
-        },
-        reverse: ApiReverseData {
-            total_units,
-            covered_units,
-            files: file_entries,
-        },
+        forward,
+        reverse,
         code_units_by_file,
         specs_content,
         version,
+        content_hash,
     })
+}
+
+/// Simple FNV-1a hash for change detection
+fn simple_hash(s: &str) -> u64 {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in s.bytes() {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
 }
 
 fn load_spec_content(
@@ -657,6 +678,7 @@ async fn run_server(config_path: Option<PathBuf>, port: u16, open_browser: bool)
 
     // Rebuild task
     let rebuild_tx = tx.clone();
+    let rebuild_rx = rx.clone();
     let rebuild_project_root = project_root.clone();
     let rebuild_config_path = config_path.clone();
     let rebuild_version = version.clone();
@@ -671,21 +693,24 @@ async fn run_server(config_path: Option<PathBuf>, port: u16, open_browser: bool)
                 }
             };
 
-            let new_version = rebuild_version.fetch_add(1, Ordering::SeqCst) + 1;
+            // Get current hash to compare
+            let current_hash = rebuild_rx.borrow().content_hash;
 
-            match build_dashboard_data(
-                &rebuild_project_root,
-                &rebuild_config_path,
-                &config,
-                new_version,
-            ) {
-                Ok(data) => {
-                    eprintln!(
-                        "{} Rebuilt dashboard (v{})",
-                        "->".blue().bold(),
-                        new_version
-                    );
-                    let _ = rebuild_tx.send(Arc::new(data));
+            // Build with placeholder version (we'll set real version if hash changed)
+            match build_dashboard_data(&rebuild_project_root, &rebuild_config_path, &config, 0) {
+                Ok(mut data) => {
+                    // Only bump version if content actually changed
+                    if data.content_hash != current_hash {
+                        let new_version = rebuild_version.fetch_add(1, Ordering::SeqCst) + 1;
+                        data.version = new_version;
+                        eprintln!(
+                            "{} Rebuilt dashboard (v{})",
+                            "->".blue().bold(),
+                            new_version
+                        );
+                        let _ = rebuild_tx.send(Arc::new(data));
+                    }
+                    // If hash is same, silently ignore the rebuild
                 }
                 Err(e) => {
                     eprintln!("{} Rebuild error: {}", "!".yellow(), e);
@@ -721,8 +746,6 @@ async fn run_server(config_path: Option<PathBuf>, port: u16, open_browser: bool)
         let project_root = project_root.clone();
 
         let response = match path {
-            "/" => Response::from_string(HTML_SHELL).with_content_type("text/html; charset=utf-8"),
-
             "/api/config" => {
                 Response::from_string(state.config.to_json()).with_content_type("application/json")
             }
@@ -790,7 +813,8 @@ async fn run_server(config_path: Option<PathBuf>, port: u16, open_browser: bool)
                 }
             }
 
-            _ => Response::from_string("Not Found").with_status_code(404),
+            // Serve SPA for all other routes (client-side routing)
+            _ => Response::from_string(HTML_SHELL).with_content_type("text/html; charset=utf-8"),
         };
 
         if let Err(e) = req.respond(response) {
