@@ -14,8 +14,8 @@ use facet_args as args;
 use output::{OutputFormat, render_report};
 use owo_colors::OwoColorize;
 use std::path::PathBuf;
-use tracey_core::{CoverageReport, Rules, SpecManifest, WalkSources};
 use tracey_core::markdown::{MarkdownProcessor, RulesManifest};
+use tracey_core::{CoverageReport, Rules, SpecManifest, WalkSources};
 
 /// CLI arguments
 #[derive(Debug, facet::Facet)]
@@ -69,8 +69,6 @@ enum Command {
     },
 }
 
-
-
 fn main() -> Result<()> {
     // Set up miette for fancy error reporting
     miette::set_hook(Box::new(|_| {
@@ -88,9 +86,12 @@ fn main() -> Result<()> {
         facet_args::from_std_args().wrap_err("Failed to parse command line arguments")?;
 
     match args.command {
-        Some(Command::Rules { files, base_url, output, markdown_out }) => {
-            run_rules_command(files, base_url, output, markdown_out)
-        }
+        Some(Command::Rules {
+            files,
+            base_url,
+            output,
+            markdown_out,
+        }) => run_rules_command(files, base_url, output, markdown_out),
         None => run_coverage_command(args),
     }
 }
@@ -122,10 +123,7 @@ fn run_rules_command(
         let result = MarkdownProcessor::process(&content)
             .wrap_err_with(|| format!("Failed to process {}", file_path.display()))?;
 
-        eprintln!(
-            "   Found {} rules",
-            result.rules.len().to_string().green()
-        );
+        eprintln!("   Found {} rules", result.rules.len().to_string().green());
 
         // Build manifest for this file
         let file_manifest = RulesManifest::from_rules(&result.rules, base_url);
@@ -145,10 +143,7 @@ fn run_rules_command(
             );
             std::fs::write(&out_file, &result.output)
                 .wrap_err_with(|| format!("Failed to write {}", out_file.display()))?;
-            eprintln!(
-                "   Wrote transformed markdown to {}",
-                out_file.display()
-            );
+            eprintln!("   Wrote transformed markdown to {}", out_file.display());
         }
     }
 
@@ -218,7 +213,11 @@ fn run_coverage_command(args: Args) -> Result<()> {
         let spec_name = &spec_config.name.value;
 
         // Load manifest from URL, local file, or markdown glob
-        let manifest = match (&spec_config.rules_url, &spec_config.rules_file, &spec_config.rules_glob) {
+        let manifest = match (
+            &spec_config.rules_url,
+            &spec_config.rules_file,
+            &spec_config.rules_glob,
+        ) {
             (Some(url), None, None) => {
                 eprintln!(
                     "{} Fetching spec manifest for {}...",

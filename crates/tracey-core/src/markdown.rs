@@ -87,10 +87,9 @@ impl RulesManifest {
         let mut manifest = Self::new();
         for rule in rules {
             let url = format!("{}#{}", base_url, rule.anchor_id);
-            manifest.rules.insert(
-                rule.id.clone(),
-                ManifestRuleEntry { url },
-            );
+            manifest
+                .rules
+                .insert(rule.id.clone(), ManifestRuleEntry { url });
         }
         manifest
     }
@@ -221,7 +220,10 @@ impl MarkdownProcessor {
             byte_offset += line_byte_len + 1;
         }
 
-        Ok(ProcessedMarkdown { rules, output: result })
+        Ok(ProcessedMarkdown {
+            rules,
+            output: result,
+        })
     }
 
     /// Extract only the rules from markdown without transforming the output.
@@ -336,12 +338,18 @@ Second occurrence.
             MarkdownRule {
                 id: "channel.id.allocation".to_string(),
                 anchor_id: "r-channel.id.allocation".to_string(),
-                span: SourceSpan { offset: 0, length: 10 },
+                span: SourceSpan {
+                    offset: 0,
+                    length: 10,
+                },
             },
             MarkdownRule {
                 id: "channel.id.parity".to_string(),
                 anchor_id: "r-channel.id.parity".to_string(),
-                span: SourceSpan { offset: 20, length: 10 },
+                span: SourceSpan {
+                    offset: 20,
+                    length: 10,
+                },
             },
         ];
 

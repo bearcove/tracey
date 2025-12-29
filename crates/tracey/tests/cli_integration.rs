@@ -1,7 +1,7 @@
 //! Integration tests that run the tracey binary
 
-use std::process::Command;
 use std::path::Path;
+use std::process::Command;
 
 fn tracey_bin() -> Command {
     // Use cargo to find the binary
@@ -130,7 +130,10 @@ fn test_rules_command_no_files() {
         .output()
         .expect("Failed to run tracey");
 
-    assert!(!output.status.success(), "Command should fail without files");
+    assert!(
+        !output.status.success(),
+        "Command should fail without files"
+    );
 
     // Error can be either from argument parsing or explicit check
     let stderr = String::from_utf8_lossy(&output.stderr);
