@@ -24,7 +24,7 @@ markdown = []
 
 [dependencies]
 facet = { workspace = true }
-facet-json = { workspace = true }
+facet-format-json = { workspace = true }
 eyre = { workspace = true }
 
 # Optional

@@ -15,6 +15,24 @@ fn fixtures_dir() -> &'static Path {
     ))
 }
 
+/// Helper to parse JSON output and get a field as string
+fn json_get_str<'a>(obj: &'a facet_value::Value, key: &str) -> &'a str {
+    obj.as_object()
+        .unwrap()
+        .get(key)
+        .unwrap()
+        .as_string()
+        .unwrap()
+        .as_str()
+}
+
+/// Helper to parse JSON array output
+fn parse_json_array(json: &str) -> facet_value::VArray {
+    let parsed: facet_value::Value =
+        facet_format_json::from_str(json).expect("Should be valid JSON");
+    parsed.as_array().expect("Should be an array").clone()
+}
+
 // tracey[verify manifest.format.json]
 // tracey[verify manifest.format.rules-key]
 #[test]
@@ -397,13 +415,11 @@ fn foo() {}
     assert!(output.status.success(), "Command should succeed");
 
     // Should be valid JSON
-    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("Should be valid JSON");
-    assert!(parsed.is_array(), "Should be an array");
+    let arr = parse_json_array(&stdout);
 
-    let arr = parsed.as_array().unwrap();
     assert_eq!(arr.len(), 1, "Should have one reference");
-    assert_eq!(arr[0]["rule_id"], "test.rule.one");
-    assert_eq!(arr[0]["verb"], "impl");
+    assert_eq!(json_get_str(&arr[0], "rule_id"), "test.rule.one");
+    assert_eq!(json_get_str(&arr[0], "verb"), "impl");
 
     cleanup();
 }
@@ -642,6 +658,750 @@ This has an unknown attribute.
         stderr.contains("unknown attribute"),
         "Should mention unknown attribute: {}",
         stderr
+    );
+
+    cleanup();
+}
+
+// ============================================================================
+// Tests for comment types (ref.comments.*)
+// ============================================================================
+
+// tracey[verify ref.comments.line]
+#[test]
+fn test_line_comments() {
+    let (file_path, cleanup) = create_test_file(
+        r#"
+// [impl test.line.comment]
+fn foo() {}
+"#,
+    );
+
+    let output = tracey_bin()
+        .arg("at")
+        .arg(&file_path)
+        .arg("-f")
+        .arg("json")
+        .output()
+        .expect("Failed to run tracey");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "Command should succeed");
+
+    let arr = parse_json_array(&stdout);
+    assert_eq!(arr.len(), 1);
+    assert_eq!(json_get_str(&arr[0], "rule_id"), "test.line.comment");
+
+    cleanup();
+}
+
+// tracey[verify ref.comments.doc]
+#[test]
+fn test_doc_comments() {
+    let (file_path, cleanup) = create_test_file(
+        r#"
+/// Documentation comment
+/// [impl test.doc.comment]
+fn foo() {}
+
+//! Module-level doc
+//! [impl test.inner.doc]
+"#,
+    );
+
+    let output = tracey_bin()
+        .arg("at")
+        .arg(&file_path)
+        .arg("-f")
+        .arg("json")
+        .output()
+        .expect("Failed to run tracey");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "Command should succeed");
+
+    let arr = parse_json_array(&stdout);
+    assert_eq!(arr.len(), 2);
+
+    let rule_ids: Vec<&str> = arr.iter().map(|r| json_get_str(r, "rule_id")).collect();
+    assert!(rule_ids.contains(&"test.doc.comment"));
+    assert!(rule_ids.contains(&"test.inner.doc"));
+
+    cleanup();
+}
+
+// tracey[verify ref.comments.block]
+#[test]
+fn test_block_comments() {
+    let (file_path, cleanup) = create_test_file(
+        r#"
+/*
+ * Block comment
+ * [impl test.block.comment]
+ */
+fn foo() {}
+
+/* Single line block [impl test.single.block] */
+fn bar() {}
+"#,
+    );
+
+    let output = tracey_bin()
+        .arg("at")
+        .arg(&file_path)
+        .arg("-f")
+        .arg("json")
+        .output()
+        .expect("Failed to run tracey");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "Command should succeed");
+
+    let arr = parse_json_array(&stdout);
+    assert_eq!(arr.len(), 2);
+
+    let rule_ids: Vec<&str> = arr.iter().map(|r| json_get_str(r, "rule_id")).collect();
+    assert!(rule_ids.contains(&"test.block.comment"));
+    assert!(rule_ids.contains(&"test.single.block"));
+
+    cleanup();
+}
+
+// ============================================================================
+// Tests for verb types (ref.verb.*)
+// ============================================================================
+
+// tracey[verify ref.verb.define]
+#[test]
+fn test_verb_define() {
+    let (file_path, cleanup) = create_test_file(
+        r#"
+// [define test.definition]
+// This defines a rule.
+"#,
+    );
+
+    let output = tracey_bin()
+        .arg("at")
+        .arg(&file_path)
+        .arg("-f")
+        .arg("json")
+        .output()
+        .expect("Failed to run tracey");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "Command should succeed");
+
+    let arr = parse_json_array(&stdout);
+    assert_eq!(arr.len(), 1);
+    assert_eq!(json_get_str(&arr[0], "rule_id"), "test.definition");
+    assert_eq!(json_get_str(&arr[0], "verb"), "define");
+
+    cleanup();
+}
+
+// tracey[verify ref.verb.depends]
+#[test]
+fn test_verb_depends() {
+    let (file_path, cleanup) = create_test_file(
+        r#"
+// [depends test.dependency]
+fn needs_other_rule() {}
+"#,
+    );
+
+    let output = tracey_bin()
+        .arg("at")
+        .arg(&file_path)
+        .arg("-f")
+        .arg("json")
+        .output()
+        .expect("Failed to run tracey");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "Command should succeed");
+
+    let arr = parse_json_array(&stdout);
+    assert_eq!(arr.len(), 1);
+    assert_eq!(json_get_str(&arr[0], "rule_id"), "test.dependency");
+    assert_eq!(json_get_str(&arr[0], "verb"), "depends");
+
+    cleanup();
+}
+
+// tracey[verify ref.verb.related]
+#[test]
+fn test_verb_related() {
+    let (file_path, cleanup) = create_test_file(
+        r#"
+// [related test.related.rule]
+fn related_code() {}
+"#,
+    );
+
+    let output = tracey_bin()
+        .arg("at")
+        .arg(&file_path)
+        .arg("-f")
+        .arg("json")
+        .output()
+        .expect("Failed to run tracey");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "Command should succeed");
+
+    let arr = parse_json_array(&stdout);
+    assert_eq!(arr.len(), 1);
+    assert_eq!(json_get_str(&arr[0], "rule_id"), "test.related.rule");
+    assert_eq!(json_get_str(&arr[0], "verb"), "related");
+
+    cleanup();
+}
+
+// tracey[verify ref.verb.default]
+#[test]
+fn test_verb_default() {
+    let (file_path, cleanup) = create_test_file(
+        r#"
+// [test.no.verb]
+fn default_is_impl() {}
+"#,
+    );
+
+    let output = tracey_bin()
+        .arg("at")
+        .arg(&file_path)
+        .arg("-f")
+        .arg("json")
+        .output()
+        .expect("Failed to run tracey");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "Command should succeed");
+
+    let arr = parse_json_array(&stdout);
+    assert_eq!(arr.len(), 1);
+    assert_eq!(json_get_str(&arr[0], "rule_id"), "test.no.verb");
+    assert_eq!(json_get_str(&arr[0], "verb"), "impl"); // Default verb is impl
+
+    cleanup();
+}
+
+// tracey[verify ref.verb.unknown]
+#[test]
+fn test_verb_unknown_warning() {
+    let (file_path, cleanup) = create_test_file(
+        r#"
+// [unknownverb test.rule.id]
+fn foo() {}
+"#,
+    );
+
+    let output = tracey_bin()
+        .arg("at")
+        .arg(&file_path)
+        .arg("-f")
+        .arg("json")
+        .output()
+        .expect("Failed to run tracey");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "Command should succeed");
+
+    // Unknown verb means no valid reference found
+    let arr = parse_json_array(&stdout);
+    assert_eq!(arr.len(), 0, "Unknown verb should not create a reference");
+
+    cleanup();
+}
+
+// ============================================================================
+// Tests for config (config.*)
+// ============================================================================
+
+fn create_temp_project() -> (std::path::PathBuf, impl FnOnce()) {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    let id = COUNTER.fetch_add(1, Ordering::SeqCst);
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let temp_dir = std::env::temp_dir().join(format!("tracey_config_test_{}_{}", timestamp, id));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).expect("Failed to create temp dir");
+
+    let cleanup_path = temp_dir.clone();
+    (temp_dir, move || {
+        let _ = std::fs::remove_dir_all(cleanup_path);
+    })
+}
+
+// tracey[verify config.format.kdl]
+// tracey[verify config.spec.name]
+// tracey[verify config.spec.source]
+#[test]
+fn test_config_kdl_format() {
+    let (temp_dir, cleanup) = create_temp_project();
+
+    // Create a .config/tracey/config.kdl
+    let config_dir = temp_dir.join(".config/tracey");
+    std::fs::create_dir_all(&config_dir).unwrap();
+
+    // Create a spec file
+    let spec_dir = temp_dir.join("docs/spec");
+    std::fs::create_dir_all(&spec_dir).unwrap();
+    std::fs::write(
+        spec_dir.join("test.md"),
+        r#"
+# Test Spec
+
+r[test.rule.one]
+First rule.
+"#,
+    )
+    .unwrap();
+
+    // Create a source file with reference
+    std::fs::write(
+        temp_dir.join("lib.rs"),
+        r#"
+// [impl test.rule.one]
+fn foo() {}
+"#,
+    )
+    .unwrap();
+
+    // Write config in KDL format
+    std::fs::write(
+        config_dir.join("config.kdl"),
+        r#"
+spec {
+    name "test-spec"
+    rules_glob "docs/spec/**/*.md"
+    include "**/*.rs"
+}
+"#,
+    )
+    .unwrap();
+
+    // Run tracey matrix in the temp directory
+    let output = tracey_bin()
+        .current_dir(&temp_dir)
+        .arg("matrix")
+        .output()
+        .expect("Failed to run tracey");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "Command should succeed. stderr: {}",
+        stderr
+    );
+    assert!(
+        stdout.contains("test.rule.one"),
+        "Should find rule in output: {}",
+        stdout
+    );
+
+    cleanup();
+}
+
+// tracey[verify config.path.default]
+#[test]
+fn test_config_default_path() {
+    let (temp_dir, cleanup) = create_temp_project();
+
+    // Create a spec file (no config)
+    let spec_dir = temp_dir.join("docs/spec");
+    std::fs::create_dir_all(&spec_dir).unwrap();
+    std::fs::write(
+        spec_dir.join("test.md"),
+        r#"
+r[test.rule]
+A rule.
+"#,
+    )
+    .unwrap();
+
+    // Run tracey without config - should fail looking for default path
+    let output = tracey_bin()
+        .current_dir(&temp_dir)
+        .arg("matrix")
+        .output()
+        .expect("Failed to run tracey");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // Should fail because config file not found at default path
+    assert!(!output.status.success(), "Should fail without config");
+    assert!(
+        stderr.contains(".config/tracey/config.kdl") || stderr.contains("Config file not found"),
+        "Should mention default config path: {}",
+        stderr
+    );
+
+    cleanup();
+}
+
+// tracey[verify config.spec.include]
+// tracey[verify config.spec.exclude]
+#[test]
+fn test_config_include_exclude() {
+    let (temp_dir, cleanup) = create_temp_project();
+
+    // Create config
+    let config_dir = temp_dir.join(".config/tracey");
+    std::fs::create_dir_all(&config_dir).unwrap();
+
+    // Create spec
+    let spec_dir = temp_dir.join("docs/spec");
+    std::fs::create_dir_all(&spec_dir).unwrap();
+    std::fs::write(
+        spec_dir.join("test.md"),
+        r#"
+r[test.rule]
+A rule.
+"#,
+    )
+    .unwrap();
+
+    // Create source files
+    let src_dir = temp_dir.join("src");
+    std::fs::create_dir_all(&src_dir).unwrap();
+    std::fs::write(src_dir.join("lib.rs"), "// [impl test.rule]\n").unwrap();
+
+    let excluded_dir = temp_dir.join("vendor");
+    std::fs::create_dir_all(&excluded_dir).unwrap();
+    std::fs::write(excluded_dir.join("external.rs"), "// [impl test.rule]\n").unwrap();
+
+    // Config with include and exclude patterns
+    std::fs::write(
+        config_dir.join("config.kdl"),
+        r#"
+spec {
+    name "test"
+    rules_glob "docs/spec/**/*.md"
+    include "src/**/*.rs"
+    exclude "vendor/**"
+}
+"#,
+    )
+    .unwrap();
+
+    let output = tracey_bin()
+        .current_dir(&temp_dir)
+        .arg("matrix")
+        .output()
+        .expect("Failed to run tracey");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(output.status.success(), "Should succeed: {}", stderr);
+    // Should find the impl in src but not in vendor
+    assert!(
+        stdout.contains("src/lib.rs"),
+        "Should find src file: {}",
+        stdout
+    );
+    assert!(
+        !stdout.contains("vendor"),
+        "Should not include vendor: {}",
+        stdout
+    );
+
+    cleanup();
+}
+
+// ============================================================================
+// Tests for coverage computation (coverage.compute.*)
+// ============================================================================
+
+// tracey[verify coverage.compute.covered]
+// tracey[verify coverage.compute.uncovered]
+// tracey[verify coverage.compute.percentage]
+#[test]
+fn test_coverage_computation() {
+    let (temp_dir, cleanup) = create_temp_project();
+
+    // Create config
+    let config_dir = temp_dir.join(".config/tracey");
+    std::fs::create_dir_all(&config_dir).unwrap();
+
+    // Create spec with 2 rules
+    let spec_dir = temp_dir.join("docs/spec");
+    std::fs::create_dir_all(&spec_dir).unwrap();
+    std::fs::write(
+        spec_dir.join("test.md"),
+        r#"
+r[test.covered]
+This rule is covered.
+
+r[test.uncovered]
+This rule is NOT covered.
+"#,
+    )
+    .unwrap();
+
+    // Create source that covers only one rule
+    std::fs::write(
+        temp_dir.join("lib.rs"),
+        r#"
+// [impl test.covered]
+fn covered_impl() {}
+"#,
+    )
+    .unwrap();
+
+    std::fs::write(
+        config_dir.join("config.kdl"),
+        r#"
+spec {
+    name "test"
+    rules_glob "docs/spec/**/*.md"
+    include "**/*.rs"
+}
+"#,
+    )
+    .unwrap();
+
+    // Run with --uncovered to see uncovered rules
+    let output = tracey_bin()
+        .current_dir(&temp_dir)
+        .arg("matrix")
+        .arg("--uncovered")
+        .output()
+        .expect("Failed to run tracey");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(output.status.success(), "Should succeed: {}", stderr);
+    // Only uncovered rules should be shown
+    assert!(
+        stdout.contains("test.uncovered"),
+        "Should show uncovered rule: {}",
+        stdout
+    );
+    assert!(
+        !stdout.contains("test.covered"),
+        "Should not show covered rule in --uncovered mode: {}",
+        stdout
+    );
+
+    cleanup();
+}
+
+// tracey[verify coverage.compute.invalid]
+#[test]
+fn test_coverage_invalid_references() {
+    let (temp_dir, cleanup) = create_temp_project();
+
+    // Create config
+    let config_dir = temp_dir.join(".config/tracey");
+    std::fs::create_dir_all(&config_dir).unwrap();
+
+    // Create spec with one rule
+    let spec_dir = temp_dir.join("docs/spec");
+    std::fs::create_dir_all(&spec_dir).unwrap();
+    std::fs::write(
+        spec_dir.join("test.md"),
+        r#"
+r[test.valid]
+A valid rule.
+"#,
+    )
+    .unwrap();
+
+    // Create source with reference to non-existent rule
+    std::fs::write(
+        temp_dir.join("lib.rs"),
+        r#"
+// [impl test.nonexistent]
+fn invalid_ref() {}
+"#,
+    )
+    .unwrap();
+
+    std::fs::write(
+        config_dir.join("config.kdl"),
+        r#"
+spec {
+    name "test"
+    rules_glob "docs/spec/**/*.md"
+    include "**/*.rs"
+}
+"#,
+    )
+    .unwrap();
+
+    // Run tracey with verbose mode to see invalid references
+    let output = tracey_bin()
+        .current_dir(&temp_dir)
+        .arg("--verbose")
+        .output()
+        .expect("Failed to run tracey");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{}{}", stdout, stderr);
+
+    // Should warn about invalid reference (could be in stdout or stderr)
+    assert!(
+        combined.contains("test.nonexistent")
+            || combined.contains("invalid")
+            || combined.contains("Invalid"),
+        "Should report invalid reference. stdout: {}, stderr: {}",
+        stdout,
+        stderr
+    );
+
+    cleanup();
+}
+
+// ============================================================================
+// Tests for file walking (walk.*)
+// ============================================================================
+
+// tracey[verify walk.gitignore]
+#[test]
+fn test_walk_respects_gitignore() {
+    let (temp_dir, cleanup) = create_temp_project();
+
+    // Initialize git repo
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(&temp_dir)
+        .output()
+        .ok();
+
+    // Create .gitignore
+    std::fs::write(temp_dir.join(".gitignore"), "ignored/\n").unwrap();
+
+    // Create config
+    let config_dir = temp_dir.join(".config/tracey");
+    std::fs::create_dir_all(&config_dir).unwrap();
+
+    // Create spec
+    let spec_dir = temp_dir.join("docs/spec");
+    std::fs::create_dir_all(&spec_dir).unwrap();
+    std::fs::write(
+        spec_dir.join("test.md"),
+        r#"
+r[test.rule]
+A rule.
+"#,
+    )
+    .unwrap();
+
+    // Create source files - one in normal location, one in gitignored location
+    std::fs::write(temp_dir.join("lib.rs"), "// [impl test.rule]\n").unwrap();
+
+    let ignored_dir = temp_dir.join("ignored");
+    std::fs::create_dir_all(&ignored_dir).unwrap();
+    std::fs::write(ignored_dir.join("file.rs"), "// [impl test.rule]\n").unwrap();
+
+    std::fs::write(
+        config_dir.join("config.kdl"),
+        r#"
+spec {
+    name "test"
+    rules_glob "docs/spec/**/*.md"
+    include "**/*.rs"
+}
+"#,
+    )
+    .unwrap();
+
+    let output = tracey_bin()
+        .current_dir(&temp_dir)
+        .arg("matrix")
+        .output()
+        .expect("Failed to run tracey");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(output.status.success(), "Should succeed: {}", stderr);
+    // Should find lib.rs but not ignored/file.rs
+    assert!(stdout.contains("lib.rs"), "Should find lib.rs: {}", stdout);
+    assert!(
+        !stdout.contains("ignored"),
+        "Should not include gitignored files: {}",
+        stdout
+    );
+
+    cleanup();
+}
+
+// tracey[verify walk.default-include]
+// tracey[verify walk.default-exclude]
+#[test]
+fn test_walk_default_patterns() {
+    let (temp_dir, cleanup) = create_temp_project();
+
+    // Create config without include/exclude
+    let config_dir = temp_dir.join(".config/tracey");
+    std::fs::create_dir_all(&config_dir).unwrap();
+
+    // Create spec
+    let spec_dir = temp_dir.join("docs/spec");
+    std::fs::create_dir_all(&spec_dir).unwrap();
+    std::fs::write(
+        spec_dir.join("test.md"),
+        r#"
+r[test.rule]
+A rule.
+"#,
+    )
+    .unwrap();
+
+    // Create source file
+    std::fs::write(temp_dir.join("lib.rs"), "// [impl test.rule]\n").unwrap();
+
+    // Create target directory (should be excluded by default)
+    let target_dir = temp_dir.join("target/debug");
+    std::fs::create_dir_all(&target_dir).unwrap();
+    std::fs::write(target_dir.join("build.rs"), "// [impl test.rule]\n").unwrap();
+
+    // Config without include/exclude - should use defaults
+    std::fs::write(
+        config_dir.join("config.kdl"),
+        r#"
+spec {
+    name "test"
+    rules_glob "docs/spec/**/*.md"
+}
+"#,
+    )
+    .unwrap();
+
+    let output = tracey_bin()
+        .current_dir(&temp_dir)
+        .arg("matrix")
+        .output()
+        .expect("Failed to run tracey");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(output.status.success(), "Should succeed: {}", stderr);
+    // Should find lib.rs (default includes **/*.rs)
+    assert!(
+        stdout.contains("lib.rs"),
+        "Should find lib.rs with default include: {}",
+        stdout
+    );
+    // Should not include target (default exclude)
+    assert!(
+        !stdout.contains("target"),
+        "Should exclude target by default: {}",
+        stdout
     );
 
     cleanup();

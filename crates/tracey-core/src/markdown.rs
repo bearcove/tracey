@@ -320,7 +320,7 @@ impl RulesManifest {
     ///
     /// [impl manifest.format.json]
     pub fn to_json(&self) -> String {
-        facet_json::to_string_pretty(self)
+        facet_format_json::to_string_pretty(self).expect("RulesManifest should serialize to JSON")
     }
 }
 

@@ -197,3 +197,21 @@ fn test_rule_span_tracking() {
     // Second rule should be after the first rule and content
     assert!(result.rules[1].span.offset > result.rules[0].span.offset);
 }
+
+// tracey[verify markdown.html.wbr]
+#[test]
+fn test_wbr_elements_in_html_output() {
+    let markdown = r#"
+r[my.rule.with.dots]
+Rule with multiple dots in ID.
+"#;
+
+    let result = MarkdownProcessor::process(markdown).unwrap();
+
+    // Verify that dots are followed by <wbr> in the output
+    assert!(
+        result.output.contains("my.<wbr>rule.<wbr>with.<wbr>dots"),
+        "Dots should be followed by <wbr> elements for line breaking: {}",
+        result.output
+    );
+}

@@ -12,7 +12,7 @@ authors.workspace = true
 
 [package.metadata.cargo-shear]
 # Used by #[facet(derive(Error, facet_miette::Diagnostic))] in errors.rs
-ignored = ["facet-error", "facet-miette"]
+ignored = ["facet-error"]
 
 [package.metadata]
 
@@ -30,7 +30,7 @@ tracey-core = { workspace = true, features = ["walk", "parallel", "fetch", "mark
 facet = { workspace = true }
 facet-args = { workspace = true }
 facet-kdl = { workspace = true }
-facet-json = { workspace = true }
+facet-format-json = { workspace = true }
 
 # Error handling
 eyre = { workspace = true }
@@ -48,5 +48,10 @@ ignore = { workspace = true }
 miette-arborium = { workspace = true }
 
 # JSON output
-serde_json = { workspace = true }
 html-escape = "0.2.13"
+
+# Open files in browser
+open = "5"
+
+[dev-dependencies]
+facet-value = { workspace = true }

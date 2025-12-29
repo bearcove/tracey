@@ -131,6 +131,10 @@ enum Command {
         /// Output file (default: stdout)
         #[facet(args::named, args::short = 'o', default)]
         output: Option<PathBuf>,
+
+        /// Open HTML output in browser (writes to temp file)
+        #[facet(args::named, default)]
+        open: bool,
     },
 }
 
@@ -193,8 +197,9 @@ fn main() -> Result<()> {
             status,
             prefix,
             output,
+            open,
         }) => run_matrix_command(
-            config, format, uncovered, no_verify, level, status, prefix, output,
+            config, format, uncovered, no_verify, level, status, prefix, output, open,
         ),
         None => run_coverage_command(args),
     }
@@ -517,19 +522,28 @@ fn run_at_command(location: String, config: Option<PathBuf>, format: Option<Stri
         .collect();
 
     if is_json {
-        // JSON output
-        let output: Vec<_> = filtered_refs
+        // JSON output - use Facet struct for proper serialization
+        #[derive(facet::Facet)]
+        struct RefJson {
+            rule_id: String,
+            verb: String,
+            line: usize,
+            file: String,
+        }
+
+        let output: Vec<RefJson> = filtered_refs
             .iter()
-            .map(|r| {
-                serde_json::json!({
-                    "rule_id": r.rule_id,
-                    "verb": r.verb.as_str(),
-                    "line": r.line,
-                    "file": r.file.display().to_string(),
-                })
+            .map(|r| RefJson {
+                rule_id: r.rule_id.clone(),
+                verb: r.verb.as_str().to_string(),
+                line: r.line,
+                file: r.file.display().to_string(),
             })
             .collect();
-        println!("{}", serde_json::to_string_pretty(&output)?);
+        println!(
+            "{}",
+            facet_format_json::to_string_pretty(&output).expect("JSON serialization failed")
+        );
     } else {
         // Text output - show path relative to cwd if possible
         let relative_path = file_path
@@ -670,22 +684,47 @@ fn run_impact_command(
     }
 
     if is_json {
-        // JSON output
-        let mut by_verb: HashMap<&str, Vec<serde_json::Value>> = HashMap::new();
-        for r in &all_refs {
-            by_verb.entry(r.verb.as_str()).or_default().push(
-                serde_json::json!({
-                    "file": r.file.strip_prefix(&project_root).unwrap_or(&r.file).display().to_string(),
-                    "line": r.line,
-                })
-            );
+        // JSON output - use Facet structs for proper serialization
+        #[derive(facet::Facet)]
+        struct FileRef {
+            file: String,
+            line: usize,
         }
-        let output = serde_json::json!({
-            "rule_id": rule_id,
-            "url": rule_url,
-            "references": by_verb,
-        });
-        println!("{}", serde_json::to_string_pretty(&output)?);
+
+        #[derive(facet::Facet)]
+        struct RuleOutput {
+            rule_id: String,
+            #[facet(default)]
+            url: Option<String>,
+            references: std::collections::HashMap<String, Vec<FileRef>>,
+        }
+
+        let mut refs_by_verb: std::collections::HashMap<String, Vec<FileRef>> =
+            std::collections::HashMap::new();
+        for r in &all_refs {
+            refs_by_verb
+                .entry(r.verb.as_str().to_string())
+                .or_default()
+                .push(FileRef {
+                    file: r
+                        .file
+                        .strip_prefix(&project_root)
+                        .unwrap_or(&r.file)
+                        .display()
+                        .to_string(),
+                    line: r.line,
+                });
+        }
+
+        let output = RuleOutput {
+            rule_id: rule_id.clone(),
+            url: rule_url.clone(),
+            references: refs_by_verb,
+        };
+        println!(
+            "{}",
+            facet_format_json::to_string_pretty(&output).expect("JSON serialization failed")
+        );
     } else {
         // Text output
         println!("{} {}", "Rule:".bold(), rule_id.cyan());
@@ -790,6 +829,7 @@ fn run_matrix_command(
     status_filter: Option<String>,
     prefix_filter: Option<String>,
     output: Option<PathBuf>,
+    open_in_browser: bool,
 ) -> Result<()> {
     use tracey_core::RefVerb;
 
@@ -963,7 +1003,32 @@ fn run_matrix_command(
         MatrixFormat::Html => render_matrix_html(&all_rows, &project_root),
     };
 
-    if let Some(ref out_path) = output {
+    if open_in_browser {
+        // --open flag: write to temp file and open in browser
+        if !matches!(format, MatrixFormat::Html) {
+            eyre::bail!("The --open flag requires --format=html");
+        }
+
+        // Generate a unique temp file
+        let temp_dir = std::env::temp_dir();
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let temp_path = temp_dir.join(format!("tracey-matrix-{}.html", timestamp));
+
+        std::fs::write(&temp_path, &output_str)
+            .wrap_err_with(|| format!("Failed to write temp file {}", temp_path.display()))?;
+
+        eprintln!(
+            "{} Opening {} in browser...",
+            "->".blue().bold(),
+            temp_path.display()
+        );
+
+        open::that(&temp_path)
+            .wrap_err_with(|| format!("Failed to open {} in browser", temp_path.display()))?;
+    } else if let Some(ref out_path) = output {
         std::fs::write(out_path, &output_str)
             .wrap_err_with(|| format!("Failed to write {}", out_path.display()))?;
         eprintln!(
@@ -1048,23 +1113,38 @@ fn render_matrix_csv(rows: &[MatrixRow]) -> String {
 }
 
 fn render_matrix_json(rows: &[MatrixRow]) -> String {
-    let json_rows: Vec<serde_json::Value> = rows
+    // Use Facet struct for proper serialization
+    #[derive(facet::Facet)]
+    struct MatrixRowJson {
+        rule_id: String,
+        url: String,
+        #[facet(default)]
+        text: Option<String>,
+        #[facet(default)]
+        status: Option<String>,
+        #[facet(default)]
+        level: Option<String>,
+        #[facet(rename = "impl")]
+        impl_refs: Vec<String>,
+        verify: Vec<String>,
+        depends: Vec<String>,
+    }
+
+    let json_rows: Vec<MatrixRowJson> = rows
         .iter()
-        .map(|row| {
-            serde_json::json!({
-                "rule_id": row.rule_id,
-                "url": row.url,
-                "text": row.text,
-                "status": row.status,
-                "level": row.level,
-                "impl": row.impl_refs,
-                "verify": row.verify_refs,
-                "depends": row.depends_refs,
-            })
+        .map(|row| MatrixRowJson {
+            rule_id: row.rule_id.clone(),
+            url: row.url.clone(),
+            text: row.text.clone(),
+            status: row.status.clone(),
+            level: row.level.clone(),
+            impl_refs: row.impl_refs.clone(),
+            verify: row.verify_refs.clone(),
+            depends: row.depends_refs.clone(),
         })
         .collect();
 
-    serde_json::to_string_pretty(&json_rows).unwrap_or_else(|_| "[]".to_string())
+    facet_format_json::to_string_pretty(&json_rows).expect("JSON serialization failed")
 }
 
 fn render_matrix_html(rows: &[MatrixRow], project_root: &std::path::Path) -> String {

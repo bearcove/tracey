@@ -237,7 +237,7 @@ fn render_json(report: &CoverageReport) -> String {
             .collect(),
     };
 
-    facet_json::to_string_pretty(&json_report)
+    facet_format_json::to_string_pretty(&json_report).expect("JSON serialization failed")
 }
 
 fn render_markdown(report: &CoverageReport, verbose: bool) -> String {
