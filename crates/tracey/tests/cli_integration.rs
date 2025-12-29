@@ -15,6 +15,8 @@ fn fixtures_dir() -> &'static Path {
     ))
 }
 
+// tracey[verify manifest.format.json]
+// tracey[verify manifest.format.rules-key]
 #[test]
 fn test_rules_command_basic() {
     let output = tracey_bin()
@@ -48,6 +50,7 @@ fn test_rules_command_basic() {
     );
 }
 
+// tracey[verify manifest.format.rule-entry]
 #[test]
 fn test_rules_command_with_base_url() {
     let output = tracey_bin()
@@ -103,6 +106,7 @@ fn test_rules_command_output_file() {
     let _ = std::fs::remove_file(&output_file);
 }
 
+// tracey[verify markdown.duplicates.same-file]
 #[test]
 fn test_rules_command_duplicate_detection() {
     let output = tracey_bin()
@@ -147,6 +151,9 @@ fn test_rules_command_no_files() {
     );
 }
 
+// tracey[verify markdown.html.div]
+// tracey[verify markdown.html.anchor]
+// tracey[verify markdown.html.link]
 #[test]
 fn test_rules_command_markdown_output() {
     let temp_dir = std::env::temp_dir().join("tracey_md_test");
@@ -190,6 +197,7 @@ fn test_rules_command_markdown_output() {
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
 
+// tracey[verify markdown.duplicates.cross-file]
 #[test]
 fn test_rules_command_multiple_files() {
     let output = tracey_bin()
@@ -238,6 +246,10 @@ fn create_test_file(content: &str) -> (std::path::PathBuf, impl FnOnce()) {
     })
 }
 
+// tracey[verify ref.syntax.brackets]
+// tracey[verify ref.syntax.verb]
+// tracey[verify ref.verb.impl]
+// tracey[verify ref.verb.verify]
 #[test]
 fn test_at_command_file() {
     let (file_path, cleanup) = create_test_file(
@@ -279,6 +291,8 @@ fn bar() {}
     cleanup();
 }
 
+// tracey[verify ref.span.offset]
+// tracey[verify ref.span.file]
 #[test]
 fn test_at_command_with_line() {
     let (file_path, cleanup) = create_test_file(
@@ -359,6 +373,8 @@ fn bar() {}
     cleanup();
 }
 
+// tracey[verify ref.span.length]
+// tracey[verify ref.syntax.rule-id]
 #[test]
 fn test_at_command_json_output() {
     let (file_path, cleanup) = create_test_file(

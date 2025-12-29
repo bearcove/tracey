@@ -1089,6 +1089,9 @@ fn render_matrix_html(rows: &[MatrixRow], project_root: &std::path::Path) -> Str
     output.push_str(
         "<script src=\"https://cdn.jsdelivr.net/npm/mark.js@8.11.1/dist/mark.min.js\"></script>\n",
     );
+    output.push_str(
+        "<script src=\"https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js\"></script>\n",
+    );
     // Tokyo Night inspired color palette
     // Light: clean whites and grays with subtle blue tints
     // Dark: deep blue-grays from Tokyo Night
@@ -1117,42 +1120,76 @@ table {
   font-family: 'IBM Plex Mono', monospace;
   font-size: 0.9em;
 }
-th, td {
-  border: 1px solid light-dark(#d5d5db, #292e42);
+thead {
+  display: none;
+}
+td {
+  border: none;
+  border-bottom: 1px solid light-dark(#e5e5e5, #292e42);
   padding: 12px 16px;
   text-align: left;
 }
-th {
-  background-color: light-dark(#e8e8ed, #24283b);
-  position: sticky;
-  top: 0;
-  font-family: 'Public Sans', system-ui, sans-serif;
-  font-weight: 600;
-  color: light-dark(#1a1b26, #c0caf5);
-}
-tr:nth-child(even) {
-  background-color: light-dark(#fafafe, #1f2335);
-}
 tr:hover {
-  background-color: light-dark(#e8e8f0, #292e42);
+  background-color: light-dark(#f5f5f7, #1f2335);
 }
-.covered {
-  background-color: light-dark(#ddf4dd, #1a2f1a);
+tr:target {
+  background-color: light-dark(#fef9c3, #3d3520);
 }
-.covered:hover {
-  background-color: light-dark(#c8ecc8, #243d24);
+tr:target .anchor-link {
+  opacity: 1;
+  color: light-dark(#d97706, #e0af68);
 }
-.partial {
-  background-color: light-dark(#e8e8f8, #24283b);
+tbody tr:not(.section-header) td:first-child {
+  border-left: 3px solid transparent;
 }
-.partial:hover {
-  background-color: light-dark(#d8d8f0, #292e42);
+.covered td:first-child {
+  border-left-color: light-dark(#16a34a, #9ece6a);
 }
-.uncovered {
-  background-color: light-dark(#fde2e2, #2d1f1f);
+.partial td:first-child {
+  border-left-color: light-dark(#2563eb, #7aa2f7);
 }
-.uncovered:hover {
-  background-color: light-dark(#fcd0d0, #3d2929);
+.uncovered td:first-child {
+  border-left-color: light-dark(#dc2626, #f7768e);
+}
+.stats {
+  display: flex;
+  gap: 2rem;
+  margin-bottom: 1.5rem;
+  font-family: 'Public Sans', system-ui, sans-serif;
+}
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.stat-label {
+  font-size: 0.85em;
+  color: light-dark(#6b7280, #565f89);
+}
+.stat-value {
+  font-size: 1.5em;
+  font-weight: 600;
+  font-family: 'IBM Plex Mono', monospace;
+}
+.stat-value-good {
+  color: light-dark(#16a34a, #9ece6a);
+}
+.stat-value-partial {
+  color: light-dark(#2563eb, #7aa2f7);
+}
+.stat-value-bad {
+  color: light-dark(#dc2626, #f7768e);
+}
+.stat-clickable {
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.stat-clickable:hover {
+  opacity: 0.8;
+}
+.stat-clickable.active {
+  text-decoration: underline;
+  text-underline-offset: 4px;
 }
 .status-draft {
   color: light-dark(#6b7280, #565f89);
@@ -1173,18 +1210,17 @@ tr:hover {
   align-items: center;
   font-family: 'Public Sans', system-ui, sans-serif;
 }
-#filter, #editor-select, #level-filter {
+#filter {
   padding: 0.5rem 0.75rem;
   font-family: inherit;
+  font-size: 1rem;
   background: light-dark(#fff, #24283b);
   color: light-dark(#1a1b26, #a9b1d6);
   border: 1px solid light-dark(#d5d5db, #414868);
   border-radius: 6px;
-}
-#filter {
   width: 300px;
 }
-#filter:focus, #editor-select:focus, #level-filter:focus {
+#filter:focus {
   outline: none;
   border-color: light-dark(#7aa2f7, #7aa2f7);
   box-shadow: 0 0 0 2px light-dark(rgba(122, 162, 247, 0.2), rgba(122, 162, 247, 0.3));
@@ -1203,13 +1239,48 @@ tr:hover {
 .spec-link {
   font-weight: 500;
 }
+.anchor-cell {
+  vertical-align: middle;
+  text-align: center;
+  width: 3rem;
+  padding: 0;
+}
+.anchor-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-height: 3rem;
+  color: light-dark(#1a1b26, #a9b1d6);
+  text-decoration: none;
+  font-size: 1.4rem;
+  font-weight: 600;
+  opacity: 0.25;
+}
+.anchor-link:hover {
+  opacity: 1;
+  color: light-dark(#7aa2f7, #7aa2f7);
+}
+tr[id] {
+  scroll-margin-top: 6rem;
+}
 .rule-cell {
   vertical-align: top;
-  padding-left: 2rem;
+  padding-left: 1rem;
 }
 .rule-id {
   font-size: 0.85em;
   margin-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.rule-icon {
+  width: 1em;
+  height: 1em;
+  color: light-dark(#9ca3af, #565f89);
+  flex-shrink: 0;
 }
 .rule-desc {
   font-size: 1em;
@@ -1266,13 +1337,27 @@ tr:hover {
 .ref-line {
   white-space: nowrap;
   margin-bottom: 0.35rem;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
 }
 .ref-line:last-child {
   margin-bottom: 0;
 }
-.ref-type {
-  color: light-dark(#6b7280, #565f89);
-  font-weight: 500;
+.ref-icon {
+  width: 1em;
+  height: 1em;
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+.ref-icon-impl {
+  color: light-dark(#16a34a, #9ece6a);
+}
+.ref-icon-verify {
+  color: light-dark(#2563eb, #7aa2f7);
+}
+.ref-icon-depends {
+  color: light-dark(#d97706, #e0af68);
 }
 .file-path {
   color: light-dark(#9ca3af, #565f89);
@@ -1286,18 +1371,133 @@ tr:hover {
 label {
   color: light-dark(#374151, #9aa5ce);
 }
+.custom-dropdown {
+  position: relative;
+  display: inline-block;
+}
+.dropdown-selected {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: light-dark(#fff, #24283b);
+  border: 1px solid light-dark(#d5d5db, #414868);
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: 'Public Sans', system-ui, sans-serif;
+  font-size: 1rem;
+  color: light-dark(#1a1b26, #a9b1d6);
+  min-width: 100px;
+}
+.dropdown-selected:hover {
+  background: light-dark(#f5f5f7, #292e42);
+}
+.dropdown-selected svg {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+}
+.dropdown-selected svg path {
+  fill: currentColor;
+}
+.dropdown-selected .chevron {
+  margin-left: auto;
+  opacity: 0.5;
+}
+.dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  background: light-dark(#fff, #24283b);
+  border: 1px solid light-dark(#d5d5db, #414868);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px light-dark(rgba(0,0,0,0.1), rgba(0,0,0,0.3));
+  z-index: 100;
+  min-width: 100%;
+  display: none;
+}
+.custom-dropdown.open .dropdown-menu {
+  display: block;
+}
+.dropdown-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  font-family: 'Public Sans', system-ui, sans-serif;
+  font-size: 1rem;
+  color: light-dark(#374151, #a9b1d6);
+  white-space: nowrap;
+}
+.dropdown-option:first-child {
+  border-radius: 5px 5px 0 0;
+}
+.dropdown-option:last-child {
+  border-radius: 0 0 5px 5px;
+}
+.dropdown-option:hover {
+  background: light-dark(#f5f5f7, #292e42);
+}
+.dropdown-option.active {
+  background: light-dark(#e8e8ed, #292e42);
+  color: light-dark(#1a1b26, #c0caf5);
+}
+.dropdown-option svg {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+}
+.dropdown-option svg path {
+  fill: currentColor;
+}
+.level-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.level-dot-all { background: light-dark(#6b7280, #737aa2); }
+.level-dot-must { background: light-dark(#dc2626, #f7768e); }
+.level-dot-should { background: light-dark(#d97706, #e0af68); }
+.level-dot-may { background: light-dark(#2563eb, #7aa2f7); }
+.filter-notice {
+  display: none;
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  background: light-dark(#f5f5f7, #24283b);
+  border: 1px solid light-dark(#d5d5db, #414868);
+  border-radius: 6px;
+  font-family: 'Public Sans', system-ui, sans-serif;
+  color: light-dark(#6b7280, #737aa2);
+  text-align: center;
+}
+.filter-notice.visible {
+  display: block;
+}
+.filter-notice a {
+  color: light-dark(#2563eb, #7aa2f7);
+  text-decoration: none;
+  margin-left: 0.5rem;
+}
+.filter-notice a:hover {
+  text-decoration: underline;
+}
 .section-header td {
-  background: light-dark(#d5d5db, #1f2335);
+  background: transparent;
+  border: none;
   font-family: 'Public Sans', system-ui, sans-serif;
   font-weight: 600;
-  font-size: 1.1em;
+  font-size: 1.4em;
   color: light-dark(#1a1b26, #c0caf5);
-  padding: 0.75rem 16px;
+  padding: 1.5rem 0 0.75rem 0;
   text-transform: capitalize;
   letter-spacing: 0.02em;
 }
-.section-header:hover td {
-  background: light-dark(#d5d5db, #1f2335);
+.section-header:hover {
+  background: transparent;
 }
 code {
   background: light-dark(#e8e8ed, #292e42);
@@ -1336,6 +1536,10 @@ mark {
 const EDITORS = {{
   zed: {{ name: "Zed", urlTemplate: (path, line) => `zed://file/${{path}}:${{line}}` }},
   vscode: {{ name: "VS Code", urlTemplate: (path, line) => `vscode://file/${{path}}:${{line}}` }},
+  idea: {{ name: "IntelliJ", urlTemplate: (path, line) => `idea://open?file=${{path}}&line=${{line}}` }},
+  sublime: {{ name: "Sublime", urlTemplate: (path, line) => `subl://open?url=file://${{path}}&line=${{line}}` }},
+  vim: {{ name: "Vim", urlTemplate: (path, line) => `mvim://open?url=file://${{path}}&line=${{line}}` }},
+  emacs: {{ name: "Emacs", urlTemplate: (path, line) => `emacs://open?url=file://${{path}}&line=${{line}}` }},
 }};
 
 function getEditor() {{
@@ -1345,6 +1549,74 @@ function getEditor() {{
 function setEditor(editor) {{
   localStorage.setItem('tracey-editor', editor);
   updateAllLinks();
+  updateEditorDropdown();
+}}
+
+function toggleDropdown(id) {{
+  // Close other dropdowns first
+  document.querySelectorAll('.custom-dropdown.open').forEach(d => {{
+    if (d.id !== id) d.classList.remove('open');
+  }});
+  document.getElementById(id).classList.toggle('open');
+}}
+
+function selectEditor(editor) {{
+  setEditor(editor);
+  document.getElementById('editor-dropdown').classList.remove('open');
+}}
+
+function updateEditorDropdown() {{
+  const editor = getEditor();
+  const config = EDITORS[editor];
+  // Update the selected display
+  const option = document.querySelector(`#editor-dropdown .dropdown-option[data-editor="${{editor}}"]`);
+  if (option) {{
+    document.getElementById('editor-icon').innerHTML = option.querySelector('svg').outerHTML;
+    document.getElementById('editor-name').textContent = config.name;
+  }}
+  // Update active state in menu
+  document.querySelectorAll('#editor-dropdown .dropdown-option').forEach(opt => {{
+    opt.classList.toggle('active', opt.dataset.editor === editor);
+  }});
+}}
+
+const LEVELS = {{
+  all: {{ name: 'All', dotClass: 'level-dot-all' }},
+  must: {{ name: 'MUST', dotClass: 'level-dot-must' }},
+  should: {{ name: 'SHOULD', dotClass: 'level-dot-should' }},
+  may: {{ name: 'MAY', dotClass: 'level-dot-may' }},
+}};
+
+let currentLevel = 'all';
+
+function selectLevel(level) {{
+  currentLevel = level;
+  updateLevelDropdown();
+  filterTable();
+  document.getElementById('level-dropdown').classList.remove('open');
+}}
+
+function updateLevelDropdown() {{
+  const config = LEVELS[currentLevel];
+  document.getElementById('level-icon').innerHTML = `<span class="level-dot ${{config.dotClass}}"></span>`;
+  document.getElementById('level-name').textContent = config.name;
+  // Update active state in menu
+  document.querySelectorAll('#level-dropdown .dropdown-option').forEach(opt => {{
+    opt.classList.toggle('active', opt.dataset.value === currentLevel);
+  }});
+}}
+
+function clearFilters() {{
+  // Clear text filter
+  document.getElementById('filter').value = '';
+  // Reset level filter
+  currentLevel = 'all';
+  updateLevelDropdown();
+  // Clear coverage filter
+  coverageFilter = null;
+  document.querySelectorAll('.stat-clickable').forEach(s => s.classList.remove('active'));
+  // Re-run filter
+  filterTable();
 }}
 
 function updateAllLinks() {{
@@ -1371,6 +1643,7 @@ function updateAllLinks() {{
 let fuse = null;
 let markInstance = null;
 let ruleRows = [];
+let coverageFilter = null; // 'no-impl' or 'no-verify' or null
 
 function initSearch() {{
   const rows = document.querySelectorAll('tbody tr:not(.section-header)');
@@ -1380,6 +1653,8 @@ function initSearch() {{
     ruleId: row.querySelector('.rule-id')?.textContent || '',
     desc: row.querySelector('.rule-desc')?.textContent || '',
     refs: row.querySelector('.refs-cell')?.textContent || '',
+    hasImpl: !!row.querySelector('.ref-icon-impl'),
+    hasVerify: !!row.querySelector('.ref-icon-verify'),
   }}));
   
   fuse = new Fuse(ruleRows, {{
@@ -1392,9 +1667,26 @@ function initSearch() {{
   markInstance = new Mark(document.querySelector('tbody'));
 }}
 
+function setCoverageFilter(filter) {{
+  const implStat = document.getElementById('stat-impl');
+  const verifyStat = document.getElementById('stat-verify');
+  
+  if (coverageFilter === filter) {{
+    // Toggle off
+    coverageFilter = null;
+    implStat?.classList.remove('active');
+    verifyStat?.classList.remove('active');
+  }} else {{
+    coverageFilter = filter;
+    implStat?.classList.toggle('active', filter === 'no-impl');
+    verifyStat?.classList.toggle('active', filter === 'no-verify');
+  }}
+  filterTable();
+}}
+
 function filterTable() {{
   const filter = document.getElementById('filter').value;
-  const levelFilter = document.getElementById('level-filter').value;
+  const levelFilter = currentLevel;
   const rows = document.querySelectorAll('tbody tr');
   
   // Clear previous highlights
@@ -1415,6 +1707,8 @@ function filterTable() {{
   
   let currentSectionHeader = null;
   let currentSectionVisible = false;
+  let totalRules = 0;
+  let hiddenRules = 0;
   
   rows.forEach((row, idx) => {{
     if (row.classList.contains('section-header')) {{
@@ -1427,6 +1721,8 @@ function filterTable() {{
       row.style.display = 'none';
       return;
     }}
+    
+    totalRules++;
     
     // Find the ruleRow index for this row
     const ruleRowIdx = ruleRows.findIndex(r => r.row === row);
@@ -1442,17 +1738,40 @@ function filterTable() {{
       matchesLevel = !!row.querySelector('kw-may, kw-optional');
     }}
     
-    const visible = matchesText && matchesLevel;
+    // Check coverage filter
+    let matchesCoverage = true;
+    if (coverageFilter && ruleRowIdx >= 0) {{
+      const ruleRow = ruleRows[ruleRowIdx];
+      if (coverageFilter === 'no-impl') {{
+        matchesCoverage = !ruleRow.hasImpl;
+      }} else if (coverageFilter === 'no-verify') {{
+        matchesCoverage = !ruleRow.hasVerify;
+      }}
+    }}
+    
+    const visible = matchesText && matchesLevel && matchesCoverage;
     row.style.display = visible ? '' : 'none';
     
     if (visible) {{
       currentSectionVisible = true;
+    }} else {{
+      hiddenRules++;
     }}
   }});
   
   // Handle last section header
   if (currentSectionHeader && currentSectionVisible) {{
     currentSectionHeader.style.display = '';
+  }}
+  
+  // Update filter notice
+  const notice = document.getElementById('filter-notice');
+  const noticeText = document.getElementById('filter-notice-text');
+  if (hiddenRules > 0) {{
+    noticeText.textContent = `${{hiddenRules}} rule${{hiddenRules === 1 ? '' : 's'}} hidden by filters`;
+    notice.classList.add('visible');
+  }} else {{
+    notice.classList.remove('visible');
   }}
   
   // Highlight matches
@@ -1465,10 +1784,11 @@ function filterTable() {{
 }}
 
 document.addEventListener('DOMContentLoaded', () => {{
-  const select = document.getElementById('editor-select');
-  select.value = getEditor();
+  updateLevelDropdown();
+  updateEditorDropdown();
   updateAllLinks();
   initSearch();
+  lucide.createIcons();
 }});
 
 document.addEventListener('keydown', (e) => {{
@@ -1477,12 +1797,63 @@ document.addEventListener('keydown', (e) => {{
     document.getElementById('filter').focus();
   }}
 }});
+
+// Close dropdowns when clicking outside
+document.addEventListener('click', (e) => {{
+  document.querySelectorAll('.custom-dropdown').forEach(dropdown => {{
+    if (!dropdown.contains(e.target)) {{
+      dropdown.classList.remove('open');
+    }}
+  }});
+}});
 "#,
         root_str.replace('\\', "\\\\").replace('"', "\\\"")
     ));
     output.push_str("</script>\n");
     output.push_str("</head>\n<body>\n");
     output.push_str("<h1>Traceability Matrix</h1>\n");
+
+    // Calculate coverage stats
+    let total_rules = rows.len();
+    let rules_with_impl = rows.iter().filter(|r| !r.impl_refs.is_empty()).count();
+    let rules_with_verify = rows.iter().filter(|r| !r.verify_refs.is_empty()).count();
+    let impl_pct = if total_rules > 0 {
+        (rules_with_impl as f64 / total_rules as f64) * 100.0
+    } else {
+        0.0
+    };
+    let verify_pct = if total_rules > 0 {
+        (rules_with_verify as f64 / total_rules as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    // Color class based on percentage
+    let pct_class = |pct: f64| {
+        if pct >= 80.0 {
+            "stat-value-good"
+        } else if pct >= 50.0 {
+            "stat-value-partial"
+        } else {
+            "stat-value-bad"
+        }
+    };
+
+    output.push_str("<div class=\"stats\">\n");
+    output.push_str(&format!(
+        "<div class=\"stat\"><span class=\"stat-label\">Total Rules</span><span class=\"stat-value\">{}</span></div>\n",
+        total_rules
+    ));
+    output.push_str(&format!(
+        "<div class=\"stat stat-clickable\" id=\"stat-impl\" onclick=\"setCoverageFilter('no-impl')\" title=\"Click to show unimplemented rules\"><span class=\"stat-label\">Impl Coverage</span><span class=\"stat-value {}\">{:.1}%</span></div>\n",
+        pct_class(impl_pct), impl_pct
+    ));
+    output.push_str(&format!(
+        "<div class=\"stat stat-clickable\" id=\"stat-verify\" onclick=\"setCoverageFilter('no-verify')\" title=\"Click to show untested rules\"><span class=\"stat-label\">Test Coverage</span><span class=\"stat-value {}\">{:.1}%</span></div>\n",
+        pct_class(verify_pct), verify_pct
+    ));
+    output.push_str("</div>\n");
+
     output.push_str("<div class=\"controls\">\n");
     output.push_str(
         "<input type=\"text\" id=\"filter\" placeholder=\"Filter rules...\" onkeyup=\"filterTable()\">\n",
@@ -1498,22 +1869,68 @@ document.addEventListener('keydown', (e) => {{
 </script>
 "#,
     );
-    output.push_str("<label for=\"level-filter\">Level:</label>\n");
-    output.push_str("<select id=\"level-filter\" onchange=\"filterTable()\">\n");
-    output.push_str("<option value=\"all\">All</option>\n");
-    output.push_str("<option value=\"must\">MUST</option>\n");
-    output.push_str("<option value=\"should\">SHOULD</option>\n");
-    output.push_str("<option value=\"may\">MAY</option>\n");
-    output.push_str("</select>\n");
-    output.push_str("<label for=\"editor-select\">Open in:</label>\n");
-    output.push_str("<select id=\"editor-select\" onchange=\"setEditor(this.value)\">\n");
-    output.push_str("<option value=\"zed\">Zed</option>\n");
-    output.push_str("<option value=\"vscode\">VS Code</option>\n");
-    output.push_str("</select>\n");
+    // Level dropdown
+    output.push_str(r#"<div class="custom-dropdown" id="level-dropdown">"#);
+    output
+        .push_str(r#"<div class="dropdown-selected" onclick="toggleDropdown('level-dropdown')">"#);
+    output.push_str(r#"<span id="level-icon"><span class="level-dot level-dot-all"></span></span><span id="level-name">All</span>"#);
+    output.push_str(r#"<svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>"#);
+    output.push_str("</div>\n");
+    output.push_str(r#"<div class="dropdown-menu">"#);
+    output.push_str(r#"<div class="dropdown-option" data-value="all" onclick="selectLevel('all')"><span class="level-dot level-dot-all"></span><span>All</span></div>"#);
+    output.push_str(r#"<div class="dropdown-option" data-value="must" onclick="selectLevel('must')"><span class="level-dot level-dot-must"></span><span>MUST</span></div>"#);
+    output.push_str(r#"<div class="dropdown-option" data-value="should" onclick="selectLevel('should')"><span class="level-dot level-dot-should"></span><span>SHOULD</span></div>"#);
+    output.push_str(r#"<div class="dropdown-option" data-value="may" onclick="selectLevel('may')"><span class="level-dot level-dot-may"></span><span>MAY</span></div>"#);
+    output.push_str("</div></div>\n");
+    // Editor dropdown
+    output.push_str(r#"<div class="custom-dropdown" id="editor-dropdown">"#);
+    output
+        .push_str(r#"<div class="dropdown-selected" onclick="toggleDropdown('editor-dropdown')">"#);
+    output.push_str(r#"<span id="editor-icon"></span><span id="editor-name"></span>"#);
+    output.push_str(r#"<svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>"#);
+    output.push_str("</div>\n");
+    output.push_str(r#"<div class="dropdown-menu">"#);
+    // Zed
+    output.push_str(
+        r#"<div class="dropdown-option" data-editor="zed" onclick="selectEditor('zed')">"#,
+    );
+    output.push_str(r#"<svg viewBox="0 0 90 90" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M8.4375 5.625C6.8842 5.625 5.625 6.8842 5.625 8.4375V70.3125H0V8.4375C0 3.7776 3.7776 0 8.4375 0H83.7925C87.551 0 89.4333 4.5442 86.7756 7.20186L40.3642 53.6133H53.4375V47.8125H59.0625V55.0195C59.0625 57.3495 57.1737 59.2383 54.8438 59.2383H34.7392L25.0712 68.9062H68.9062V33.75H74.5312V68.9062C74.5312 72.0128 72.0128 74.5312 68.9062 74.5312H19.4462L9.60248 84.375H81.5625C83.1158 84.375 84.375 83.1158 84.375 81.5625V19.6875H90V81.5625C90 86.2224 86.2224 90 81.5625 90H6.20749C2.44898 90 0.566723 85.4558 3.22438 82.7981L49.46 36.5625H36.5625V42.1875H30.9375V35.1562C30.9375 32.8263 32.8263 30.9375 35.1562 30.9375H55.085L64.9288 21.0938H21.0938V56.25H15.4688V21.0938C15.4688 17.9871 17.9871 15.4688 21.0938 15.4688H70.5538L80.3975 5.625H8.4375Z"/></svg>"#);
+    output.push_str("<span>Zed</span></div>\n");
+    // VS Code
+    output.push_str(
+        r#"<div class="dropdown-option" data-editor="vscode" onclick="selectEditor('vscode')">"#,
+    );
+    output.push_str(r#"<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><path d="M74.9 11L45.3 40.4L22.7 22.1L11 27.9V72.1L22.7 77.9L45.3 59.6L74.9 89L100 77.9V22.1L74.9 11ZM22.7 60.1V39.9L35.5 50L22.7 60.1ZM74.9 60.1L52.8 50L74.9 39.9V60.1Z"/></svg>"#);
+    output.push_str("<span>VS Code</span></div>\n");
+    // IntelliJ IDEA
+    output.push_str(
+        r#"<div class="dropdown-option" data-editor="idea" onclick="selectEditor('idea')">"#,
+    );
+    output.push_str(r#"<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg"><path d="M14 103h100V25H14v78zm8-70h12v62H22V33zm50 54H44v-8h28v8zm6-46h12v54H78V41z"/></svg>"#);
+    output.push_str("<span>IntelliJ</span></div>\n");
+    // Sublime Text
+    output.push_str(
+        r#"<div class="dropdown-option" data-editor="sublime" onclick="selectEditor('sublime')">"#,
+    );
+    output.push_str(r#"<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M21 3L3 9.25V11.5L21 17.75V15.25L8.25 11.5L21 7.75V3M3 12.25V14.5L21 20.75V18.25L8.25 14.5L3 12.25Z"/></svg>"#);
+    output.push_str("<span>Sublime</span></div>\n");
+    // Vim (MacVim)
+    output.push_str(
+        r#"<div class="dropdown-option" data-editor="vim" onclick="selectEditor('vim')">"#,
+    );
+    output.push_str(r#"<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 2L3 7V17L12 22L21 17V7L12 2M12 4.5L18 8V16L12 19.5L6 16V8L12 4.5M12 7L8 9.5V14.5L12 17L16 14.5V9.5L12 7Z"/></svg>"#);
+    output.push_str("<span>Vim</span></div>\n");
+    // Emacs
+    output.push_str(
+        r#"<div class="dropdown-option" data-editor="emacs" onclick="selectEditor('emacs')">"#,
+    );
+    output.push_str(r#"<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2M12 4C16.42 4 20 7.58 20 12C20 16.42 16.42 20 12 20C7.58 20 4 16.42 4 12C4 7.58 7.58 4 12 4M8 7V17H16V15H10V7H8Z"/></svg>"#);
+    output.push_str("<span>Emacs</span></div>\n");
+    output.push_str("</div></div>\n");
     output.push_str("</div>\n");
     output.push_str("<table>\n");
     output.push_str("<thead>\n");
-    output.push_str("<tr><th>Rule</th><th>References</th></tr>\n");
+    output.push_str("<tr><th></th><th>Rule</th><th>References</th></tr>\n");
     output.push_str("</thead>\n");
     output.push_str("<tbody>\n");
 
@@ -1587,6 +2004,18 @@ document.addEventListener('keydown', (e) => {{
 
     // Helper to format a single reference as a link
     let format_ref = |ref_type: &str, r: &str| -> String {
+        // Lucide icon names and titles
+        let (icon_name, icon_class, title) = match ref_type {
+            "impl" => ("code-xml", "ref-icon-impl", "implements"),
+            "verify" => ("circle-check", "ref-icon-verify", "verified by"),
+            "depends" => ("package", "ref-icon-depends", "depends on"),
+            _ => ("code-xml", "ref-icon-impl", "implements"),
+        };
+        let icon = format!(
+            r#"<i data-lucide="{}" class="ref-icon {}"><title>{}</title></i>"#,
+            icon_name, icon_class, title
+        );
+
         // Parse "path:line" format
         if let Some((path, line)) = r.rsplit_once(':') {
             // Split path into directory and filename
@@ -1596,8 +2025,8 @@ document.addEventListener('keydown', (e) => {{
                 ("", path)
             };
             format!(
-                "<div class=\"ref-line\">[<span class=\"ref-type\">{}</span> <a class=\"file-link\" data-path=\"{}\" data-line=\"{}\" href=\"#\"><span class=\"file-path\">{}</span><span class=\"file-name\">{}</span><span class=\"file-line\">:{}</span></a>]</div>",
-                ref_type,
+                "<div class=\"ref-line\">{}<a class=\"file-link\" data-path=\"{}\" data-line=\"{}\" href=\"#\"><span class=\"file-path\">{}</span><span class=\"file-name\">{}</span><span class=\"file-line\">:{}</span></a></div>",
+                icon,
                 html_escape::encode_double_quoted_attribute(path),
                 line,
                 html_escape::encode_text(dir),
@@ -1606,8 +2035,8 @@ document.addEventListener('keydown', (e) => {{
             )
         } else {
             format!(
-                "<div class=\"ref-line\">[<span class=\"ref-type\">{}</span> {}]</div>",
-                ref_type,
+                "<div class=\"ref-line\">{}{}</div>",
+                icon,
                 html_escape::encode_text(r)
             )
         }
@@ -1628,7 +2057,7 @@ document.addEventListener('keydown', (e) => {{
         // Emit section header if section changed
         if current_section.as_ref() != Some(&section) {
             output.push_str(&format!(
-                "<tr class=\"section-header\"><td colspan=\"2\">{}</td></tr>\n",
+                "<tr class=\"section-header\"><td colspan=\"3\">{}</td></tr>\n",
                 html_escape::encode_text(&section)
             ));
             current_section = Some(section);
@@ -1681,10 +2110,14 @@ document.addEventListener('keydown', (e) => {{
         }
 
         // Format rule ID as a link to the spec file (opened in editor)
+        // Include a small markdown icon to indicate it's clickable
+        let md_icon =
+            r#"<i data-lucide="file-text" class="rule-icon"><title>Open in editor</title></i>"#;
         let rule_link = match (&row.source_file, row.source_line) {
             (Some(source_file), Some(source_line)) => {
                 format!(
-                    "<a href=\"#\" class=\"spec-link\" data-path=\"{}\" data-line=\"{}\">{}</a>",
+                    "{}<a href=\"#\" class=\"spec-link\" data-path=\"{}\" data-line=\"{}\">{}</a>",
+                    md_icon,
                     html_escape::encode_double_quoted_attribute(source_file),
                     source_line,
                     html_escape::encode_text(&row.rule_id)
@@ -1692,7 +2125,8 @@ document.addEventListener('keydown', (e) => {{
             }
             (Some(source_file), None) => {
                 format!(
-                    "<a href=\"#\" class=\"spec-link\" data-path=\"{}\" data-line=\"1\">{}</a>",
+                    "{}<a href=\"#\" class=\"spec-link\" data-path=\"{}\" data-line=\"1\">{}</a>",
+                    md_icon,
                     html_escape::encode_double_quoted_attribute(source_file),
                     html_escape::encode_text(&row.rule_id)
                 )
@@ -1730,14 +2164,19 @@ document.addEventListener('keydown', (e) => {{
         }
 
         output.push_str(&format!(
-            "<tr class=\"{}\"><td class=\"rule-cell\">{}</td><td class=\"refs-cell\">{}</td></tr>\n",
-            row_class, rule_cell, refs_html
+            "<tr class=\"{}\" id=\"{}\"><td class=\"anchor-cell\"><a href=\"#{}\" class=\"anchor-link\">#</a></td><td class=\"rule-cell\">{}</td><td class=\"refs-cell\">{}</td></tr>\n",
+            row_class,
+            html_escape::encode_double_quoted_attribute(&row.rule_id),
+            html_escape::encode_double_quoted_attribute(&row.rule_id),
+            rule_cell,
+            refs_html
         ));
     }
 
     output.push_str("</tbody>\n");
     output.push_str("</table>\n");
-    output.push_str("</body>\n</html>\n");
+    output.push_str(r##"<div class="filter-notice" id="filter-notice"><span id="filter-notice-text"></span><a href="#" onclick="clearFilters(); return false;">Clear</a></div>"##);
+    output.push_str("\n</body>\n</html>\n");
 
     output
 }

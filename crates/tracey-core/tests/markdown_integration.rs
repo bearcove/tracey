@@ -14,6 +14,8 @@ fn read_fixture(name: &str) -> String {
         .unwrap_or_else(|e| panic!("Failed to read fixture {}: {}", name, e))
 }
 
+// tracey[verify markdown.syntax.marker]
+// tracey[verify markdown.syntax.standalone]
 #[test]
 fn test_process_sample_spec() {
     let markdown = read_fixture("sample_spec.md");
