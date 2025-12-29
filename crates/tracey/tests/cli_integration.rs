@@ -139,7 +139,7 @@ fn test_rules_command_no_files() {
     // Error can be either from argument parsing or explicit check
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("No markdown files") || stderr.contains("Error"),
+        stderr.contains("No markdown files") || stderr.contains("missing_argument") || stderr.contains("<files>"),
         "Should fail with error: {}",
         stderr
     );

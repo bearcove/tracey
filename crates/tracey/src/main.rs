@@ -115,8 +115,22 @@ fn main() -> Result<()> {
         )
     }));
 
-    let args: Args =
-        facet_args::from_std_args().wrap_err("Failed to parse command line arguments")?;
+    let args: Args = match facet_args::from_std_args() {
+        Ok(args) => args,
+        Err(e) => {
+            if e.is_help_request() {
+                // Print help text directly (not as an error)
+                if let Some(help) = e.help_text() {
+                    println!("{}", help);
+                }
+                return Ok(());
+            }
+            // Real parsing error - report via miette for nice formatting
+            let report = miette::Report::new(e);
+            eprintln!("{:?}", report);
+            std::process::exit(1);
+        }
+    };
 
     match args.command {
         Some(Command::Rules {
