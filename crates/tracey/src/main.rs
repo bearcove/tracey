@@ -67,6 +67,36 @@ enum Command {
         #[facet(args::named, default)]
         markdown_out: Option<PathBuf>,
     },
+
+    /// Show which rules are referenced at a file or location
+    At {
+        /// File path, optionally with line number (e.g., "src/main.rs:42" or "src/main.rs:40-60")
+        #[facet(args::positional)]
+        location: String,
+
+        /// Path to config file (default: .config/tracey/config.kdl)
+        #[facet(args::named, args::short = 'c', default)]
+        config: Option<PathBuf>,
+
+        /// Output format: text, json
+        #[facet(args::named, args::short = 'f', default)]
+        format: Option<String>,
+    },
+
+    /// Show what code references a rule (impact analysis)
+    Impact {
+        /// Rule ID to analyze (e.g., "channel.id.allocation")
+        #[facet(args::positional)]
+        rule_id: String,
+
+        /// Path to config file (default: .config/tracey/config.kdl)
+        #[facet(args::named, args::short = 'c', default)]
+        config: Option<PathBuf>,
+
+        /// Output format: text, json
+        #[facet(args::named, args::short = 'f', default)]
+        format: Option<String>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -95,6 +125,16 @@ fn main() -> Result<()> {
             output,
             markdown_out,
         }) => run_rules_command(files, base_url, output, markdown_out),
+        Some(Command::At {
+            location,
+            config,
+            format,
+        }) => run_at_command(location, config, format),
+        Some(Command::Impact {
+            rule_id,
+            config,
+            format,
+        }) => run_impact_command(rule_id, config, format),
         None => run_coverage_command(args),
     }
 }
@@ -335,6 +375,303 @@ fn run_coverage_command(args: Args) -> Result<()> {
 
     if args.check && !all_passing {
         std::process::exit(1);
+    }
+
+    Ok(())
+}
+
+/// Parse a location string like "src/main.rs", "src/main.rs:42", or "src/main.rs:40-60"
+fn parse_location(location: &str) -> Result<(PathBuf, Option<usize>, Option<usize>)> {
+    // Try to parse as path:line-end or path:line or just path
+    if let Some((path, rest)) = location.rsplit_once(':') {
+        // Check if it looks like a Windows path (e.g., C:\foo)
+        if rest.chars().all(|c| c.is_ascii_digit() || c == '-') && !rest.is_empty() {
+            if let Some((start, end)) = rest.split_once('-') {
+                let start_line: usize = start
+                    .parse()
+                    .wrap_err_with(|| format!("Invalid start line number: {}", start))?;
+                let end_line: usize = end
+                    .parse()
+                    .wrap_err_with(|| format!("Invalid end line number: {}", end))?;
+                return Ok((PathBuf::from(path), Some(start_line), Some(end_line)));
+            } else {
+                let line: usize = rest
+                    .parse()
+                    .wrap_err_with(|| format!("Invalid line number: {}", rest))?;
+                return Ok((PathBuf::from(path), Some(line), None));
+            }
+        }
+    }
+    Ok((PathBuf::from(location), None, None))
+}
+
+fn run_at_command(location: String, config: Option<PathBuf>, format: Option<String>) -> Result<()> {
+    use std::collections::HashMap;
+    use tracey_core::RefVerb;
+
+    let (file_path, start_line, end_line) = parse_location(&location)?;
+
+    // Make the path absolute using cwd (no project root assumption)
+    let cwd = std::env::current_dir()?;
+    let file_path = if file_path.is_absolute() {
+        file_path
+    } else {
+        cwd.join(&file_path)
+    };
+
+    if !file_path.exists() {
+        eyre::bail!("File not found: {}", file_path.display());
+    }
+
+    // Load config (optional for `at` command - only used for rule URLs)
+    // Try to find project root for config, fall back to cwd
+    let project_root = find_project_root().unwrap_or_else(|_| cwd.clone());
+    let config_path = config.unwrap_or_else(|| project_root.join(".config/tracey/config.kdl"));
+    let config = if config_path.exists() {
+        Some(load_config(&config_path)?)
+    } else {
+        None
+    };
+
+    let is_json = format.as_deref() == Some("json");
+
+    // Extract rules from just this file
+    let content = std::fs::read_to_string(&file_path)?;
+    let rules = Rules::extract_from_content(&file_path, &content);
+
+    // Filter by line range if specified
+    let filtered_refs: Vec<_> = rules
+        .references
+        .iter()
+        .filter(|r| {
+            if let (Some(start), Some(end)) = (start_line, end_line) {
+                r.line >= start && r.line <= end
+            } else if let Some(line) = start_line {
+                r.line == line
+            } else {
+                true
+            }
+        })
+        .collect();
+
+    if is_json {
+        // JSON output
+        let output: Vec<_> = filtered_refs
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "rule_id": r.rule_id,
+                    "verb": r.verb.as_str(),
+                    "line": r.line,
+                    "file": r.file.display().to_string(),
+                })
+            })
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        // Text output - show path relative to cwd if possible
+        let relative_path = file_path
+            .strip_prefix(&cwd)
+            .or_else(|_| file_path.strip_prefix(&project_root))
+            .unwrap_or(&file_path);
+
+        if filtered_refs.is_empty() {
+            let location_desc = if let (Some(start), Some(end)) = (start_line, end_line) {
+                format!("{}:{}-{}", relative_path.display(), start, end)
+            } else if let Some(line) = start_line {
+                format!("{}:{}", relative_path.display(), line)
+            } else {
+                relative_path.display().to_string()
+            };
+            println!(
+                "{}",
+                format!("No rule references found at {}", location_desc).dimmed()
+            );
+            return Ok(());
+        }
+
+        // Group by verb
+        let mut by_verb: HashMap<RefVerb, Vec<&tracey_core::RuleReference>> = HashMap::new();
+        for r in &filtered_refs {
+            by_verb.entry(r.verb).or_default().push(r);
+        }
+
+        let location_desc = if let (Some(start), Some(end)) = (start_line, end_line) {
+            format!("{}:{}-{}", relative_path.display(), start, end)
+        } else if let Some(line) = start_line {
+            format!("{}:{}", relative_path.display(), line)
+        } else {
+            relative_path.display().to_string()
+        };
+
+        println!("{}", location_desc.bold());
+
+        // Try to load manifests to get rule descriptions/URLs (if config exists)
+        let mut rule_urls: HashMap<String, String> = HashMap::new();
+        if let Some(ref config) = config {
+            for spec_config in &config.specs {
+                if let Some(ref glob) = spec_config.rules_glob
+                    && let Ok(manifest) = load_manifest_from_glob(&project_root, &glob.pattern)
+                {
+                    for (id, info) in manifest.rules {
+                        rule_urls.insert(id, info.url);
+                    }
+                }
+            }
+        }
+
+        for verb in [
+            RefVerb::Impl,
+            RefVerb::Verify,
+            RefVerb::Depends,
+            RefVerb::Related,
+            RefVerb::Define,
+        ] {
+            if let Some(refs) = by_verb.get(&verb) {
+                let verb_str = format!("{}:", verb.as_str());
+                let rule_ids: Vec<_> = refs.iter().map(|r| r.rule_id.as_str()).collect();
+                println!("  {} {}", verb_str.cyan(), rule_ids.join(", "));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn run_impact_command(
+    rule_id: String,
+    config: Option<PathBuf>,
+    format: Option<String>,
+) -> Result<()> {
+    use std::collections::HashMap;
+    use tracey_core::RefVerb;
+
+    // Find project root
+    let project_root = find_project_root()?;
+
+    // Load config
+    let config_path = config.unwrap_or_else(|| project_root.join(".config/tracey/config.kdl"));
+    let config = load_config(&config_path)?;
+
+    let is_json = format.as_deref() == Some("json");
+
+    // Collect all references across all specs
+    let mut all_refs: Vec<tracey_core::RuleReference> = Vec::new();
+    let mut rule_url: Option<String> = None;
+
+    for spec_config in &config.specs {
+        // Get include/exclude patterns
+        let include: Vec<String> = if spec_config.include.is_empty() {
+            tracey_core::SUPPORTED_EXTENSIONS
+                .iter()
+                .map(|ext| format!("**/*.{}", ext))
+                .collect()
+        } else {
+            spec_config
+                .include
+                .iter()
+                .map(|i| i.pattern.clone())
+                .collect()
+        };
+
+        let exclude: Vec<String> = if spec_config.exclude.is_empty() {
+            vec!["target/**".to_string()]
+        } else {
+            spec_config
+                .exclude
+                .iter()
+                .map(|e| e.pattern.clone())
+                .collect()
+        };
+
+        let rules = Rules::extract(
+            WalkSources::new(&project_root)
+                .include(include)
+                .exclude(exclude),
+        )?;
+
+        // Filter to just this rule
+        for r in rules.references {
+            if r.rule_id == rule_id {
+                all_refs.push(r);
+            }
+        }
+
+        // Try to get URL for the rule
+        if rule_url.is_none()
+            && let Some(ref glob) = spec_config.rules_glob
+            && let Ok(manifest) = load_manifest_from_glob(&project_root, &glob.pattern)
+            && let Some(info) = manifest.rules.get(&rule_id)
+        {
+            rule_url = Some(info.url.clone());
+        }
+    }
+
+    if is_json {
+        // JSON output
+        let mut by_verb: HashMap<&str, Vec<serde_json::Value>> = HashMap::new();
+        for r in &all_refs {
+            by_verb.entry(r.verb.as_str()).or_default().push(
+                serde_json::json!({
+                    "file": r.file.strip_prefix(&project_root).unwrap_or(&r.file).display().to_string(),
+                    "line": r.line,
+                })
+            );
+        }
+        let output = serde_json::json!({
+            "rule_id": rule_id,
+            "url": rule_url,
+            "references": by_verb,
+        });
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        // Text output
+        println!("{} {}", "Rule:".bold(), rule_id.cyan());
+        if let Some(url) = &rule_url {
+            println!("{} {}", "URL:".bold(), url.dimmed());
+        }
+        println!();
+
+        if all_refs.is_empty() {
+            println!("{}", "No references found for this rule.".dimmed());
+            return Ok(());
+        }
+
+        // Group by verb
+        let mut by_verb: HashMap<RefVerb, Vec<&tracey_core::RuleReference>> = HashMap::new();
+        for r in &all_refs {
+            by_verb.entry(r.verb).or_default().push(r);
+        }
+
+        let verb_labels = [
+            (RefVerb::Impl, "Implementation sites", "impl"),
+            (RefVerb::Verify, "Verification sites", "verify"),
+            (RefVerb::Depends, "Dependent code", "depends"),
+            (RefVerb::Related, "Related code", "related"),
+            (RefVerb::Define, "Definition sites", "define"),
+        ];
+
+        for (verb, label, _) in verb_labels {
+            if let Some(refs) = by_verb.get(&verb) {
+                println!("{} ({}):", label.bold(), verb.as_str().cyan());
+                for r in refs {
+                    let relative = r.file.strip_prefix(&project_root).unwrap_or(&r.file);
+                    let location = format!("{}:{}", relative.display(), r.line);
+
+                    // Add a note for depends references
+                    if verb == RefVerb::Depends {
+                        println!(
+                            "  {} {}",
+                            location.yellow(),
+                            "- RECHECK IF RULE CHANGES".dimmed()
+                        );
+                    } else {
+                        println!("  {}", location);
+                    }
+                }
+                println!();
+            }
+        }
     }
 
     Ok(())

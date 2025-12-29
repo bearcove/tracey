@@ -242,6 +242,38 @@ tracey rules -b "/spec" -o _rules.json docs/spec/**/*.md
 tracey rules --markdown-out dist/ docs/spec/**/*.md
 ```
 
+### Querying rules at a location
+
+Find which rules are referenced at a specific file or line:
+
+```bash
+# What rules does this file reference?
+tracey at src/channel.rs
+
+# What about a specific line?
+tracey at src/channel.rs:42
+
+# Or a line range?
+tracey at src/channel.rs:40-60
+
+# JSON output
+tracey at src/channel.rs -f json
+```
+
+### Impact analysis
+
+See all code that references a specific rule:
+
+```bash
+# What code implements or tests this rule?
+tracey impact channel.id.allocation
+
+# JSON output
+tracey impact channel.id.allocation -f json
+```
+
+Output shows references grouped by verb (impl, verify, depends, related, define), highlighting code marked with `[depends ...]` that must be rechecked if the rule changes.
+
 ## Library Usage
 
 tracey-core can be used as a library:
