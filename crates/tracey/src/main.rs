@@ -1093,7 +1093,9 @@ fn render_matrix_html(rows: &[MatrixRow], project_root: &std::path::Path) -> Str
 }
 body {
   font-family: 'Public Sans', system-ui, sans-serif;
-  margin: 2rem;
+  margin: 2rem auto;
+  padding: 0 1rem;
+  max-width: 1200px;
   background: light-dark(#f5f5f7, #1a1b26);
   color: light-dark(#1a1b26, #a9b1d6);
 }
@@ -1104,6 +1106,8 @@ h1 {
 table {
   border-collapse: collapse;
   width: 100%;
+  max-width: 100%;
+  table-layout: auto;
   font-family: 'IBM Plex Mono', monospace;
   font-size: 0.9em;
 }
@@ -1133,16 +1137,16 @@ tr:hover {
   background-color: light-dark(#c8ecc8, #243d24);
 }
 .partial {
-  background-color: light-dark(#fff0d9, #2d2a1a);
+  background-color: light-dark(#e8e8f8, #24283b);
 }
 .partial:hover {
-  background-color: light-dark(#ffe4bf, #3d3824);
+  background-color: light-dark(#d8d8f0, #292e42);
 }
 .uncovered {
-  background-color: light-dark(#fde2e2, #2d1a1a);
+  background-color: light-dark(#fde2e2, #2d1f1f);
 }
 .uncovered:hover {
-  background-color: light-dark(#fcd0d0, #3d2424);
+  background-color: light-dark(#fcd0d0, #3d2929);
 }
 .status-draft {
   color: light-dark(#6b7280, #565f89);
@@ -1163,7 +1167,7 @@ tr:hover {
   align-items: center;
   font-family: 'Public Sans', system-ui, sans-serif;
 }
-#filter, #editor-select {
+#filter, #editor-select, #level-filter {
   padding: 0.5rem 0.75rem;
   font-family: inherit;
   background: light-dark(#fff, #24283b);
@@ -1174,7 +1178,7 @@ tr:hover {
 #filter {
   width: 300px;
 }
-#filter:focus, #editor-select:focus {
+#filter:focus, #editor-select:focus, #level-filter:focus {
   outline: none;
   border-color: light-dark(#7aa2f7, #7aa2f7);
   box-shadow: 0 0 0 2px light-dark(rgba(122, 162, 247, 0.2), rgba(122, 162, 247, 0.3));
@@ -1193,14 +1197,114 @@ tr:hover {
 .spec-link {
   font-weight: 500;
 }
-.desc {
-  max-width: 400px;
-  font-size: 0.9em;
+.rule-cell {
+  vertical-align: top;
+}
+.rule-id {
+  font-weight: 500;
+  margin-bottom: 0.25rem;
+}
+.rule-desc {
+  font-size: 0.85em;
   color: light-dark(#4b5563, #737aa2);
   font-family: 'Public Sans', system-ui, sans-serif;
+  margin-top: 0.25rem;
+}
+.rule-tags {
+  display: inline-flex;
+  gap: 0.35rem;
+  margin-left: 0.5rem;
+}
+.tag {
+  font-size: 0.7em;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  font-family: 'Public Sans', system-ui, sans-serif;
+  font-weight: 500;
+}
+.tag-status {
+  background: light-dark(#e8e8ed, #292e42);
+  color: light-dark(#6b7280, #737aa2);
+}
+.tag-status-draft {
+  background: light-dark(#e8e8ed, #292e42);
+  color: light-dark(#6b7280, #565f89);
+  font-style: italic;
+}
+.tag-status-deprecated {
+  background: light-dark(#fef3c7, #3d3520);
+  color: light-dark(#b45309, #e0af68);
+}
+.tag-status-removed {
+  background: light-dark(#e5e7eb, #292e42);
+  color: light-dark(#9ca3af, #414868);
+}
+.tag-level-must {
+  background: light-dark(#fee2e2, #2d1f1f);
+  color: light-dark(#dc2626, #f7768e);
+}
+.tag-level-should {
+  background: light-dark(#fef3c7, #3d3520);
+  color: light-dark(#d97706, #e0af68);
+}
+.tag-level-may {
+  background: light-dark(#dbeafe, #1e2a4a);
+  color: light-dark(#2563eb, #7aa2f7);
+}
+.refs-cell {
+  vertical-align: top;
+  font-size: 0.85em;
+}
+.ref-line {
+  white-space: nowrap;
+}
+.ref-type {
+  color: light-dark(#6b7280, #565f89);
+  font-weight: 500;
+}
+.file-path {
+  color: light-dark(#9ca3af, #565f89);
+}
+.file-name {
+  color: light-dark(#2563eb, #7aa2f7);
+}
+.file-line {
+  color: light-dark(#16a34a, #9ece6a);
 }
 label {
   color: light-dark(#374151, #9aa5ce);
+}
+.section-header td {
+  background: light-dark(#d5d5db, #1f2335);
+  font-family: 'Public Sans', system-ui, sans-serif;
+  font-weight: 600;
+  font-size: 1.1em;
+  color: light-dark(#1a1b26, #c0caf5);
+  padding: 0.75rem 8px;
+  text-transform: capitalize;
+  letter-spacing: 0.02em;
+}
+.section-header:hover td {
+  background: light-dark(#d5d5db, #1f2335);
+}
+code {
+  background: light-dark(#e8e8ed, #292e42);
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.9em;
+}
+kw-must, kw-must-not, kw-required, kw-shall, kw-shall-not {
+  color: light-dark(#dc2626, #f7768e);
+  font-weight: 600;
+}
+kw-should, kw-should-not, kw-recommended, kw-not-recommended {
+  color: light-dark(#d97706, #e0af68);
+  font-weight: 600;
+}
+kw-may, kw-optional {
+  color: light-dark(#2563eb, #7aa2f7);
+  font-weight: 600;
 }
 "#,
     );
@@ -1248,10 +1352,40 @@ function updateAllLinks() {{
 
 function filterTable() {{
   const filter = document.getElementById('filter').value.toLowerCase();
+  const levelFilter = document.getElementById('level-filter').value;
   const rows = document.querySelectorAll('tbody tr');
+  let currentSectionVisible = false;
+  let currentSectionHeader = null;
+  
   rows.forEach(row => {{
+    if (row.classList.contains('section-header')) {{
+      // Hide section header initially, show if any child matches
+      currentSectionHeader = row;
+      currentSectionVisible = false;
+      row.style.display = 'none';
+      return;
+    }}
+    
     const text = row.textContent.toLowerCase();
-    row.style.display = text.includes(filter) ? '' : 'none';
+    const matchesText = filter === '' || text.includes(filter);
+    
+    // Check level filter by looking for keyword elements in the row
+    let matchesLevel = true;
+    if (levelFilter === 'must') {{
+      matchesLevel = !!row.querySelector('kw-must, kw-must-not, kw-required, kw-shall, kw-shall-not');
+    }} else if (levelFilter === 'should') {{
+      matchesLevel = !!row.querySelector('kw-should, kw-should-not, kw-recommended, kw-not-recommended');
+    }} else if (levelFilter === 'may') {{
+      matchesLevel = !!row.querySelector('kw-may, kw-optional');
+    }}
+    
+    const visible = matchesText && matchesLevel;
+    row.style.display = visible ? '' : 'none';
+    
+    if (visible && currentSectionHeader) {{
+      currentSectionHeader.style.display = '';
+      currentSectionVisible = true;
+    }}
   }});
 }}
 
@@ -1259,6 +1393,13 @@ document.addEventListener('DOMContentLoaded', () => {{
   const select = document.getElementById('editor-select');
   select.value = getEditor();
   updateAllLinks();
+}});
+
+document.addEventListener('keydown', (e) => {{
+  if ((e.metaKey || e.ctrlKey) && e.key === 'k') {{
+    e.preventDefault();
+    document.getElementById('filter').focus();
+  }}
 }});
 "#,
         root_str.replace('\\', "\\\\").replace('"', "\\\"")
@@ -1270,6 +1411,24 @@ document.addEventListener('DOMContentLoaded', () => {{
     output.push_str(
         "<input type=\"text\" id=\"filter\" placeholder=\"Filter rules...\" onkeyup=\"filterTable()\">\n",
     );
+    // Update placeholder with platform-appropriate shortcut hint
+    output.push_str(
+        r#"<script>
+(function() {
+  const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+  const hint = isMac ? '⌘K' : 'Ctrl+K';
+  document.getElementById('filter').placeholder = `Filter rules... (${hint})`;
+})();
+</script>
+"#,
+    );
+    output.push_str("<label for=\"level-filter\">Level:</label>\n");
+    output.push_str("<select id=\"level-filter\" onchange=\"filterTable()\">\n");
+    output.push_str("<option value=\"all\">All</option>\n");
+    output.push_str("<option value=\"must\">MUST</option>\n");
+    output.push_str("<option value=\"should\">SHOULD</option>\n");
+    output.push_str("<option value=\"may\">MAY</option>\n");
+    output.push_str("</select>\n");
     output.push_str("<label for=\"editor-select\">Open in:</label>\n");
     output.push_str("<select id=\"editor-select\" onchange=\"setEditor(this.value)\">\n");
     output.push_str("<option value=\"zed\">Zed</option>\n");
@@ -1278,37 +1437,127 @@ document.addEventListener('DOMContentLoaded', () => {{
     output.push_str("</div>\n");
     output.push_str("<table>\n");
     output.push_str("<thead>\n");
-    output.push_str(
-        "<tr><th>Rule</th><th>Description</th><th>Status</th><th>Level</th><th>impl</th><th>verify</th><th>depends</th></tr>\n",
-    );
+    output.push_str("<tr><th>Rule</th><th>References</th></tr>\n");
     output.push_str("</thead>\n");
     output.push_str("<tbody>\n");
 
-    // Helper to format file references as links
-    let format_refs = |refs: &[String]| -> String {
-        if refs.is_empty() {
-            "-".to_string()
-        } else {
-            refs.iter()
-                .map(|r| {
-                    // Parse "path:line" format
-                    if let Some((path, line)) = r.rsplit_once(':') {
-                        format!(
-                            "<a class=\"file-link\" data-path=\"{}\" data-line=\"{}\" href=\"#\">{}</a>",
-                            html_escape::encode_double_quoted_attribute(path),
-                            line,
-                            html_escape::encode_text(r)
-                        )
+    // Helper for light markdown rendering (bold, italic, code)
+    let render_markdown = |text: &str| -> String {
+        let escaped = html_escape::encode_text(text).to_string();
+        // Process `code` first (backticks)
+        let with_code = {
+            let mut result = String::new();
+            let chars = escaped.chars();
+            let mut in_code = false;
+            for c in chars {
+                if c == '`' {
+                    if in_code {
+                        result.push_str("</code>");
+                        in_code = false;
                     } else {
-                        html_escape::encode_text(r).to_string()
+                        result.push_str("<code>");
+                        in_code = true;
                     }
-                })
-                .collect::<Vec<_>>()
-                .join("<br>")
+                } else {
+                    result.push(c);
+                }
+            }
+            // Close unclosed code tag
+            if in_code {
+                result.push_str("</code>");
+            }
+            result
+        };
+        // Process **bold** and *italic* (simplified, non-nested)
+        let with_bold = with_code.replace("**", "\x00BOLD\x00");
+        let mut bold_result = String::new();
+        let mut in_bold = false;
+        for part in with_bold.split("\x00BOLD\x00") {
+            if in_bold {
+                bold_result.push_str("</strong>");
+            }
+            bold_result.push_str(part);
+            if !in_bold && with_bold.matches("\x00BOLD\x00").count() > 0 {
+                bold_result.push_str("<strong>");
+            }
+            in_bold = !in_bold;
+        }
+        // Remove trailing <strong> if odd number of markers
+        if bold_result.ends_with("<strong>") {
+            bold_result.truncate(bold_result.len() - 8);
+        }
+
+        // Wrap RFC 2119 keywords in custom elements
+        // Order matters: longer phrases first to avoid partial matches
+        bold_result
+            .replace("MUST NOT", "<kw-must-not>MUST NOT</kw-must-not>")
+            .replace("SHALL NOT", "<kw-shall-not>SHALL NOT</kw-shall-not>")
+            .replace("SHOULD NOT", "<kw-should-not>SHOULD NOT</kw-should-not>")
+            .replace(
+                "NOT RECOMMENDED",
+                "<kw-not-recommended>NOT RECOMMENDED</kw-not-recommended>",
+            )
+            .replace("MUST", "<kw-must>MUST</kw-must>")
+            .replace("REQUIRED", "<kw-required>REQUIRED</kw-required>")
+            .replace("SHALL", "<kw-shall>SHALL</kw-shall>")
+            .replace("SHOULD", "<kw-should>SHOULD</kw-should>")
+            .replace(
+                "RECOMMENDED",
+                "<kw-recommended>RECOMMENDED</kw-recommended>",
+            )
+            .replace("MAY", "<kw-may>MAY</kw-may>")
+            .replace("OPTIONAL", "<kw-optional>OPTIONAL</kw-optional>")
+    };
+
+    // Helper to format a single reference as a link
+    let format_ref = |ref_type: &str, r: &str| -> String {
+        // Parse "path:line" format
+        if let Some((path, line)) = r.rsplit_once(':') {
+            // Split path into directory and filename
+            let (dir, filename) = if let Some(pos) = path.rfind('/') {
+                (&path[..=pos], &path[pos + 1..])
+            } else {
+                ("", path)
+            };
+            format!(
+                "<div class=\"ref-line\">[<span class=\"ref-type\">{}</span> <a class=\"file-link\" data-path=\"{}\" data-line=\"{}\" href=\"#\"><span class=\"file-path\">{}</span><span class=\"file-name\">{}</span><span class=\"file-line\">:{}</span></a>]</div>",
+                ref_type,
+                html_escape::encode_double_quoted_attribute(path),
+                line,
+                html_escape::encode_text(dir),
+                html_escape::encode_text(filename),
+                line
+            )
+        } else {
+            format!(
+                "<div class=\"ref-line\">[<span class=\"ref-type\">{}</span> {}]</div>",
+                ref_type,
+                html_escape::encode_text(r)
+            )
         }
     };
 
+    // Track current section for grouping
+    let mut current_section: Option<String> = None;
+
     for row in rows {
+        // Extract first path segment for section grouping
+        let section = row
+            .rule_id
+            .split('.')
+            .next()
+            .unwrap_or(&row.rule_id)
+            .to_string();
+
+        // Emit section header if section changed
+        if current_section.as_ref() != Some(&section) {
+            output.push_str(&format!(
+                "<tr class=\"section-header\"><td colspan=\"2\">{}</td></tr>\n",
+                html_escape::encode_text(&section)
+            ));
+            current_section = Some(section);
+        }
+
         let has_impl = !row.impl_refs.is_empty();
         let has_verify = !row.verify_refs.is_empty();
         let row_class = if has_impl && has_verify {
@@ -1319,21 +1568,47 @@ document.addEventListener('DOMContentLoaded', () => {{
             "uncovered"
         };
 
-        let status = row.status.as_deref().unwrap_or("-");
-        let level = row.level.as_deref().unwrap_or("-");
-        let status_class = match status {
-            "draft" => "status-draft",
-            "deprecated" => "status-deprecated",
-            "removed" => "status-removed",
-            _ => "",
-        };
+        let status = row.status.as_deref();
+        let level = row.level.as_deref();
+
+        // Build tags HTML
+        let mut tags_html = String::new();
+        if status.is_some() || level.is_some() {
+            tags_html.push_str("<span class=\"rule-tags\">");
+            if let Some(s) = status {
+                let tag_class = match s {
+                    "draft" => "tag tag-status-draft",
+                    "deprecated" => "tag tag-status-deprecated",
+                    "removed" => "tag tag-status-removed",
+                    _ => "tag tag-status",
+                };
+                tags_html.push_str(&format!(
+                    "<span class=\"{}\">{}</span>",
+                    tag_class,
+                    html_escape::encode_text(s)
+                ));
+            }
+            if let Some(l) = level {
+                let tag_class = match l {
+                    "must" => "tag tag-level-must",
+                    "should" => "tag tag-level-should",
+                    "may" => "tag tag-level-may",
+                    _ => "tag tag-status",
+                };
+                tags_html.push_str(&format!(
+                    "<span class=\"{}\">{}</span>",
+                    tag_class,
+                    html_escape::encode_text(l)
+                ));
+            }
+            tags_html.push_str("</span>");
+        }
 
         // Format rule ID as a link to the spec file (opened in editor)
-        let rule_cell = match (&row.source_file, row.source_line) {
+        let rule_link = match (&row.source_file, row.source_line) {
             (Some(source_file), Some(source_line)) => {
                 format!(
-                    "<a href=\"#\" class=\"spec-link {}\" data-path=\"{}\" data-line=\"{}\">{}</a>",
-                    status_class,
+                    "<a href=\"#\" class=\"spec-link\" data-path=\"{}\" data-line=\"{}\">{}</a>",
                     html_escape::encode_double_quoted_attribute(source_file),
                     source_line,
                     html_escape::encode_text(&row.rule_id)
@@ -1341,34 +1616,46 @@ document.addEventListener('DOMContentLoaded', () => {{
             }
             (Some(source_file), None) => {
                 format!(
-                    "<a href=\"#\" class=\"spec-link {}\" data-path=\"{}\" data-line=\"1\">{}</a>",
-                    status_class,
+                    "<a href=\"#\" class=\"spec-link\" data-path=\"{}\" data-line=\"1\">{}</a>",
                     html_escape::encode_double_quoted_attribute(source_file),
                     html_escape::encode_text(&row.rule_id)
                 )
             }
-            _ => {
-                format!(
-                    "<span class=\"{}\">{}</span>",
-                    status_class,
-                    html_escape::encode_text(&row.rule_id)
-                )
+            _ => html_escape::encode_text(&row.rule_id).to_string(),
+        };
+
+        // Format description with light markdown rendering
+        let desc_html = match &row.text {
+            Some(text) if !text.is_empty() => {
+                format!("<div class=\"rule-desc\">{}</div>", render_markdown(text))
             }
+            _ => String::new(),
         };
 
-        // Format description
-        let desc_cell = match &row.text {
-            Some(text) if !text.is_empty() => html_escape::encode_text(text).to_string(),
-            _ => "-".to_string(),
-        };
+        // Build rule cell: ID + tags + description
+        let rule_cell = format!(
+            "<div class=\"rule-id\">{}{}</div>{}",
+            rule_link, tags_html, desc_html
+        );
 
-        let impl_str = format_refs(&row.impl_refs);
-        let verify_str = format_refs(&row.verify_refs);
-        let depends_str = format_refs(&row.depends_refs);
+        // Build references cell
+        let mut refs_html = String::new();
+        for r in &row.impl_refs {
+            refs_html.push_str(&format_ref("impl", r));
+        }
+        for r in &row.verify_refs {
+            refs_html.push_str(&format_ref("verify", r));
+        }
+        for r in &row.depends_refs {
+            refs_html.push_str(&format_ref("depends", r));
+        }
+        if refs_html.is_empty() {
+            refs_html.push_str("<span class=\"ref-type\">-</span>");
+        }
 
         output.push_str(&format!(
-            "<tr class=\"{}\"><td>{}</td><td class=\"desc\">{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>\n",
-            row_class, rule_cell, desc_cell, status, level, impl_str, verify_str, depends_str
+            "<tr class=\"{}\"><td class=\"rule-cell\">{}</td><td class=\"refs-cell\">{}</td></tr>\n",
+            row_class, rule_cell, refs_html
         ));
     }
 
