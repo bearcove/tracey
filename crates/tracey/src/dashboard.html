@@ -769,6 +769,51 @@
       }
     }
     
+    /* Rule block - fieldset-like container */
+    .rule-block {
+      position: relative;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin: 1rem 0;
+      padding: 0.75rem 1rem 0.75rem 1rem;
+    }
+    
+    .rule-block-covered { border-color: color-mix(in srgb, var(--green) 40%, var(--border)); }
+    .rule-block-partial { border-color: color-mix(in srgb, var(--yellow) 40%, var(--border)); }
+    .rule-block-uncovered { border-color: color-mix(in srgb, var(--red) 40%, var(--border)); }
+    
+    .rule-block-header {
+      position: absolute;
+      top: -0.65rem;
+      left: 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: var(--bg);
+      padding: 0 0.35rem;
+    }
+    
+    .rule-block-header .rule-marker {
+      margin: 0;
+    }
+    
+    .rule-block-header .spec-refs {
+      margin: 0;
+      font-size: 0.7rem;
+    }
+    
+    .rule-block-content {
+      margin-top: 0.25rem;
+    }
+    
+    .rule-block-content p:first-child {
+      margin-top: 0;
+    }
+    
+    .rule-block-content p:last-child {
+      margin-bottom: 0;
+    }
+    
     .spec-refs {
       display: flex;
       flex-wrap: wrap;
@@ -2191,7 +2236,8 @@
           
           const icon = `<svg class="rule-marker-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/><path d="M9 15l2 2 4-4"/></svg>`;
           
-          return `${prefix}<a class="rule-marker ${status}" href="/spec/${ruleId}" data-rule="${ruleId}">${icon}${ruleId}</a>${refHtml ? `<div class="spec-refs">${refHtml}</div>` : ''}`;
+          // Use special markers that we'll process after markdown parsing
+          return `${prefix}<!--RULE_START:${ruleId}:${status}--><a class="rule-marker ${status}" href="/spec/${ruleId}" data-rule="${ruleId}">${icon}${ruleId}</a>${refHtml ? `<div class="spec-refs">${refHtml}</div>` : ''}<!--RULE_CONTENT_START-->`;
         });
         
         let html = marked.parse(content);
@@ -2202,6 +2248,14 @@
           const headingRegex = new RegExp(`(<h${h.level}>)(${h.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})(</h${h.level}>)`, 'i');
           html = html.replace(headingRegex, `<h${h.level} id="${h.slug}" data-slug="${h.slug}">$2$3`);
         });
+        
+        // Wrap rule blocks: find RULE_START marker, capture until next RULE_START or heading
+        html = html.replace(/<!--RULE_START:([^:]+):([^-]+)-->([\s\S]*?)<!--RULE_CONTENT_START-->([\s\S]*?)(?=<!--RULE_START|<h[1-6]|$)/g, 
+          (match, ruleId, status, header, content) => {
+            // Clean up paragraph wrapping - the content is usually wrapped in <p> tags
+            return `<div class="rule-block rule-block-${status}"><div class="rule-block-header">${header}</div><div class="rule-block-content">${content.trim()}</div></div>`;
+          }
+        );
         
         return html;
       }, [spec, ruleCoverage, headings]);
