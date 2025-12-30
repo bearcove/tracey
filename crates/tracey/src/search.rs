@@ -133,7 +133,9 @@ mod tantivy_impl {
 
             let mut index_writer: IndexWriter = index.writer(50_000_000)?;
 
-            // Index source files
+            // Index source files with context lines
+            const CONTEXT_LINES: usize = 2;
+
             for (path, content) in files {
                 let relative = path
                     .strip_prefix(project_root)
@@ -141,9 +143,11 @@ mod tantivy_impl {
                     .display()
                     .to_string();
 
-                // Index each line separately for line-level results
-                for (line_num, line_content) in content.lines().enumerate() {
-                    let line_num = line_num + 1; // 1-indexed
+                let lines: Vec<&str> = content.lines().collect();
+
+                // Index each line with surrounding context
+                for (idx, line_content) in lines.iter().enumerate() {
+                    let line_num = idx + 1; // 1-indexed
                     let trimmed = line_content.trim();
 
                     // Skip empty lines and very short lines
@@ -151,11 +155,16 @@ mod tantivy_impl {
                         continue;
                     }
 
+                    // Build content with context: 2 lines before + current + 2 lines after
+                    let start = idx.saturating_sub(CONTEXT_LINES);
+                    let end = (idx + CONTEXT_LINES + 1).min(lines.len());
+                    let content_with_context = lines[start..end].join("\n");
+
                     index_writer.add_document(doc!(
                         kind_field => "source",
                         id_field => relative.clone(),
                         line_field => line_num as u64,
-                        content_field => line_content,
+                        content_field => content_with_context,
                     ))?;
                 }
             }
@@ -308,7 +317,9 @@ impl SimpleIndex {
     ) -> Self {
         let mut entries = Vec::new();
 
-        // Index source files
+        // Index source files with context lines
+        const CONTEXT_LINES: usize = 2;
+
         for (path, content) in files {
             let relative = path
                 .strip_prefix(project_root)
@@ -316,14 +327,21 @@ impl SimpleIndex {
                 .display()
                 .to_string();
 
-            for (line_num, line_content) in content.lines().enumerate() {
-                let line_num = line_num + 1;
+            let lines: Vec<&str> = content.lines().collect();
+
+            for (idx, line_content) in lines.iter().enumerate() {
+                let line_num = idx + 1;
                 if line_content.trim().len() >= 3 {
+                    // Build content with context
+                    let start = idx.saturating_sub(CONTEXT_LINES);
+                    let end = (idx + CONTEXT_LINES + 1).min(lines.len());
+                    let content_with_context = lines[start..end].join("\n");
+
                     entries.push(SimpleEntry {
                         kind: ResultKind::Source,
                         id: relative.clone(),
                         line: line_num,
-                        content: line_content.to_string(),
+                        content: content_with_context,
                     });
                 }
             }
