@@ -7,6 +7,7 @@
 mod config;
 mod errors;
 mod output;
+mod search;
 mod serve;
 
 use config::Config;
