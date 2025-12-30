@@ -17,7 +17,7 @@ use facet_args as args;
 use output::{OutputFormat, render_report};
 use owo_colors::OwoColorize;
 use std::path::PathBuf;
-use tracey_core::markdown::{MarkdownProcessor, RulesManifest};
+use tracey_core::markdown::{MarkdownProcessor, MarkdownWarningKind, RulesManifest};
 use tracey_core::{CoverageReport, Rules, SpecManifest, WalkSources};
 
 /// CLI arguments
@@ -246,6 +246,7 @@ fn run_rules_command(
     let base_url = base_url.as_deref().unwrap_or("");
     let mut manifest = RulesManifest::new();
     let mut all_duplicates = Vec::new();
+    let mut all_warnings = Vec::new();
 
     for file_path in &files {
         eprintln!(
@@ -257,10 +258,13 @@ fn run_rules_command(
         let content = std::fs::read_to_string(file_path)
             .wrap_err_with(|| format!("Failed to read {}", file_path.display()))?;
 
-        let result = MarkdownProcessor::process(&content)
+        let result = MarkdownProcessor::process_with_path(&content, Some(file_path))
             .wrap_err_with(|| format!("Failed to process {}", file_path.display()))?;
 
         eprintln!("   Found {} rules", result.rules.len().to_string().green());
+
+        // Collect warnings
+        all_warnings.extend(result.warnings);
 
         // Build manifest for this file
         let source_file = file_path.to_string_lossy();
@@ -301,6 +305,35 @@ fn run_rules_command(
             );
         }
         eyre::bail!("Duplicate rule IDs found");
+    }
+
+    // Report RFC 2119 warnings
+    if !all_warnings.is_empty() {
+        eprintln!(
+            "\n{} {} rule quality warnings:",
+            "!".yellow().bold(),
+            all_warnings.len()
+        );
+        for warning in &all_warnings {
+            let message = match &warning.kind {
+                MarkdownWarningKind::NoRfc2119Keyword => {
+                    "no RFC 2119 keyword (MUST/SHOULD/MAY) - rule may be underspecified".to_string()
+                }
+                MarkdownWarningKind::NegativeRequirement(kw) => {
+                    format!(
+                        "contains {} - negative requirements are hard to verify, consider rephrasing as a positive requirement",
+                        kw.as_str()
+                    )
+                }
+            };
+            eprintln!(
+                "   {}:{} {} - {}",
+                warning.file.display(),
+                warning.line,
+                warning.rule_id.yellow(),
+                message
+            );
+        }
     }
 
     // Output the manifest
@@ -2334,8 +2367,26 @@ pub(crate) fn load_manifest_from_glob(
         let content = std::fs::read_to_string(path)
             .wrap_err_with(|| format!("Failed to read {}", path.display()))?;
 
-        let result = MarkdownProcessor::process(&content)
+        let result = MarkdownProcessor::process_with_path(&content, Some(path))
             .wrap_err_with(|| format!("Failed to process {}", path.display()))?;
+
+        // Display warnings for rule quality issues
+        for warning in &result.warnings {
+            let message = match &warning.kind {
+                MarkdownWarningKind::NoRfc2119Keyword => "no RFC 2119 keyword".to_string(),
+                MarkdownWarningKind::NegativeRequirement(kw) => {
+                    format!("contains {}", kw.as_str())
+                }
+            };
+            eprintln!(
+                "   {} {}:{} {} - {}",
+                "!".yellow(),
+                relative_str,
+                warning.line,
+                warning.rule_id.yellow(),
+                message
+            );
+        }
 
         if !result.rules.is_empty() {
             eprintln!(

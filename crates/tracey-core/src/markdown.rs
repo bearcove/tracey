@@ -58,11 +58,119 @@
 //! ```
 
 use std::collections::{BTreeMap, HashSet};
+use std::path::PathBuf;
 
 use eyre::{Result, bail};
 use facet::Facet;
 
 use crate::SourceSpan;
+
+/// RFC 2119 keyword found in rule text
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Facet)]
+#[repr(u8)]
+pub enum Rfc2119Keyword {
+    /// MUST, SHALL, REQUIRED
+    Must,
+    /// MUST NOT, SHALL NOT
+    MustNot,
+    /// SHOULD, RECOMMENDED
+    Should,
+    /// SHOULD NOT, NOT RECOMMENDED
+    ShouldNot,
+    /// MAY, OPTIONAL
+    May,
+}
+
+impl Rfc2119Keyword {
+    /// Returns true if this is a negative keyword (MUST NOT, SHOULD NOT)
+    pub fn is_negative(&self) -> bool {
+        matches!(self, Rfc2119Keyword::MustNot | Rfc2119Keyword::ShouldNot)
+    }
+
+    /// Human-readable name for this keyword
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Rfc2119Keyword::Must => "MUST",
+            Rfc2119Keyword::MustNot => "MUST NOT",
+            Rfc2119Keyword::Should => "SHOULD",
+            Rfc2119Keyword::ShouldNot => "SHOULD NOT",
+            Rfc2119Keyword::May => "MAY",
+        }
+    }
+}
+
+/// Detect RFC 2119 keywords in text.
+///
+/// Returns all keywords found, checking for negative forms first.
+/// Keywords must be uppercase to match RFC 2119 conventions.
+pub fn detect_rfc2119_keywords(text: &str) -> Vec<Rfc2119Keyword> {
+    let mut keywords = Vec::new();
+
+    // Check for negative forms first (they contain the positive form as substring)
+    // Use word boundary detection to avoid false positives
+    let words: Vec<&str> = text.split_whitespace().collect();
+
+    let mut i = 0;
+    while i < words.len() {
+        let word = words[i].trim_matches(|c: char| !c.is_alphanumeric());
+
+        // Check for two-word negative forms
+        if i + 1 < words.len() {
+            let next_word = words[i + 1].trim_matches(|c: char| !c.is_alphanumeric());
+            if (word == "MUST" || word == "SHALL") && next_word == "NOT" {
+                keywords.push(Rfc2119Keyword::MustNot);
+                i += 2;
+                continue;
+            }
+            if word == "SHOULD" && next_word == "NOT" {
+                keywords.push(Rfc2119Keyword::ShouldNot);
+                i += 2;
+                continue;
+            }
+            if word == "NOT" && next_word == "RECOMMENDED" {
+                keywords.push(Rfc2119Keyword::ShouldNot);
+                i += 2;
+                continue;
+            }
+        }
+
+        // Check single-word forms
+        match word {
+            "MUST" | "SHALL" | "REQUIRED" => keywords.push(Rfc2119Keyword::Must),
+            "SHOULD" | "RECOMMENDED" => keywords.push(Rfc2119Keyword::Should),
+            "MAY" | "OPTIONAL" => keywords.push(Rfc2119Keyword::May),
+            _ => {}
+        }
+        i += 1;
+    }
+
+    keywords
+}
+
+/// Warning about rule quality
+#[derive(Debug, Clone, Facet)]
+pub struct MarkdownWarning {
+    /// File where the warning occurred
+    pub file: PathBuf,
+    /// Rule ID this warning relates to
+    pub rule_id: String,
+    /// Line number (1-indexed)
+    pub line: usize,
+    /// Byte span of the rule
+    pub span: SourceSpan,
+    /// What kind of warning
+    pub kind: MarkdownWarningKind,
+}
+
+/// Types of markdown/rule warnings
+#[derive(Debug, Clone, Facet)]
+#[repr(u8)]
+pub enum MarkdownWarningKind {
+    /// Rule text contains no RFC 2119 keywords
+    NoRfc2119Keyword,
+    /// Rule text contains MUST NOT or SHALL NOT (hard to verify)
+    NegativeRequirement(Rfc2119Keyword),
+}
 
 /// Lifecycle status of a rule.
 ///
@@ -213,6 +321,8 @@ pub struct ProcessedMarkdown {
     pub rules: Vec<MarkdownRule>,
     /// Transformed markdown with rule markers replaced by HTML divs
     pub output: String,
+    /// Warnings about rule quality (missing RFC 2119 keywords, etc.)
+    pub warnings: Vec<MarkdownWarning>,
 }
 
 /// A rule entry in the manifest, with its target URL and metadata.
@@ -369,9 +479,24 @@ impl MarkdownProcessor {
     ///
     /// Returns an error if duplicate rule IDs are found within the same document.
     pub fn process(markdown: &str) -> Result<ProcessedMarkdown> {
+        Self::process_with_path(markdown, None)
+    }
+
+    /// Process markdown content with an optional source file path.
+    ///
+    /// The path is used for warnings to indicate where issues were found.
+    pub fn process_with_path(
+        markdown: &str,
+        source_path: Option<&std::path::Path>,
+    ) -> Result<ProcessedMarkdown> {
         let mut result = String::with_capacity(markdown.len());
         let mut rules = Vec::new();
+        let mut warnings = Vec::new();
         let mut seen_rule_ids: HashSet<String> = HashSet::new();
+
+        let file_path = source_path
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("<unknown>"));
 
         // Collect all lines for lookahead
         let lines: Vec<&str> = markdown.lines().collect();
@@ -411,6 +536,33 @@ impl MarkdownProcessor {
                 // another rule marker, or a heading
                 let text = extract_rule_text(&lines[i + 1..]);
 
+                // Check for RFC 2119 keywords and emit warnings
+                let keywords = detect_rfc2119_keywords(&text);
+
+                if keywords.is_empty() && !text.is_empty() {
+                    // No RFC 2119 keywords found - this may be an underspecified rule
+                    warnings.push(MarkdownWarning {
+                        file: file_path.clone(),
+                        rule_id: rule_id.to_string(),
+                        line: i + 1,
+                        span,
+                        kind: MarkdownWarningKind::NoRfc2119Keyword,
+                    });
+                }
+
+                // Check for negative keywords (MUST NOT, SHOULD NOT)
+                for keyword in &keywords {
+                    if keyword.is_negative() {
+                        warnings.push(MarkdownWarning {
+                            file: file_path.clone(),
+                            rule_id: rule_id.to_string(),
+                            line: i + 1,
+                            span,
+                            kind: MarkdownWarningKind::NegativeRequirement(*keyword),
+                        });
+                    }
+                }
+
                 rules.push(MarkdownRule {
                     id: rule_id.to_string(),
                     anchor_id: anchor_id.clone(),
@@ -436,6 +588,7 @@ impl MarkdownProcessor {
         Ok(ProcessedMarkdown {
             rules,
             output: result,
+            warnings,
         })
     }
 
@@ -864,5 +1017,137 @@ This is r[not.a.rule] inline.
         // Only the indented one (when trimmed) would match
         assert_eq!(result.rules.len(), 1);
         assert_eq!(result.rules[0].id, "indented.line");
+    }
+
+    // RFC 2119 keyword detection tests
+
+    #[test]
+    fn test_detect_rfc2119_must() {
+        let keywords = detect_rfc2119_keywords("Channel IDs MUST be allocated sequentially.");
+        assert_eq!(keywords, vec![Rfc2119Keyword::Must]);
+
+        let keywords = detect_rfc2119_keywords("The server SHALL respond within 100ms.");
+        assert_eq!(keywords, vec![Rfc2119Keyword::Must]);
+
+        let keywords = detect_rfc2119_keywords("This field is REQUIRED.");
+        assert_eq!(keywords, vec![Rfc2119Keyword::Must]);
+    }
+
+    #[test]
+    fn test_detect_rfc2119_must_not() {
+        let keywords = detect_rfc2119_keywords("Clients MUST NOT send invalid data.");
+        assert_eq!(keywords, vec![Rfc2119Keyword::MustNot]);
+
+        let keywords = detect_rfc2119_keywords("Servers SHALL NOT close unexpectedly.");
+        assert_eq!(keywords, vec![Rfc2119Keyword::MustNot]);
+    }
+
+    #[test]
+    fn test_detect_rfc2119_should() {
+        let keywords = detect_rfc2119_keywords("Implementations SHOULD use TLS.");
+        assert_eq!(keywords, vec![Rfc2119Keyword::Should]);
+
+        let keywords = detect_rfc2119_keywords("This approach is RECOMMENDED.");
+        assert_eq!(keywords, vec![Rfc2119Keyword::Should]);
+    }
+
+    #[test]
+    fn test_detect_rfc2119_should_not() {
+        let keywords = detect_rfc2119_keywords("Clients SHOULD NOT retry immediately.");
+        assert_eq!(keywords, vec![Rfc2119Keyword::ShouldNot]);
+
+        let keywords = detect_rfc2119_keywords("This pattern is NOT RECOMMENDED.");
+        assert_eq!(keywords, vec![Rfc2119Keyword::ShouldNot]);
+    }
+
+    #[test]
+    fn test_detect_rfc2119_may() {
+        let keywords = detect_rfc2119_keywords("Implementations MAY cache responses.");
+        assert_eq!(keywords, vec![Rfc2119Keyword::May]);
+
+        let keywords = detect_rfc2119_keywords("This feature is OPTIONAL.");
+        assert_eq!(keywords, vec![Rfc2119Keyword::May]);
+    }
+
+    #[test]
+    fn test_detect_rfc2119_multiple() {
+        let keywords =
+            detect_rfc2119_keywords("Clients MUST validate input and SHOULD log errors.");
+        assert_eq!(keywords, vec![Rfc2119Keyword::Must, Rfc2119Keyword::Should]);
+    }
+
+    #[test]
+    fn test_detect_rfc2119_case_sensitive() {
+        // Only uppercase keywords should match per RFC 2119
+        let keywords = detect_rfc2119_keywords("The server must respond.");
+        assert!(keywords.is_empty());
+
+        let keywords = detect_rfc2119_keywords("You should read the docs.");
+        assert!(keywords.is_empty());
+    }
+
+    #[test]
+    fn test_detect_rfc2119_none() {
+        let keywords = detect_rfc2119_keywords("This is just a description.");
+        assert!(keywords.is_empty());
+    }
+
+    #[test]
+    fn test_warning_no_keyword() {
+        let markdown = r#"
+r[missing.keyword]
+This rule has no RFC 2119 keyword.
+"#;
+
+        let result = MarkdownProcessor::process(markdown).unwrap();
+        assert_eq!(result.warnings.len(), 1);
+        assert_eq!(result.warnings[0].rule_id, "missing.keyword");
+        assert!(matches!(
+            result.warnings[0].kind,
+            MarkdownWarningKind::NoRfc2119Keyword
+        ));
+    }
+
+    #[test]
+    fn test_warning_negative_requirement() {
+        let markdown = r#"
+r[negative.must.not]
+Clients MUST NOT send invalid data.
+"#;
+
+        let result = MarkdownProcessor::process(markdown).unwrap();
+        assert_eq!(result.warnings.len(), 1);
+        assert_eq!(result.warnings[0].rule_id, "negative.must.not");
+        assert!(matches!(
+            result.warnings[0].kind,
+            MarkdownWarningKind::NegativeRequirement(Rfc2119Keyword::MustNot)
+        ));
+    }
+
+    #[test]
+    fn test_no_warning_for_positive_must() {
+        let markdown = r#"
+r[positive.must]
+Clients MUST validate input.
+"#;
+
+        let result = MarkdownProcessor::process(markdown).unwrap();
+        assert!(result.warnings.is_empty());
+    }
+
+    #[test]
+    fn test_no_warning_for_empty_text() {
+        // Rules without text shouldn't warn about missing keywords
+        let markdown = r#"
+r[empty.text]
+
+r[another.rule]
+Some content.
+"#;
+
+        let result = MarkdownProcessor::process(markdown).unwrap();
+        // Only the second rule should have a warning (no keyword)
+        assert_eq!(result.warnings.len(), 1);
+        assert_eq!(result.warnings[0].rule_id, "another.rule");
     }
 }
