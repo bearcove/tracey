@@ -2315,11 +2315,8 @@
     }
 
     // File reference component with language icon
-    function FileRef({ file, line, type, editor, config, onSelectFile }) {
+    function FileRef({ file, line, type, onSelectFile }) {
       const { dir, name } = splitPath(file);
-      const fullPath = config?.projectRoot ? `${config.projectRoot}/${file}` : file;
-      const editorUrl = EDITORS[editor]?.urlTemplate(fullPath, line) || '#';
-      
       const typeClass = type === 'impl' ? 'ref-icon-impl' : 'ref-icon-verify';
       
       return html`
@@ -2327,9 +2324,9 @@
           <${LangIcon} filePath=${file} className="ref-icon ${typeClass}" />
           <a 
             class="file-link" 
-            href=${editorUrl}
+            href="#"
             onClick=${(e) => { e.preventDefault(); onSelectFile(file, line); }}
-            title="Open in editor"
+            title="View in Sources"
           >
             <span class="file-path">${dir}</span>
             <span class="file-name">${name}</span>
@@ -2481,8 +2478,6 @@
                                   file=${r.file} 
                                   line=${r.line} 
                                   type="impl"
-                                  editor=${editor}
-                                  config=${config}
                                   onSelectFile=${onSelectFile}
                                 />
                               `)}
@@ -2492,8 +2487,6 @@
                                   file=${r.file} 
                                   line=${r.line} 
                                   type="verify"
-                                  editor=${editor}
-                                  config=${config}
                                   onSelectFile=${onSelectFile}
                                 />
                               `)}
