@@ -56,11 +56,9 @@ open = "5"
 # HTTP server for serve command
 axum = { workspace = true }
 tokio = { workspace = true }
-tower = { workspace = true }
 tower-http = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
-http-body-util = { workspace = true }
 futures-util = { workspace = true }
 tokio-tungstenite = { workspace = true }
 tracing = { workspace = true }
