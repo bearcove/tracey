@@ -22,7 +22,7 @@
   </script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@arborium/arborium@2.4.6/dist/themes/base.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@arborium/arborium@2.4.6/dist/themes/kanagawa-dragon.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@arborium/arborium@2.4.6/dist/themes/lucius-light.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@arborium/arborium@2.4.6/dist/themes/melange-light.css">
   <script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/devicon.min.css">
   <style>
@@ -32,23 +32,52 @@
       --bg-secondary: light-dark(#ffffff, #1a1b26);
       --bg-sidebar: light-dark(#f3f4f6, #16171d);
       --fg: light-dark(#1a1b26, #c0caf5);
-      --fg-muted: light-dark(#6b7280, #737aa2);
-      --fg-dim: light-dark(#9ca3af, #565f89);
+      --fg-muted: var(--arb-c);
+      --fg-dim: var(--arb-v);
       --border: light-dark(#e5e5e5, #292e42);
       --hover: light-dark(#f0f0f2, #1f2335);
       --hover-subtle: light-dark(#f8f8fa, #1a1d2a);
-      --accent: light-dark(#2563eb, #7aa2f7);
-      --accent-dim: light-dark(#dbeafe, #1e3a5f);
-      --green: light-dark(#16a34a, #73daca);
-      --green-dim: light-dark(#dcfce7, #1a2e2a);
-      --red: light-dark(#dc2626, #f7768e);
-      --red-dim: light-dark(#fee2e2, #2d1f1f);
-      --yellow: light-dark(#d97706, #e0af68);
-      --yellow-dim: light-dark(#fef3c7, #3d3520);
-      --purple: light-dark(#7c3aed, #bb9af7);
+      --accent: var(--arb-tu);
+      --accent-dim: color-mix(in srgb, var(--arb-tu) 15%, transparent);
+      --green: var(--arb-da);
+      --green-dim: color-mix(in srgb, var(--arb-da) 15%, transparent);
+      --red: var(--arb-dd);
+      --red-dim: color-mix(in srgb, var(--arb-dd) 15%, transparent);
+      --yellow: var(--arb-n);
+      --yellow-dim: color-mix(in srgb, var(--arb-n) 15%, transparent);
+      --purple: var(--arb-s);
       --bg-outer: light-dark(#e5e7eb, #0d0e12);
 
       --max-width: 1200px;
+
+      /* Arborium syntax highlighting colors (combined light/dark) */
+      --arb-at: light-dark(var(--arb-at-light), var(--arb-at-dark));
+      --arb-co: light-dark(var(--arb-co-light), var(--arb-co-dark));
+      --arb-fb: light-dark(var(--arb-fb-light), var(--arb-fb-dark));
+      --arb-f: light-dark(var(--arb-f-light), var(--arb-f-dark));
+      --arb-k: light-dark(var(--arb-k-light), var(--arb-k-dark));
+      --arb-o: light-dark(var(--arb-o-light), var(--arb-o-dark));
+      --arb-pr: light-dark(var(--arb-pr-light), var(--arb-pr-dark));
+      --arb-p: light-dark(var(--arb-p-light), var(--arb-p-dark));
+      --arb-s: light-dark(var(--arb-s-light), var(--arb-s-dark));
+      --arb-tg: light-dark(var(--arb-tg-light), var(--arb-tg-dark));
+      --arb-err: light-dark(var(--arb-err-light), var(--arb-err-dark));
+      --arb-t: light-dark(var(--arb-t-light), var(--arb-t-dark));
+      --arb-v: light-dark(var(--arb-v-light), var(--arb-v-dark));
+      --arb-c: light-dark(var(--arb-c-light), var(--arb-c-dark));
+      --arb-m: light-dark(var(--arb-m-light), var(--arb-m-dark));
+      --arb-l: light-dark(var(--arb-l-light), var(--arb-l-dark));
+      --arb-da: light-dark(var(--arb-da-light), var(--arb-da-dark));
+      --arb-dd: light-dark(var(--arb-dd-light), var(--arb-dd-dark));
+      --arb-n: light-dark(var(--arb-n-light), var(--arb-n-dark));
+      --arb-tl: light-dark(var(--arb-tl-light), var(--arb-tl-dark));
+      --arb-tu: light-dark(var(--arb-tu-light), var(--arb-tu-dark));
+      --arb-tr: light-dark(var(--arb-tr-light), var(--arb-tr-dark));
+      --arb-se: light-dark(var(--arb-se-light), var(--arb-se-dark));
+      --arb-tt: light-dark(var(--arb-tt-light), var(--arb-tt-dark));
+      --arb-ch: light-dark(var(--arb-ch-light), var(--arb-ch-dark));
+      --arb-sr: light-dark(var(--arb-sr-light), var(--arb-sr-dark));
+      --arb-bo: light-dark(var(--arb-bo-light), var(--arb-bo-dark));
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -147,7 +176,7 @@
     .nav-tab .tab-icon {
       display: flex;
     }
-    
+
     .nav-tab .tab-icon svg {
       width: 1em;
       height: 1em;
@@ -1020,6 +1049,41 @@
     }
     .ref-icon-impl { color: var(--green); }
     .ref-icon-verify { color: var(--accent); }
+
+    /* FilePath component */
+    .file-path-link, .file-path-display {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      text-decoration: none;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.8em;
+    }
+    .file-path-link:hover .file-path-name {
+      text-decoration: underline;
+    }
+    .file-path-icon {
+      width: 1em;
+      height: 1em;
+      flex-shrink: 0;
+      color: var(--fg-muted);
+    }
+    .file-path-icon-impl { color: var(--green); }
+    .file-path-icon-verify { color: var(--accent); }
+    .file-path-text {
+      display: inline;
+    }
+    .file-path-dir {
+      color: var(--fg-dim);
+    }
+    .file-path-name {
+      color: var(--accent);
+    }
+    .file-path-line {
+      color: var(--green);
+    }
+
+    /* Legacy file-link styles (for backwards compat) */
     .file-link {
       text-decoration: none;
       display: inline-flex;
@@ -1236,20 +1300,6 @@
       background: var(--accent-dim);
     }
 
-    .rule-context-ref-icon {
-      width: 1rem;
-      height: 1rem;
-      flex-shrink: 0;
-    }
-
-    .rule-context-ref-icon.impl {
-      color: var(--green);
-    }
-
-    .rule-context-ref-icon.verify {
-      color: var(--accent);
-    }
-
     .rule-context-back {
       display: flex;
       align-items: center;
@@ -1413,6 +1463,14 @@
     .search-modal-result-code code {
       background: none;
       padding: 0;
+    }
+    
+    .search-modal-result-code mark,
+    .search-modal-result-content mark {
+      background: var(--yellow-dim);
+      color: var(--yellow);
+      padding: 0.1em 0.2em;
+      border-radius: 2px;
     }
 
     .search-modal-result.selected {
@@ -2089,30 +2147,6 @@
 
     // Search result item component with syntax highlighting for source
     function SearchResultItem({ result, isSelected, onSelect, onHover }) {
-      const [highlightedContent, setHighlightedContent] = useState(null);
-      const contentRef = useRef(null);
-
-      // Get file extension for syntax highlighting
-      const getLanguage = useCallback((filePath) => {
-        const ext = filePath.split('.').pop()?.toLowerCase();
-        const langMap = { rs: 'rust', js: 'javascript', ts: 'typescript', py: 'python', md: 'markdown' };
-        return langMap[ext] || 'rust';
-      }, []);
-
-      // Highlight source code content
-      useEffect(() => {
-        if (result.kind !== 'source') return;
-
-        const lang = getLanguage(result.id);
-        highlight(lang, result.content.trim()).then(html => {
-          // Extract inner content from <pre><code>...</code></pre>
-          const match = html.match(/<pre[^>]*><code[^>]*>([\s\S]*)<\/code><\/pre>/);
-          setHighlightedContent(match ? match[1] : html);
-        }).catch(() => {
-          setHighlightedContent(null);
-        });
-      }, [result, getLanguage]);
-
       return html`
         <div
           class="search-modal-result ${isSelected ? 'selected' : ''}"
@@ -2120,16 +2154,17 @@
           onMouseEnter=${onHover}
         >
           <div class="search-modal-result-header">
-            <i data-lucide=${result.kind === 'source' ? 'code' : 'file-text'} class="search-result-icon ${result.kind}"></i>
-            <span class="search-modal-result-id">${result.id}</span>
-            ${result.kind === 'source' && result.line > 0 && html`
-              <span class="search-modal-result-line">:${result.line}</span>
+            ${result.kind === 'source' ? html`
+              <${FilePath} file=${result.id} line=${result.line > 0 ? result.line : null} type="source" />
+            ` : html`
+              <${LucideIcon} name="file-text" className="search-result-icon rule" />
+              <span class="search-modal-result-id">${result.id}</span>
             `}
           </div>
           ${result.kind === 'source' ? html`
-            <pre class="search-modal-result-code"><code ref=${contentRef} dangerouslySetInnerHTML=${{ __html: highlightedContent || result.content.trim() }} /></pre>
+            <pre class="search-modal-result-code"><code dangerouslySetInnerHTML=${{ __html: result.highlighted || result.content.trim() }} /></pre>
           ` : html`
-            <div class="search-modal-result-content">${result.content.trim()}</div>
+            <div class="search-modal-result-content" dangerouslySetInnerHTML=${{ __html: result.highlighted || result.content.trim() }} />
           `}
         </div>
       `;
@@ -2320,24 +2355,47 @@
       return { dir: filePath.slice(0, lastSlash + 1), name: filePath.slice(lastSlash + 1) };
     }
 
-    // File reference component with language icon
-    function FileRef({ file, line, type, onSelectFile }) {
+    // Universal file path display component
+    // Props:
+    //   file: file path
+    //   line: optional line number
+    //   short: if true, only show filename (not full path)
+    //   type: 'impl' | 'verify' | 'source' - affects icon color
+    //   onClick: optional click handler
+    //   className: optional additional class
+    function FilePath({ file, line, short = false, type = 'source', onClick, className = '' }) {
       const { dir, name } = splitPath(file);
-      const typeClass = type === 'impl' ? 'ref-icon-impl' : 'ref-icon-verify';
+      const iconClass = type === 'impl' ? 'file-path-icon-impl' : type === 'verify' ? 'file-path-icon-verify' : '';
 
+      const content = html`
+        <${LangIcon} filePath=${file} className="file-path-icon ${iconClass}" /><span class="file-path-text">${!short && dir ? html`<span class="file-path-dir">${dir}</span>` : ''}<span class="file-path-name">${name}</span>${line != null ? html`<span class="file-path-line">:${line}</span>` : ''}</span>
+      `;
+
+      if (onClick) {
+        return html`
+          <a
+            class="file-path-link ${className}"
+            href="#"
+            onClick=${(e) => { e.preventDefault(); onClick(); }}
+          >
+            ${content}
+          </a>
+        `;
+      }
+
+      return html`<span class="file-path-display ${className}">${content}</span>`;
+    }
+
+    // File reference component (wrapper for backwards compatibility in coverage table)
+    function FileRef({ file, line, type, onSelectFile }) {
       return html`
         <div class="ref-line">
-          <${LangIcon} filePath=${file} className="ref-icon ${typeClass}" />
-          <a
-            class="file-link"
-            href="#"
-            onClick=${(e) => { e.preventDefault(); onSelectFile(file, line); }}
-            title="View in Sources"
-          >
-            <span class="file-path">${dir}</span>
-            <span class="file-name">${name}</span>
-            <span class="file-line">:${line}</span>
-          </a>
+          <${FilePath}
+            file=${file}
+            line=${line}
+            type=${type}
+            onClick=${() => onSelectFile(file, line)}
+          />
         </div>
       `;
     }
@@ -2536,8 +2594,6 @@
       }, [selectedFile, selectedLine]);
 
       // Icons
-      const implIcon = html`<svg class="rule-context-ref-icon impl" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 18l6-6-6-6"/><path d="M8 6l-6 6 6 6"/></svg>`;
-      const verifyIcon = html`<svg class="rule-context-ref-icon verify" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9 12l2 2 4-4"/></svg>`;
       const closeIcon = html`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>`;
       const backIcon = html`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>`;
 
@@ -2577,26 +2633,24 @@
                   `}
                   <div class="rule-context-refs">
                     ${contextRule.implRefs.map(ref => html`
-                      <a
+                      <div
                         key=${'impl:' + ref.file + ':' + ref.line}
                         class="rule-context-ref ${isActiveRef(ref) ? 'active' : ''}"
                         onClick=${() => onSelectFile(ref.file, ref.line, ruleContext)}
                         title=${ref.file}
                       >
-                        ${implIcon}
-                        <span>${splitPath(ref.file).name}:${ref.line}</span>
-                      </a>
+                        <${FilePath} file=${ref.file} line=${ref.line} short type="impl" />
+                      </div>
                     `)}
                     ${contextRule.verifyRefs.map(ref => html`
-                      <a
+                      <div
                         key=${'verify:' + ref.file + ':' + ref.line}
                         class="rule-context-ref ${isActiveRef(ref) ? 'active' : ''}"
                         onClick=${() => onSelectFile(ref.file, ref.line, ruleContext)}
                         title=${ref.file}
                       >
-                        ${verifyIcon}
-                        <span>${splitPath(ref.file).name}:${ref.line}</span>
-                      </a>
+                        <${FilePath} file=${ref.file} line=${ref.line} short type="verify" />
+                      </div>
                     `)}
                   </div>
                   <a class="rule-context-back" onClick=${() => onSelectRule(ruleContext)}>

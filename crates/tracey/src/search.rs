@@ -38,6 +38,8 @@ pub struct SearchResult {
     pub line: usize,
     /// The matching content (line content or rule text)
     pub content: String,
+    /// HTML snippet with highlighted matches (uses `<mark>` tags)
+    pub highlighted: String,
     /// Relevance score
     pub score: f32,
 }
@@ -45,11 +47,12 @@ pub struct SearchResult {
 impl SearchResult {
     pub fn to_json(&self) -> String {
         format!(
-            r#"{{"kind":"{}","id":{},"line":{},"content":{},"score":{}}}"#,
+            r#"{{"kind":"{}","id":{},"line":{},"content":{},"highlighted":{},"score":{}}}"#,
             self.kind.as_str(),
             crate::serve::json_string(&self.id),
             self.line,
             crate::serve::json_string(&self.content),
+            crate::serve::json_string(&self.highlighted),
             self.score
         )
     }
@@ -82,7 +85,11 @@ mod tantivy_impl {
     use super::*;
     use tantivy::collector::TopDocs;
     use tantivy::query::QueryParser;
-    use tantivy::schema::*;
+    use tantivy::schema::{
+        Field, INDEXED, IndexRecordOption, STORED, STRING, Schema, TextFieldIndexing, TextOptions,
+        Value,
+    };
+    use tantivy::snippet::SnippetGenerator;
     use tantivy::{Index, IndexWriter, ReloadPolicy, doc};
 
     pub struct TantivyIndex {
@@ -91,6 +98,7 @@ mod tantivy_impl {
         reader: tantivy::IndexReader,
         query_parser: QueryParser,
         schema: Schema,
+        content_field: Field,
     }
 
     impl TantivyIndex {
@@ -102,14 +110,22 @@ mod tantivy_impl {
         ) -> eyre::Result<Self> {
             // Define schema
             let mut schema_builder = Schema::builder();
+
+            // Text options with stemming and positions (needed for snippet generation)
+            let text_options = TextOptions::default().set_stored().set_indexing_options(
+                TextFieldIndexing::default()
+                    .set_tokenizer("en_stem")
+                    .set_index_option(IndexRecordOption::WithFreqsAndPositions),
+            );
+
             // "kind" field: "source" or "rule"
             let kind_field = schema_builder.add_text_field("kind", STRING | STORED);
             // "id" field: file path for source, rule ID for rules
             let id_field = schema_builder.add_text_field("id", STRING | STORED);
             // "line" field: line number for source (0 for rules)
             let line_field = schema_builder.add_u64_field("line", INDEXED | STORED);
-            // "content" field: the searchable text content
-            let content_field = schema_builder.add_text_field("content", TEXT | STORED);
+            // "content" field: the searchable text content with stemming
+            let content_field = schema_builder.add_text_field("content", text_options);
             let schema = schema_builder.build();
 
             // Create index in RAM (small enough for most projects)
@@ -175,6 +191,7 @@ mod tantivy_impl {
                 reader,
                 query_parser,
                 schema,
+                content_field,
             })
         }
     }
@@ -200,6 +217,16 @@ mod tantivy_impl {
                 Err(_) => return vec![],
             };
 
+            // Create snippet generator for highlighting
+            let snippet_generator =
+                match SnippetGenerator::create(&searcher, &*parsed_query, self.content_field) {
+                    Ok(mut sg) => {
+                        sg.set_max_num_chars(200);
+                        Some(sg)
+                    }
+                    Err(_) => None,
+                };
+
             let kind_field = self.schema.get_field("kind").unwrap();
             let id_field = self.schema.get_field("id").unwrap();
             let line_field = self.schema.get_field("line").unwrap();
@@ -220,17 +247,36 @@ mod tantivy_impl {
                     let line = doc.get_first(line_field)?.as_u64()? as usize;
                     let content = doc.get_first(content_field)?.as_str()?.to_string();
 
+                    // Generate highlighted snippet with <mark> tags
+                    let highlighted = snippet_generator
+                        .as_ref()
+                        .map(|sg| {
+                            let mut snippet = sg.snippet(&content);
+                            snippet.set_snippet_prefix_postfix("<mark>", "</mark>");
+                            snippet.to_html()
+                        })
+                        .unwrap_or_else(|| html_escape(&content));
+
                     Some(SearchResult {
                         kind,
                         id,
                         line,
                         content,
+                        highlighted,
                         score,
                     })
                 })
                 .collect()
         }
     }
+}
+
+/// Simple HTML escape for fallback
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 #[cfg(feature = "search")]
@@ -310,12 +356,17 @@ impl SearchIndex for SimpleIndex {
             .iter()
             .filter(|e| e.content.to_lowercase().contains(&query_lower))
             .take(limit)
-            .map(|e| SearchResult {
-                kind: e.kind,
-                id: e.id.clone(),
-                line: e.line,
-                content: e.content.clone(),
-                score: 1.0,
+            .map(|e| {
+                // Simple case-insensitive highlighting
+                let highlighted = highlight_simple(&e.content, query);
+                SearchResult {
+                    kind: e.kind,
+                    id: e.id.clone(),
+                    line: e.line,
+                    content: e.content.clone(),
+                    highlighted,
+                    score: 1.0,
+                }
             })
             .collect()
     }
@@ -323,6 +374,29 @@ impl SearchIndex for SimpleIndex {
     fn is_available(&self) -> bool {
         true
     }
+}
+
+/// Simple case-insensitive highlighting for fallback
+fn highlight_simple(content: &str, query: &str) -> String {
+    let content_lower = content.to_lowercase();
+    let query_lower = query.to_lowercase();
+
+    let mut result = String::new();
+    let mut last_end = 0;
+
+    for (start, _) in content_lower.match_indices(&query_lower) {
+        // Append text before match (escaped)
+        result.push_str(&html_escape(&content[last_end..start]));
+        // Append highlighted match
+        result.push_str("<mark>");
+        result.push_str(&html_escape(&content[start..start + query.len()]));
+        result.push_str("</mark>");
+        last_end = start + query.len();
+    }
+
+    // Append remaining text
+    result.push_str(&html_escape(&content[last_end..]));
+    result
 }
 
 /// Build the appropriate search index based on feature flags
