@@ -299,6 +299,38 @@ tracey matrix --prefix "channel."
 tracey matrix --level must
 ```
 
+### Reverse coverage
+
+Show which code units (functions, structs, etc.) lack spec references:
+
+```bash
+# Full reverse coverage report
+tracey rev
+
+# Only show uncovered code units
+tracey rev --uncovered
+
+# Filter by code unit kind
+tracey rev --kind function
+
+# Filter by file path
+tracey rev --path src/channel
+
+# JSON output (for AI agents)
+tracey rev --format json --uncovered
+```
+
+The JSON output is designed for AI agents to find and annotate uncovered code:
+
+```json
+{
+  "summary": { "total": 100, "covered": 40, "uncovered": 60, "coverage_percent": 40.0 },
+  "units": [
+    { "kind": "function", "name": "process_request", "file": "src/handler.rs", "start_line": 42, "end_line": 67, "rule_refs": [], "covered": false }
+  ]
+}
+```
+
 ### Impact analysis
 
 Find all code that references a specific rule:

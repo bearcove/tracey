@@ -17,6 +17,7 @@ use facet_args as args;
 use output::{OutputFormat, render_report};
 use owo_colors::OwoColorize;
 use std::path::PathBuf;
+use tracey_core::code_units::{CodeUnit, CodeUnitKind, CodeUnits, extract_rust};
 use tracey_core::markdown::{MarkdownProcessor, MarkdownWarningKind, RulesManifest};
 use tracey_core::{CoverageReport, Rules, SpecManifest, WalkSources};
 
@@ -158,6 +159,29 @@ enum Command {
         #[facet(args::named, default)]
         dev: bool,
     },
+
+    /// Reverse coverage: show which code units lack spec references
+    Rev {
+        /// Path to config file (default: .config/tracey/config.kdl)
+        #[facet(args::named, args::short = 'c', default)]
+        config: Option<PathBuf>,
+
+        /// Output format: text, json
+        #[facet(args::named, args::short = 'f', default)]
+        format: Option<String>,
+
+        /// Only show uncovered code units
+        #[facet(args::named, default)]
+        uncovered: bool,
+
+        /// Filter by code unit kind (function, struct, enum, trait, impl, etc.)
+        #[facet(args::named, default)]
+        kind: Option<String>,
+
+        /// Filter by file path pattern (e.g., "src/channel")
+        #[facet(args::named, default)]
+        path: Option<String>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -229,6 +253,13 @@ fn main() -> Result<()> {
             open,
             dev,
         }) => serve::run(config, port.unwrap_or(3000), open, dev),
+        Some(Command::Rev {
+            config,
+            format,
+            uncovered,
+            kind,
+            path,
+        }) => run_reverse_command(config, format, uncovered, kind, path),
         None => run_coverage_command(args),
     }
 }
@@ -1099,6 +1130,244 @@ fn run_matrix_command(
         );
     } else {
         print!("{}", output_str);
+    }
+
+    Ok(())
+}
+
+fn run_reverse_command(
+    config: Option<PathBuf>,
+    format: Option<String>,
+    uncovered_only: bool,
+    kind_filter: Option<String>,
+    path_filter: Option<String>,
+) -> Result<()> {
+    use ignore::WalkBuilder;
+
+    let project_root = find_project_root()?;
+    let config_path = config.unwrap_or_else(|| project_root.join(".config/tracey/config.kdl"));
+    let config = load_config(&config_path)?;
+
+    let format = format.as_deref().unwrap_or("text");
+    let is_json = format == "json";
+
+    // Parse kind filter
+    let kind_filter: Option<CodeUnitKind> = kind_filter.as_ref().and_then(|k| match k.as_str() {
+        "function" | "fn" => Some(CodeUnitKind::Function),
+        "struct" => Some(CodeUnitKind::Struct),
+        "enum" => Some(CodeUnitKind::Enum),
+        "trait" => Some(CodeUnitKind::Trait),
+        "impl" => Some(CodeUnitKind::Impl),
+        "module" | "mod" => Some(CodeUnitKind::Module),
+        "const" => Some(CodeUnitKind::Const),
+        "static" => Some(CodeUnitKind::Static),
+        "type" => Some(CodeUnitKind::TypeAlias),
+        "macro" => Some(CodeUnitKind::Macro),
+        _ => None,
+    });
+
+    let mut all_units = CodeUnits::new();
+
+    for spec_config in &config.specs {
+        // Build include/exclude patterns
+        let include: Vec<String> = if spec_config.include.is_empty() {
+            vec!["**/*.rs".to_string()]
+        } else {
+            spec_config
+                .include
+                .iter()
+                .map(|i| i.pattern.clone())
+                .collect()
+        };
+
+        let exclude: Vec<String> = if spec_config.exclude.is_empty() {
+            vec!["target/**".to_string()]
+        } else {
+            spec_config
+                .exclude
+                .iter()
+                .map(|e| e.pattern.clone())
+                .collect()
+        };
+
+        // Walk source files and extract code units
+        let walker = WalkBuilder::new(&project_root)
+            .follow_links(true)
+            .hidden(false)
+            .git_ignore(true)
+            .build();
+
+        for entry in walker.flatten() {
+            let path = entry.path();
+
+            // Only process Rust files
+            if path.extension().is_none_or(|e| e != "rs") {
+                continue;
+            }
+
+            // Check include/exclude patterns
+            let relative = path.strip_prefix(&project_root).unwrap_or(path);
+            let relative_str = relative.to_string_lossy();
+
+            let included = include
+                .iter()
+                .any(|pattern| matches_glob(&relative_str, pattern));
+            let excluded = exclude
+                .iter()
+                .any(|pattern| matches_glob(&relative_str, pattern));
+
+            if included
+                && !excluded
+                && let Ok(content) = std::fs::read_to_string(path)
+            {
+                let units = extract_rust(path, &content);
+                all_units.extend(units);
+            }
+        }
+    }
+
+    // Apply filters
+    let filtered_units: Vec<&CodeUnit> = all_units
+        .units
+        .iter()
+        .filter(|u| {
+            // Kind filter
+            if let Some(ref k) = kind_filter
+                && u.kind != *k
+            {
+                return false;
+            }
+            // Path filter
+            if let Some(ref p) = path_filter {
+                let path_str = u.file.to_string_lossy();
+                if !path_str.contains(p) {
+                    return false;
+                }
+            }
+            // Uncovered filter
+            if uncovered_only && !u.rule_refs.is_empty() {
+                return false;
+            }
+            true
+        })
+        .collect();
+
+    // Calculate stats
+    let total = filtered_units.len();
+    let covered = filtered_units
+        .iter()
+        .filter(|u| !u.rule_refs.is_empty())
+        .count();
+    let uncovered = total - covered;
+    let coverage_pct = if total > 0 {
+        (covered as f64 / total as f64) * 100.0
+    } else {
+        100.0
+    };
+
+    if is_json {
+        // JSON output for AI agents
+        #[derive(facet::Facet)]
+        struct UnitJson {
+            kind: String,
+            name: Option<String>,
+            file: String,
+            start_line: usize,
+            end_line: usize,
+            rule_refs: Vec<String>,
+            covered: bool,
+        }
+
+        #[derive(facet::Facet)]
+        struct SummaryJson {
+            total: usize,
+            covered: usize,
+            uncovered: usize,
+            coverage_percent: f64,
+        }
+
+        #[derive(facet::Facet)]
+        struct OutputJson {
+            summary: SummaryJson,
+            units: Vec<UnitJson>,
+        }
+
+        let json_units: Vec<UnitJson> = filtered_units
+            .iter()
+            .map(|u| UnitJson {
+                kind: u.kind.as_str().to_string(),
+                name: u.name.clone(),
+                file: u.file.to_string_lossy().to_string(),
+                start_line: u.start_line,
+                end_line: u.end_line,
+                rule_refs: u.rule_refs.clone(),
+                covered: !u.rule_refs.is_empty(),
+            })
+            .collect();
+
+        let output = OutputJson {
+            summary: SummaryJson {
+                total,
+                covered,
+                uncovered,
+                coverage_percent: coverage_pct,
+            },
+            units: json_units,
+        };
+
+        println!(
+            "{}",
+            facet_json::to_string_pretty(&output).expect("JSON serialization failed")
+        );
+    } else {
+        // Text output
+        eprintln!("\n{} Reverse Coverage Report", "##".cyan().bold());
+        eprintln!();
+        eprintln!(
+            "Coverage: {:.1}% ({}/{} code units have spec references)",
+            coverage_pct, covered, total
+        );
+        eprintln!(
+            "  {} covered, {} uncovered",
+            covered.to_string().green(),
+            uncovered.to_string().yellow()
+        );
+        eprintln!();
+
+        if uncovered_only {
+            eprintln!("{} Uncovered code units:", "->".blue().bold());
+        } else {
+            eprintln!("{} Code units:", "->".blue().bold());
+        }
+        eprintln!();
+
+        for unit in &filtered_units {
+            let relative_path = unit.file.strip_prefix(&project_root).unwrap_or(&unit.file);
+            let name = unit.name.as_deref().unwrap_or("<anonymous>");
+            let kind = unit.kind.as_str();
+
+            if unit.rule_refs.is_empty() {
+                eprintln!(
+                    "   {} {}:{} {} {}",
+                    "✗".red(),
+                    relative_path.display(),
+                    unit.start_line,
+                    kind.dimmed(),
+                    name.yellow()
+                );
+            } else if !uncovered_only {
+                let refs = unit.rule_refs.join(", ");
+                eprintln!(
+                    "   {} {}:{} {} {} [{}]",
+                    "✓".green(),
+                    relative_path.display(),
+                    unit.start_line,
+                    kind.dimmed(),
+                    name,
+                    refs.cyan()
+                );
+            }
+        }
     }
 
     Ok(())
