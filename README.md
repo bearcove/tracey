@@ -2,7 +2,7 @@
 
 > **Note:** Looking for Tracy, the frame profiler? That's a different project: [wolfpld/tracy](https://github.com/wolfpld/tracy)
 
-A CLI tool and library to measure spec coverage in codebases.
+A CLI tool and library to measure spec coverage in codebases, with an interactive dashboard for exploring traceability.
 
 ## What it does
 
@@ -29,6 +29,10 @@ This enables **traceability** between your spec documents and implementation cod
 ## Installation
 
 ```bash
+# With cargo-binstall (fast, downloads pre-built binary)
+cargo binstall tracey
+
+# Or build from source
 cargo install tracey
 ```
 
@@ -47,6 +51,26 @@ Channel IDs MUST be allocated sequentially starting from 0.
 r[channel.id.parity]
 Client-initiated channels MUST use odd IDs, server-initiated channels MUST use even IDs.
 ```
+
+Rules can include metadata attributes:
+
+```markdown
+r[channel.id.allocation status=stable level=must since=1.0]
+Channel IDs MUST be allocated sequentially starting from 0.
+
+r[experimental.feature status=draft]
+This feature is under development.
+
+r[old.behavior status=deprecated until=3.0]
+This behavior is deprecated and will be removed.
+```
+
+Supported attributes:
+- `status`: `draft`, `stable`, `deprecated`, `removed`
+- `level`: `must`, `should`, `may` (RFC 2119)
+- `since`: version when introduced
+- `until`: version when deprecated/removed
+- `tags`: comma-separated custom tags
 
 ### 2. Reference rules in your code
 
@@ -113,13 +137,14 @@ tracey recognizes rule references in comments with optional verbs:
 
 | Syntax | Description |
 |--------|-------------|
-| `[rule.id]` | Basic reference (legacy) |
 | `[impl rule.id]` | Implementation of the rule |
 | `[verify rule.id]` | Test/verification of the rule |
-| `[test rule.id]` | Alias for verify |
-| `[ref rule.id]` | General reference |
+| `[define rule.id]` | Definition point for the rule |
+| `[depends rule.id]` | Code depends on this rule's guarantees |
+| `[related rule.id]` | Related but not direct implementation |
+| `[rule.id]` | Basic reference (legacy, treated as impl) |
 
-The verb helps categorize references in the coverage report.
+The verb helps categorize references in the coverage report and traceability matrix.
 
 ## Configuration Options
 
@@ -210,6 +235,8 @@ spec {
 
 ## CLI Usage
 
+### Coverage report
+
 ```bash
 # Run coverage report
 tracey
@@ -227,9 +254,77 @@ tracey -f json
 tracey -c path/to/config.kdl
 ```
 
+### Interactive dashboard
+
+Launch a web-based dashboard for exploring coverage and traceability:
+
+```bash
+# Start dashboard server
+tracey serve
+
+# Open browser automatically
+tracey serve --open
+
+# Custom port
+tracey serve --port 8080
+```
+
+The dashboard provides:
+- Visual coverage overview
+- Searchable rule list with coverage status
+- Click-through to source code locations
+- Live reload when spec or source files change
+
+### Traceability matrix
+
+Generate a matrix showing which code implements/verifies each rule:
+
+```bash
+# Markdown table
+tracey matrix
+
+# HTML report (opens in browser)
+tracey matrix --format html --open
+
+# Show only uncovered rules
+tracey matrix --uncovered
+
+# Show rules missing tests
+tracey matrix --no-verify
+
+# Filter by rule prefix
+tracey matrix --prefix "channel."
+
+# Filter by requirement level
+tracey matrix --level must
+```
+
+### Impact analysis
+
+Find all code that references a specific rule:
+
+```bash
+tracey impact channel.id.allocation
+```
+
+### Location query
+
+Show which rules are referenced at a specific location:
+
+```bash
+# Single line
+tracey at src/channel.rs:42
+
+# Line range
+tracey at src/channel.rs:40-60
+
+# Whole file
+tracey at src/channel.rs
+```
+
 ### Extracting rules from markdown
 
-You can also use tracey to generate a `_rules.json` manifest:
+Generate a `_rules.json` manifest from spec documents:
 
 ```bash
 # Output to stdout
@@ -241,6 +336,10 @@ tracey rules -b "/spec" -o _rules.json docs/spec/**/*.md
 # Also generate transformed markdown with HTML anchors
 tracey rules --markdown-out dist/ docs/spec/**/*.md
 ```
+
+tracey also warns about potential spec quality issues:
+- Rules without RFC 2119 keywords (MUST, SHOULD, MAY) may be underspecified
+- Rules with MUST NOT/SHALL NOT are hard to verify - consider rephrasing as positive requirements
 
 ## Library Usage
 
