@@ -17,13 +17,13 @@ authors = ["Amos Wenger <amos@bearcove.eu>"]
 tracey-core = { path = "crates/tracey-core", version = "1.0.0" }
 
 # Facet ecosystem (from git for facet-miette support)
-facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-args = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-kdl = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-value = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-error = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-miette = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet = { git = "https://github.com/facet-rs/facet", branch = "main", version = "0.40.0" }
+facet-args = { git = "https://github.com/facet-rs/facet", branch = "main", version = "0.40.0" }
+facet-kdl = { git = "https://github.com/facet-rs/facet", branch = "main", version = "0.40.0" }
+facet-json = { git = "https://github.com/facet-rs/facet", branch = "main", version = "0.40.0" }
+facet-value = { git = "https://github.com/facet-rs/facet", branch = "main", version = "0.40.0" }
+facet-error = { git = "https://github.com/facet-rs/facet", branch = "main", version = "0.40.0" }
+facet-miette = { git = "https://github.com/facet-rs/facet", branch = "main", version = "0.40.0" }
 
 # Error handling
 eyre = "0.6"
