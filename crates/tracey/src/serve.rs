@@ -29,6 +29,7 @@ use tracey_core::code_units::CodeUnit;
 use tracey_core::{RefVerb, Rules, SpecManifest};
 
 use crate::config::Config;
+use crate::search::{self, SearchIndex};
 
 // ============================================================================
 // JSON API Types
@@ -141,6 +142,8 @@ struct DashboardData {
     code_units_by_file: BTreeMap<PathBuf, Vec<CodeUnit>>,
     /// Spec content by name
     specs_content: BTreeMap<String, ApiSpecData>,
+    /// Full-text search index for source files
+    search_index: Box<dyn SearchIndex>,
     /// Version number (incremented only when content actually changes)
     version: u64,
     /// Hash of forward + reverse JSON for change detection
@@ -151,7 +154,7 @@ struct DashboardData {
 // JSON Serialization (manual, no serde)
 // ============================================================================
 
-fn json_string(s: &str) -> String {
+pub fn json_string(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push('"');
     for c in s.chars() {
@@ -475,10 +478,11 @@ fn build_dashboard_data(
         }
     }
 
-    // Build reverse data summary
+    // Build reverse data summary and collect file contents for search
     let mut total_units = 0;
     let mut covered_units = 0;
     let mut file_entries = Vec::new();
+    let mut file_contents: BTreeMap<PathBuf, String> = BTreeMap::new();
 
     for (path, units) in &code_units_by_file {
         let relative = path.strip_prefix(project_root).unwrap_or(path);
@@ -493,10 +497,18 @@ fn build_dashboard_data(
             total_units: file_total,
             covered_units: file_covered,
         });
+
+        // Load file content for search index
+        if let Ok(content) = std::fs::read_to_string(path) {
+            file_contents.insert(path.clone(), content);
+        }
     }
 
     // Sort files by path
     file_entries.sort_by(|a, b| a.path.cmp(&b.path));
+
+    // Build search index
+    let search_index = search::build_index(project_root, &file_contents);
 
     let forward = ApiForwardData {
         specs: forward_specs,
@@ -518,6 +530,7 @@ fn build_dashboard_data(
         reverse,
         code_units_by_file,
         specs_content,
+        search_index,
         version,
         content_hash,
     })
@@ -811,6 +824,29 @@ async fn run_server(config_path: Option<PathBuf>, port: u16, open_browser: bool)
                         .with_status_code(404)
                         .with_content_type("application/json")
                 }
+            }
+
+            p if p.starts_with("/api/search?q=") => {
+                let query = p.strip_prefix("/api/search?q=").unwrap_or("");
+                let query = urlencoding::decode(query).unwrap_or_default();
+
+                // Parse optional limit parameter
+                let (query, limit) = if let Some((q, rest)) = query.split_once("&limit=") {
+                    (q.to_string(), rest.parse().unwrap_or(50))
+                } else {
+                    (query.to_string(), 50usize)
+                };
+
+                let results = state.search_index.search(&query, limit);
+                let results_json: Vec<String> = results.iter().map(|r| r.to_json()).collect();
+                let json = format!(
+                    r#"{{"query":{},"results":[{}],"available":{}}}"#,
+                    json_string(&query),
+                    results_json.join(","),
+                    state.search_index.is_available()
+                );
+
+                Response::from_string(json).with_content_type("application/json")
             }
 
             // Serve SPA for all other routes (client-side routing)

@@ -59,3 +59,6 @@ tokio = { version = "1", default-features = false, features = ["rt", "net", "syn
 # File watching for live reload
 notify = "8"
 notify-debouncer-mini = "0.6"
+
+# Full-text search
+tantivy = "0.22"

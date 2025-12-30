@@ -64,5 +64,13 @@ notify-debouncer-mini = { workspace = true }
 # URL decoding for API
 urlencoding = "2.1"
 
+# Full-text search (optional)
+tantivy = { workspace = true, optional = true }
+tempfile = { version = "3", optional = true }
+
+[features]
+default = []
+search = ["dep:tantivy", "dep:tempfile"]
+
 [dev-dependencies]
 facet-value = { workspace = true }

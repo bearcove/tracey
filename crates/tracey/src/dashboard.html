@@ -1061,6 +1061,71 @@
     .outline-level-2 { padding-left: 1.25rem; }
     .outline-level-3 { padding-left: 2rem; }
     .outline-level-4 { padding-left: 2.75rem; font-size: 0.8rem; }
+    
+    /* Search results */
+    .search-results {
+      flex: 1;
+      overflow-y: auto;
+      background: var(--bg);
+    }
+    
+    .search-result {
+      padding: 0.5rem 1rem;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.8rem;
+    }
+    
+    .search-result:hover {
+      background: var(--hover);
+    }
+    
+    .search-result-file {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      margin-bottom: 0.25rem;
+    }
+    
+    .search-result-path {
+      color: var(--fg-dim);
+    }
+    
+    .search-result-name {
+      color: var(--accent);
+    }
+    
+    .search-result-line {
+      color: var(--green);
+    }
+    
+    .search-result-content {
+      color: var(--fg-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    
+    .search-result-highlight {
+      background: var(--yellow-dim);
+      color: var(--yellow);
+      padding: 0.1rem 0.2rem;
+      border-radius: 2px;
+    }
+    
+    .search-empty {
+      padding: 2rem;
+      text-align: center;
+      color: var(--fg-muted);
+    }
+    
+    .search-loading {
+      padding: 1rem;
+      text-align: center;
+      color: var(--fg-muted);
+      font-size: 0.85rem;
+    }
   </style>
 </head>
 <body>
@@ -1873,6 +1938,46 @@
     function SourcesView({ data, config, search, editor, onEditorChange, selectedFile, selectedLine, onSelectFile, onSelectRule }) {
       const fileTree = useMemo(() => buildFileTree(data.files), [data.files]);
       const file = useFile(selectedFile);
+      
+      // Local search state
+      const [searchQuery, setSearchQuery] = useState('');
+      const [searchResults, setSearchResults] = useState(null);
+      const [isSearching, setIsSearching] = useState(false);
+      const searchTimeoutRef = useRef(null);
+      
+      // Debounced search
+      useEffect(() => {
+        if (!searchQuery || searchQuery.length < 2) {
+          setSearchResults(null);
+          return;
+        }
+        
+        setIsSearching(true);
+        
+        // Debounce the search
+        if (searchTimeoutRef.current) {
+          clearTimeout(searchTimeoutRef.current);
+        }
+        
+        searchTimeoutRef.current = setTimeout(async () => {
+          try {
+            const res = await fetch(`/api/search?q=${encodeURIComponent(searchQuery)}&limit=100`);
+            const data = await res.json();
+            setSearchResults(data);
+          } catch (e) {
+            console.error('Search failed:', e);
+            setSearchResults({ results: [], error: e.message });
+          } finally {
+            setIsSearching(false);
+          }
+        }, 200);
+        
+        return () => {
+          if (searchTimeoutRef.current) {
+            clearTimeout(searchTimeoutRef.current);
+          }
+        };
+      }, [searchQuery]);
 
       const filteredFiles = useMemo(() => {
         if (!search) return data.files;
@@ -1885,6 +1990,30 @@
         covered: data.coveredUnits,
         pct: data.totalUnits ? (data.coveredUnits / data.totalUnits) * 100 : 0,
       };
+      
+      const handleSearchResultClick = useCallback((result) => {
+        onSelectFile(result.file, result.line);
+        setSearchQuery('');
+        setSearchResults(null);
+      }, [onSelectFile]);
+      
+      // Highlight search term in content
+      const highlightContent = useCallback((content, query) => {
+        if (!query) return content;
+        const idx = content.toLowerCase().indexOf(query.toLowerCase());
+        if (idx === -1) return content;
+        const before = content.slice(0, idx);
+        const match = content.slice(idx, idx + query.length);
+        const after = content.slice(idx + query.length);
+        return html`${before}<span class="search-result-highlight">${match}</span>${after}`;
+      }, []);
+      
+      // Split path into dir and filename
+      const splitPath = useCallback((path) => {
+        const lastSlash = path.lastIndexOf('/');
+        if (lastSlash === -1) return { dir: '', name: path };
+        return { dir: path.slice(0, lastSlash + 1), name: path.slice(lastSlash + 1) };
+      }, []);
 
       return html`
         <div class="stats-bar">
@@ -1904,6 +2033,16 @@
             <span class="stat-label">Uncovered</span>
             <span class="stat-value ${stats.total - stats.covered > 0 ? 'bad' : 'good'}">${stats.total - stats.covered}</span>
           </div>
+          
+          <div class="search-box">
+            <input
+              type="text"
+              class="search-input"
+              placeholder="Search code... (Ctrl+Shift+F)"
+              value=${searchQuery}
+              onInput=${(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
         </div>
         <div class="main">
           <div class="sidebar">
@@ -1918,7 +2057,32 @@
             </div>
           </div>
           <div class="content">
-            ${file ? html`
+            ${searchResults ? html`
+              <div class="content-header">Search results for "${searchQuery}"</div>
+              <div class="search-results">
+                ${isSearching ? html`
+                  <div class="search-loading">Searching...</div>
+                ` : searchResults.results?.length > 0 ? html`
+                  ${searchResults.results.map(result => {
+                    const { dir, name } = splitPath(result.file);
+                    return html`
+                      <div class="search-result" onClick=${() => handleSearchResultClick(result)}>
+                        <div class="search-result-file">
+                          <span class="search-result-path">${dir}</span>
+                          <span class="search-result-name">${name}</span>
+                          <span class="search-result-line">:${result.line}</span>
+                        </div>
+                        <div class="search-result-content">
+                          ${highlightContent(result.content.trim(), searchQuery)}
+                        </div>
+                      </div>
+                    `;
+                  })}
+                ` : html`
+                  <div class="search-empty">No results found</div>
+                `}
+              </div>
+            ` : file ? html`
               <div class="content-header">${file.path}</div>
               <div class="content-body">
                 <${CodeView} file=${file} config=${config} editor=${editor} selectedLine=${selectedLine} onSelectRule=${onSelectRule} />
