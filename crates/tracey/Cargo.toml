@@ -30,7 +30,7 @@ tracey-core = { workspace = true, features = ["walk", "parallel", "fetch", "mark
 facet = { workspace = true }
 facet-args = { workspace = true }
 facet-kdl = { workspace = true }
-facet-format-json = { workspace = true }
+facet-json = { workspace = true }
 
 # Error handling
 eyre = { workspace = true }

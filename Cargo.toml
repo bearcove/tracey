@@ -20,7 +20,7 @@ tracey-core = { path = "crates/tracey-core", version = "0.5.0" }
 facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-args = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-kdl = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-format-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-value = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-error = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-miette = { git = "https://github.com/facet-rs/facet", branch = "main" }

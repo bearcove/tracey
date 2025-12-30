@@ -561,7 +561,7 @@ fn run_at_command(location: String, config: Option<PathBuf>, format: Option<Stri
             .collect();
         println!(
             "{}",
-            facet_format_json::to_string_pretty(&output).expect("JSON serialization failed")
+            facet_json::to_string_pretty(&output).expect("JSON serialization failed")
         );
     } else {
         // Text output - show path relative to cwd if possible
@@ -742,7 +742,7 @@ fn run_impact_command(
         };
         println!(
             "{}",
-            facet_format_json::to_string_pretty(&output).expect("JSON serialization failed")
+            facet_json::to_string_pretty(&output).expect("JSON serialization failed")
         );
     } else {
         // Text output
@@ -1163,7 +1163,7 @@ fn render_matrix_json(rows: &[MatrixRow]) -> String {
         })
         .collect();
 
-    facet_format_json::to_string_pretty(&json_rows).expect("JSON serialization failed")
+    facet_json::to_string_pretty(&json_rows).expect("JSON serialization failed")
 }
 
 fn render_matrix_html(rows: &[MatrixRow], project_root: &std::path::Path) -> String {

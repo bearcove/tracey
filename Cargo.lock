@@ -236,8 +236,8 @@ dependencies = [
 
 [[package]]
 name = "facet"
-version = "0.35.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#ed3207e8b77d1507bf3c4a005d28fa477e61ed69"
+version = "0.40.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#90e03f21bb27e6656c6b94dbbbfc017ca4c7d936"
 dependencies = [
  "autocfg",
  "facet-core",
@@ -247,8 +247,8 @@ dependencies = [
 
 [[package]]
 name = "facet-args"
-version = "0.35.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#ed3207e8b77d1507bf3c4a005d28fa477e61ed69"
+version = "0.40.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#90e03f21bb27e6656c6b94dbbbfc017ca4c7d936"
 dependencies = [
  "facet",
  "facet-core",
@@ -261,8 +261,8 @@ dependencies = [
 
 [[package]]
 name = "facet-core"
-version = "0.35.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#ed3207e8b77d1507bf3c4a005d28fa477e61ed69"
+version = "0.40.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#90e03f21bb27e6656c6b94dbbbfc017ca4c7d936"
 dependencies = [
  "autocfg",
  "impls",
@@ -270,16 +270,16 @@ dependencies = [
 
 [[package]]
 name = "facet-error"
-version = "0.35.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#ed3207e8b77d1507bf3c4a005d28fa477e61ed69"
+version = "0.40.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#90e03f21bb27e6656c6b94dbbbfc017ca4c7d936"
 dependencies = [
  "facet",
 ]
 
 [[package]]
 name = "facet-format"
-version = "0.35.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#ed3207e8b77d1507bf3c4a005d28fa477e61ed69"
+version = "0.40.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#90e03f21bb27e6656c6b94dbbbfc017ca4c7d936"
 dependencies = [
  "facet-core",
  "facet-reflect",
@@ -288,9 +288,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "facet-format-json"
-version = "0.35.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#ed3207e8b77d1507bf3c4a005d28fa477e61ed69"
+name = "facet-json"
+version = "0.40.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#90e03f21bb27e6656c6b94dbbbfc017ca4c7d936"
 dependencies = [
  "facet",
  "facet-core",
@@ -302,23 +302,20 @@ dependencies = [
 
 [[package]]
 name = "facet-kdl"
-version = "0.35.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#ed3207e8b77d1507bf3c4a005d28fa477e61ed69"
+version = "0.40.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#90e03f21bb27e6656c6b94dbbbfc017ca4c7d936"
 dependencies = [
  "facet",
  "facet-core",
+ "facet-format",
  "facet-reflect",
- "facet-singularize",
- "facet-solver",
  "kdl",
- "log",
- "miette",
 ]
 
 [[package]]
 name = "facet-macro-parse"
-version = "0.35.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#ed3207e8b77d1507bf3c4a005d28fa477e61ed69"
+version = "0.40.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#90e03f21bb27e6656c6b94dbbbfc017ca4c7d936"
 dependencies = [
  "facet-macro-types",
  "proc-macro2",
@@ -327,8 +324,8 @@ dependencies = [
 
 [[package]]
 name = "facet-macro-types"
-version = "0.35.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#ed3207e8b77d1507bf3c4a005d28fa477e61ed69"
+version = "0.40.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#90e03f21bb27e6656c6b94dbbbfc017ca4c7d936"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -337,16 +334,16 @@ dependencies = [
 
 [[package]]
 name = "facet-macros"
-version = "0.35.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#ed3207e8b77d1507bf3c4a005d28fa477e61ed69"
+version = "0.40.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#90e03f21bb27e6656c6b94dbbbfc017ca4c7d936"
 dependencies = [
  "facet-macros-impl",
 ]
 
 [[package]]
 name = "facet-macros-impl"
-version = "0.35.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#ed3207e8b77d1507bf3c4a005d28fa477e61ed69"
+version = "0.40.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#90e03f21bb27e6656c6b94dbbbfc017ca4c7d936"
 dependencies = [
  "facet-macro-parse",
  "facet-macro-types",
@@ -358,8 +355,8 @@ dependencies = [
 
 [[package]]
 name = "facet-miette"
-version = "0.35.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#ed3207e8b77d1507bf3c4a005d28fa477e61ed69"
+version = "0.40.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#90e03f21bb27e6656c6b94dbbbfc017ca4c7d936"
 dependencies = [
  "facet",
  "miette",
@@ -367,8 +364,8 @@ dependencies = [
 
 [[package]]
 name = "facet-reflect"
-version = "0.35.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#ed3207e8b77d1507bf3c4a005d28fa477e61ed69"
+version = "0.40.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#90e03f21bb27e6656c6b94dbbbfc017ca4c7d936"
 dependencies = [
  "facet-core",
  "miette",
@@ -376,13 +373,13 @@ dependencies = [
 
 [[package]]
 name = "facet-singularize"
-version = "0.35.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#ed3207e8b77d1507bf3c4a005d28fa477e61ed69"
+version = "0.40.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#90e03f21bb27e6656c6b94dbbbfc017ca4c7d936"
 
 [[package]]
 name = "facet-solver"
-version = "0.35.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#ed3207e8b77d1507bf3c4a005d28fa477e61ed69"
+version = "0.40.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#90e03f21bb27e6656c6b94dbbbfc017ca4c7d936"
 dependencies = [
  "facet-core",
  "facet-reflect",
@@ -391,8 +388,8 @@ dependencies = [
 
 [[package]]
 name = "facet-value"
-version = "0.35.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#ed3207e8b77d1507bf3c4a005d28fa477e61ed69"
+version = "0.40.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#90e03f21bb27e6656c6b94dbbbfc017ca4c7d936"
 dependencies = [
  "facet-core",
  "facet-reflect",
@@ -1331,7 +1328,7 @@ dependencies = [
  "facet",
  "facet-args",
  "facet-error",
- "facet-format-json",
+ "facet-json",
  "facet-kdl",
  "facet-miette",
  "facet-value",
@@ -1356,7 +1353,7 @@ dependencies = [
  "arborium-rust",
  "eyre",
  "facet",
- "facet-format-json",
+ "facet-json",
  "ignore",
  "rayon",
  "ureq",
