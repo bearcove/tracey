@@ -70,3 +70,8 @@ notify-debouncer-mini = "0.6"
 
 # Full-text search
 tantivy = "0.22"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
