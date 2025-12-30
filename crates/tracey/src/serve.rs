@@ -18,7 +18,7 @@
 use axum::{
     Router,
     body::Body,
-    extract::{Query, State, WebSocketUpgrade, ws},
+    extract::{FromRequestParts, Query, State, WebSocketUpgrade, ws},
     http::{Method, Request, StatusCode, header},
     response::{Html, IntoResponse, Response},
     routing::get,
@@ -847,8 +847,24 @@ fn json_response(body: String) -> Response<Body> {
 // Vite Proxy
 // ============================================================================
 
-/// Proxy HTTP requests to Vite dev server
-async fn proxy_to_vite(State(state): State<AppState>, req: Request<Body>) -> impl IntoResponse {
+/// Format headers for debug logging
+fn format_headers(headers: &axum::http::HeaderMap) -> String {
+    headers
+        .iter()
+        .map(|(k, v)| format!("  {}: {}", k, v.to_str().unwrap_or("<binary>")))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Check if request has a WebSocket upgrade (like cove/home's has_ws())
+fn has_ws(req: &Request<Body>) -> bool {
+    req.extensions()
+        .get::<hyper::upgrade::OnUpgrade>()
+        .is_some()
+}
+
+/// Proxy requests to Vite dev server (handles both HTTP and WebSocket)
+async fn vite_proxy(State(state): State<AppState>, req: Request<Body>) -> Response<Body> {
     let vite_port = match state.vite_port {
         Some(p) => p,
         None => {
@@ -861,6 +877,7 @@ async fn proxy_to_vite(State(state): State<AppState>, req: Request<Body>) -> imp
     };
 
     let method = req.method().clone();
+    let original_uri = req.uri().to_string();
     let path = req.uri().path().to_string();
     let query = req
         .uri()
@@ -868,65 +885,127 @@ async fn proxy_to_vite(State(state): State<AppState>, req: Request<Body>) -> imp
         .map(|q| format!("?{}", q))
         .unwrap_or_default();
 
-    let uri = format!("http://127.0.0.1:{}{}{}", vite_port, path, query);
+    // Log incoming request from browser
+    info!(
+        method = %method,
+        uri = %original_uri,
+        "=> browser request"
+    );
+    debug!(
+        headers = %format_headers(req.headers()),
+        "=> browser request headers"
+    );
 
-    info!(method = %method, path = %path, target = %uri, "proxying to vite");
+    // Check if this is a WebSocket upgrade request
+    if has_ws(&req) {
+        info!(uri = %original_uri, "=> detected websocket upgrade request");
+
+        // Split into parts so we can extract WebSocketUpgrade
+        let (mut parts, _body) = req.into_parts();
+
+        // Manually extract WebSocketUpgrade from request parts (like cove/home)
+        let ws = match WebSocketUpgrade::from_request_parts(&mut parts, &()).await {
+            Ok(ws) => ws,
+            Err(e) => {
+                error!(error = %e, "!! failed to extract websocket upgrade");
+                return Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .body(Body::from(format!("WebSocket upgrade failed: {}", e)))
+                    .unwrap();
+            }
+        };
+
+        let target_uri = format!("ws://127.0.0.1:{}{}{}", vite_port, path, query);
+        info!(target = %target_uri, "-> upgrading websocket to vite");
+
+        return ws
+            .on_upgrade(move |socket| async move {
+                info!(path = %path, "websocket connection established, starting proxy");
+                if let Err(e) = handle_vite_ws(socket, vite_port, &path, &query).await {
+                    error!(error = %e, path = %path, "!! vite websocket proxy error");
+                }
+                info!(path = %path, "websocket connection closed");
+            })
+            .into_response();
+    }
+
+    // Regular HTTP proxy
+    let target_uri = format!("http://127.0.0.1:{}{}{}", vite_port, path, query);
 
     let client = Client::builder(TokioExecutor::new()).build_http();
 
-    let mut proxy_req = Request::builder().method(req.method()).uri(&uri);
+    let mut proxy_req_builder = Request::builder().method(req.method()).uri(&target_uri);
 
-    // Copy headers
+    // Copy headers (except Host)
     for (name, value) in req.headers() {
         if name != header::HOST {
-            proxy_req = proxy_req.header(name, value);
+            proxy_req_builder = proxy_req_builder.header(name, value);
         }
     }
 
-    let proxy_req = proxy_req.body(req.into_body()).unwrap();
+    let proxy_req = proxy_req_builder.body(req.into_body()).unwrap();
+
+    // Log outgoing request to Vite
+    debug!(
+        method = %proxy_req.method(),
+        uri = %proxy_req.uri(),
+        headers = %format_headers(proxy_req.headers()),
+        "-> sending to vite"
+    );
 
     match client.request(proxy_req).await {
         Ok(res) => {
             let status = res.status();
-            info!(status = %status, path = %path, "vite response");
+
+            // Log Vite's response
+            info!(
+                status = %status,
+                path = %path,
+                "<- vite response"
+            );
+            debug!(
+                headers = %format_headers(res.headers()),
+                "<- vite response headers"
+            );
+
             let (parts, body) = res.into_parts();
-            Response::from_parts(parts, Body::new(body))
+            let response = Response::from_parts(parts, Body::new(body));
+
+            // Log what we're sending back to browser
+            debug!(
+                status = %response.status(),
+                headers = %format_headers(response.headers()),
+                "<= responding to browser"
+            );
+
+            response
         }
         Err(e) => {
-            error!(error = %e, path = %path, "vite proxy error");
-            Response::builder()
+            error!(error = %e, target = %target_uri, "!! vite proxy error");
+            let response = Response::builder()
                 .status(StatusCode::BAD_GATEWAY)
                 .body(Body::from(format!("Vite proxy error: {}", e)))
-                .unwrap()
+                .unwrap();
+
+            info!(
+                status = %response.status(),
+                "<= responding to browser (error)"
+            );
+
+            response
         }
     }
 }
 
-/// Handle WebSocket upgrade for Vite HMR
-async fn vite_ws_handler(State(state): State<AppState>, ws: WebSocketUpgrade) -> impl IntoResponse {
-    let vite_port = match state.vite_port {
-        Some(p) => p,
-        None => {
-            return Response::builder()
-                .status(StatusCode::SERVICE_UNAVAILABLE)
-                .body(Body::from("Vite server not running"))
-                .unwrap()
-                .into_response();
-        }
-    };
-
-    ws.on_upgrade(move |socket| async move {
-        if let Err(e) = handle_vite_ws(socket, vite_port).await {
-            eprintln!("{} Vite WebSocket error: {}", "!".yellow(), e);
-        }
-    })
-    .into_response()
-}
-
-async fn handle_vite_ws(client_socket: ws::WebSocket, vite_port: u16) -> Result<()> {
+async fn handle_vite_ws(
+    client_socket: ws::WebSocket,
+    vite_port: u16,
+    path: &str,
+    query: &str,
+) -> Result<()> {
     use tokio_tungstenite::connect_async;
 
-    let vite_url = format!("ws://127.0.0.1:{}/__vite_hmr", vite_port);
+    let vite_url = format!("ws://127.0.0.1:{}{}{}", vite_port, path, query);
 
     let (vite_ws, _) = connect_async(&vite_url)
         .await
@@ -1206,10 +1285,8 @@ async fn run_server(
         .route("/api/search", get(api_search));
 
     if dev_mode {
-        // In dev mode, proxy everything else to Vite
-        app = app
-            .route("/__vite_hmr", get(vite_ws_handler))
-            .fallback(proxy_to_vite);
+        // In dev mode, proxy everything else to Vite (both HTTP and WebSocket)
+        app = app.fallback(vite_proxy);
     } else {
         // In production mode, serve static assets
         app = app
