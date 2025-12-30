@@ -21,7 +21,8 @@
   }
   </script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@arborium/arborium@2.4.6/dist/themes/base.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@arborium/arborium@2.4.6/dist/themes/tokyo-night.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@arborium/arborium@2.4.6/dist/themes/kanagawa-dragon.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@arborium/arborium@2.4.6/dist/themes/lucius-light.css">
   <script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/devicon.min.css">
   <style>
@@ -46,21 +47,21 @@
       --yellow-dim: light-dark(#fef3c7, #3d3520);
       --purple: light-dark(#7c3aed, #bb9af7);
       --bg-outer: light-dark(#e5e7eb, #0d0e12);
-      
+
       --max-width: 1200px;
     }
-    
+
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    
+
     body {
       font-family: 'Public Sans', system-ui, -apple-system, sans-serif;
       background: var(--bg-outer);
       color: var(--fg);
       line-height: 1.5;
     }
-    
+
     #app { min-height: 100vh; display: flex; flex-direction: column; }
-    
+
     .loading {
       display: flex;
       align-items: center;
@@ -69,7 +70,7 @@
       color: var(--fg-muted);
       font-size: 0.9rem;
     }
-    
+
     /* Layout */
     .layout {
       display: flex;
@@ -82,21 +83,21 @@
       border-left: 1px solid var(--border);
       border-right: 1px solid var(--border);
     }
-    
+
     .header {
       background: var(--bg-secondary);
       border-bottom: 1px solid var(--border);
       position: relative;
       z-index: 100;
     }
-    
+
     .header-inner {
       display: flex;
       align-items: stretch;
       width: 100%;
       margin-bottom: -1px; /* tabs overlap the border */
     }
-    
+
     .logo {
       font-weight: 600;
       font-size: 1.1rem;
@@ -107,15 +108,15 @@
       padding: 0.75rem 1.25rem;
       margin-left: auto;
     }
-    
+
     .logo:hover {
       background: var(--hover-subtle);
     }
-    
+
     .nav {
       display: flex;
     }
-    
+
     .nav-tab {
       padding: 0.75rem 1.25rem;
       background: transparent;
@@ -129,31 +130,36 @@
       text-decoration: none;
       display: flex;
       align-items: center;
-      gap: 0.5rem;
+      gap: 0.35rem;
     }
-    
+
     .nav-tab:hover {
       background: var(--hover-subtle);
       color: var(--fg);
     }
-    
+
     .nav-tab.active {
       color: var(--accent);
       border-bottom: 2px solid var(--accent);
       background: var(--bg);
     }
-    
-    .tab-icon {
-      width: 1rem;
-      height: 1rem;
+
+    .nav-tab .tab-icon {
+      display: flex;
     }
     
+    .nav-tab .tab-icon svg {
+      width: 1em;
+      height: 1em;
+      stroke-width: 1.5;
+    }
+
     .search-box {
       flex: 1;
       max-width: 400px;
       margin-left: auto;
     }
-    
+
     .search-input {
       width: 100%;
       padding: 0.5rem 0.75rem;
@@ -164,24 +170,24 @@
       font-size: 0.85rem;
       font-family: inherit;
     }
-    
+
     .search-input:focus {
       outline: none;
       border-color: var(--accent);
       box-shadow: 0 0 0 3px var(--accent-dim);
     }
-    
+
     .search-input::placeholder {
       color: var(--fg-dim);
     }
-    
+
     .main {
       flex: 1;
       display: flex;
       overflow: hidden;
       width: 100%;
     }
-    
+
     /* Stats bar */
     .stats-bar {
       display: flex;
@@ -194,30 +200,30 @@
       position: relative;
       z-index: 50;
     }
-    
+
     .stat {
       display: flex;
       flex-direction: column;
       gap: 0.125rem;
     }
-    
+
     .stat-label {
       font-size: 0.75rem;
       color: var(--fg-muted);
       text-transform: uppercase;
       letter-spacing: 0.05em;
     }
-    
+
     .stat-value {
       font-size: 1.25rem;
       font-weight: 600;
       font-family: 'IBM Plex Mono', monospace;
     }
-    
+
     .stat-value.good { color: var(--green); }
     .stat-value.warn { color: var(--yellow); }
     .stat-value.bad { color: var(--red); }
-    
+
     .stat.clickable {
       cursor: pointer;
       padding: 0.5rem;
@@ -225,17 +231,17 @@
       border-radius: 6px;
       transition: background 0.15s;
     }
-    
+
     .stat.clickable:hover {
       background: var(--hover);
     }
-    
+
     .stats-controls {
       display: flex;
       gap: 0.75rem;
       margin-left: auto;
     }
-    
+
     /* Sidebar */
     .sidebar {
       width: 280px;
@@ -245,7 +251,7 @@
       flex-direction: column;
       overflow: hidden;
     }
-    
+
     .sidebar-header {
       padding: 0.75rem 1rem;
       border-bottom: 1px solid var(--border);
@@ -253,21 +259,21 @@
       font-size: 0.85rem;
       color: var(--fg-muted);
     }
-    
+
     .sidebar-content {
       flex: 1;
       overflow-y: auto;
     }
-    
+
     /* File tree */
     .file-tree {
       padding: 0.5rem;
     }
-    
+
     .tree-folder {
       user-select: none;
     }
-    
+
     .tree-folder-header {
       display: flex;
       align-items: center;
@@ -279,28 +285,28 @@
       font-size: 0.875rem;
       color: var(--fg);
     }
-    
+
     .tree-folder-header:hover {
       background: var(--hover);
     }
-    
+
     .tree-folder-left {
       display: flex;
       align-items: center;
       gap: 0.25rem;
     }
-    
+
     .tree-folder-icon {
       width: 1rem;
       height: 1rem;
       color: var(--fg-dim);
       transition: transform 0.15s;
     }
-    
+
     .tree-folder.open > .tree-folder-header .tree-folder-icon {
       transform: rotate(90deg);
     }
-    
+
     .folder-badge {
       font-size: 0.7rem;
       padding: 0.1rem 0.4rem;
@@ -310,16 +316,16 @@
     .folder-badge.full { background: var(--green-dim); color: var(--green); }
     .folder-badge.partial { background: var(--yellow-dim); color: var(--yellow); }
     .folder-badge.none { background: var(--red-dim); color: var(--red); }
-    
+
     .tree-folder-children {
       display: none;
       padding-left: 1rem;
     }
-    
+
     .tree-folder.open > .tree-folder-children {
       display: block;
     }
-    
+
     .tree-file {
       display: flex;
       align-items: center;
@@ -330,21 +336,21 @@
       cursor: pointer;
       font-size: 0.875rem;
     }
-    
+
     .tree-file-icon {
       width: 1rem;
       height: 1rem;
       flex-shrink: 0;
       opacity: 0.8;
     }
-    
+
     .tree-file-name {
       flex: 1;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    
+
     .tree-file-badge {
       flex-shrink: 0;
       font-size: 0.7rem;
@@ -352,20 +358,20 @@
       border-radius: 4px;
       font-weight: 500;
     }
-    
+
     .tree-file:hover {
       background: var(--hover);
     }
-    
+
     .tree-file.selected {
       background: var(--accent-dim);
       color: var(--accent);
     }
-    
+
     .tree-file-badge.full { background: var(--green-dim); color: var(--green); }
     .tree-file-badge.partial { background: var(--yellow-dim); color: var(--yellow); }
     .tree-file-badge.none { background: var(--red-dim); color: var(--red); }
-    
+
     /* Content area */
     .content {
       flex: 1;
@@ -374,7 +380,7 @@
       overflow: hidden;
       background: var(--bg);
     }
-    
+
     .content-header {
       display: flex;
       align-items: center;
@@ -385,32 +391,32 @@
       font-family: 'IBM Plex Mono', monospace;
       font-size: 0.85rem;
     }
-    
+
     .content-body {
       flex: 1;
       overflow: auto;
     }
-    
+
     /* Code view */
     .code-view {
       font-family: 'IBM Plex Mono', monospace;
       font-size: 0.75rem;
       line-height: 1.6;
     }
-    
+
     .code-line {
       display: flex;
       min-height: 1.5em;
     }
-    
+
     .code-line:hover {
       background: var(--hover-subtle);
     }
-    
+
     .code-line.highlighted {
       background: var(--yellow-dim);
     }
-    
+
     .line-number {
       width: 4rem;
       padding: 0 0.75rem 0 0.5rem;
@@ -422,19 +428,19 @@
       position: relative;
       border-left: 3px solid transparent;
     }
-    
+
     .code-line.covered .line-number {
       border-left-color: var(--green);
     }
-    
+
     .code-line.uncovered .line-number {
       border-left-color: var(--red);
     }
-    
+
     .line-number:hover {
       color: var(--accent);
     }
-    
+
     .line-popover {
       position: absolute;
       left: 100%;
@@ -451,7 +457,7 @@
       flex-direction: column;
       overflow: hidden;
     }
-    
+
     .popover-btn {
       display: flex;
       align-items: center;
@@ -461,26 +467,26 @@
       text-decoration: none;
       font-size: 0.8rem;
     }
-    
+
     .popover-btn:hover {
       background: var(--hover);
     }
-    
+
     .popover-btn i {
       font-size: 1rem;
     }
-    
+
     .popover-btn .editor-icon-svg {
       width: 1rem;
       height: 1rem;
     }
-    
+
     .line-content {
       flex: 1;
       padding-right: 1rem;
       white-space: pre;
     }
-    
+
     .line-annotations {
       padding: 0 0.5rem;
       display: flex;
@@ -488,7 +494,7 @@
       gap: 0.25rem;
       position: relative;
     }
-    
+
     .annotation-count {
       font-size: 0.6rem;
       min-width: 1.2em;
@@ -503,7 +509,7 @@
       justify-content: center;
       cursor: pointer;
     }
-    
+
     .annotation-badges {
       display: none;
       position: absolute;
@@ -520,15 +526,15 @@
       z-index: 50;
       box-shadow: 0 4px 12px rgba(0,0,0,0.15);
     }
-    
+
     .line-annotations:hover .annotation-badges {
       display: flex;
     }
-    
+
     .line-annotations:hover .annotation-count {
       display: none;
     }
-    
+
     .annotation-badge {
       font-size: 0.65rem;
       padding: 0.1rem 0.35rem;
@@ -541,18 +547,18 @@
       cursor: pointer;
       transition: all 0.15s;
     }
-    
+
     a.annotation-badge:hover {
       background: var(--accent);
       color: white;
     }
-    
+
     /* Rules table */
     .rules-table {
       width: 100%;
       border-collapse: collapse;
     }
-    
+
     .rules-table th {
       text-align: left;
       padding: 0.75rem 1rem;
@@ -567,30 +573,30 @@
       top: 0;
       z-index: 10;
     }
-    
+
     .rules-table td {
       padding: 0.75rem 1rem;
       border-bottom: 1px solid var(--border);
       vertical-align: top;
     }
-    
+
     .rules-table tr:hover td {
       background: var(--hover-subtle);
     }
-    
+
     .rule-id {
       font-family: 'IBM Plex Mono', monospace;
       font-size: 0.85rem;
       font-weight: 500;
       color: var(--accent);
     }
-    
+
     .rule-text {
       font-size: 0.85rem;
       color: var(--fg-muted);
       margin-top: 0.25rem;
     }
-    
+
     .rule-text code {
       font-family: 'IBM Plex Mono', monospace;
       font-size: 90%;
@@ -598,33 +604,33 @@
       padding: 0.1rem 0.3rem;
       border-radius: 3px;
     }
-    
+
     .rule-refs {
       font-family: 'IBM Plex Mono', monospace;
       font-size: 0.8rem;
     }
-    
+
     .rule-ref {
       display: block;
       color: var(--fg-muted);
       text-decoration: none;
       padding: 0.125rem 0;
     }
-    
+
     .rule-ref:hover {
       color: var(--accent);
     }
-    
+
     .rule-ref.impl { color: var(--green); }
     .rule-ref.verify { color: var(--accent); }
-    
+
     /* Split view */
     .split-view {
       display: flex;
       flex: 1;
       overflow: hidden;
     }
-    
+
     .split-pane {
       flex: 1;
       display: flex;
@@ -632,11 +638,11 @@
       overflow: hidden;
       min-width: 0;
     }
-    
+
     .split-pane + .split-pane {
       border-left: 1px solid var(--border);
     }
-    
+
     .split-pane-header {
       padding: 0.5rem 1rem;
       border-bottom: 1px solid var(--border);
@@ -647,38 +653,38 @@
       align-items: center;
       gap: 0.5rem;
     }
-    
+
     .split-pane-content {
       flex: 1;
       overflow: auto;
     }
-    
+
     /* Markdown content */
     .markdown {
       padding: 0.75rem 2rem 1.5rem 2rem;
       font-size: 0.9rem;
       line-height: 1.7;
     }
-    
+
     .markdown h1, .markdown h2, .markdown h3, .markdown h4 {
       margin: 1.5rem 0 0.75rem;
       font-weight: 600;
       color: var(--fg);
       cursor: pointer;
     }
-    
+
     .markdown h1:hover, .markdown h2:hover, .markdown h3:hover, .markdown h4:hover {
       color: var(--accent);
     }
-    
+
     .markdown h1 { font-size: 1.5rem; }
     .markdown h2 { font-size: 1.25rem; }
     .markdown h3 { font-size: 1.1rem; }
-    
+
     .markdown p {
       margin: 0.75rem 0;
     }
-    
+
     .markdown code {
       font-family: 'IBM Plex Mono', monospace;
       background: var(--hover);
@@ -686,7 +692,7 @@
       border-radius: 4px;
       font-size: 0.85em;
     }
-    
+
     .markdown pre {
       background: var(--bg-secondary);
       border: 1px solid var(--border);
@@ -695,28 +701,28 @@
       overflow-x: auto;
       margin: 1rem 0;
     }
-    
+
     .markdown pre code {
       background: none;
       padding: 0;
     }
-    
+
     .markdown ul, .markdown ol {
       margin: 0.75rem 0;
       padding-left: 1.5rem;
     }
-    
+
     .markdown li {
       margin: 0.25rem 0;
     }
-    
+
     .markdown blockquote {
       border-left: 3px solid var(--accent);
       margin: 1rem 0;
       padding-left: 1rem;
       color: var(--fg-muted);
     }
-    
+
     /* RFC 2119 keyword highlighting */
     kw-must, kw-must-not, kw-required, kw-shall, kw-shall-not {
       color: var(--red);
@@ -730,7 +736,7 @@
       color: var(--accent);
       font-weight: 600;
     }
-    
+
     /* Rule marker in spec */
     .rule-marker {
       display: inline-flex;
@@ -746,36 +752,36 @@
       margin: 0.15rem 0;
       text-decoration: none;
     }
-    
+
     a.rule-marker:hover {
       filter: brightness(1.1);
     }
-    
+
     .rule-marker-icon {
       width: 0.9em;
       height: 0.9em;
       flex-shrink: 0;
     }
-    
+
     .rule-marker.covered {
       background: var(--green-dim);
       color: var(--green);
     }
-    
+
     .rule-marker.partial {
       background: var(--yellow-dim);
       color: var(--yellow);
     }
-    
+
     .rule-marker.uncovered {
       background: var(--red-dim);
       color: var(--red);
     }
-    
+
     .rule-marker-highlighted {
       animation: rule-highlight-pulse 3s ease-out;
     }
-    
+
     @keyframes rule-highlight-pulse {
       0%, 20% {
         box-shadow: 0 0 0 4px var(--accent);
@@ -786,7 +792,7 @@
         transform: scale(1);
       }
     }
-    
+
     /* Rule block - fieldset-like container */
     .rule-block {
       position: relative;
@@ -795,11 +801,11 @@
       margin: 1rem 0 1.5rem 0;
       padding: 1rem 1rem 0.5rem 1rem;
     }
-    
+
     .rule-block-covered { border-color: color-mix(in srgb, var(--green) 40%, var(--border)); }
     .rule-block-partial { border-color: color-mix(in srgb, var(--yellow) 40%, var(--border)); }
     .rule-block-uncovered { border-color: color-mix(in srgb, var(--red) 40%, var(--border)); }
-    
+
     .rule-block-header {
       position: absolute;
       top: -0.65rem;
@@ -810,28 +816,28 @@
       background: var(--bg);
       padding: 0 0.35rem;
     }
-    
+
     .rule-block-header .rule-marker {
       margin: 0;
     }
-    
+
     .rule-block-header .spec-refs {
       margin: 0;
       font-size: 0.7rem;
     }
-    
+
     .rule-block-content {
       margin-top: 0.25rem;
     }
-    
+
     .rule-block-content p:first-child {
       margin-top: 0;
     }
-    
+
     .rule-block-content p:last-child {
       margin-bottom: 0;
     }
-    
+
     .spec-refs {
       display: flex;
       flex-wrap: wrap;
@@ -839,7 +845,7 @@
       margin: 0.25rem 0 0.5rem 0;
       font-size: 0.75rem;
     }
-    
+
     .spec-ref {
       font-family: 'IBM Plex Mono', monospace;
       text-decoration: none;
@@ -851,33 +857,33 @@
       align-items: center;
       gap: 0.3rem;
     }
-    
+
     .spec-ref:hover {
       border-color: var(--accent);
     }
-    
+
     .spec-ref-icon {
       width: 0.9em;
       height: 0.9em;
       flex-shrink: 0;
     }
-    
+
     .spec-ref-icon-impl {
       color: var(--green);
     }
-    
+
     .spec-ref-icon-verify {
       color: var(--accent);
     }
-    
+
     .spec-ref-impl {
       color: var(--green);
     }
-    
+
     .spec-ref-verify {
       color: var(--accent);
     }
-    
+
     /* Empty state */
     .empty-state {
       display: flex;
@@ -887,8 +893,8 @@
       color: var(--fg-muted);
       font-size: 0.9rem;
     }
-    
-    
+
+
     /* Custom dropdowns */
     .custom-dropdown {
       position: relative;
@@ -975,7 +981,7 @@
     .dropdown-option svg path {
       fill: currentColor;
     }
-    
+
     /* Level dots */
     .level-dot {
       display: inline-block;
@@ -988,7 +994,7 @@
     .level-dot-must { background: var(--red); }
     .level-dot-should { background: var(--yellow); }
     .level-dot-may { background: var(--accent); }
-    
+
     /* File reference styling */
     .ref-line {
       white-space: nowrap;
@@ -1030,9 +1036,9 @@
     .file-line {
       color: var(--green);
     }
-    
 
-    
+
+
     /* Header controls */
     .header-controls {
       display: flex;
@@ -1040,7 +1046,7 @@
       gap: 0.75rem;
       margin-left: auto;
     }
-    
+
     /* Rule ID with icon */
     .rule-id-row {
       display: flex;
@@ -1053,12 +1059,12 @@
       color: var(--fg-dim);
       flex-shrink: 0;
     }
-    
+
     /* Outline tree */
     .outline-tree {
       padding: 0.5rem;
     }
-    
+
     .outline-item {
       padding: 0.35rem 0.5rem;
       border-radius: 4px;
@@ -1069,29 +1075,29 @@
       overflow: hidden;
       text-overflow: ellipsis;
     }
-    
+
     .outline-item:hover {
       background: var(--hover);
       color: var(--fg);
     }
-    
+
     .outline-item.active {
       background: var(--accent-dim);
       color: var(--accent);
     }
-    
+
     .outline-level-1 { padding-left: 0.5rem; font-weight: 500; }
     .outline-level-2 { padding-left: 1.25rem; }
     .outline-level-3 { padding-left: 2rem; }
     .outline-level-4 { padding-left: 2.75rem; font-size: 0.8rem; }
-    
+
     /* Search results */
     .search-results {
       flex: 1;
       overflow-y: auto;
       background: var(--bg);
     }
-    
+
     .search-result {
       padding: 0.5rem 1rem;
       border-bottom: 1px solid var(--border);
@@ -1099,57 +1105,57 @@
       font-family: 'IBM Plex Mono', monospace;
       font-size: 0.8rem;
     }
-    
+
     .search-result:hover {
       background: var(--hover);
     }
-    
+
     .search-result-file {
       display: flex;
       align-items: center;
       gap: 0.25rem;
       margin-bottom: 0.25rem;
     }
-    
+
     .search-result-path {
       color: var(--fg-dim);
     }
-    
+
     .search-result-name {
       color: var(--accent);
     }
-    
+
     .search-result-line {
       color: var(--green);
     }
-    
+
     .search-result-content {
       color: var(--fg-muted);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
-    
+
     .search-result-highlight {
       background: var(--yellow-dim);
       color: var(--yellow);
       padding: 0.1rem 0.2rem;
       border-radius: 2px;
     }
-    
+
     .search-empty {
       padding: 2rem;
       text-align: center;
       color: var(--fg-muted);
     }
-    
+
     .search-loading {
       padding: 1rem;
       text-align: center;
       color: var(--fg-muted);
       font-size: 0.85rem;
     }
-    
+
     /* Rule context panel */
     .rule-context {
       border: 1px solid var(--border);
@@ -1157,7 +1163,7 @@
       margin: 0.5rem;
       background: var(--bg);
     }
-    
+
     .rule-context-header {
       display: flex;
       align-items: center;
@@ -1167,14 +1173,14 @@
       border-radius: 5px 5px 0 0;
       border-bottom: 1px solid var(--border);
     }
-    
+
     .rule-context-id {
       font-family: 'IBM Plex Mono', monospace;
       font-size: 0.85rem;
       font-weight: 500;
       color: var(--accent);
     }
-    
+
     .rule-context-close {
       background: none;
       border: none;
@@ -1186,29 +1192,29 @@
       justify-content: center;
       border-radius: 4px;
     }
-    
+
     .rule-context-close:hover {
       background: var(--hover);
       color: var(--fg);
     }
-    
+
     .rule-context-body {
       padding: 0.75rem;
     }
-    
+
     .rule-context-text {
       font-size: 0.85rem;
       color: var(--fg-muted);
       margin-bottom: 0.75rem;
       line-height: 1.5;
     }
-    
+
     .rule-context-refs {
       display: flex;
       flex-direction: column;
       gap: 0.35rem;
     }
-    
+
     .rule-context-ref {
       display: flex;
       align-items: center;
@@ -1221,29 +1227,29 @@
       text-decoration: none;
       color: var(--fg);
     }
-    
+
     .rule-context-ref:hover {
       background: var(--hover);
     }
-    
+
     .rule-context-ref.active {
       background: var(--accent-dim);
     }
-    
+
     .rule-context-ref-icon {
       width: 1rem;
       height: 1rem;
       flex-shrink: 0;
     }
-    
+
     .rule-context-ref-icon.impl {
       color: var(--green);
     }
-    
+
     .rule-context-ref-icon.verify {
       color: var(--accent);
     }
-    
+
     .rule-context-back {
       display: flex;
       align-items: center;
@@ -1256,12 +1262,12 @@
       color: var(--fg-muted);
       text-decoration: none;
     }
-    
+
     .rule-context-back:hover {
       background: var(--hover);
       color: var(--fg);
     }
-    
+
     /* Global search overlay */
     .search-overlay {
       position: fixed;
@@ -1276,7 +1282,7 @@
       padding-top: 10vh;
       z-index: 1000;
     }
-    
+
     .search-modal {
       background: var(--bg-secondary);
       border: 1px solid var(--border);
@@ -1288,12 +1294,12 @@
       flex-direction: column;
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
     }
-    
+
     .search-modal-input {
       padding: 1rem;
       border-bottom: 1px solid var(--border);
     }
-    
+
     .search-modal-input input {
       width: 100%;
       padding: 0.75rem 1rem;
@@ -1304,61 +1310,61 @@
       color: var(--fg);
       font-family: inherit;
     }
-    
+
     .search-modal-input input:focus {
       outline: none;
       border-color: var(--accent);
       box-shadow: 0 0 0 3px var(--accent-dim);
     }
-    
+
     .search-modal-results {
       flex: 1;
       overflow-y: auto;
     }
-    
+
     .search-modal-result {
       padding: 0.75rem 1rem;
       border-bottom: 1px solid var(--border);
       cursor: pointer;
     }
-    
+
     .search-modal-result:hover {
       background: var(--hover);
     }
-    
+
     .search-modal-result-header {
       display: flex;
       align-items: center;
       gap: 0.5rem;
       margin-bottom: 0.25rem;
     }
-    
+
     .search-result-icon {
       width: 1.1rem;
       height: 1.1rem;
       flex-shrink: 0;
     }
-    
+
     .search-result-icon.source {
       color: var(--green);
     }
-    
+
     .search-result-icon.rule {
       color: var(--accent);
     }
-    
+
     .search-modal-result-id {
       font-family: 'IBM Plex Mono', monospace;
       font-size: 0.85rem;
       color: var(--accent);
     }
-    
+
     .search-modal-result-line {
       color: var(--green);
       font-family: 'IBM Plex Mono', monospace;
       font-size: 0.85rem;
     }
-    
+
     .search-modal-result-content {
       font-size: 0.85rem;
       color: var(--fg-muted);
@@ -1366,13 +1372,13 @@
       overflow: hidden;
       text-overflow: ellipsis;
     }
-    
+
     .search-modal-empty {
       padding: 2rem;
       text-align: center;
       color: var(--fg-muted);
     }
-    
+
     .search-modal-hint {
       padding: 0.75rem 1rem;
       border-top: 1px solid var(--border);
@@ -1381,7 +1387,7 @@
       display: flex;
       gap: 1rem;
     }
-    
+
     .search-modal-hint kbd {
       background: var(--bg);
       border: 1px solid var(--border);
@@ -1390,7 +1396,7 @@
       font-family: 'IBM Plex Mono', monospace;
       font-size: 0.7rem;
     }
-    
+
     .search-modal-result-code {
       font-family: 'IBM Plex Mono', monospace;
       font-size: 0.8rem;
@@ -1403,12 +1409,12 @@
       text-overflow: ellipsis;
       color: var(--fg-muted);
     }
-    
+
     .search-modal-result-code code {
       background: none;
       padding: 0;
     }
-    
+
     .search-modal-result.selected {
       background: var(--accent-dim);
     }
@@ -1424,14 +1430,14 @@
     import { highlight } from '@arborium/arborium';
 
     const html = htm.bind(h);
-    
+
     // Cache for highlighted code
     const highlightCache = new Map();
 
     // ========================================================================
     // API
     // ========================================================================
-    
+
     async function fetchJson(url) {
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -1441,11 +1447,11 @@
     // ========================================================================
     // Routing
     // ========================================================================
-    
+
     function parseRoute() {
       const path = window.location.pathname;
       const params = new URLSearchParams(window.location.search);
-      
+
       // /sources or /sources/path/to/file.rs:123
       if (path === '/sources' || path.startsWith('/sources/')) {
         const rest = path.length > 9 ? path.slice(9) : ''; // Remove '/sources/'
@@ -1467,13 +1473,13 @@
         return { view: 'spec', rule };
       }
       // /coverage (or /forward for backwards compatibility, or default)
-      return { 
+      return {
         view: 'coverage',
         filter: params.get('filter'), // 'impl' or 'verify' or null
         level: params.get('level'), // 'must', 'should', 'may', or null (all)
       };
     }
-    
+
     function buildUrl(view, params = {}) {
       if (view === 'sources') {
         const { file, line, context } = params;
@@ -1497,7 +1503,7 @@
       const query = searchParams.toString();
       return `/coverage${query ? '?' + query : ''}`;
     }
-    
+
     function navigate(view, params = {}, replace = false) {
       const url = buildUrl(view, params);
       if (replace) {
@@ -1507,23 +1513,23 @@
       }
       window.dispatchEvent(new PopStateEvent('popstate'));
     }
-    
+
     function useRouter() {
       const [route, setRoute] = useState(parseRoute);
-      
+
       useEffect(() => {
         const handlePopState = () => setRoute(parseRoute());
         window.addEventListener('popstate', handlePopState);
         return () => window.removeEventListener('popstate', handlePopState);
       }, []);
-      
+
       return route;
     }
 
     // ========================================================================
     // Hooks
     // ========================================================================
-    
+
     function useApi() {
       const [data, setData] = useState(null);
       const [error, setError] = useState(null);
@@ -1578,7 +1584,7 @@
 
     function useFile(path) {
       const [file, setFile] = useState(null);
-      
+
       useEffect(() => {
         if (!path) {
           setFile(null);
@@ -1597,7 +1603,7 @@
 
     function useSpec(name) {
       const [spec, setSpec] = useState(null);
-      
+
       useEffect(() => {
         if (!name) {
           setSpec(null);
@@ -1617,14 +1623,14 @@
     // ========================================================================
     // Utils
     // ========================================================================
-    
+
     function buildFileTree(files) {
       const root = { name: '', children: {}, files: [], totalUnits: 0, coveredUnits: 0 };
-      
+
       for (const file of files) {
         const parts = file.path.split('/');
         let current = root;
-        
+
         for (let i = 0; i < parts.length - 1; i++) {
           const part = parts[i];
           if (!current.children[part]) {
@@ -1632,32 +1638,32 @@
           }
           current = current.children[part];
         }
-        
+
         current.files.push({ ...file, name: parts[parts.length - 1] });
       }
-      
+
       // Compute folder coverage recursively
       function computeCoverage(node) {
         let total = 0;
         let covered = 0;
-        
+
         // Add files in this folder
         for (const f of node.files) {
           total += f.totalUnits || 0;
           covered += f.coveredUnits || 0;
         }
-        
+
         // Add children folders
         for (const child of Object.values(node.children)) {
           computeCoverage(child);
           total += child.totalUnits;
           covered += child.coveredUnits;
         }
-        
+
         node.totalUnits = total;
         node.coveredUnits = covered;
       }
-      
+
       computeCoverage(root);
       return root;
     }
@@ -1679,13 +1685,13 @@
     // Render rule text with backticks -> <code> and RFC 2119 keywords highlighted
     function renderRuleText(text) {
       if (!text) return '';
-      
+
       // Escape HTML first
       let result = text
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');
-      
+
       // Process `code` (backticks)
       let inCode = false;
       let processed = '';
@@ -1704,7 +1710,7 @@
       }
       if (inCode) processed += '</code>';
       result = processed;
-      
+
       // Wrap RFC 2119 keywords (order matters - longer phrases first)
       result = result
         .replace(/\bMUST NOT\b/g, '<kw-must-not>MUST NOT</kw-must-not>')
@@ -1718,7 +1724,7 @@
         .replace(/\bRECOMMENDED\b/g, '<kw-recommended>RECOMMENDED</kw-recommended>')
         .replace(/\bMAY\b/g, '<kw-may>MAY</kw-may>')
         .replace(/\bOPTIONAL\b/g, '<kw-optional>OPTIONAL</kw-optional>');
-      
+
       return result;
     }
 
@@ -1741,7 +1747,7 @@
           .replace(/>/g, '&gt;');
       }
     }
-    
+
     // Split highlighted HTML into self-contained lines
     // Each line will have properly balanced open/close tags
     function splitHighlightedHtml(html) {
@@ -1749,11 +1755,11 @@
       const parser = new DOMParser();
       const doc = parser.parseFromString(`<div>${html}</div>`, 'text/html');
       const container = doc.body.firstChild;
-      
+
       const lines = [];
       let currentLine = '';
       let openTags = []; // Stack of {tag, attrs}
-      
+
       function processNode(node) {
         if (node.nodeType === Node.TEXT_NODE) {
           const text = node.textContent;
@@ -1778,43 +1784,43 @@
           for (const attr of node.attributes) {
             attrs += ` ${attr.name}="${attr.value.replace(/"/g, '&quot;')}"`;
           }
-          
+
           currentLine += `<${tag}${attrs}>`;
           openTags.push({ tag, attrs });
-          
+
           for (const child of node.childNodes) {
             processNode(child);
           }
-          
+
           openTags.pop();
           currentLine += `</${tag}>`;
         }
       }
-      
+
       for (const child of container.childNodes) {
         processNode(child);
       }
-      
+
       // Push final line if any content remains
       if (currentLine) {
         lines.push(currentLine);
       }
-      
+
       return lines;
     }
 
     // Hook to highlight a file and split into lines
     function useHighlightedLines(content, lang = 'rust') {
       const [lines, setLines] = useState(null);
-      
+
       useEffect(() => {
         if (!content) {
           setLines(null);
           return;
         }
-        
+
         let cancelled = false;
-        
+
         highlightCode(content, lang).then(highlighted => {
           if (cancelled) return;
           // arborium wraps in <pre><code>...</code></pre>, extract inner content
@@ -1823,21 +1829,21 @@
           // Split into self-contained lines with balanced tags
           setLines(splitHighlightedHtml(inner));
         });
-        
+
         return () => { cancelled = true; };
       }, [content, lang]);
-      
+
       return lines;
     }
 
     // ========================================================================
     // Components
     // ========================================================================
-    
+
     // Detect platform for keyboard shortcuts
     const isMac = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().indexOf('MAC') >= 0;
     const modKey = isMac ? '⌘' : 'Ctrl';
-    
+
     function App() {
       const { data, error, version } = useApi();
       const route = useRouter();
@@ -1850,10 +1856,10 @@
 
       const { config, forward, reverse } = data;
       const { view, file, rule, line, filter, context, level: routeLevel } = route;
-      
+
       // Level comes from URL, defaults to 'all'
       const level = routeLevel || 'all';
-      
+
       const handleLevelChange = useCallback((newLevel) => {
         navigate('coverage', { filter, level: newLevel }, false);
       }, [filter]);
@@ -1869,11 +1875,11 @@
       const handleSelectRule = useCallback((ruleId) => {
         navigate('spec', { rule: ruleId }, false);
       }, []);
-      
+
       const handleClearContext = useCallback(() => {
         navigate('sources', { file, line, context: null }, true);
       }, [file, line]);
-      
+
       // Global keyboard shortcut for search
       useEffect(() => {
         const handleKeyDown = (e) => {
@@ -1888,7 +1894,7 @@
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
       }, []);
-      
+
       const handleSearchSelect = useCallback((result) => {
         setSearchOpen(false);
         if (result.kind === 'rule') {
@@ -1897,28 +1903,28 @@
           navigate('sources', { file: result.id, line: result.line }, false);
         }
       }, []);
-      
+
       const handleFilterChange = useCallback((newFilter) => {
         navigate('coverage', { filter: newFilter, level }, false);
       }, [level]);
 
       return html`
         <div class="layout">
-          <${Header} 
-            view=${view} 
+          <${Header}
+            view=${view}
             onViewChange=${handleViewChange}
             onOpenSearch=${() => setSearchOpen(true)}
           />
-          
+
           ${searchOpen && html`
             <${SearchModal}
               onClose=${() => setSearchOpen(false)}
               onSelect=${handleSearchSelect}
             />
           `}
-          
+
           ${view === 'coverage' && html`
-            <${CoverageView} 
+            <${CoverageView}
               data=${forward}
               config=${config}
               search=${search}
@@ -1931,9 +1937,9 @@
               onSelectFile=${handleSelectFile}
             />
           `}
-          
+
           ${view === 'sources' && html`
-            <${SourcesView} 
+            <${SourcesView}
               data=${reverse}
               forward=${forward}
               config=${config}
@@ -1947,7 +1953,7 @@
               onClearContext=${handleClearContext}
             />
           `}
-          
+
           ${view === 'spec' && html`
             <${SpecView}
               config=${config}
@@ -2028,18 +2034,18 @@
       // Default fallback - use Lucide file icon
       default: null,
     };
-    
+
     // Get devicon class for a file extension (returns null if no devicon available)
     function getDeviconClass(filePath) {
       const ext = filePath.split('.').pop()?.toLowerCase();
       return LANG_DEVICON_MAP[ext] || LANG_DEVICON_MAP.default;
     }
-    
+
     // Language icon component - uses devicon if available, falls back to Lucide
     function LangIcon({ filePath, className = '' }) {
       const deviconClass = getDeviconClass(filePath);
       const iconRef = useRef(null);
-      
+
       // For Lucide fallback
       useEffect(() => {
         if (!deviconClass && iconRef.current && typeof lucide !== 'undefined') {
@@ -2050,17 +2056,17 @@
           lucide.createIcons({ nodes: [i] });
         }
       }, [deviconClass]);
-      
+
       if (deviconClass) {
         return html`<i class="${deviconClass} ${className}"></i>`;
       }
       return html`<span ref=${iconRef} class=${className}></span>`;
     }
-    
+
     // Create a Lucide icon element (for use in htm templates)
     function LucideIcon({ name, className = '' }) {
       const iconRef = useRef(null);
-      
+
       useEffect(() => {
         if (iconRef.current && typeof lucide !== 'undefined') {
           iconRef.current.innerHTML = '';
@@ -2070,7 +2076,7 @@
           lucide.createIcons({ nodes: [i] });
         }
       }, [name]);
-      
+
       return html`<span ref=${iconRef} class=${className}></span>`;
     }
 
@@ -2085,18 +2091,18 @@
     function SearchResultItem({ result, isSelected, onSelect, onHover }) {
       const [highlightedContent, setHighlightedContent] = useState(null);
       const contentRef = useRef(null);
-      
+
       // Get file extension for syntax highlighting
       const getLanguage = useCallback((filePath) => {
         const ext = filePath.split('.').pop()?.toLowerCase();
         const langMap = { rs: 'rust', js: 'javascript', ts: 'typescript', py: 'python', md: 'markdown' };
         return langMap[ext] || 'rust';
       }, []);
-      
+
       // Highlight source code content
       useEffect(() => {
         if (result.kind !== 'source') return;
-        
+
         const lang = getLanguage(result.id);
         highlight(lang, result.content.trim()).then(html => {
           // Extract inner content from <pre><code>...</code></pre>
@@ -2106,9 +2112,9 @@
           setHighlightedContent(null);
         });
       }, [result, getLanguage]);
-      
+
       return html`
-        <div 
+        <div
           class="search-modal-result ${isSelected ? 'selected' : ''}"
           onClick=${onSelect}
           onMouseEnter=${onHover}
@@ -2128,7 +2134,7 @@
         </div>
       `;
     }
-    
+
     function SearchModal({ onClose, onSelect }) {
       const [query, setQuery] = useState('');
       const [results, setResults] = useState(null);
@@ -2137,12 +2143,12 @@
       const inputRef = useRef(null);
       const resultsRef = useRef(null);
       const searchTimeoutRef = useRef(null);
-      
+
       // Focus input on mount and initialize Lucide icons
       useEffect(() => {
         inputRef.current?.focus();
       }, []);
-      
+
       // Re-render Lucide icons when results change
       useEffect(() => {
         if (results?.results?.length && typeof lucide !== 'undefined') {
@@ -2151,7 +2157,7 @@
           });
         }
       }, [results]);
-      
+
       // Debounced search
       useEffect(() => {
         if (!query || query.length < 2) {
@@ -2159,13 +2165,13 @@
           setSelectedIndex(0);
           return;
         }
-        
+
         setIsSearching(true);
-        
+
         if (searchTimeoutRef.current) {
           clearTimeout(searchTimeoutRef.current);
         }
-        
+
         searchTimeoutRef.current = setTimeout(async () => {
           try {
             const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&limit=50`);
@@ -2179,14 +2185,14 @@
             setIsSearching(false);
           }
         }, 150);
-        
+
         return () => {
           if (searchTimeoutRef.current) {
             clearTimeout(searchTimeoutRef.current);
           }
         };
       }, [query]);
-      
+
       // Scroll selected item into view
       useEffect(() => {
         if (!resultsRef.current) return;
@@ -2195,11 +2201,11 @@
           selected.scrollIntoView({ block: 'nearest' });
         }
       }, [selectedIndex]);
-      
+
       // Keyboard navigation
       const handleKeyDown = useCallback((e) => {
         if (!results?.results?.length) return;
-        
+
         if (e.key === 'ArrowDown') {
           e.preventDefault();
           setSelectedIndex(i => Math.min(i + 1, results.results.length - 1));
@@ -2212,14 +2218,14 @@
           if (result) onSelect(result);
         }
       }, [results, selectedIndex, onSelect]);
-      
+
       // Close on backdrop click
       const handleBackdropClick = useCallback((e) => {
         if (e.target === e.currentTarget) {
           onClose();
         }
       }, [onClose]);
-      
+
       return html`
         <div class="search-overlay" onClick=${handleBackdropClick}>
           <div class="search-modal">
@@ -2272,23 +2278,23 @@
         <header class="header">
           <div class="header-inner">
             <nav class="nav">
-              <a 
+              <a
                 href="/spec"
                 class="nav-tab ${view === 'spec' ? 'active' : ''}"
                 onClick=${(e) => handleNavClick(e, 'spec')}
               ><${LucideIcon} name=${TAB_ICON_NAMES.specification} className="tab-icon" /><span>Specification</span></a>
-              <a 
+              <a
                 href="/coverage"
                 class="nav-tab ${view === 'coverage' ? 'active' : ''}"
                 onClick=${(e) => handleNavClick(e, 'coverage')}
               ><${LucideIcon} name=${TAB_ICON_NAMES.coverage} className="tab-icon" /><span>Coverage</span></a>
-              <a 
+              <a
                 href="/sources"
                 class="nav-tab ${view === 'sources' ? 'active' : ''}"
                 onClick=${(e) => handleNavClick(e, 'sources')}
               ><${LucideIcon} name=${TAB_ICON_NAMES.sources} className="tab-icon" /><span>Sources</span></a>
             </nav>
-            
+
             <div class="search-box" style="margin-left: auto; margin-right: 1rem; display: flex; align-items: center;">
               <input
                 type="text"
@@ -2300,7 +2306,7 @@
                 style="cursor: pointer;"
               />
             </div>
-            
+
             <a href="https://github.com/bearcove/tracey" class="logo" target="_blank" rel="noopener">tracey</a>
           </div>
         </header>
@@ -2318,12 +2324,12 @@
     function FileRef({ file, line, type, onSelectFile }) {
       const { dir, name } = splitPath(file);
       const typeClass = type === 'impl' ? 'ref-icon-impl' : 'ref-icon-verify';
-      
+
       return html`
         <div class="ref-line">
           <${LangIcon} filePath=${file} className="ref-icon ${typeClass}" />
-          <a 
-            class="file-link" 
+          <a
+            class="file-link"
             href="#"
             onClick=${(e) => { e.preventDefault(); onSelectFile(file, line); }}
             title="View in Sources"
@@ -2338,7 +2344,7 @@
 
     function CoverageView({ data, config, search, onSearchChange, level, onLevelChange, filter, onFilterChange, onSelectRule, onSelectFile }) {
       const [levelOpen, setLevelOpen] = useState(false);
-      
+
       // Close dropdowns when clicking outside
       useEffect(() => {
         const handleClick = (e) => {
@@ -2347,12 +2353,12 @@
         document.addEventListener('click', handleClick);
         return () => document.removeEventListener('click', handleClick);
       }, []);
-      
-      const allRules = useMemo(() => 
+
+      const allRules = useMemo(() =>
         data.specs.flatMap(s => s.rules.map(r => ({ ...r, spec: s.name }))),
         [data]
       );
-      
+
       // Infer level from rule text if not explicitly set
       const inferLevel = useCallback((rule) => {
         if (rule.level) return rule.level.toLowerCase();
@@ -2364,31 +2370,31 @@
         if (text.includes('MAY') || text.includes('OPTIONAL')) return 'may';
         return null;
       }, []);
-      
+
       const filteredRules = useMemo(() => {
         let rules = allRules;
-        
+
         // Filter by level (explicit or inferred from text)
         if (level !== 'all') {
           rules = rules.filter(r => inferLevel(r) === level);
         }
-        
+
         // Filter by coverage (impl or verify)
         if (filter === 'impl') {
           rules = rules.filter(r => r.implRefs.length === 0);
         } else if (filter === 'verify') {
           rules = rules.filter(r => r.verifyRefs.length === 0);
         }
-        
+
         // Filter by search
         if (search) {
           const q = search.toLowerCase();
-          rules = rules.filter(r => 
+          rules = rules.filter(r =>
             r.id.toLowerCase().includes(q) ||
             (r.text && r.text.toLowerCase().includes(q))
           );
         }
-        
+
         return rules;
       }, [allRules, search, level, filter, inferLevel]);
 
@@ -2427,7 +2433,7 @@
             <span class="stat-label">Test Coverage ${filter === 'verify' ? '(filtered)' : ''}</span>
             <span class="stat-value ${getStatClass(stats.verifyPct)}">${stats.verifyPct.toFixed(1)}%</span>
           </div>
-          
+
           <!-- Level dropdown -->
           <div class="custom-dropdown ${levelOpen ? 'open' : ''}" id="level-dropdown">
             <div class="dropdown-selected" onClick=${(e) => { e.stopPropagation(); setLevelOpen(!levelOpen); }}>
@@ -2437,9 +2443,9 @@
             </div>
             <div class="dropdown-menu">
               ${Object.entries(LEVELS).map(([key, cfg]) => html`
-                <div 
+                <div
                   key=${key}
-                  class="dropdown-option ${level === key ? 'active' : ''}" 
+                  class="dropdown-option ${level === key ? 'active' : ''}"
                   onClick=${() => { onLevelChange(key); setLevelOpen(false); }}
                 >
                   <span class="level-dot ${cfg.dotClass}"></span>
@@ -2473,19 +2479,19 @@
                         ${rule.implRefs.length > 0 || rule.verifyRefs.length > 0
                           ? html`
                               ${rule.implRefs.map(r => html`
-                                <${FileRef} 
+                                <${FileRef}
                                   key=${'impl:' + r.file + ':' + r.line}
-                                  file=${r.file} 
-                                  line=${r.line} 
+                                  file=${r.file}
+                                  line=${r.line}
                                   type="impl"
                                   onSelectFile=${onSelectFile}
                                 />
                               `)}
                               ${rule.verifyRefs.map(r => html`
-                                <${FileRef} 
+                                <${FileRef}
                                   key=${'verify:' + r.file + ':' + r.line}
-                                  file=${r.file} 
-                                  line=${r.line} 
+                                  file=${r.file}
+                                  line=${r.line}
                                   type="verify"
                                   onSelectFile=${onSelectFile}
                                 />
@@ -2507,7 +2513,7 @@
     function SourcesView({ data, forward, config, search, selectedFile, selectedLine, ruleContext, onSelectFile, onSelectRule, onClearContext }) {
       const fileTree = useMemo(() => buildFileTree(data.files), [data.files]);
       const file = useFile(selectedFile);
-      
+
       // Find the rule data if we have a context
       const contextRule = useMemo(() => {
         if (!ruleContext || !forward) return null;
@@ -2523,12 +2529,12 @@
         covered: data.coveredUnits,
         pct: data.totalUnits ? (data.coveredUnits / data.totalUnits) * 100 : 0,
       };
-      
+
       // Check if a ref matches the current file:line
       const isActiveRef = useCallback((ref) => {
         return ref.file === selectedFile && ref.line === selectedLine;
       }, [selectedFile, selectedLine]);
-      
+
       // Icons
       const implIcon = html`<svg class="rule-context-ref-icon impl" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 18l6-6-6-6"/><path d="M8 6l-6 6 6 6"/></svg>`;
       const verifyIcon = html`<svg class="rule-context-ref-icon verify" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9 12l2 2 4-4"/></svg>`;
@@ -2571,7 +2577,7 @@
                   `}
                   <div class="rule-context-refs">
                     ${contextRule.implRefs.map(ref => html`
-                      <a 
+                      <a
                         key=${'impl:' + ref.file + ':' + ref.line}
                         class="rule-context-ref ${isActiveRef(ref) ? 'active' : ''}"
                         onClick=${() => onSelectFile(ref.file, ref.line, ruleContext)}
@@ -2582,7 +2588,7 @@
                       </a>
                     `)}
                     ${contextRule.verifyRefs.map(ref => html`
-                      <a 
+                      <a
                         key=${'verify:' + ref.file + ':' + ref.line}
                         class="rule-context-ref ${isActiveRef(ref) ? 'active' : ''}"
                         onClick=${() => onSelectFile(ref.file, ref.line, ruleContext)}
@@ -2603,8 +2609,8 @@
               <!-- Normal file tree -->
               <div class="sidebar-header">Files</div>
               <div class="sidebar-content">
-                <${FileTree} 
-                  node=${fileTree} 
+                <${FileTree}
+                  node=${fileTree}
                   selectedFile=${selectedFile}
                   onSelectFile=${onSelectFile}
                   search=${search}
@@ -2631,16 +2637,16 @@
       const currentPath = parentPath ? `${parentPath}/${node.name}` : node.name;
       const containsSelectedFile = selectedFile && selectedFile.startsWith(currentPath + '/');
       const hasSelectedFile = selectedFile && (containsSelectedFile || node.files.some(f => f.path === selectedFile));
-      
+
       const [open, setOpen] = useState(depth < 2 || hasSelectedFile);
-      
+
       // Auto-expand when selected file changes to be in this subtree
       useEffect(() => {
         if (hasSelectedFile && !open) {
           setOpen(true);
         }
       }, [selectedFile, hasSelectedFile]);
-      
+
       const folders = Object.values(node.children).sort((a, b) => a.name.localeCompare(b.name));
       const files = node.files.sort((a, b) => a.name.localeCompare(b.name));
 
@@ -2654,9 +2660,9 @@
         return html`
           <div class="file-tree">
             ${folders.map(f => html`
-              <${FileTree} 
+              <${FileTree}
                 key=${f.name}
-                node=${f} 
+                node=${f}
                 selectedFile=${selectedFile}
                 onSelectFile=${onSelectFile}
                 depth=${depth + 1}
@@ -2665,7 +2671,7 @@
               />
             `)}
             ${files.filter(f => matchesSearch(f.path)).map(f => html`
-              <${FileTreeFile} 
+              <${FileTreeFile}
                 key=${f.path}
                 file=${f}
                 selected=${selectedFile === f.path}
@@ -2676,7 +2682,7 @@
         `;
       }
 
-      const hasMatchingFiles = files.some(f => matchesSearch(f.path)) || 
+      const hasMatchingFiles = files.some(f => matchesSearch(f.path)) ||
         folders.some(f => Object.values(f.children).length > 0 || f.files.some(ff => matchesSearch(ff.path)));
 
       if (search && !hasMatchingFiles) return null;
@@ -2696,9 +2702,9 @@
           </div>
           <div class="tree-folder-children">
             ${folders.map(f => html`
-              <${FileTree} 
+              <${FileTree}
                 key=${f.name}
-                node=${f} 
+                node=${f}
                 selectedFile=${selectedFile}
                 onSelectFile=${onSelectFile}
                 depth=${depth + 1}
@@ -2707,7 +2713,7 @@
               />
             `)}
             ${files.filter(f => matchesSearch(f.path)).map(f => html`
-              <${FileTreeFile} 
+              <${FileTreeFile}
                 key=${f.path}
                 file=${f}
                 selected=${selectedFile === f.path}
@@ -2721,9 +2727,9 @@
 
     function FileTreeFile({ file, selected, onClick }) {
       const badge = getCoverageBadge(file.coveredUnits, file.totalUnits);
-      
+
       return html`
-        <div 
+        <div
           class="tree-file ${selected ? 'selected' : ''}"
           onClick=${onClick}
         >
@@ -2740,7 +2746,7 @@
       const [popoverLine, setPopoverLine] = useState(null);
       const [highlightedLineNum, setHighlightedLineNum] = useState(null);
       const codeViewRef = useRef(null);
-      
+
       // Build line annotations
       const lineAnnotations = useMemo(() => {
         const annotations = new Map();
@@ -2760,13 +2766,13 @@
       }, [file]);
 
       // Use highlighted lines if available, otherwise show raw (escaped)
-      const displayLines = highlightedLines || rawLines.map(line => 
+      const displayLines = highlightedLines || rawLines.map(line =>
         line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       );
-      
+
       // Full path for editor URLs
       const fullPath = config?.projectRoot ? `${config.projectRoot}/${file.path}` : file.path;
-      
+
       // Scroll to selected line when it changes
       useEffect(() => {
         if (selectedLine && codeViewRef.current && displayLines) {
@@ -2788,7 +2794,7 @@
           });
         }
       }, [selectedLine, file.path, displayLines]);
-      
+
       // Close popover when clicking outside
       useEffect(() => {
         const handleClick = (e) => {
@@ -2808,28 +2814,28 @@
             const covered = anno && anno.ruleRefs.size > 0;
             const inUnit = anno && anno.units.length > 0;
             const isHighlighted = highlightedLineNum === lineNum;
-            
+
             return html`
-              <div 
+              <div
                 key=${lineNum}
                 data-line=${lineNum}
                 class="code-line ${inUnit ? (covered ? 'covered' : 'uncovered') : ''} ${isHighlighted ? 'highlighted' : ''}"
               >
-                <span 
-                  class="line-number" 
+                <span
+                  class="line-number"
                   onClick=${(e) => { e.stopPropagation(); setPopoverLine(popoverLine === lineNum ? null : lineNum); }}
                 >
                   ${lineNum}
                   ${popoverLine === lineNum && html`
                     <div class="line-popover">
                       ${Object.entries(EDITORS).map(([key, cfg]) => html`
-                        <a 
+                        <a
                           key=${key}
-                          href=${cfg.urlTemplate(fullPath, lineNum)} 
-                          class="popover-btn" 
+                          href=${cfg.urlTemplate(fullPath, lineNum)}
+                          class="popover-btn"
                           title="Open in ${cfg.name}"
                         >
-                          ${cfg.devicon 
+                          ${cfg.devicon
                             ? html`<i class="${cfg.devicon}"></i>`
                             : html`<span dangerouslySetInnerHTML=${{ __html: cfg.icon }}></span>`
                           }
@@ -2839,7 +2845,7 @@
                     </div>
                   `}
                 </span>
-                <span 
+                <span
                   class="line-content"
                   dangerouslySetInnerHTML=${{ __html: lineHtml || ' ' }}
                 />
@@ -2848,9 +2854,9 @@
                     <span class="annotation-count" title=${[...anno.ruleRefs].join(', ')}>${anno.ruleRefs.size}</span>
                     <span class="annotation-badges">
                       ${[...anno.ruleRefs].map(ref => html`
-                        <a 
+                        <a
                           key=${ref}
-                          class="annotation-badge" 
+                          class="annotation-badge"
                           href=${buildUrl('spec', { rule: ref })}
                           onClick=${(e) => { e.preventDefault(); onSelectRule(ref); }}
                         >${ref}</a>
@@ -2871,7 +2877,7 @@
       const contentRef = useRef(null);
       const contentBodyRef = useRef(null);
       const initialScrollPosition = useRef(scrollPosition);
-      
+
       // Build rule coverage map
       const ruleCoverage = useMemo(() => {
         const map = new Map();
@@ -2879,7 +2885,7 @@
           for (const r of s.rules) {
             const hasImpl = r.implRefs.length > 0;
             const hasVerify = r.verifyRefs.length > 0;
-            map.set(r.id, { 
+            map.set(r.id, {
               rule: r,
               status: hasImpl && hasVerify ? 'covered' : hasImpl || hasVerify ? 'partial' : 'uncovered'
             });
@@ -2909,24 +2915,24 @@
       const processedContent = useMemo(() => {
         if (!spec) return '';
         let content = spec.content;
-        
+
         // Replace r[rule.id] with styled markers + reference links
         // Only match at start of file or after a blank line, at the beginning of a line
         content = content.replace(/(^|\n\n)r\[([^\]]+)\]/g, (match, prefix, ruleId) => {
           const coverage = ruleCoverage.get(ruleId);
           const status = coverage?.status || 'uncovered';
           const rule = coverage?.rule;
-          
+
           // Helper to get just filename from path
           const getFileName = (path) => path.split('/').pop();
-          
+
           let refHtml = '';
           if (rule) {
             const allRefs = [];
             if (rule.implRefs && rule.implRefs.length > 0) {
               rule.implRefs.forEach(r => {
                 const deviconClass = getDeviconClass(r.file);
-                const iconHtml = deviconClass 
+                const iconHtml = deviconClass
                   ? `<i class="${deviconClass} spec-ref-icon"></i>`
                   : `<i data-lucide="file" class="spec-ref-icon"></i>`;
                 allRefs.push(`<a class="spec-ref spec-ref-impl" href="/tree/${r.file}:${r.line}" data-file="${r.file}" data-line="${r.line}" title="${r.file}:${r.line}">${iconHtml}${getFileName(r.file)}:${r.line}</a>`);
@@ -2935,7 +2941,7 @@
             if (rule.verifyRefs && rule.verifyRefs.length > 0) {
               rule.verifyRefs.forEach(r => {
                 const deviconClass = getDeviconClass(r.file);
-                const iconHtml = deviconClass 
+                const iconHtml = deviconClass
                   ? `<i class="${deviconClass} spec-ref-icon"></i>`
                   : `<i data-lucide="file" class="spec-ref-icon"></i>`;
                 allRefs.push(`<a class="spec-ref spec-ref-verify" href="/tree/${r.file}:${r.line}" data-file="${r.file}" data-line="${r.line}" title="${r.file}:${r.line}">${iconHtml}${getFileName(r.file)}:${r.line}</a>`);
@@ -2945,43 +2951,43 @@
               refHtml = allRefs.join('');
             }
           }
-          
+
           // Use Lucide icon for rule marker
           const icon = `<i data-lucide="file-check" class="rule-marker-icon"></i>`;
-          
+
           // Use special markers that we'll process after markdown parsing
           return `${prefix}<!--RULE_START:${ruleId}:${status}--><a class="rule-marker ${status}" href="/spec/${ruleId}" data-rule="${ruleId}">${icon}${ruleId}</a>${refHtml ? `<div class="spec-refs">${refHtml}</div>` : ''}<!--RULE_CONTENT_START-->`;
         });
-        
+
         let html = marked.parse(content);
-        
+
         // Add IDs to headings
         headings.forEach(h => {
           // Match the heading tag and add id attribute
           const headingRegex = new RegExp(`(<h${h.level}>)(${h.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})(</h${h.level}>)`, 'i');
           html = html.replace(headingRegex, `<h${h.level} id="${h.slug}" data-slug="${h.slug}">$2$3`);
         });
-        
+
         // Wrap rule blocks: find RULE_START marker, capture until next RULE_START or heading
-        html = html.replace(/<!--RULE_START:([^:]+):([^-]+)-->([\s\S]*?)<!--RULE_CONTENT_START-->([\s\S]*?)(?=<!--RULE_START|<h[1-6]|$)/g, 
+        html = html.replace(/<!--RULE_START:([^:]+):([^-]+)-->([\s\S]*?)<!--RULE_CONTENT_START-->([\s\S]*?)(?=<!--RULE_START|<h[1-6]|$)/g,
           (match, ruleId, status, header, content) => {
             // Clean up paragraph wrapping - the content is usually wrapped in <p> tags
             return `<div class="rule-block rule-block-${status}"><div class="rule-block-header">${header}</div><div class="rule-block-content">${content.trim()}</div></div>`;
           }
         );
-        
+
         return html;
       }, [spec, ruleCoverage, headings]);
 
       // Set up intersection observer for headings
       useEffect(() => {
         if (!contentRef.current || !contentBodyRef.current || headings.length === 0) return;
-        
+
         // Small delay to ensure DOM is ready
         const timeoutId = setTimeout(() => {
           const headingElements = contentRef.current.querySelectorAll('h1[id], h2[id], h3[id], h4[id]');
           if (headingElements.length === 0) return;
-          
+
           const observer = new IntersectionObserver(
             (entries) => {
               // Track which headings are visible
@@ -2994,7 +3000,7 @@
                   });
                 }
               });
-              
+
               // Set the topmost visible heading as active
               if (visibleHeadings.length > 0) {
                 visibleHeadings.sort((a, b) => a.top - b.top);
@@ -3007,34 +3013,34 @@
               threshold: 0
             }
           );
-          
+
           headingElements.forEach(el => observer.observe(el));
-          
+
           // Set initial active heading
           if (headings.length > 0) {
             setActiveHeading(headings[0].slug);
           }
-          
+
           return () => observer.disconnect();
         }, 100);
-        
+
         return () => clearTimeout(timeoutId);
       }, [processedContent, headings]);
 
       // Track scroll position changes
       useEffect(() => {
         if (!contentBodyRef.current) return;
-        
+
         const handleScroll = () => {
           if (onScrollChange) {
             onScrollChange(contentBodyRef.current.scrollTop);
           }
         };
-        
+
         contentBodyRef.current.addEventListener('scroll', handleScroll, { passive: true });
         return () => contentBodyRef.current?.removeEventListener('scroll', handleScroll);
       }, [onScrollChange]);
-      
+
       // Initialize Lucide icons after content renders
       useEffect(() => {
         if (processedContent && contentRef.current && typeof lucide !== 'undefined') {
@@ -3053,11 +3059,11 @@
           setActiveHeading(slug);
         }
       }, []);
-      
+
       // Handle clicks on headings, rule markers, and spec refs in the markdown
       useEffect(() => {
         if (!contentRef.current) return;
-        
+
         const handleClick = (e) => {
           // Handle heading clicks
           const heading = e.target.closest('h1[id], h2[id], h3[id], h4[id]');
@@ -3067,7 +3073,7 @@
             navigator.clipboard?.writeText(url);
             return;
           }
-          
+
           // Handle rule marker clicks
           const ruleMarker = e.target.closest('a.rule-marker[data-rule]');
           if (ruleMarker) {
@@ -3076,7 +3082,7 @@
             onSelectRule(ruleId);
             return;
           }
-          
+
           // Handle spec ref clicks - pass rule context
           const specRef = e.target.closest('a.spec-ref');
           if (specRef) {
@@ -3091,15 +3097,15 @@
             return;
           }
         };
-        
+
         contentRef.current.addEventListener('click', handleClick);
         return () => contentRef.current?.removeEventListener('click', handleClick);
       }, [processedContent, onSelectRule, onSelectFile]);
-      
+
       // Scroll to selected rule, or restore scroll position
       useEffect(() => {
         if (!processedContent) return;
-        
+
         // Use requestAnimationFrame to ensure DOM is updated after render
         let cancelled = false;
         requestAnimationFrame(() => {
@@ -3107,7 +3113,7 @@
           // Double RAF to ensure layout is complete
           requestAnimationFrame(() => {
             if (cancelled || !contentRef.current || !contentBodyRef.current) return;
-            
+
             if (selectedRule) {
               // Navigate to specific rule
               const ruleEl = contentRef.current.querySelector(`[data-rule="${selectedRule}"]`);
@@ -3118,10 +3124,10 @@
                 const currentScroll = contentBodyRef.current.scrollTop;
                 const targetScrollTop = currentScroll + (ruleRect.top - containerRect.top) - 150;
                 contentBodyRef.current.scrollTo({ top: Math.max(0, targetScrollTop) });
-                
+
                 // Add highlight class
                 ruleEl.classList.add('rule-marker-highlighted');
-                
+
                 // Remove highlight after animation
                 setTimeout(() => {
                   ruleEl.classList.remove('rule-marker-highlighted');
@@ -3134,7 +3140,7 @@
             }
           });
         });
-        
+
         return () => { cancelled = true; };
       }, [selectedRule, processedContent]);
 
@@ -3153,7 +3159,7 @@
             <div class="sidebar-content">
               <div class="outline-tree">
                 ${headings.map(h => html`
-                  <div 
+                  <div
                     key=${h.slug}
                     class="outline-item outline-level-${h.level} ${activeHeading === h.slug ? 'active' : ''}"
                     onClick=${() => scrollToHeading(h.slug)}
@@ -3169,7 +3175,7 @@
               ${spec.sourceFile || spec.name}
             </div>
             <div class="content-body" ref=${contentBodyRef}>
-              <div 
+              <div
                 class="markdown"
                 ref=${contentRef}
                 dangerouslySetInnerHTML=${{ __html: processedContent }}
@@ -3183,7 +3189,7 @@
     // ========================================================================
     // Mount
     // ========================================================================
-    
+
     render(html`<${App} />`, document.getElementById('app'));
 
     // Global keyboard shortcuts
