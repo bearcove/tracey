@@ -1,31 +1,65 @@
-//! Full-text search for source files using tantivy
+//! Unified full-text search for source files and spec rules
 //!
-//! This module provides full-text search across source code content.
+//! This module provides full-text search across:
+//! - Source code content (line-by-line)
+//! - Spec rules (rule IDs and text)
+//!
 //! When the `search` feature is disabled, it falls back to simple substring matching.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-/// A search result with file path, line number, and context
+/// Result type for unified search
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResultKind {
+    /// Source code line
+    Source,
+    /// Spec rule
+    Rule,
+}
+
+impl ResultKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ResultKind::Source => "source",
+            ResultKind::Rule => "rule",
+        }
+    }
+}
+
+/// A unified search result
 #[derive(Debug, Clone)]
 pub struct SearchResult {
-    pub file: String,
+    /// Type of result
+    pub kind: ResultKind,
+    /// For Source: file path. For Rule: rule ID
+    pub id: String,
+    /// For Source: line number. For Rule: None (use 0)
     pub line: usize,
+    /// The matching content (line content or rule text)
     pub content: String,
+    /// Relevance score
     pub score: f32,
 }
 
 impl SearchResult {
     pub fn to_json(&self) -> String {
-        let content_escaped = crate::serve::json_string(&self.content);
         format!(
-            r#"{{"file":{},"line":{},"content":{},"score":{}}}"#,
-            crate::serve::json_string(&self.file),
+            r#"{{"kind":"{}","id":{},"line":{},"content":{},"score":{}}}"#,
+            self.kind.as_str(),
+            crate::serve::json_string(&self.id),
             self.line,
-            content_escaped,
+            crate::serve::json_string(&self.content),
             self.score
         )
     }
+}
+
+/// A rule to be indexed
+#[derive(Debug, Clone)]
+pub struct RuleEntry {
+    pub id: String,
+    pub text: Option<String>,
 }
 
 /// Search index abstraction
@@ -60,12 +94,21 @@ mod tantivy_impl {
     }
 
     impl TantivyIndex {
-        /// Build a new tantivy index from source files
-        pub fn build(project_root: &Path, files: &BTreeMap<PathBuf, String>) -> eyre::Result<Self> {
+        /// Build a new tantivy index from source files and rules
+        pub fn build(
+            project_root: &Path,
+            files: &BTreeMap<PathBuf, String>,
+            rules: &[RuleEntry],
+        ) -> eyre::Result<Self> {
             // Define schema
             let mut schema_builder = Schema::builder();
-            let path_field = schema_builder.add_text_field("path", STRING | STORED);
+            // "kind" field: "source" or "rule"
+            let kind_field = schema_builder.add_text_field("kind", STRING | STORED);
+            // "id" field: file path for source, rule ID for rules
+            let id_field = schema_builder.add_text_field("id", STRING | STORED);
+            // "line" field: line number for source (0 for rules)
             let line_field = schema_builder.add_u64_field("line", INDEXED | STORED);
+            // "content" field: the searchable text content
             let content_field = schema_builder.add_text_field("content", TEXT | STORED);
             let schema = schema_builder.build();
 
@@ -74,6 +117,7 @@ mod tantivy_impl {
 
             let mut index_writer: IndexWriter = index.writer(50_000_000)?;
 
+            // Index source files
             for (path, content) in files {
                 let relative = path
                     .strip_prefix(project_root)
@@ -92,11 +136,29 @@ mod tantivy_impl {
                     }
 
                     index_writer.add_document(doc!(
-                        path_field => relative.clone(),
+                        kind_field => "source",
+                        id_field => relative.clone(),
                         line_field => line_num as u64,
                         content_field => line_content,
                     ))?;
                 }
+            }
+
+            // Index rules
+            for rule in rules {
+                // Index the rule ID itself as searchable content
+                let searchable_content = if let Some(ref text) = rule.text {
+                    format!("{} {}", rule.id, text)
+                } else {
+                    rule.id.clone()
+                };
+
+                index_writer.add_document(doc!(
+                    kind_field => "rule",
+                    id_field => rule.id.clone(),
+                    line_field => 0u64,
+                    content_field => searchable_content,
+                ))?;
             }
 
             index_writer.commit()?;
@@ -138,7 +200,8 @@ mod tantivy_impl {
                 Err(_) => return vec![],
             };
 
-            let path_field = self.schema.get_field("path").unwrap();
+            let kind_field = self.schema.get_field("kind").unwrap();
+            let id_field = self.schema.get_field("id").unwrap();
             let line_field = self.schema.get_field("line").unwrap();
             let content_field = self.schema.get_field("content").unwrap();
 
@@ -147,12 +210,19 @@ mod tantivy_impl {
                 .filter_map(|(score, doc_address)| {
                     let doc: tantivy::TantivyDocument = searcher.doc(doc_address).ok()?;
 
-                    let file = doc.get_first(path_field)?.as_str()?.to_string();
+                    let kind_str = doc.get_first(kind_field)?.as_str()?;
+                    let kind = match kind_str {
+                        "source" => ResultKind::Source,
+                        "rule" => ResultKind::Rule,
+                        _ => return None,
+                    };
+                    let id = doc.get_first(id_field)?.as_str()?.to_string();
                     let line = doc.get_first(line_field)?.as_u64()? as usize;
                     let content = doc.get_first(content_field)?.as_str()?.to_string();
 
                     Some(SearchResult {
-                        file,
+                        kind,
+                        id,
                         line,
                         content,
                         score,
@@ -170,17 +240,29 @@ pub use tantivy_impl::TantivyIndex;
 // Fallback implementation (simple substring matching)
 // ============================================================================
 
+/// Entry in the simple index
+struct SimpleEntry {
+    kind: ResultKind,
+    id: String,
+    line: usize,
+    content: String,
+}
+
 /// Simple substring search fallback when tantivy is not available
 pub struct SimpleIndex {
-    /// All lines indexed as (file, line_num, content)
-    lines: Vec<(String, usize, String)>,
+    entries: Vec<SimpleEntry>,
 }
 
 impl SimpleIndex {
-    /// Build a simple index from source files
-    pub fn build(project_root: &Path, files: &BTreeMap<PathBuf, String>) -> Self {
-        let mut lines = Vec::new();
+    /// Build a simple index from source files and rules
+    pub fn build(
+        project_root: &Path,
+        files: &BTreeMap<PathBuf, String>,
+        rules: &[RuleEntry],
+    ) -> Self {
+        let mut entries = Vec::new();
 
+        // Index source files
         for (path, content) in files {
             let relative = path
                 .strip_prefix(project_root)
@@ -191,12 +273,32 @@ impl SimpleIndex {
             for (line_num, line_content) in content.lines().enumerate() {
                 let line_num = line_num + 1;
                 if line_content.trim().len() >= 3 {
-                    lines.push((relative.clone(), line_num, line_content.to_string()));
+                    entries.push(SimpleEntry {
+                        kind: ResultKind::Source,
+                        id: relative.clone(),
+                        line: line_num,
+                        content: line_content.to_string(),
+                    });
                 }
             }
         }
 
-        Self { lines }
+        // Index rules
+        for rule in rules {
+            let searchable_content = if let Some(ref text) = rule.text {
+                format!("{} {}", rule.id, text)
+            } else {
+                rule.id.clone()
+            };
+            entries.push(SimpleEntry {
+                kind: ResultKind::Rule,
+                id: rule.id.clone(),
+                line: 0,
+                content: searchable_content,
+            });
+        }
+
+        Self { entries }
     }
 }
 
@@ -204,14 +306,15 @@ impl SearchIndex for SimpleIndex {
     fn search(&self, query: &str, limit: usize) -> Vec<SearchResult> {
         let query_lower = query.to_lowercase();
 
-        self.lines
+        self.entries
             .iter()
-            .filter(|(_, _, content)| content.to_lowercase().contains(&query_lower))
+            .filter(|e| e.content.to_lowercase().contains(&query_lower))
             .take(limit)
-            .map(|(file, line, content)| SearchResult {
-                file: file.clone(),
-                line: *line,
-                content: content.clone(),
+            .map(|e| SearchResult {
+                kind: e.kind,
+                id: e.id.clone(),
+                line: e.line,
+                content: e.content.clone(),
                 score: 1.0,
             })
             .collect()
@@ -224,20 +327,28 @@ impl SearchIndex for SimpleIndex {
 
 /// Build the appropriate search index based on feature flags
 #[cfg(feature = "search")]
-pub fn build_index(project_root: &Path, files: &BTreeMap<PathBuf, String>) -> Box<dyn SearchIndex> {
-    match TantivyIndex::build(project_root, files) {
+pub fn build_index(
+    project_root: &Path,
+    files: &BTreeMap<PathBuf, String>,
+    rules: &[RuleEntry],
+) -> Box<dyn SearchIndex> {
+    match TantivyIndex::build(project_root, files, rules) {
         Ok(index) => Box::new(index),
         Err(e) => {
             eprintln!(
                 "Warning: Failed to build tantivy index, falling back to simple search: {}",
                 e
             );
-            Box::new(SimpleIndex::build(project_root, files))
+            Box::new(SimpleIndex::build(project_root, files, rules))
         }
     }
 }
 
 #[cfg(not(feature = "search"))]
-pub fn build_index(project_root: &Path, files: &BTreeMap<PathBuf, String>) -> Box<dyn SearchIndex> {
-    Box::new(SimpleIndex::build(project_root, files))
+pub fn build_index(
+    project_root: &Path,
+    files: &BTreeMap<PathBuf, String>,
+    rules: &[RuleEntry],
+) -> Box<dyn SearchIndex> {
+    Box::new(SimpleIndex::build(project_root, files, rules))
 }

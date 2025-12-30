@@ -507,8 +507,19 @@ fn build_dashboard_data(
     // Sort files by path
     file_entries.sort_by(|a, b| a.path.cmp(&b.path));
 
-    // Build search index
-    let search_index = search::build_index(project_root, &file_contents);
+    // Collect all rules for search index
+    let search_rules: Vec<search::RuleEntry> = forward_specs
+        .iter()
+        .flat_map(|spec| {
+            spec.rules.iter().map(|r| search::RuleEntry {
+                id: r.id.clone(),
+                text: r.text.clone(),
+            })
+        })
+        .collect();
+
+    // Build search index with sources and rules
+    let search_index = search::build_index(project_root, &file_contents, &search_rules);
 
     let forward = ApiForwardData {
         specs: forward_specs,

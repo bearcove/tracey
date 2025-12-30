@@ -244,15 +244,12 @@ fn test_rules_command_multiple_files() {
 
 fn create_test_file(content: &str) -> (std::path::PathBuf, impl FnOnce()) {
     use std::sync::atomic::{AtomicU64, Ordering};
-    use std::time::{SystemTime, UNIX_EPOCH};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
 
     let id = COUNTER.fetch_add(1, Ordering::SeqCst);
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let temp_dir = std::env::temp_dir().join(format!("tracey_at_test_{}_{}", timestamp, id));
+    // Use process ID + counter for uniqueness across parallel test runs
+    let pid = std::process::id();
+    let temp_dir = std::env::temp_dir().join(format!("tracey_test_{}_{}", pid, id));
     let _ = std::fs::remove_dir_all(&temp_dir); // Clean up any leftovers
     std::fs::create_dir_all(&temp_dir).expect("Failed to create temp dir");
     let file_path = temp_dir.join("test.rs");
