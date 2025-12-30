@@ -15,8 +15,18 @@
 // API types are constructed for JSON serialization
 #![allow(dead_code)]
 
-use async_tiny::{Header, Response, Server};
+use axum::{
+    Router,
+    body::Body,
+    extract::{Query, State, WebSocketUpgrade, ws},
+    http::{Method, Request, StatusCode, header},
+    response::{Html, IntoResponse, Response},
+    routing::get,
+};
 use eyre::{Result, WrapErr};
+use futures_util::{SinkExt, StreamExt};
+use hyper_util::client::legacy::Client;
+use hyper_util::rt::TokioExecutor;
 use notify_debouncer_mini::{new_debouncer, notify::RecursiveMode};
 use owo_colors::OwoColorize;
 use std::collections::BTreeMap;
@@ -25,11 +35,14 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::sync::watch;
+use tower_http::cors::{Any, CorsLayer};
 use tracey_core::code_units::CodeUnit;
 use tracey_core::{RefVerb, Rules, SpecManifest};
+use tracing::{debug, error, info, warn};
 
 use crate::config::Config;
 use crate::search::{self, SearchIndex};
+use crate::vite::ViteServer;
 
 // ============================================================================
 // JSON API Types
@@ -148,6 +161,15 @@ struct DashboardData {
     version: u64,
     /// Hash of forward + reverse JSON for change detection
     content_hash: u64,
+}
+
+/// Shared application state
+#[derive(Clone)]
+struct AppState {
+    data: watch::Receiver<Arc<DashboardData>>,
+    project_root: PathBuf,
+    dev_mode: bool,
+    vite_port: Option<u16>,
 }
 
 // ============================================================================
@@ -627,26 +649,403 @@ fn glob_match(path: &str, pattern: &str) -> bool {
 }
 
 // ============================================================================
-// Static HTML Shell
+// Static Assets (embedded from Vite build)
 // ============================================================================
 
-const HTML_SHELL: &str = include_str!("dashboard.html");
+/// HTML shell from Vite build
+const HTML_SHELL: &str = include_str!("../dashboard/dist/index.html");
+
+/// JavaScript bundle from Vite build
+const JS_BUNDLE: &str = include_str!("../dashboard/dist/assets/index-CPUJscSr.js");
+
+/// CSS bundle from Vite build
+const CSS_BUNDLE: &str = include_str!("../dashboard/dist/assets/index-DxtBNHQk.css");
+
+// ============================================================================
+// Route Handlers
+// ============================================================================
+
+async fn api_config(State(state): State<AppState>) -> impl IntoResponse {
+    let data = state.data.borrow().clone();
+    json_response(data.config.to_json())
+}
+
+async fn api_forward(State(state): State<AppState>) -> impl IntoResponse {
+    let data = state.data.borrow().clone();
+    json_response(data.forward.to_json())
+}
+
+async fn api_reverse(State(state): State<AppState>) -> impl IntoResponse {
+    let data = state.data.borrow().clone();
+    json_response(data.reverse.to_json())
+}
+
+async fn api_version(State(state): State<AppState>) -> impl IntoResponse {
+    let data = state.data.borrow().clone();
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::CACHE_CONTROL, "no-cache")
+        .body(Body::from(format!(r#"{{"version":{}}}"#, data.version)))
+        .unwrap()
+}
+
+#[derive(Debug)]
+struct FileQuery {
+    path: String,
+}
+
+async fn api_file(
+    State(state): State<AppState>,
+    Query(params): Query<Vec<(String, String)>>,
+) -> impl IntoResponse {
+    let path = params
+        .iter()
+        .find(|(k, _)| k == "path")
+        .map(|(_, v)| v.clone())
+        .unwrap_or_default();
+
+    let file_path = urlencoding::decode(&path).unwrap_or_default();
+    let full_path = state.project_root.join(file_path.as_ref());
+    let data = state.data.borrow().clone();
+
+    if let Some(units) = data.code_units_by_file.get(&full_path) {
+        let content = std::fs::read_to_string(&full_path).unwrap_or_default();
+        let relative = full_path
+            .strip_prefix(&state.project_root)
+            .unwrap_or(&full_path)
+            .display()
+            .to_string();
+
+        let api_units: Vec<ApiCodeUnit> = units
+            .iter()
+            .map(|u| ApiCodeUnit {
+                kind: format!("{:?}", u.kind).to_lowercase(),
+                name: u.name.clone(),
+                start_line: u.start_line,
+                end_line: u.end_line,
+                rule_refs: u.rule_refs.clone(),
+            })
+            .collect();
+
+        let file_data = ApiFileData {
+            path: relative,
+            content,
+            units: api_units,
+        };
+
+        json_response(file_data.to_json())
+    } else {
+        Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(r#"{"error":"File not found"}"#))
+            .unwrap()
+    }
+}
+
+async fn api_spec(
+    State(state): State<AppState>,
+    Query(params): Query<Vec<(String, String)>>,
+) -> impl IntoResponse {
+    let name = params
+        .iter()
+        .find(|(k, _)| k == "name")
+        .map(|(_, v)| v.clone())
+        .unwrap_or_default();
+
+    let spec_name = urlencoding::decode(&name).unwrap_or_default();
+    let data = state.data.borrow().clone();
+
+    if let Some(spec_data) = data.specs_content.get(spec_name.as_ref()) {
+        json_response(spec_data.to_json())
+    } else {
+        Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(r#"{"error":"Spec not found"}"#))
+            .unwrap()
+    }
+}
+
+async fn api_search(
+    State(state): State<AppState>,
+    Query(params): Query<Vec<(String, String)>>,
+) -> impl IntoResponse {
+    let query = params
+        .iter()
+        .find(|(k, _)| k == "q")
+        .map(|(_, v)| v.clone())
+        .unwrap_or_default();
+
+    let query = urlencoding::decode(&query).unwrap_or_default();
+
+    // Parse optional limit parameter
+    let limit = params
+        .iter()
+        .find(|(k, _)| k == "limit")
+        .and_then(|(_, v)| v.parse().ok())
+        .unwrap_or(50usize);
+
+    let data = state.data.borrow().clone();
+    let results = data.search_index.search(&query, limit);
+    let results_json: Vec<String> = results.iter().map(|r| r.to_json()).collect();
+    let json = format!(
+        r#"{{"query":{},"results":[{}],"available":{}}}"#,
+        json_string(&query),
+        results_json.join(","),
+        data.search_index.is_available()
+    );
+
+    json_response(json)
+}
+
+async fn serve_js() -> impl IntoResponse {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(
+            header::CONTENT_TYPE,
+            "application/javascript; charset=utf-8",
+        )
+        .header(header::CACHE_CONTROL, "public, max-age=31536000, immutable")
+        .body(Body::from(JS_BUNDLE))
+        .unwrap()
+}
+
+async fn serve_css() -> impl IntoResponse {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "text/css; charset=utf-8")
+        .header(header::CACHE_CONTROL, "public, max-age=31536000, immutable")
+        .body(Body::from(CSS_BUNDLE))
+        .unwrap()
+}
+
+async fn serve_html(State(state): State<AppState>) -> impl IntoResponse {
+    if state.dev_mode {
+        // In dev mode, proxy to Vite
+        return Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                r#"{"error":"In dev mode, frontend is served by Vite"}"#,
+            ))
+            .unwrap();
+    }
+    Html(HTML_SHELL).into_response()
+}
+
+fn json_response(body: String) -> Response<Body> {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(body))
+        .unwrap()
+}
+
+// ============================================================================
+// Vite Proxy
+// ============================================================================
+
+/// Proxy HTTP requests to Vite dev server
+async fn proxy_to_vite(State(state): State<AppState>, req: Request<Body>) -> impl IntoResponse {
+    let vite_port = match state.vite_port {
+        Some(p) => p,
+        None => {
+            warn!("Vite proxy request but vite server not running");
+            return Response::builder()
+                .status(StatusCode::SERVICE_UNAVAILABLE)
+                .body(Body::from("Vite server not running"))
+                .unwrap();
+        }
+    };
+
+    let method = req.method().clone();
+    let path = req.uri().path().to_string();
+    let query = req
+        .uri()
+        .query()
+        .map(|q| format!("?{}", q))
+        .unwrap_or_default();
+
+    let uri = format!("http://127.0.0.1:{}{}{}", vite_port, path, query);
+
+    info!(method = %method, path = %path, target = %uri, "proxying to vite");
+
+    let client = Client::builder(TokioExecutor::new()).build_http();
+
+    let mut proxy_req = Request::builder().method(req.method()).uri(&uri);
+
+    // Copy headers
+    for (name, value) in req.headers() {
+        if name != header::HOST {
+            proxy_req = proxy_req.header(name, value);
+        }
+    }
+
+    let proxy_req = proxy_req.body(req.into_body()).unwrap();
+
+    match client.request(proxy_req).await {
+        Ok(res) => {
+            let status = res.status();
+            info!(status = %status, path = %path, "vite response");
+            let (parts, body) = res.into_parts();
+            Response::from_parts(parts, Body::new(body))
+        }
+        Err(e) => {
+            error!(error = %e, path = %path, "vite proxy error");
+            Response::builder()
+                .status(StatusCode::BAD_GATEWAY)
+                .body(Body::from(format!("Vite proxy error: {}", e)))
+                .unwrap()
+        }
+    }
+}
+
+/// Handle WebSocket upgrade for Vite HMR
+async fn vite_ws_handler(State(state): State<AppState>, ws: WebSocketUpgrade) -> impl IntoResponse {
+    let vite_port = match state.vite_port {
+        Some(p) => p,
+        None => {
+            return Response::builder()
+                .status(StatusCode::SERVICE_UNAVAILABLE)
+                .body(Body::from("Vite server not running"))
+                .unwrap()
+                .into_response();
+        }
+    };
+
+    ws.on_upgrade(move |socket| async move {
+        if let Err(e) = handle_vite_ws(socket, vite_port).await {
+            eprintln!("{} Vite WebSocket error: {}", "!".yellow(), e);
+        }
+    })
+    .into_response()
+}
+
+async fn handle_vite_ws(client_socket: ws::WebSocket, vite_port: u16) -> Result<()> {
+    use tokio_tungstenite::connect_async;
+
+    let vite_url = format!("ws://127.0.0.1:{}/__vite_hmr", vite_port);
+
+    let (vite_ws, _) = connect_async(&vite_url)
+        .await
+        .wrap_err("Failed to connect to Vite WebSocket")?;
+
+    let (mut client_tx, mut client_rx) = client_socket.split();
+    let (mut vite_tx, mut vite_rx) = vite_ws.split();
+
+    // Bidirectional proxy
+    let client_to_vite = async {
+        while let Some(msg) = client_rx.next().await {
+            match msg {
+                Ok(ws::Message::Text(text)) => {
+                    let text_str: String = text.to_string();
+                    if vite_tx
+                        .send(tokio_tungstenite::tungstenite::Message::Text(
+                            text_str.into(),
+                        ))
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                Ok(ws::Message::Binary(data)) => {
+                    let data_vec: Vec<u8> = data.to_vec();
+                    if vite_tx
+                        .send(tokio_tungstenite::tungstenite::Message::Binary(
+                            data_vec.into(),
+                        ))
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                Ok(ws::Message::Close(_)) => break,
+                Err(_) => break,
+                _ => {}
+            }
+        }
+    };
+
+    let vite_to_client = async {
+        while let Some(msg) = vite_rx.next().await {
+            match msg {
+                Ok(tokio_tungstenite::tungstenite::Message::Text(text)) => {
+                    let text_str: String = text.to_string();
+                    if client_tx
+                        .send(ws::Message::Text(text_str.into()))
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                Ok(tokio_tungstenite::tungstenite::Message::Binary(data)) => {
+                    let data_vec: Vec<u8> = data.to_vec();
+                    if client_tx
+                        .send(ws::Message::Binary(data_vec.into()))
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                Ok(tokio_tungstenite::tungstenite::Message::Close(_)) => break,
+                Err(_) => break,
+                _ => {}
+            }
+        }
+    };
+
+    tokio::select! {
+        _ = client_to_vite => {}
+        _ = vite_to_client => {}
+    }
+
+    Ok(())
+}
 
 // ============================================================================
 // HTTP Server
 // ============================================================================
 
 /// Run the serve command
-pub fn run(config_path: Option<PathBuf>, port: u16, open_browser: bool) -> Result<()> {
+pub fn run(
+    config_path: Option<PathBuf>,
+    port: u16,
+    open_browser: bool,
+    dev_mode: bool,
+) -> Result<()> {
+    // Initialize tracing
+    use tracing_subscriber::{EnvFilter, fmt, prelude::*};
+
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        // Default to info for our crate, warn for others
+        EnvFilter::new("tracey=info,warn")
+    });
+
+    tracing_subscriber::registry()
+        .with(fmt::layer().with_target(true).with_level(true))
+        .with(filter)
+        .init();
+
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .wrap_err("Failed to create tokio runtime")?;
 
-    rt.block_on(async move { run_server(config_path, port, open_browser).await })
+    rt.block_on(async move { run_server(config_path, port, open_browser, dev_mode).await })
 }
 
-async fn run_server(config_path: Option<PathBuf>, port: u16, open_browser: bool) -> Result<()> {
+async fn run_server(
+    config_path: Option<PathBuf>,
+    port: u16,
+    open_browser: bool,
+    dev_mode: bool,
+) -> Result<()> {
     let project_root = crate::find_project_root()?;
     let config_path = config_path.unwrap_or_else(|| project_root.join(".config/tracey/config.kdl"));
     let config = crate::load_config(&config_path)?;
@@ -659,39 +1058,85 @@ async fn run_server(config_path: Option<PathBuf>, port: u16, open_browser: bool)
     // Channel for state updates
     let (tx, rx) = watch::channel(Arc::new(initial_data));
 
+    // Start Vite dev server if in dev mode
+    let vite_port = if dev_mode {
+        let dashboard_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("dashboard");
+        let vite = ViteServer::start(&dashboard_dir).await?;
+        Some(vite.port)
+    } else {
+        None
+    };
+
     // Clone for file watcher
     let watch_project_root = project_root.clone();
-    let _watch_config_path = config_path.clone();
-    let _watch_config = config.clone();
 
     let (debounce_tx, mut debounce_rx) = tokio::sync::mpsc::channel::<()>(1);
 
     // File watcher thread
     std::thread::spawn(move || {
         let debounce_tx = debounce_tx;
+        let watch_root = watch_project_root.clone();
+
         let mut debouncer = match new_debouncer(
             Duration::from_millis(200),
-            move |_res: Result<Vec<notify_debouncer_mini::DebouncedEvent>, notify::Error>| {
-                let _ = debounce_tx.blocking_send(());
+            move |res: Result<Vec<notify_debouncer_mini::DebouncedEvent>, notify::Error>| {
+                // Filter events to ignore node_modules, target, .git, and dashboard
+                let ignored_paths = ["node_modules", "target", ".git", "dashboard", ".vite"];
+
+                let is_ignored = |path: &Path| {
+                    for component in path.components() {
+                        if let std::path::Component::Normal(name) = component {
+                            if let Some(name_str) = name.to_str() {
+                                if ignored_paths.contains(&name_str) {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                    false
+                };
+
+                match res {
+                    Ok(events) => {
+                        let dominated_events: Vec<_> =
+                            events.iter().filter(|e| !is_ignored(&e.path)).collect();
+                        if dominated_events.is_empty() {
+                            debug!(
+                                total = events.len(),
+                                "all file events filtered out (ignored paths)"
+                            );
+                        } else {
+                            info!(
+                                count = dominated_events.len(),
+                                paths = ?dominated_events.iter().map(|e| e.path.display().to_string()).collect::<Vec<_>>(),
+                                "file change detected, triggering rebuild"
+                            );
+                            let _ = debounce_tx.blocking_send(());
+                        }
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "file watcher error");
+                    }
+                };
             },
         ) {
             Ok(d) => d,
             Err(e) => {
-                eprintln!("{} Failed to create file watcher: {}", "!".yellow(), e);
+                error!(error = %e, "failed to create file watcher");
                 return;
             }
         };
 
         // Watch project root
+        info!(path = %watch_root.display(), "starting file watcher");
         if let Err(e) = debouncer
             .watcher()
-            .watch(&watch_project_root, RecursiveMode::Recursive)
+            .watch(&watch_root, RecursiveMode::Recursive)
         {
-            eprintln!(
-                "{} Failed to watch {}: {}",
-                "!".yellow(),
-                watch_project_root.display(),
-                e
+            error!(
+                error = %e,
+                path = %watch_root.display(),
+                "failed to watch directory"
             );
         }
 
@@ -743,129 +1188,91 @@ async fn run_server(config_path: Option<PathBuf>, port: u16, open_browser: bool)
         }
     });
 
+    let app_state = AppState {
+        data: rx,
+        project_root: project_root.clone(),
+        dev_mode,
+        vite_port,
+    };
+
+    // Build router
+    let mut app = Router::new()
+        .route("/api/config", get(api_config))
+        .route("/api/forward", get(api_forward))
+        .route("/api/reverse", get(api_reverse))
+        .route("/api/version", get(api_version))
+        .route("/api/file", get(api_file))
+        .route("/api/spec", get(api_spec))
+        .route("/api/search", get(api_search));
+
+    if dev_mode {
+        // In dev mode, proxy everything else to Vite
+        app = app
+            .route("/__vite_hmr", get(vite_ws_handler))
+            .fallback(proxy_to_vite);
+    } else {
+        // In production mode, serve static assets
+        app = app
+            .route("/assets/{*path}", get(serve_static_asset))
+            .fallback(serve_html);
+    }
+
+    // Add CORS for dev mode
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+        .allow_headers(Any);
+
+    let app = app.layer(cors).with_state(app_state);
+
     // Start server
     let addr = format!("127.0.0.1:{}", port);
-    let mut server = Server::http(&addr, true)
+    let listener = tokio::net::TcpListener::bind(&addr)
         .await
         .wrap_err_with(|| format!("Failed to bind to {}", addr))?;
 
     let url = format!("http://{}", addr);
-    eprintln!(
-        "\n{} Serving tracey dashboard at {}\n   Press Ctrl+C to stop\n",
-        "OK".green().bold(),
-        url.cyan()
-    );
 
-    if open_browser && let Err(e) = open::that(&url) {
-        eprintln!("{} Failed to open browser: {}", "!".yellow(), e);
+    if dev_mode {
+        eprintln!(
+            "\n{} Dashboard running at {}\n",
+            "OK".green().bold(),
+            url.cyan()
+        );
+        eprintln!(
+            "   {} Vite HMR enabled - changes will hot reload\n",
+            "->".blue().bold()
+        );
+    } else {
+        eprintln!(
+            "\n{} Serving tracey dashboard at {}\n   Press Ctrl+C to stop\n",
+            "OK".green().bold(),
+            url.cyan()
+        );
     }
 
-    loop {
-        let Some(req) = server.next().await else {
-            continue;
-        };
-
-        let state = rx.borrow().clone();
-        let path = req.url();
-        let project_root = project_root.clone();
-
-        let response = match path {
-            "/api/config" => {
-                Response::from_string(state.config.to_json()).with_content_type("application/json")
-            }
-
-            "/api/forward" => {
-                Response::from_string(state.forward.to_json()).with_content_type("application/json")
-            }
-
-            "/api/reverse" => {
-                Response::from_string(state.reverse.to_json()).with_content_type("application/json")
-            }
-
-            "/api/version" => Response::from_string(format!(r#"{{"version":{}}}"#, state.version))
-                .with_content_type("application/json")
-                .with_header(Header::new("Cache-Control", "no-cache").unwrap()),
-
-            p if p.starts_with("/api/file?path=") => {
-                let file_path = p.strip_prefix("/api/file?path=").unwrap_or("");
-                let file_path = urlencoding::decode(file_path).unwrap_or_default();
-                let full_path = project_root.join(file_path.as_ref());
-
-                if let Some(units) = state.code_units_by_file.get(&full_path) {
-                    let content = std::fs::read_to_string(&full_path).unwrap_or_default();
-                    let relative = full_path
-                        .strip_prefix(&project_root)
-                        .unwrap_or(&full_path)
-                        .display()
-                        .to_string();
-
-                    let api_units: Vec<ApiCodeUnit> = units
-                        .iter()
-                        .map(|u| ApiCodeUnit {
-                            kind: format!("{:?}", u.kind).to_lowercase(),
-                            name: u.name.clone(),
-                            start_line: u.start_line,
-                            end_line: u.end_line,
-                            rule_refs: u.rule_refs.clone(),
-                        })
-                        .collect();
-
-                    let file_data = ApiFileData {
-                        path: relative,
-                        content,
-                        units: api_units,
-                    };
-
-                    Response::from_string(file_data.to_json()).with_content_type("application/json")
-                } else {
-                    Response::from_string(r#"{"error":"File not found"}"#)
-                        .with_status_code(404)
-                        .with_content_type("application/json")
-                }
-            }
-
-            p if p.starts_with("/api/spec?name=") => {
-                let spec_name = p.strip_prefix("/api/spec?name=").unwrap_or("");
-                let spec_name = urlencoding::decode(spec_name).unwrap_or_default();
-
-                if let Some(spec_data) = state.specs_content.get(spec_name.as_ref()) {
-                    Response::from_string(spec_data.to_json()).with_content_type("application/json")
-                } else {
-                    Response::from_string(r#"{"error":"Spec not found"}"#)
-                        .with_status_code(404)
-                        .with_content_type("application/json")
-                }
-            }
-
-            p if p.starts_with("/api/search?q=") => {
-                let query = p.strip_prefix("/api/search?q=").unwrap_or("");
-                let query = urlencoding::decode(query).unwrap_or_default();
-
-                // Parse optional limit parameter
-                let (query, limit) = if let Some((q, rest)) = query.split_once("&limit=") {
-                    (q.to_string(), rest.parse().unwrap_or(50))
-                } else {
-                    (query.to_string(), 50usize)
-                };
-
-                let results = state.search_index.search(&query, limit);
-                let results_json: Vec<String> = results.iter().map(|r| r.to_json()).collect();
-                let json = format!(
-                    r#"{{"query":{},"results":[{}],"available":{}}}"#,
-                    json_string(&query),
-                    results_json.join(","),
-                    state.search_index.is_available()
-                );
-
-                Response::from_string(json).with_content_type("application/json")
-            }
-
-            // Serve SPA for all other routes (client-side routing)
-            _ => Response::from_string(HTML_SHELL).with_content_type("text/html; charset=utf-8"),
-        };
-
-        if let Err(e) = req.respond(response) {
-            eprintln!("{} Response error: {:?}", "!".yellow(), e);
+    if open_browser {
+        if let Err(e) = open::that(&url) {
+            eprintln!("{} Failed to open browser: {}", "!".yellow(), e);
         }
+    }
+
+    axum::serve(listener, app).await.wrap_err("Server error")?;
+
+    Ok(())
+}
+
+async fn serve_static_asset(
+    axum::extract::Path(path): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    if path.ends_with(".js") {
+        serve_js().await.into_response()
+    } else if path.ends_with(".css") {
+        serve_css().await.into_response()
+    } else {
+        Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Body::from("Not found"))
+            .unwrap()
     }
 }

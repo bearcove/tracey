@@ -49,12 +49,22 @@ owo-colors = "4"
 miette-arborium = "2"
 
 # Tree-sitter parsing (for reverse traceability)
+# Note: async_tiny was removed - now using axum
 arborium = { version = "2", default-features = false }
 arborium-rust = "2"
 
 # HTTP server for serve command
-async_tiny = "0.4"
-tokio = { version = "1", default-features = false, features = ["rt", "net", "sync", "time"] }
+axum = { version = "0.8", features = ["ws"] }
+tokio = { version = "1", default-features = false, features = ["rt", "net", "sync", "time", "process", "io-util", "macros"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors"] }
+hyper = { version = "1" }
+hyper-util = { version = "0.1", features = ["client-legacy", "http1"] }
+http-body-util = "0.1"
+futures-util = "0.3"
+tokio-tungstenite = "0.26"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # File watching for live reload
 notify = "8"

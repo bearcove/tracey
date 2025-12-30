@@ -9,6 +9,7 @@ mod errors;
 mod output;
 mod search;
 mod serve;
+mod vite;
 
 use config::Config;
 use eyre::{Result, WrapErr};
@@ -152,6 +153,10 @@ enum Command {
         /// Open the dashboard in your browser
         #[facet(args::named, default)]
         open: bool,
+
+        /// Development mode: serve dashboard from Vite dev server
+        #[facet(args::named, default)]
+        dev: bool,
     },
 }
 
@@ -218,9 +223,12 @@ fn main() -> Result<()> {
         }) => run_matrix_command(
             config, format, uncovered, no_verify, level, status, prefix, output, open,
         ),
-        Some(Command::Serve { config, port, open }) => {
-            serve::run(config, port.unwrap_or(3000), open)
-        }
+        Some(Command::Serve {
+            config,
+            port,
+            open,
+            dev,
+        }) => serve::run(config, port.unwrap_or(3000), open, dev),
         None => run_coverage_command(args),
     }
 }
