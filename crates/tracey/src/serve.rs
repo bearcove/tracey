@@ -1164,12 +1164,11 @@ async fn run_server(
 
                 let is_ignored = |path: &Path| {
                     for component in path.components() {
-                        if let std::path::Component::Normal(name) = component {
-                            if let Some(name_str) = name.to_str() {
-                                if ignored_paths.contains(&name_str) {
-                                    return true;
-                                }
-                            }
+                        if let std::path::Component::Normal(name) = component
+                            && let Some(name_str) = name.to_str()
+                            && ignored_paths.contains(&name_str)
+                        {
+                            return true;
                         }
                     }
                     false
@@ -1328,10 +1327,8 @@ async fn run_server(
         );
     }
 
-    if open_browser {
-        if let Err(e) = open::that(&url) {
-            eprintln!("{} Failed to open browser: {}", "!".yellow(), e);
-        }
+    if open_browser && let Err(e) = open::that(&url) {
+        eprintln!("{} Failed to open browser: {}", "!".yellow(), e);
     }
 
     axum::serve(listener, app).await.wrap_err("Server error")?;
