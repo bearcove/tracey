@@ -28,6 +28,9 @@ facet = { workspace = true }
 facet-json = { workspace = true }
 eyre = { workspace = true }
 
+# Markdown processing (shared with dodeca)
+bearmark = { workspace = true }
+
 # Optional
 ignore = { workspace = true, optional = true }
 rayon = { workspace = true, optional = true }

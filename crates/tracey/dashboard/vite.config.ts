@@ -6,6 +6,13 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        // Predictable names for embedding via include_str!
+        entryFileNames: "assets/index.js",
+        assetFileNames: "assets/[name][extname]",
+      },
+    },
   },
   server: {
     // Allow the tracey server to proxy to us

@@ -71,6 +71,9 @@ notify-debouncer-mini = "0.7"
 # Full-text search
 tantivy = "0.22"
 
+# Markdown processing (with syntax highlighting and diagram handlers)
+bearmark = { git = "https://github.com/bearcove/dodeca", branch = "feature/bearmark-markdown-library", features = ["highlight", "aasvg", "pikru"] }
+
 # The profile that 'dist' will build with
 [profile.dist]
 inherits = "release"

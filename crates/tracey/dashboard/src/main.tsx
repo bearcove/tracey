@@ -1,7 +1,7 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { marked } from 'marked';
+// Note: Server-side markdown rendering via bearmark - no client-side parsing needed
 import { highlight } from '@arborium/arborium';
 import './style.css';
 import type {
@@ -1481,110 +1481,26 @@ function CodeView({ file, config, selectedLine, onSelectRule }: CodeViewProps) {
 function SpecView({ config, forward, selectedRule, onSelectRule, onSelectFile, scrollPosition, onScrollChange }: SpecViewProps) {
   const spec = useSpec(config.specs[0]?.name);
   const [activeHeading, setActiveHeading] = useState(null);
+  const [headings, setHeadings] = useState<{level: number, text: string, slug: string}[]>([]);
   const contentRef = useRef(null);
   const contentBodyRef = useRef(null);
   const initialScrollPosition = useRef(scrollPosition);
 
-  // Build rule coverage map
-  const ruleCoverage = useMemo(() => {
-    const map = new Map();
-    for (const s of forward.specs) {
-      for (const r of s.rules) {
-        const hasImpl = r.implRefs.length > 0;
-        const hasVerify = r.verifyRefs.length > 0;
-        map.set(r.id, {
-          rule: r,
-          status: hasImpl && hasVerify ? 'covered' : hasImpl || hasVerify ? 'partial' : 'uncovered'
-        });
-      }
-    }
-    return map;
-  }, [forward]);
+  // Server renders HTML with coverage - just use it directly
+  const processedContent = spec?.html || '';
 
-  // Extract headings from markdown and generate slugs
-  const headings = useMemo(() => {
-    if (!spec) return [];
-    const result = [];
-    const lines = spec.content.split('\n');
-    for (const line of lines) {
-      const match = line.match(/^(#{1,4})\s+(.+)$/);
-      if (match) {
-        const level = match[1].length;
-        const text = match[2].trim();
-        const slug = text.toLowerCase().replace(/[^\w]+/g, '-').replace(/^-|-$/g, '');
-        result.push({ level, text, slug });
-      }
-    }
-    return result;
-  }, [spec]);
+  // Extract headings from rendered HTML after it's in the DOM
+  useEffect(() => {
+    if (!contentRef.current || !spec?.html) return;
 
-  // Process markdown to inject rule markers and add IDs to headings
-  const processedContent = useMemo(() => {
-    if (!spec) return '';
-    let content = spec.content;
-
-    // Replace r[rule.id] with styled markers + reference links
-    // Only match at start of file or after a blank line, at the beginning of a line
-    content = content.replace(/(^|\n\n)r\[([^\]]+)\]/g, (match, prefix, ruleId) => {
-      const coverage = ruleCoverage.get(ruleId);
-      const status = coverage?.status || 'uncovered';
-      const rule = coverage?.rule;
-
-      // Helper to get just filename from path
-      const getFileName = (path) => path.split('/').pop();
-
-      let refHtml = '';
-      if (rule) {
-        const allRefs = [];
-        if (rule.implRefs && rule.implRefs.length > 0) {
-          rule.implRefs.forEach(r => {
-            const deviconClass = getDeviconClass(r.file);
-            const iconHtml = deviconClass
-              ? `<i class="${deviconClass} spec-ref-icon"></i>`
-              : `<i data-lucide="file" class="spec-ref-icon"></i>`;
-            allRefs.push(`<a class="spec-ref spec-ref-impl" href="/tree/${r.file}:${r.line}" data-file="${r.file}" data-line="${r.line}" title="${r.file}:${r.line}">${iconHtml}${getFileName(r.file)}:${r.line}</a>`);
-          });
-        }
-        if (rule.verifyRefs && rule.verifyRefs.length > 0) {
-          rule.verifyRefs.forEach(r => {
-            const deviconClass = getDeviconClass(r.file);
-            const iconHtml = deviconClass
-              ? `<i class="${deviconClass} spec-ref-icon"></i>`
-              : `<i data-lucide="file" class="spec-ref-icon"></i>`;
-            allRefs.push(`<a class="spec-ref spec-ref-verify" href="/tree/${r.file}:${r.line}" data-file="${r.file}" data-line="${r.line}" title="${r.file}:${r.line}">${iconHtml}${getFileName(r.file)}:${r.line}</a>`);
-          });
-        }
-        if (allRefs.length > 0) {
-          refHtml = allRefs.join('');
-        }
-      }
-
-      // Use Lucide icon for rule marker
-      const icon = `<i data-lucide="file-check" class="rule-marker-icon"></i>`;
-
-      // Use special markers that we'll process after markdown parsing
-      return `${prefix}<!--RULE_START:${ruleId}:${status}--><a class="rule-marker ${status}" href="/spec/${ruleId}" data-rule="${ruleId}">${icon}${ruleId}</a>${refHtml ? `<div class="spec-refs">${refHtml}</div>` : ''}<!--RULE_CONTENT_START-->`;
-    });
-
-    let html = marked.parse(content) as string;
-
-    // Add IDs to headings
-    headings.forEach(h => {
-      // Match the heading tag and add id attribute
-      const headingRegex = new RegExp(`(<h${h.level}>)(${h.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})(</h${h.level}>)`, 'i');
-      html = html.replace(headingRegex, `<h${h.level} id="${h.slug}" data-slug="${h.slug}">$2$3`);
-    });
-
-    // Wrap rule blocks: find RULE_START marker, capture until next RULE_START or heading
-    html = html.replace(/<!--RULE_START:([^:]+):([^-]+)-->([\s\S]*?)<!--RULE_CONTENT_START-->([\s\S]*?)(?=<!--RULE_START|<h[1-6]|$)/g,
-      (match, ruleId, status, header, content) => {
-        // Clean up paragraph wrapping - the content is usually wrapped in <p> tags
-        return `<div class="rule-block rule-block-${status}"><div class="rule-block-header">${header}</div><div class="rule-block-content">${content.trim()}</div></div>`;
-      }
-    );
-
-    return html;
-  }, [spec, ruleCoverage, headings]);
+    const headingElements = contentRef.current.querySelectorAll('h1[id], h2[id], h3[id], h4[id]');
+    const extracted = Array.from(headingElements).map((el: HTMLElement) => ({
+      level: parseInt(el.tagName[1]),
+      text: el.textContent || '',
+      slug: el.id
+    }));
+    setHeadings(extracted);
+  }, [spec?.html]);
 
   // Set up intersection observer for headings
   useEffect(() => {

@@ -47,6 +47,9 @@ ignore = { workspace = true }
 # Syntax highlighting for miette
 miette-arborium = { workspace = true }
 
+# Markdown rendering with syntax highlighting and diagrams
+bearmark = { workspace = true }
+
 # JSON output
 html-escape = "0.2.13"
 

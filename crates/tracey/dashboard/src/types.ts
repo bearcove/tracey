@@ -85,8 +85,7 @@ export interface CodeUnit {
 
 export interface SpecContent {
   name: string;
-  content: string;
-  rules: Rule[];
+  html: string;
   sourceFile?: string;
 }
 
