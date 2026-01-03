@@ -1502,52 +1502,55 @@ function SpecView({ config, forward, selectedRule, onSelectRule, onSelectFile, s
     setHeadings(extracted);
   }, [spec?.html]);
 
-  // Set up intersection observer for headings
+  // Set up scroll-based heading tracking
   useEffect(() => {
     if (!contentRef.current || !contentBodyRef.current || headings.length === 0) return;
 
-    // Small delay to ensure DOM is ready
-    const timeoutId = setTimeout(() => {
-      const headingElements = contentRef.current.querySelectorAll('h1[id], h2[id], h3[id], h4[id]');
-      if (headingElements.length === 0) return;
+    const contentBody = contentBodyRef.current;
 
-      const observer = new IntersectionObserver(
-        (entries) => {
-          // Track which headings are visible
-          const visibleHeadings = [];
-          entries.forEach(entry => {
-            if (entry.isIntersecting) {
-              visibleHeadings.push({
-                id: entry.target.id,
-                top: entry.boundingClientRect.top
-              });
-            }
-          });
+    const updateActiveHeading = () => {
+      const headingElements = contentRef.current?.querySelectorAll('h1[id], h2[id], h3[id], h4[id]');
+      if (!headingElements || headingElements.length === 0) return;
 
-          // Set the topmost visible heading as active
-          if (visibleHeadings.length > 0) {
-            visibleHeadings.sort((a, b) => a.top - b.top);
-            setActiveHeading(visibleHeadings[0].id);
-          }
-        },
-        {
-          root: contentBodyRef.current,
-          rootMargin: '-5% 0px -70% 0px',
-          threshold: 0
+      // Find the heading closest to the top of the viewport (but not past it)
+      const scrollTop = contentBody.scrollTop;
+      const viewportTop = 100; // offset from top to consider "active"
+
+      let activeId: string | null = null;
+
+      for (const el of headingElements) {
+        const htmlEl = el as HTMLElement;
+        const offsetTop = htmlEl.offsetTop;
+
+        // If this heading is above the viewport threshold, it's the current section
+        if (offsetTop <= scrollTop + viewportTop) {
+          activeId = htmlEl.id;
+        } else {
+          // Once we find a heading below the threshold, stop
+          break;
         }
-      );
-
-      headingElements.forEach(el => observer.observe(el));
-
-      // Set initial active heading
-      if (headings.length > 0) {
-        setActiveHeading(headings[0].slug);
       }
 
-      return () => observer.disconnect();
-    }, 100);
+      // If no heading is above threshold, use the first one
+      if (!activeId && headingElements.length > 0) {
+        activeId = (headingElements[0] as HTMLElement).id;
+      }
 
-    return () => clearTimeout(timeoutId);
+      if (activeId) {
+        setActiveHeading(activeId);
+      }
+    };
+
+    // Initial update
+    const timeoutId = setTimeout(updateActiveHeading, 100);
+
+    // Update on scroll
+    contentBody.addEventListener('scroll', updateActiveHeading, { passive: true });
+
+    return () => {
+      clearTimeout(timeoutId);
+      contentBody.removeEventListener('scroll', updateActiveHeading);
+    };
   }, [processedContent, headings]);
 
   // Track scroll position changes

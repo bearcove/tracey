@@ -365,6 +365,67 @@ impl TraceyRuleHandler {
     }
 }
 
+/// Get devicon class for a file path based on extension
+fn devicon_class(path: &str) -> Option<&'static str> {
+    let ext = path.rsplit('.').next()?;
+    match ext {
+        // Systems languages
+        "rs" => Some("devicon-rust-original"),
+        "go" => Some("devicon-go-plain"),
+        "zig" => Some("devicon-zig-original"),
+        "c" => Some("devicon-c-plain"),
+        "h" => Some("devicon-c-plain"),
+        "cpp" | "cc" | "cxx" => Some("devicon-cplusplus-plain"),
+        "hpp" | "hh" | "hxx" => Some("devicon-cplusplus-plain"),
+        // Web/JS ecosystem
+        "js" | "mjs" | "cjs" => Some("devicon-javascript-plain"),
+        "ts" | "mts" | "cts" => Some("devicon-typescript-plain"),
+        "jsx" => Some("devicon-javascript-plain"),
+        "tsx" => Some("devicon-typescript-plain"),
+        "vue" => Some("devicon-vuejs-plain"),
+        "svelte" => Some("devicon-svelte-plain"),
+        // Mobile
+        "swift" => Some("devicon-swift-plain"),
+        "kt" | "kts" => Some("devicon-kotlin-plain"),
+        "dart" => Some("devicon-dart-plain"),
+        // JVM
+        "java" => Some("devicon-java-plain"),
+        "scala" => Some("devicon-scala-plain"),
+        "clj" | "cljs" | "cljc" => Some("devicon-clojure-plain"),
+        "groovy" => Some("devicon-groovy-plain"),
+        // Scripting
+        "py" => Some("devicon-python-plain"),
+        "rb" => Some("devicon-ruby-plain"),
+        "php" => Some("devicon-php-plain"),
+        "lua" => Some("devicon-lua-plain"),
+        "pl" | "pm" => Some("devicon-perl-plain"),
+        "r" => Some("devicon-r-plain"),
+        "jl" => Some("devicon-julia-plain"),
+        // Functional
+        "hs" | "lhs" => Some("devicon-haskell-plain"),
+        "ml" | "mli" => Some("devicon-ocaml-plain"),
+        "ex" | "exs" => Some("devicon-elixir-plain"),
+        "erl" | "hrl" => Some("devicon-erlang-plain"),
+        "fs" | "fsi" | "fsx" => Some("devicon-fsharp-plain"),
+        // Shell
+        "sh" | "bash" | "zsh" => Some("devicon-bash-plain"),
+        "ps1" | "psm1" => Some("devicon-powershell-plain"),
+        // Config/data
+        "json" => Some("devicon-json-plain"),
+        "yaml" | "yml" => Some("devicon-yaml-plain"),
+        "toml" => Some("devicon-toml-plain"),
+        "xml" => Some("devicon-xml-plain"),
+        "sql" => Some("devicon-postgresql-plain"),
+        // Web
+        "html" | "htm" => Some("devicon-html5-plain"),
+        "css" => Some("devicon-css3-plain"),
+        "scss" | "sass" => Some("devicon-sass-original"),
+        // Docs
+        "md" | "markdown" => Some("devicon-markdown-original"),
+        _ => None,
+    }
+}
+
 impl RuleHandler for TraceyRuleHandler {
     fn render<'a>(
         &'a self,
@@ -391,13 +452,16 @@ impl RuleHandler for TraceyRuleHandler {
                 if !cov.impl_refs.is_empty() {
                     let r = &cov.impl_refs[0];
                     let filename = r.file.rsplit('/').next().unwrap_or(&r.file);
+                    let icon = devicon_class(&r.file)
+                        .map(|c| format!(r#"<i class="{c}"></i> "#))
+                        .unwrap_or_default();
                     let count_suffix = if cov.impl_refs.len() > 1 {
                         format!(" +{}", cov.impl_refs.len() - 1)
                     } else {
                         String::new()
                     };
                     badges_html.push_str(&format!(
-                        r#"<a class="rule-badge rule-impl" href="/tree/{}:{}" data-file="{}" data-line="{}" title="Implementation: {}:{}">impl: {}:{}{}</a>"#,
+                        r#"<a class="rule-badge rule-impl" href="/tree/{}:{}" data-file="{}" data-line="{}" title="Implementation: {}:{}">{icon}{}:{}{}</a>"#,
                         r.file, r.line, r.file, r.line, r.file, r.line, filename, r.line, count_suffix
                     ));
                 }
@@ -406,13 +470,16 @@ impl RuleHandler for TraceyRuleHandler {
                 if !cov.verify_refs.is_empty() {
                     let r = &cov.verify_refs[0];
                     let filename = r.file.rsplit('/').next().unwrap_or(&r.file);
+                    let icon = devicon_class(&r.file)
+                        .map(|c| format!(r#"<i class="{c}"></i> "#))
+                        .unwrap_or_default();
                     let count_suffix = if cov.verify_refs.len() > 1 {
                         format!(" +{}", cov.verify_refs.len() - 1)
                     } else {
                         String::new()
                     };
                     badges_html.push_str(&format!(
-                        r#"<a class="rule-badge rule-test" href="/tree/{}:{}" data-file="{}" data-line="{}" title="Test: {}:{}">test: {}:{}{}</a>"#,
+                        r#"<a class="rule-badge rule-test" href="/tree/{}:{}" data-file="{}" data-line="{}" title="Test: {}:{}">{icon}{}:{}{}</a>"#,
                         r.file, r.line, r.file, r.line, r.file, r.line, filename, r.line, count_suffix
                     ));
                 }
