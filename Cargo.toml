@@ -27,6 +27,9 @@ facet-miette = { git = "https://github.com/facet-rs/facet", branch = "main", ver
 
 # Error handling
 eyre = "0.6"
+
+# HTML utilities
+html-escape = "0.2"
 miette = { version = "7", default-features = false, features = ["fancy-no-backtrace"] }
 
 # HTTP fetching
@@ -72,7 +75,7 @@ notify-debouncer-mini = "0.7"
 tantivy = "0.22"
 
 # Markdown processing (with syntax highlighting and diagram handlers)
-bearmark = { git = "https://github.com/bearcove/dodeca", branch = "feature/bearmark-markdown-library", features = ["highlight", "aasvg", "pikru"] }
+bearmark = { path = "../dodeca/crates/bearmark", features = ["highlight", "aasvg", "pikru"] }
 
 # The profile that 'dist' will build with
 [profile.dist]

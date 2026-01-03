@@ -1239,7 +1239,7 @@ spec {
     // Run tracey with verbose mode to see invalid references
     let output = tracey_bin()
         .current_dir(&temp_dir)
-        .arg("--verbose")
+        .args(["check", "--verbose"])
         .output()
         .expect("Failed to run tracey");
 

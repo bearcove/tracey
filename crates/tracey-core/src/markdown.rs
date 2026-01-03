@@ -315,6 +315,13 @@ impl MarkdownProcessor {
                 // another rule marker, or a heading
                 let text = extract_rule_text(&lines[i + 1..]);
 
+                // Render paragraph to HTML (simple version - bearmark does full rendering)
+                let paragraph_html = if text.is_empty() {
+                    String::new()
+                } else {
+                    format!("<p>{}</p>\n", html_escape::encode_text(&text))
+                };
+
                 // Check for RFC 2119 keywords and emit warnings
                 let keywords = detect_rfc2119_keywords(&text);
 
@@ -349,6 +356,7 @@ impl MarkdownProcessor {
                     line: i + 1, // 1-indexed line number
                     metadata,
                     text,
+                    paragraph_html,
                 });
 
                 // Emit rule HTML directly
@@ -781,6 +789,7 @@ Second occurrence.
                 line: 1,
                 metadata: RuleMetadata::default(),
                 text: "Channel IDs must be allocated.".to_string(),
+                paragraph_html: "<p>Channel IDs must be allocated.</p>\n".to_string(),
             },
             MarkdownRule {
                 id: "channel.id.parity".to_string(),
@@ -792,6 +801,7 @@ Second occurrence.
                 line: 5,
                 metadata: RuleMetadata::default(),
                 text: String::new(),
+                paragraph_html: String::new(),
             },
         ];
 

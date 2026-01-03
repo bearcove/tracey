@@ -377,34 +377,57 @@ impl RuleHandler for TraceyRuleHandler {
             // Insert <wbr> after dots for better line breaking
             let display_id = rule.id.replace('.', ".<wbr>");
 
-            // Build refs HTML
-            let mut refs_html = String::new();
+            // Build the badges that pierce the top border
+            let mut badges_html = String::new();
+
+            // Rule ID badge (always present)
+            badges_html.push_str(&format!(
+                r#"<a class="rule-badge rule-id" href="/spec/{}" data-rule="{}" title="{}">{}</a>"#,
+                rule.id, rule.id, rule.id, display_id
+            ));
+
+            // Implementation badge
             if let Some(cov) = coverage {
-                for r in &cov.impl_refs {
+                if !cov.impl_refs.is_empty() {
+                    let r = &cov.impl_refs[0];
                     let filename = r.file.rsplit('/').next().unwrap_or(&r.file);
-                    refs_html.push_str(&format!(
-                        r#"<a class="spec-ref spec-ref-impl" href="/tree/{}:{}" data-file="{}" data-line="{}" title="{}:{}"><i class="devicon-rust-original spec-ref-icon"></i>{}:{}</a>"#,
-                        r.file, r.line, r.file, r.line, r.file, r.line, filename, r.line
+                    let count_suffix = if cov.impl_refs.len() > 1 {
+                        format!(" +{}", cov.impl_refs.len() - 1)
+                    } else {
+                        String::new()
+                    };
+                    badges_html.push_str(&format!(
+                        r#"<a class="rule-badge rule-impl" href="/tree/{}:{}" data-file="{}" data-line="{}" title="Implementation: {}:{}">impl: {}:{}{}</a>"#,
+                        r.file, r.line, r.file, r.line, r.file, r.line, filename, r.line, count_suffix
                     ));
                 }
-                for r in &cov.verify_refs {
+
+                // Test/verify badge
+                if !cov.verify_refs.is_empty() {
+                    let r = &cov.verify_refs[0];
                     let filename = r.file.rsplit('/').next().unwrap_or(&r.file);
-                    refs_html.push_str(&format!(
-                        r#"<a class="spec-ref spec-ref-verify" href="/tree/{}:{}" data-file="{}" data-line="{}" title="{}:{}"><i class="devicon-rust-original spec-ref-icon"></i>{}:{}</a>"#,
-                        r.file, r.line, r.file, r.line, r.file, r.line, filename, r.line
+                    let count_suffix = if cov.verify_refs.len() > 1 {
+                        format!(" +{}", cov.verify_refs.len() - 1)
+                    } else {
+                        String::new()
+                    };
+                    badges_html.push_str(&format!(
+                        r#"<a class="rule-badge rule-test" href="/tree/{}:{}" data-file="{}" data-line="{}" title="Test: {}:{}">test: {}:{}{}</a>"#,
+                        r.file, r.line, r.file, r.line, r.file, r.line, filename, r.line, count_suffix
                     ));
                 }
             }
 
-            let refs_div = if refs_html.is_empty() {
-                String::new()
-            } else {
-                format!(r#"<div class="spec-refs">{}</div>"#, refs_html)
-            };
-
+            // Render the rule container with paragraph content
             Ok(format!(
-                r#"<div class="rule rule-{}" id="{}"><a class="rule-marker {}" href="/spec/{}" data-rule="{}"><i data-lucide="file-check" class="rule-marker-icon"></i>{}</a>{}</div>"#,
-                status, rule.anchor_id, status, rule.id, rule.id, display_id, refs_div
+                r#"<div class="rule-container rule-{status}" id="{anchor}">
+<div class="rule-badges">{badges}</div>
+<div class="rule-content">{paragraph}</div>
+</div>"#,
+                status = status,
+                anchor = rule.anchor_id,
+                badges = badges_html,
+                paragraph = rule.paragraph_html
             ))
         })
     }
@@ -696,8 +719,8 @@ async fn load_spec_content(
     let rule_handler = TraceyRuleHandler::new(coverage.clone());
     let opts = RenderOptions::new()
         .with_default_handler(ArboriumHandler::new())
-        .with_handler("aasvg", AasvgHandler::new())
-        .with_handler("pikchr", PikruHandler::new())
+        .with_handler(&["aasvg"], AasvgHandler::new())
+        .with_handler(&["pikchr"], PikruHandler::new())
         .with_rule_handler(rule_handler);
 
     let walker = WalkBuilder::new(root)
@@ -1209,6 +1232,7 @@ async fn handle_vite_ws(
 
 /// Run the serve command
 pub fn run(
+    project_root: Option<PathBuf>,
     config_path: Option<PathBuf>,
     port: u16,
     open_browser: bool,
@@ -1232,16 +1256,24 @@ pub fn run(
         .build()
         .wrap_err("Failed to create tokio runtime")?;
 
-    rt.block_on(async move { run_server(config_path, port, open_browser, dev_mode).await })
+    rt.block_on(
+        async move { run_server(project_root, config_path, port, open_browser, dev_mode).await },
+    )
 }
 
 async fn run_server(
+    project_root: Option<PathBuf>,
     config_path: Option<PathBuf>,
     port: u16,
     open_browser: bool,
     dev_mode: bool,
 ) -> Result<()> {
-    let project_root = crate::find_project_root()?;
+    let project_root = match project_root {
+        Some(root) => root
+            .canonicalize()
+            .wrap_err("Failed to canonicalize project root")?,
+        None => crate::find_project_root()?,
+    };
     let config_path = config_path.unwrap_or_else(|| project_root.join(".config/tracey/config.kdl"));
     let config = crate::load_config(&config_path)?;
 

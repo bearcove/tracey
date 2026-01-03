@@ -839,6 +839,96 @@ a.rule-marker:hover {
   margin-bottom: 0;
 }
 
+/* Rule container - fieldset-like design with badges piercing the top border */
+.rule-container {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin: 1.5rem 0;
+  padding: 1rem 1rem 0.75rem 1rem;
+}
+
+.rule-container.rule-covered {
+  border-color: color-mix(in srgb, var(--green) 50%, var(--border));
+}
+
+.rule-container.rule-partial {
+  border-color: color-mix(in srgb, var(--yellow) 50%, var(--border));
+}
+
+.rule-container.rule-uncovered {
+  border-color: color-mix(in srgb, var(--red) 50%, var(--border));
+}
+
+.rule-badges {
+  position: absolute;
+  top: -0.7rem;
+  left: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: var(--bg);
+  padding: 0 0.25rem;
+}
+
+.rule-badge {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.75rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  text-decoration: none;
+  font-weight: 500;
+  transition: filter 0.15s;
+}
+
+.rule-badge:hover {
+  filter: brightness(1.15);
+}
+
+.rule-badge.rule-id {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+.rule-covered .rule-badge.rule-id {
+  background: var(--green-dim);
+  color: var(--green);
+}
+
+.rule-partial .rule-badge.rule-id {
+  background: var(--yellow-dim);
+  color: var(--yellow);
+}
+
+.rule-uncovered .rule-badge.rule-id {
+  background: var(--red-dim);
+  color: var(--red);
+}
+
+.rule-badge.rule-impl {
+  background: color-mix(in srgb, var(--green) 15%, transparent);
+  color: var(--green);
+  border: 1px solid color-mix(in srgb, var(--green) 30%, transparent);
+}
+
+.rule-badge.rule-test {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.rule-content {
+  margin-top: 0.25rem;
+}
+
+.rule-content p {
+  margin: 0;
+}
+
+.rule-content p + p {
+  margin-top: 0.5rem;
+}
+
 .spec-refs {
   display: flex;
   flex-wrap: wrap;
