@@ -2072,21 +2072,21 @@ function initSearch() {{
     hasImpl: !!row.querySelector('.ref-icon-impl'),
     hasVerify: !!row.querySelector('.ref-icon-verify'),
   }}));
-  
+
   fuse = new Fuse(ruleRows, {{
     keys: ['ruleId', 'desc', 'refs'],
     threshold: 0.3,
     ignoreLocation: true,
     includeMatches: true,
   }});
-  
+
   markInstance = new Mark(document.querySelector('tbody'));
 }}
 
 function setCoverageFilter(filter) {{
   const implStat = document.getElementById('stat-impl');
   const verifyStat = document.getElementById('stat-verify');
-  
+
   if (coverageFilter === filter) {{
     // Toggle off
     coverageFilter = null;
@@ -2104,12 +2104,12 @@ function filterTable() {{
   const filter = document.getElementById('filter').value;
   const levelFilter = currentLevel;
   const rows = document.querySelectorAll('tbody tr');
-  
+
   // Clear previous highlights
   if (markInstance) {{
     markInstance.unmark();
   }}
-  
+
   // Determine which rows match the search
   let matchingIndices = new Set();
   if (filter === '') {{
@@ -2120,12 +2120,12 @@ function filterTable() {{
     const results = fuse.search(filter);
     results.forEach(result => matchingIndices.add(result.item.index));
   }}
-  
+
   let currentSectionHeader = null;
   let currentSectionVisible = false;
   let totalRules = 0;
   let hiddenRules = 0;
-  
+
   rows.forEach((row, idx) => {{
     if (row.classList.contains('section-header')) {{
       // Hide section header initially, show if any child matches
@@ -2137,13 +2137,13 @@ function filterTable() {{
       row.style.display = 'none';
       return;
     }}
-    
+
     totalRules++;
-    
+
     // Find the ruleRow index for this row
     const ruleRowIdx = ruleRows.findIndex(r => r.row === row);
     const matchesText = ruleRowIdx >= 0 && matchingIndices.has(ruleRowIdx);
-    
+
     // Check level filter by looking for keyword elements in the row
     let matchesLevel = true;
     if (levelFilter === 'must') {{
@@ -2153,7 +2153,7 @@ function filterTable() {{
     }} else if (levelFilter === 'may') {{
       matchesLevel = !!row.querySelector('kw-may, kw-optional');
     }}
-    
+
     // Check coverage filter
     let matchesCoverage = true;
     if (coverageFilter && ruleRowIdx >= 0) {{
@@ -2164,22 +2164,22 @@ function filterTable() {{
         matchesCoverage = !ruleRow.hasVerify;
       }}
     }}
-    
+
     const visible = matchesText && matchesLevel && matchesCoverage;
     row.style.display = visible ? '' : 'none';
-    
+
     if (visible) {{
       currentSectionVisible = true;
     }} else {{
       hiddenRules++;
     }}
   }});
-  
+
   // Handle last section header
   if (currentSectionHeader && currentSectionVisible) {{
     currentSectionHeader.style.display = '';
   }}
-  
+
   // Update filter notice
   const notice = document.getElementById('filter-notice');
   const noticeText = document.getElementById('filter-notice-text');
@@ -2189,7 +2189,7 @@ function filterTable() {{
   }} else {{
     notice.classList.remove('visible');
   }}
-  
+
   // Highlight matches
   if (filter && markInstance) {{
     markInstance.mark(filter, {{
@@ -2644,7 +2644,7 @@ pub(crate) fn load_manifest_from_glob(
             let message = match &warning.kind {
                 MarkdownWarningKind::NoRfc2119Keyword => "no RFC 2119 keyword".to_string(),
                 MarkdownWarningKind::NegativeRequirement(kw) => {
-                    format!("contains {}", kw.as_str())
+                    format!("{} — negative requirements are hard to test", kw.as_str())
                 }
             };
             eprintln!(

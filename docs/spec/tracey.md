@@ -20,19 +20,19 @@ A rule reference MAY include a verb prefix before the rule ID, separated by a sp
 ### Supported Verbs
 
 r[ref.verb.define]
-The `define` verb indicates where a requirement is defined (typically in specs/docs).
+Tracey MUST interpret the `define` verb as indicating where a requirement is defined (typically in specs/docs).
 
 r[ref.verb.impl]
-The `impl` verb indicates that the code implements the referenced rule.
+Tracey MUST interpret the `impl` verb as indicating that the code implements the referenced rule.
 
 r[ref.verb.verify]
-The `verify` verb indicates that the code tests or verifies the referenced rule.
+Tracey MUST interpret the `verify` verb as indicating that the code tests or verifies the referenced rule.
 
 r[ref.verb.depends]
-The `depends` verb indicates a strict dependency - must recheck if the referenced rule changes.
+Tracey MUST interpret the `depends` verb as indicating a strict dependency — the code must be rechecked if the referenced rule changes.
 
 r[ref.verb.related]
-The `related` verb indicates a loose connection - shown when reviewing related code.
+Tracey MUST interpret the `related` verb as indicating a loose connection, shown when reviewing related code.
 
 r[ref.verb.default]
 When no verb is provided, the reference SHOULD be treated as an `impl` reference.
@@ -116,7 +116,7 @@ r[coverage.compute.percentage]
 Coverage percentage MUST be calculated as (covered rules / total rules) * 100.
 
 r[coverage.compute.covered]
-A rule is considered covered if at least one reference to it exists in the scanned source files.
+Tracey MUST consider a rule covered if at least one reference to it exists in the scanned source files.
 
 r[coverage.compute.uncovered]
 Rules in the manifest with no references MUST be reported as uncovered.
