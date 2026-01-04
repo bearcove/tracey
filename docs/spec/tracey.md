@@ -75,7 +75,7 @@ r[markdown.syntax.standalone]
 The rule marker MUST appear on its own line (possibly with leading/trailing whitespace).
 
 r[markdown.syntax.inline-ignored]
-Rule markers that appear inline within other text MUST NOT be treated as rule definitions.
+Rule markers that appear inline within other text MUST be treated as regular text, not rule definitions.
 
 ### Duplicate Detection
 

@@ -1584,6 +1584,20 @@ function SpecView({ config, forward, selectedRule, selectedHeading, onSelectRule
         return;
       }
 
+      // Handle rule-id badge clicks - open spec source in editor
+      const ruleBadge = e.target.closest('a.rule-badge.rule-id[data-source-file][data-source-line]');
+      if (ruleBadge) {
+        e.preventDefault();
+        const sourceFile = ruleBadge.dataset.sourceFile;
+        const sourceLine = parseInt(ruleBadge.dataset.sourceLine, 10);
+        if (sourceFile && !isNaN(sourceLine)) {
+          const fullPath = config.projectRoot ? `${config.projectRoot}/${sourceFile}` : sourceFile;
+          // Open in Zed (default editor)
+          window.location.href = EDITORS.zed.urlTemplate(fullPath, sourceLine);
+        }
+        return;
+      }
+
       // Handle spec ref clicks - pass rule context
       const specRef = e.target.closest('a.spec-ref');
       if (specRef) {
@@ -1621,7 +1635,7 @@ function SpecView({ config, forward, selectedRule, selectedHeading, onSelectRule
 
     contentRef.current.addEventListener('click', handleClick);
     return () => contentRef.current?.removeEventListener('click', handleClick);
-  }, [processedContent, onSelectRule, onSelectFile]);
+  }, [processedContent, onSelectRule, onSelectFile, config]);
 
   // Scroll to selected rule or heading, or restore scroll position
   useEffect(() => {

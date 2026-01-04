@@ -399,11 +399,19 @@ struct RuleCoverage {
 /// Custom rule handler that renders rules with coverage status and refs
 struct TraceyRuleHandler {
     coverage: BTreeMap<String, RuleCoverage>,
+    /// Current source file being rendered (shared with rendering loop)
+    current_source_file: Arc<Mutex<String>>,
 }
 
 impl TraceyRuleHandler {
-    fn new(coverage: BTreeMap<String, RuleCoverage>) -> Self {
-        Self { coverage }
+    fn new(
+        coverage: BTreeMap<String, RuleCoverage>,
+        current_source_file: Arc<Mutex<String>>,
+    ) -> Self {
+        Self {
+            coverage,
+            current_source_file,
+        }
     }
 }
 
@@ -480,13 +488,16 @@ impl RuleHandler for TraceyRuleHandler {
             // Insert <wbr> after dots for better line breaking
             let display_id = rule.id.replace('.', ".<wbr>");
 
+            // Get current source file for this rule
+            let source_file = self.current_source_file.lock().unwrap().clone();
+
             // Build the badges that pierce the top border
             let mut badges_html = String::new();
 
-            // Rule ID badge (always present)
+            // Rule ID badge (always present) - includes source location for editor navigation
             badges_html.push_str(&format!(
-                r#"<a class="rule-badge rule-id" href="/spec/{}" data-rule="{}" title="{}">{}</a>"#,
-                rule.id, rule.id, rule.id, display_id
+                r#"<a class="rule-badge rule-id" href="/spec/{}" data-rule="{}" data-source-file="{}" data-source-line="{}" title="{}">{}</a>"#,
+                rule.id, rule.id, source_file, rule.line, rule.id, display_id
             ));
 
             // Implementation badge
@@ -824,8 +835,11 @@ async fn load_spec_content(
 ) -> Result<()> {
     use ignore::WalkBuilder;
 
+    // Shared source file tracker for rule handler
+    let current_source_file = Arc::new(Mutex::new(String::new()));
+
     // Set up bearmark handlers for consistent rendering with coverage-aware rule rendering
-    let rule_handler = TraceyRuleHandler::new(coverage.clone());
+    let rule_handler = TraceyRuleHandler::new(coverage.clone(), Arc::clone(&current_source_file));
     let opts = RenderOptions::new()
         .with_default_handler(ArboriumHandler::new())
         .with_handler(&["aasvg"], AasvgHandler::new())
@@ -871,6 +885,8 @@ async fn load_spec_content(
     // Render each file and build sections
     let mut sections = Vec::new();
     for (source_file, content, weight) in files {
+        // Update the current source file so rule handler can include it in data attributes
+        *current_source_file.lock().unwrap() = source_file.clone();
         let doc = render(&content, &opts).await?;
         sections.push(SpecSection {
             source_file,

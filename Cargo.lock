@@ -884,6 +884,7 @@ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 [[package]]
 name = "bearmark"
 version = "0.1.0"
+source = "git+https://github.com/bearcove/dodeca?branch=main#309f3e43f32f9fd731bc3724479bcd132b25cd3e"
 dependencies = [
  "aasvg",
  "arborium",
