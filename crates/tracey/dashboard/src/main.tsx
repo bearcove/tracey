@@ -1,8 +1,7 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'preact/hooks';
 import htm from 'htm';
-// Note: Server-side markdown rendering via bearmark - no client-side parsing needed
-import { highlight } from '@arborium/arborium';
+// Note: Server-side rendering via bearmark (markdown) and arborium (syntax highlighting)
 import './style.css';
 import type {
   Route, ViewType,
@@ -19,9 +18,6 @@ import type {
 declare const lucide: { createIcons: (opts?: { nodes?: Node[] }) => void };
 
 const html = htm.bind(h);
-
-// Cache for highlighted code
-const highlightCache = new Map<string, string>();
 
 // ========================================================================
 // API
@@ -333,26 +329,6 @@ function renderRuleText(text: string | undefined): string {
   return result;
 }
 
-// Highlight code using arborium (async, with caching)
-async function highlightCode(code, lang = 'rust') {
-  const cacheKey = `${lang}:${code}`;
-  if (highlightCache.has(cacheKey)) {
-    return highlightCache.get(cacheKey);
-  }
-  try {
-    const highlighted = await highlight(lang, code);
-    highlightCache.set(cacheKey, highlighted);
-    return highlighted;
-  } catch (e) {
-    console.warn('Highlight failed:', e);
-    // Fallback: escape HTML
-    return code
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-  }
-}
-
 // Split highlighted HTML into self-contained lines
 // Each line will have properly balanced open/close tags
 function splitHighlightedHtml(html) {
@@ -410,33 +386,6 @@ function splitHighlightedHtml(html) {
   if (currentLine) {
     lines.push(currentLine);
   }
-
-  return lines;
-}
-
-// Hook to highlight a file and split into lines
-function useHighlightedLines(content, lang = 'rust') {
-  const [lines, setLines] = useState(null);
-
-  useEffect(() => {
-    if (!content) {
-      setLines(null);
-      return;
-    }
-
-    let cancelled = false;
-
-    highlightCode(content, lang).then(highlighted => {
-      if (cancelled) return;
-      // arborium wraps in <pre><code>...</code></pre>, extract inner content
-      const match = highlighted.match(/<pre[^>]*><code[^>]*>([\s\S]*)<\/code><\/pre>/);
-      const inner = match ? match[1] : highlighted;
-      // Split into self-contained lines with balanced tags
-      setLines(splitHighlightedHtml(inner));
-    });
-
-    return () => { cancelled = true; };
-  }, [content, lang]);
 
   return lines;
 }
