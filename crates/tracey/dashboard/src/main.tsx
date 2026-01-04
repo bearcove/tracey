@@ -52,10 +52,15 @@ function parseRoute(): Route {
     }
     return { view: 'sources', file: null, line: null, context };
   }
-  // /spec or /spec/rule.id (also handle / -> /spec)
+  // /spec or /spec/section/ (also handle / -> /spec)
   if (path === '/' || path.startsWith('/spec')) {
-    const rule = path.length > 5 ? path.slice(6) : params.get('rule');
-    const heading = window.location.hash ? window.location.hash.slice(1) : null;
+    // Extract path segment after /spec/ (e.g., /spec/data-model/ -> data-model)
+    let pathSegment = path.length > 5 ? path.slice(6).replace(/\/$/, '') : null;
+    const hashHeading = window.location.hash ? window.location.hash.slice(1) : null;
+    // Path segment becomes heading if present, otherwise use hash
+    const heading = pathSegment || hashHeading;
+    // Rule only from query param now
+    const rule = params.get('rule');
     return { view: 'spec', rule: rule ?? null, heading };
   }
   // /coverage
@@ -1599,20 +1604,13 @@ function SpecView({ config, forward, selectedRule, selectedHeading, onSelectRule
         const href = anchor.getAttribute('href');
         if (!href) return;
 
-        // Check if it's an internal link (same origin or relative with hash)
+        // Check if it's an internal link (same origin)
         try {
           const url = new URL(href, window.location.href);
-          if (url.origin === window.location.origin && url.hash) {
+          if (url.origin === window.location.origin) {
             e.preventDefault();
-            // If it's the same path, just update the hash
-            if (url.pathname === window.location.pathname || url.pathname === '/spec' || url.pathname === '/spec/') {
-              history.pushState(null, '', url.hash);
-              window.dispatchEvent(new HashChangeEvent('hashchange'));
-            } else {
-              // Different path on same origin - navigate but use pushState
-              history.pushState(null, '', url.pathname + url.hash);
-              window.dispatchEvent(new PopStateEvent('popstate'));
-            }
+            history.pushState(null, '', url.pathname + url.search + url.hash);
+            window.dispatchEvent(new PopStateEvent('popstate'));
             return;
           }
         } catch {
