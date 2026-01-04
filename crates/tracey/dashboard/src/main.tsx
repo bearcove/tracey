@@ -1349,7 +1349,14 @@ function FileTreeFile({ file, selected, onClick }: FileTreeFileProps) {
 
 function CodeView({ file, config, selectedLine, onSelectRule }: CodeViewProps) {
   const rawLines = file.content.split('\n');
-  const highlightedLines = useHighlightedLines(file.content, 'rust');
+  // Use server-side highlighted HTML, splitting into lines with balanced tags
+  const highlightedLines = useMemo(() => {
+    if (!file.html) return null;
+    // arborium wraps in <pre><code>...</code></pre>, extract inner content
+    const match = file.html.match(/<pre[^>]*><code[^>]*>([\s\S]*)<\/code><\/pre>/);
+    const inner = match ? match[1] : file.html;
+    return splitHighlightedHtml(inner);
+  }, [file.html]);
   const [popoverLine, setPopoverLine] = useState(null);
   const [highlightedLineNum, setHighlightedLineNum] = useState(null);
   const codeViewRef = useRef(null);

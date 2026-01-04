@@ -46,6 +46,7 @@ use bearmark::{
 };
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Mutex;
 
 use crate::config::Config;
 use crate::search::{self, SearchIndex};
@@ -125,6 +126,8 @@ struct ApiFileEntry {
 struct ApiFileData {
     path: String,
     content: String,
+    /// Syntax-highlighted HTML content
+    html: String,
     /// Code units in this file with their coverage
     units: Vec<ApiCodeUnit>,
 }
@@ -177,6 +180,8 @@ struct AppState {
     project_root: PathBuf,
     dev_mode: bool,
     vite_port: Option<u16>,
+    /// Syntax highlighter for source files
+    highlighter: Arc<Mutex<arborium::Highlighter>>,
 }
 
 // ============================================================================
@@ -208,6 +213,22 @@ fn json_opt_string(s: &Option<String>) -> String {
         Some(s) => json_string(s),
         None => "null".to_string(),
     }
+}
+
+/// Escape HTML special characters
+fn html_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 impl ApiConfig {
@@ -323,9 +344,10 @@ impl ApiFileData {
     fn to_json(&self) -> String {
         let units: Vec<String> = self.units.iter().map(|u| u.to_json()).collect();
         format!(
-            r#"{{"path":{},"content":{},"units":[{}]}}"#,
+            r#"{{"path":{},"content":{},"html":{},"units":[{}]}}"#,
             json_string(&self.path),
             json_string(&self.content),
+            json_string(&self.html),
             units.join(",")
         )
     }
@@ -901,6 +923,65 @@ struct FileQuery {
     path: String,
 }
 
+/// Get arborium language name from file extension
+fn arborium_language(path: &str) -> Option<&'static str> {
+    let ext = path.rsplit('.').next()?;
+    match ext {
+        // Rust
+        "rs" => Some("rust"),
+        // Go
+        "go" => Some("go"),
+        // C/C++
+        "c" | "h" => Some("c"),
+        "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => Some("cpp"),
+        // Web
+        "js" | "mjs" | "cjs" => Some("javascript"),
+        "ts" | "mts" | "cts" => Some("typescript"),
+        "jsx" => Some("javascript"),
+        "tsx" => Some("tsx"),
+        // Python
+        "py" => Some("python"),
+        // Ruby
+        "rb" => Some("ruby"),
+        // Java/JVM
+        "java" => Some("java"),
+        "kt" | "kts" => Some("kotlin"),
+        "scala" => Some("scala"),
+        // Shell
+        "sh" | "bash" | "zsh" => Some("bash"),
+        // Config
+        "json" => Some("json"),
+        "yaml" | "yml" => Some("yaml"),
+        "toml" => Some("toml"),
+        "xml" => Some("xml"),
+        // Web markup
+        "html" | "htm" => Some("html"),
+        "css" => Some("css"),
+        "scss" | "sass" => Some("scss"),
+        // Markdown
+        "md" | "markdown" => Some("markdown"),
+        // SQL
+        "sql" => Some("sql"),
+        // Zig
+        "zig" => Some("zig"),
+        // Swift
+        "swift" => Some("swift"),
+        // Elixir
+        "ex" | "exs" => Some("elixir"),
+        // Haskell
+        "hs" | "lhs" => Some("haskell"),
+        // OCaml
+        "ml" | "mli" => Some("ocaml"),
+        // Lua
+        "lua" => Some("lua"),
+        // PHP
+        "php" => Some("php"),
+        // R
+        "r" | "R" => Some("r"),
+        _ => None,
+    }
+}
+
 async fn api_file(
     State(state): State<AppState>,
     Query(params): Query<Vec<(String, String)>>,
@@ -923,6 +1004,17 @@ async fn api_file(
             .display()
             .to_string();
 
+        // Syntax highlight the content
+        let html = if let Some(lang) = arborium_language(&relative) {
+            let mut hl = state.highlighter.lock().unwrap();
+            match hl.highlight(lang, &content) {
+                Ok(highlighted) => highlighted,
+                Err(_) => html_escape(&content),
+            }
+        } else {
+            html_escape(&content)
+        };
+
         let api_units: Vec<ApiCodeUnit> = units
             .iter()
             .map(|u| ApiCodeUnit {
@@ -937,6 +1029,7 @@ async fn api_file(
         let file_data = ApiFileData {
             path: relative,
             content,
+            html,
             units: api_units,
         };
 
@@ -1488,6 +1581,7 @@ async fn run_server(
         project_root: project_root.clone(),
         dev_mode,
         vite_port,
+        highlighter: Arc::new(Mutex::new(arborium::Highlighter::new())),
     };
 
     // Build router

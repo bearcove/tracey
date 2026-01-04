@@ -70,6 +70,8 @@ export interface ApiData {
 export interface FileContent {
   path: string;
   content: string;
+  /** Server-side syntax highlighted HTML */
+  html: string;
   units: CodeUnit[];
 }
 

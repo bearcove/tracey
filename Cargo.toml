@@ -53,7 +53,14 @@ miette-arborium = "2"
 
 # Tree-sitter parsing (for reverse traceability)
 # Note: async_tiny was removed - now using axum
-arborium = { version = "2", default-features = false }
+arborium = { version = "2", features = [
+    "lang-rust", "lang-c", "lang-cpp", "lang-go", "lang-zig",
+    "lang-javascript", "lang-typescript", "lang-tsx",
+    "lang-python", "lang-ruby", "lang-java", "lang-kotlin", "lang-scala",
+    "lang-bash", "lang-json", "lang-yaml", "lang-toml", "lang-xml",
+    "lang-html", "lang-css", "lang-scss", "lang-markdown", "lang-sql",
+    "lang-swift", "lang-elixir", "lang-haskell", "lang-ocaml", "lang-lua", "lang-php", "lang-r",
+] }
 arborium-rust = "2"
 
 # HTTP server for serve command
