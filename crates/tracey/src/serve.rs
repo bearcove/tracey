@@ -461,7 +461,7 @@ impl RuleHandler for TraceyRuleHandler {
                         String::new()
                     };
                     badges_html.push_str(&format!(
-                        r#"<a class="rule-badge rule-impl" href="/tree/{}:{}" data-file="{}" data-line="{}" title="Implementation: {}:{}">{icon}{}:{}{}</a>"#,
+                        r#"<a class="rule-badge rule-impl" href="/sources/{}:{}" data-file="{}" data-line="{}" title="Implementation: {}:{}">{icon}{}:{}{}</a>"#,
                         r.file, r.line, r.file, r.line, r.file, r.line, filename, r.line, count_suffix
                     ));
                 }
@@ -479,7 +479,7 @@ impl RuleHandler for TraceyRuleHandler {
                         String::new()
                     };
                     badges_html.push_str(&format!(
-                        r#"<a class="rule-badge rule-test" href="/tree/{}:{}" data-file="{}" data-line="{}" title="Test: {}:{}">{icon}{}:{}{}</a>"#,
+                        r#"<a class="rule-badge rule-test" href="/sources/{}:{}" data-file="{}" data-line="{}" title="Test: {}:{}">{icon}{}:{}{}</a>"#,
                         r.file, r.line, r.file, r.line, r.file, r.line, filename, r.line, count_suffix
                     ));
                 }
