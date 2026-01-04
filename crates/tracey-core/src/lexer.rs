@@ -326,14 +326,9 @@ fn extract_references_from_text(
                             });
                         }
                     } else {
-                        // Unknown verb - emit warning
-                        let span = SourceSpan::new(bracket_start, end_idx - start_idx);
-                        rules.warnings.push(ParseWarning {
-                            file: path.to_path_buf(),
-                            line: base_line,
-                            span,
-                            kind: WarningKind::UnknownVerb(first_word),
-                        });
+                        // Not a known verb - just ignore it. We only match rule
+                        // references with known verbs: impl, verify, define, depends, related
+                        // This avoids false positives on things like [payload bytes]
                     }
                 } else if next_char == ']' {
                     // Immediate close - this is [rule.id] format (legacy)
@@ -454,19 +449,18 @@ mod tests {
     }
 
     #[test]
-    fn test_unknown_verb_warning() {
+    fn test_unknown_verb_ignored() {
+        // Unknown verbs are silently ignored to avoid false positives
+        // on things like [payload bytes] in documentation
         let content = r#"
             // [frobnicate rule.id]
+            // [payload bytes]
             fn foo() {}
         "#;
 
         let rules = Rules::extract_from_content(Path::new("test.rs"), content);
         assert_eq!(rules.len(), 0);
-        assert_eq!(rules.warnings.len(), 1);
-        match &rules.warnings[0].kind {
-            WarningKind::UnknownVerb(v) => assert_eq!(v, "frobnicate"),
-            _ => panic!("Expected UnknownVerb warning"),
-        }
+        assert_eq!(rules.warnings.len(), 0); // No warnings for unknown verbs
     }
 
     #[test]

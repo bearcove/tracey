@@ -4,6 +4,13 @@
 //! 1. Parse markdown spec documents and extract rule definitions
 //! 2. Generate `_rules.json` manifests from extracted rules
 //! 3. Transform markdown with rules replaced by `<div>` elements for rendering
+//! 4. Strip frontmatter from markdown documents
+//!
+//! # Rule Types from bearmark
+//!
+//! This module re-exports rule-related types from the [`bearmark`] crate,
+//! which provides the canonical definitions with [`facet::Facet`] derivations
+//! for JSON serialization.
 //!
 //! # Rule Syntax
 //!
@@ -63,256 +70,28 @@ use std::path::PathBuf;
 use eyre::{Result, bail};
 use facet::Facet;
 
-use crate::SourceSpan;
-
-/// RFC 2119 keyword found in rule text
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Facet)]
-#[repr(u8)]
-pub enum Rfc2119Keyword {
-    /// MUST, SHALL, REQUIRED
-    Must,
-    /// MUST NOT, SHALL NOT
-    MustNot,
-    /// SHOULD, RECOMMENDED
-    Should,
-    /// SHOULD NOT, NOT RECOMMENDED
-    ShouldNot,
-    /// MAY, OPTIONAL
-    May,
-}
-
-impl Rfc2119Keyword {
-    /// Returns true if this is a negative keyword (MUST NOT, SHOULD NOT)
-    pub fn is_negative(&self) -> bool {
-        matches!(self, Rfc2119Keyword::MustNot | Rfc2119Keyword::ShouldNot)
-    }
-
-    /// Human-readable name for this keyword
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Rfc2119Keyword::Must => "MUST",
-            Rfc2119Keyword::MustNot => "MUST NOT",
-            Rfc2119Keyword::Should => "SHOULD",
-            Rfc2119Keyword::ShouldNot => "SHOULD NOT",
-            Rfc2119Keyword::May => "MAY",
-        }
-    }
-}
-
-/// Detect RFC 2119 keywords in text.
-///
-/// Returns all keywords found, checking for negative forms first.
-/// Keywords must be uppercase to match RFC 2119 conventions.
-pub fn detect_rfc2119_keywords(text: &str) -> Vec<Rfc2119Keyword> {
-    let mut keywords = Vec::new();
-
-    // Check for negative forms first (they contain the positive form as substring)
-    // Use word boundary detection to avoid false positives
-    let words: Vec<&str> = text.split_whitespace().collect();
-
-    let mut i = 0;
-    while i < words.len() {
-        let word = words[i].trim_matches(|c: char| !c.is_alphanumeric());
-
-        // Check for two-word negative forms
-        if i + 1 < words.len() {
-            let next_word = words[i + 1].trim_matches(|c: char| !c.is_alphanumeric());
-            if (word == "MUST" || word == "SHALL") && next_word == "NOT" {
-                keywords.push(Rfc2119Keyword::MustNot);
-                i += 2;
-                continue;
-            }
-            if word == "SHOULD" && next_word == "NOT" {
-                keywords.push(Rfc2119Keyword::ShouldNot);
-                i += 2;
-                continue;
-            }
-            if word == "NOT" && next_word == "RECOMMENDED" {
-                keywords.push(Rfc2119Keyword::ShouldNot);
-                i += 2;
-                continue;
-            }
-        }
-
-        // Check single-word forms
-        match word {
-            "MUST" | "SHALL" | "REQUIRED" => keywords.push(Rfc2119Keyword::Must),
-            "SHOULD" | "RECOMMENDED" => keywords.push(Rfc2119Keyword::Should),
-            "MAY" | "OPTIONAL" => keywords.push(Rfc2119Keyword::May),
-            _ => {}
-        }
-        i += 1;
-    }
-
-    keywords
-}
-
-/// Warning about rule quality
-#[derive(Debug, Clone, Facet)]
-pub struct MarkdownWarning {
-    /// File where the warning occurred
-    pub file: PathBuf,
-    /// Rule ID this warning relates to
-    pub rule_id: String,
-    /// Line number (1-indexed)
-    pub line: usize,
-    /// Byte span of the rule
-    pub span: SourceSpan,
-    /// What kind of warning
-    pub kind: MarkdownWarningKind,
-}
-
-/// Types of markdown/rule warnings
-#[derive(Debug, Clone, Facet)]
-#[repr(u8)]
-pub enum MarkdownWarningKind {
-    /// Rule text contains no RFC 2119 keywords
-    NoRfc2119Keyword,
-    /// Rule text contains MUST NOT or SHALL NOT (hard to verify)
-    NegativeRequirement(Rfc2119Keyword),
-}
-
-/// Lifecycle status of a rule.
-///
-/// Rules progress through these states as the specification evolves.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Facet)]
-#[repr(u8)]
-pub enum RuleStatus {
-    /// Rule is proposed but not yet finalized
-    Draft,
-    /// Rule is active and enforced
-    #[default]
-    Stable,
-    /// Rule is being phased out
-    Deprecated,
-    /// Rule has been removed (kept for historical reference)
-    Removed,
-}
-
-impl RuleStatus {
-    /// Parse a status from its string representation.
-    pub fn parse(s: &str) -> Option<Self> {
-        match s {
-            "draft" => Some(RuleStatus::Draft),
-            "stable" => Some(RuleStatus::Stable),
-            "deprecated" => Some(RuleStatus::Deprecated),
-            "removed" => Some(RuleStatus::Removed),
-            _ => None,
-        }
-    }
-
-    /// Get the string representation of this status.
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            RuleStatus::Draft => "draft",
-            RuleStatus::Stable => "stable",
-            RuleStatus::Deprecated => "deprecated",
-            RuleStatus::Removed => "removed",
-        }
-    }
-}
-
-impl std::fmt::Display for RuleStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-/// RFC 2119 requirement level for a rule.
-///
-/// See <https://www.ietf.org/rfc/rfc2119.txt> for the specification.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Facet)]
-#[repr(u8)]
-pub enum RequirementLevel {
-    /// Absolute requirement (MUST, SHALL, REQUIRED)
-    #[default]
-    Must,
-    /// Recommended but not required (SHOULD, RECOMMENDED)
-    Should,
-    /// Truly optional (MAY, OPTIONAL)
-    May,
-}
-
-impl RequirementLevel {
-    /// Parse a level from its string representation.
-    pub fn parse(s: &str) -> Option<Self> {
-        match s {
-            "must" | "shall" | "required" => Some(RequirementLevel::Must),
-            "should" | "recommended" => Some(RequirementLevel::Should),
-            "may" | "optional" => Some(RequirementLevel::May),
-            _ => None,
-        }
-    }
-
-    /// Get the string representation of this level.
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            RequirementLevel::Must => "must",
-            RequirementLevel::Should => "should",
-            RequirementLevel::May => "may",
-        }
-    }
-}
-
-impl std::fmt::Display for RequirementLevel {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-/// Metadata attributes for a rule.
-#[derive(Debug, Clone, Default, Facet)]
-pub struct RuleMetadata {
-    /// Lifecycle status (draft, stable, deprecated, removed)
-    pub status: Option<RuleStatus>,
-    /// RFC 2119 requirement level (must, should, may)
-    pub level: Option<RequirementLevel>,
-    /// Version when this rule was introduced
-    pub since: Option<String>,
-    /// Version when this rule will be/was deprecated or removed
-    pub until: Option<String>,
-    /// Custom tags for categorization
-    pub tags: Vec<String>,
-}
-
-impl RuleMetadata {
-    /// Returns true if this rule should be counted in coverage by default.
-    ///
-    /// Draft and removed rules are excluded from coverage by default.
-    pub fn counts_for_coverage(&self) -> bool {
-        !matches!(
-            self.status,
-            Some(RuleStatus::Draft) | Some(RuleStatus::Removed)
-        )
-    }
-
-    /// Returns true if this rule is required (must be covered for passing builds).
-    ///
-    /// Only `must` level rules are required; `should` and `may` are optional.
-    pub fn is_required(&self) -> bool {
-        match self.level {
-            Some(RequirementLevel::Must) | None => true,
-            Some(RequirementLevel::Should) | Some(RequirementLevel::May) => false,
-        }
-    }
-}
-
-/// A rule extracted from a markdown document.
-#[derive(Debug, Clone, Facet)]
-pub struct MarkdownRule {
-    /// The rule identifier (e.g., "channel.id.allocation")
-    pub id: String,
-    /// The anchor ID for HTML linking (e.g., "r-channel.id.allocation")
-    pub anchor_id: String,
-    /// Source location of this rule in the original markdown
-    pub span: SourceSpan,
-    /// Line number where this rule is defined (1-indexed)
-    pub line: usize,
-    /// Rule metadata (status, level, since, until, tags)
-    pub metadata: RuleMetadata,
-    /// The text content following the rule marker (first paragraph)
-    pub text: String,
-}
+// Re-export types from bearmark - these are the canonical definitions
+pub use bearmark::{
+    // Frontmatter utilities
+    Frontmatter,
+    FrontmatterFormat,
+    RequirementLevel,
+    // RFC 2119 types and detection
+    Rfc2119Keyword,
+    // Rule definition - re-export as MarkdownRule for backwards compat
+    RuleDefinition as MarkdownRule,
+    RuleMetadata,
+    // Rule lifecycle types
+    RuleStatus,
+    // Warning types
+    RuleWarning as MarkdownWarning,
+    RuleWarningKind as MarkdownWarningKind,
+    // Source location tracking
+    SourceSpan,
+    detect_rfc2119_keywords,
+    parse_frontmatter,
+    strip_frontmatter as bearmark_strip_frontmatter,
+};
 
 /// Result of processing a markdown document.
 #[derive(Debug, Clone)]
@@ -536,6 +315,13 @@ impl MarkdownProcessor {
                 // another rule marker, or a heading
                 let text = extract_rule_text(&lines[i + 1..]);
 
+                // Render paragraph to HTML (simple version - bearmark does full rendering)
+                let paragraph_html = if text.is_empty() {
+                    String::new()
+                } else {
+                    format!("<p>{}</p>\n", html_escape::encode_text(&text))
+                };
+
                 // Check for RFC 2119 keywords and emit warnings
                 let keywords = detect_rfc2119_keywords(&text);
 
@@ -570,6 +356,7 @@ impl MarkdownProcessor {
                     line: i + 1, // 1-indexed line number
                     metadata,
                     text,
+                    paragraph_html,
                 });
 
                 // Emit rule HTML directly
@@ -746,6 +533,139 @@ Redirecting to <a href="{target_url}">{rule_id}</a>...
     )
 }
 
+/// Result of stripping frontmatter from a markdown document.
+#[derive(Debug, Clone)]
+pub struct StrippedMarkdown<'a> {
+    /// The frontmatter content (without delimiters), if present
+    pub frontmatter: Option<&'a str>,
+    /// The markdown content after the frontmatter
+    pub content: &'a str,
+    /// The type of frontmatter delimiter used
+    pub frontmatter_type: Option<FrontmatterType>,
+}
+
+/// Type of frontmatter delimiter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrontmatterType {
+    /// YAML frontmatter delimited by `---`
+    Yaml,
+    /// TOML frontmatter delimited by `+++`
+    Toml,
+}
+
+/// Strip frontmatter from a markdown document.
+///
+/// Supports both YAML (`---`) and TOML (`+++`) frontmatter delimiters.
+/// Frontmatter must start at the very beginning of the document.
+///
+/// [impl markdown.frontmatter.strip]
+///
+/// # Examples
+///
+/// ```
+/// use tracey_core::markdown::{strip_frontmatter, FrontmatterType};
+///
+/// // YAML frontmatter
+/// let md = "---\ntitle: Hello\n---\n# Content";
+/// let result = strip_frontmatter(md);
+/// assert_eq!(result.frontmatter, Some("title: Hello"));
+/// assert_eq!(result.content, "# Content");
+/// assert_eq!(result.frontmatter_type, Some(FrontmatterType::Yaml));
+///
+/// // TOML frontmatter
+/// let md = "+++\ntitle = \"Hello\"\n+++\n# Content";
+/// let result = strip_frontmatter(md);
+/// assert_eq!(result.frontmatter, Some("title = \"Hello\""));
+/// assert_eq!(result.content, "# Content");
+/// assert_eq!(result.frontmatter_type, Some(FrontmatterType::Toml));
+///
+/// // No frontmatter
+/// let md = "# Just content";
+/// let result = strip_frontmatter(md);
+/// assert_eq!(result.frontmatter, None);
+/// assert_eq!(result.content, "# Just content");
+/// ```
+pub fn strip_frontmatter(markdown: &str) -> StrippedMarkdown<'_> {
+    // [impl markdown.frontmatter.yaml]
+    // [impl markdown.frontmatter.toml]
+    let (delimiter, fm_type) = if markdown.starts_with("---\n") || markdown.starts_with("---\r\n") {
+        ("---", FrontmatterType::Yaml)
+    } else if markdown.starts_with("+++\n") || markdown.starts_with("+++\r\n") {
+        ("+++", FrontmatterType::Toml)
+    } else {
+        // No frontmatter
+        return StrippedMarkdown {
+            frontmatter: None,
+            content: markdown,
+            frontmatter_type: None,
+        };
+    };
+
+    // Find the closing delimiter
+    // Skip the opening delimiter (3 chars) and the newline
+    let start_offset = if markdown.starts_with(&format!("{}\r\n", delimiter)) {
+        5 // delimiter (3) + \r\n (2)
+    } else {
+        4 // delimiter (3) + \n (1)
+    };
+
+    // Look for the closing delimiter on its own line
+    let search_area = &markdown[start_offset..];
+
+    // Check if closing delimiter is immediately after opening (empty frontmatter)
+    let immediate_close_patterns = [format!("{}\n", delimiter), format!("{}\r\n", delimiter)];
+
+    for pattern in &immediate_close_patterns {
+        if search_area.starts_with(pattern.as_str()) {
+            let content_start = start_offset + pattern.len();
+            let content = &markdown[content_start..];
+            return StrippedMarkdown {
+                frontmatter: Some(""),
+                content,
+                frontmatter_type: Some(fm_type),
+            };
+        }
+    }
+
+    // Find closing delimiter: must be at start of a line
+    let closing_patterns = [
+        format!("\n{}\n", delimiter),
+        format!("\n{}\r\n", delimiter),
+        format!("\r\n{}\n", delimiter),
+        format!("\r\n{}\r\n", delimiter),
+    ];
+
+    let mut best_match: Option<(usize, usize)> = None; // (position in search_area, pattern_len)
+
+    for pattern in &closing_patterns {
+        if let Some(pos) = search_area.find(pattern)
+            && (best_match.is_none() || pos < best_match.unwrap().0)
+        {
+            best_match = Some((pos, pattern.len()));
+        }
+    }
+
+    if let Some((pos, pattern_len)) = best_match {
+        let frontmatter = search_area[..pos].trim();
+        let content_start = start_offset + pos + pattern_len;
+        let content = &markdown[content_start..];
+
+        StrippedMarkdown {
+            frontmatter: Some(frontmatter),
+            content,
+            frontmatter_type: Some(fm_type),
+        }
+    } else {
+        // Opening delimiter but no closing - treat as no frontmatter
+        // (the delimiter might be part of the content, e.g., a horizontal rule)
+        StrippedMarkdown {
+            frontmatter: None,
+            content: markdown,
+            frontmatter_type: None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -869,6 +789,7 @@ Second occurrence.
                 line: 1,
                 metadata: RuleMetadata::default(),
                 text: "Channel IDs must be allocated.".to_string(),
+                paragraph_html: "<p>Channel IDs must be allocated.</p>\n".to_string(),
             },
             MarkdownRule {
                 id: "channel.id.parity".to_string(),
@@ -880,6 +801,7 @@ Second occurrence.
                 line: 5,
                 metadata: RuleMetadata::default(),
                 text: String::new(),
+                paragraph_html: String::new(),
             },
         ];
 
@@ -1149,5 +1071,93 @@ Some content.
         // Only the second rule should have a warning (no keyword)
         assert_eq!(result.warnings.len(), 1);
         assert_eq!(result.warnings[0].rule_id, "another.rule");
+    }
+
+    // Frontmatter stripping tests
+
+    #[test]
+    fn test_strip_yaml_frontmatter() {
+        let markdown = "---\ntitle: Hello World\nauthor: Test\n---\n# Content\n\nBody text.";
+        let result = strip_frontmatter(markdown);
+
+        assert_eq!(result.frontmatter, Some("title: Hello World\nauthor: Test"));
+        assert_eq!(result.content, "# Content\n\nBody text.");
+        assert_eq!(result.frontmatter_type, Some(FrontmatterType::Yaml));
+    }
+
+    #[test]
+    fn test_strip_toml_frontmatter() {
+        let markdown = "+++\ntitle = \"Hello World\"\nweight = 10\n+++\n# Content\n\nBody text.";
+        let result = strip_frontmatter(markdown);
+
+        assert_eq!(
+            result.frontmatter,
+            Some("title = \"Hello World\"\nweight = 10")
+        );
+        assert_eq!(result.content, "# Content\n\nBody text.");
+        assert_eq!(result.frontmatter_type, Some(FrontmatterType::Toml));
+    }
+
+    #[test]
+    fn test_strip_frontmatter_none() {
+        let markdown = "# Just Content\n\nNo frontmatter here.";
+        let result = strip_frontmatter(markdown);
+
+        assert_eq!(result.frontmatter, None);
+        assert_eq!(result.content, "# Just Content\n\nNo frontmatter here.");
+        assert_eq!(result.frontmatter_type, None);
+    }
+
+    #[test]
+    fn test_strip_frontmatter_unclosed() {
+        // Opening delimiter but no closing - treat as regular content
+        let markdown = "---\nThis looks like frontmatter\nbut has no closing delimiter";
+        let result = strip_frontmatter(markdown);
+
+        assert_eq!(result.frontmatter, None);
+        assert_eq!(result.content, markdown);
+        assert_eq!(result.frontmatter_type, None);
+    }
+
+    #[test]
+    fn test_strip_frontmatter_empty() {
+        let markdown = "---\n---\n# Content";
+        let result = strip_frontmatter(markdown);
+
+        assert_eq!(result.frontmatter, Some(""));
+        assert_eq!(result.content, "# Content");
+        assert_eq!(result.frontmatter_type, Some(FrontmatterType::Yaml));
+    }
+
+    #[test]
+    fn test_strip_frontmatter_with_rules() {
+        // [verify markdown.frontmatter.strip]
+        let markdown = r#"---
+title: My Spec
+---
+# Specification
+
+r[my.rule]
+This rule MUST be followed.
+"#;
+        let result = strip_frontmatter(markdown);
+
+        assert_eq!(result.frontmatter, Some("title: My Spec"));
+        assert!(result.content.starts_with("# Specification"));
+
+        // Verify rules can still be extracted from stripped content
+        let processed = MarkdownProcessor::process(result.content).unwrap();
+        assert_eq!(processed.rules.len(), 1);
+        assert_eq!(processed.rules[0].id, "my.rule");
+    }
+
+    #[test]
+    fn test_strip_frontmatter_horizontal_rule_not_frontmatter() {
+        // A horizontal rule (---) in the middle of content should not be treated as frontmatter
+        let markdown = "# Heading\n\n---\n\nMore content";
+        let result = strip_frontmatter(markdown);
+
+        assert_eq!(result.frontmatter, None);
+        assert_eq!(result.content, markdown);
     }
 }

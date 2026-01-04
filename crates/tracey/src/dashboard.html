@@ -2989,7 +2989,7 @@
                 const iconHtml = deviconClass
                   ? `<i class="${deviconClass} spec-ref-icon"></i>`
                   : `<i data-lucide="file" class="spec-ref-icon"></i>`;
-                allRefs.push(`<a class="spec-ref spec-ref-impl" href="/tree/${r.file}:${r.line}" data-file="${r.file}" data-line="${r.line}" title="${r.file}:${r.line}">${iconHtml}${getFileName(r.file)}:${r.line}</a>`);
+                allRefs.push(`<a class="spec-ref spec-ref-impl" href="/sources/${r.file}:${r.line}" data-file="${r.file}" data-line="${r.line}" title="${r.file}:${r.line}">${iconHtml}${getFileName(r.file)}:${r.line}</a>`);
               });
             }
             if (rule.verifyRefs && rule.verifyRefs.length > 0) {
@@ -2998,7 +2998,7 @@
                 const iconHtml = deviconClass
                   ? `<i class="${deviconClass} spec-ref-icon"></i>`
                   : `<i data-lucide="file" class="spec-ref-icon"></i>`;
-                allRefs.push(`<a class="spec-ref spec-ref-verify" href="/tree/${r.file}:${r.line}" data-file="${r.file}" data-line="${r.line}" title="${r.file}:${r.line}">${iconHtml}${getFileName(r.file)}:${r.line}</a>`);
+                allRefs.push(`<a class="spec-ref spec-ref-verify" href="/sources/${r.file}:${r.line}" data-file="${r.file}" data-line="${r.line}" title="${r.file}:${r.line}">${iconHtml}${getFileName(r.file)}:${r.line}</a>`);
               });
             }
             if (allRefs.length > 0) {

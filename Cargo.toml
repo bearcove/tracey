@@ -27,6 +27,9 @@ facet-miette = { git = "https://github.com/facet-rs/facet", branch = "main", ver
 
 # Error handling
 eyre = "0.6"
+
+# HTML utilities
+html-escape = "0.2"
 miette = { version = "7", default-features = false, features = ["fancy-no-backtrace"] }
 
 # HTTP fetching
@@ -70,6 +73,9 @@ notify-debouncer-mini = "0.7"
 
 # Full-text search
 tantivy = "0.22"
+
+# Markdown processing (with syntax highlighting and diagram handlers)
+bearmark = { path = "../dodeca/crates/bearmark", features = ["highlight", "aasvg", "pikru"] }
 
 # The profile that 'dist' will build with
 [profile.dist]
