@@ -1558,18 +1558,6 @@ function SpecView({ config, forward, selectedRule, selectedHeading, onSelectRule
     if (!contentRef.current) return;
 
     const handleClick = (e) => {
-      // Handle anchor links (internal navigation)
-      const anchor = e.target.closest('a[href^="#"]');
-      if (anchor) {
-        e.preventDefault();
-        const href = anchor.getAttribute('href');
-        if (href) {
-          history.pushState(null, '', href);
-          window.dispatchEvent(new HashChangeEvent('hashchange'));
-        }
-        return;
-      }
-
       // Handle heading clicks (copy URL)
       const heading = e.target.closest('h1[id], h2[id], h3[id], h4[id]');
       if (heading) {
@@ -1603,6 +1591,33 @@ function SpecView({ config, forward, selectedRule, selectedHeading, onSelectRule
         const ruleContext = ruleMarker?.dataset.rule || null;
         onSelectFile(file, line, ruleContext);
         return;
+      }
+
+      // Handle other anchor links (internal navigation)
+      const anchor = e.target.closest('a[href]');
+      if (anchor) {
+        const href = anchor.getAttribute('href');
+        if (!href) return;
+
+        // Check if it's an internal link (same origin or relative with hash)
+        try {
+          const url = new URL(href, window.location.href);
+          if (url.origin === window.location.origin && url.hash) {
+            e.preventDefault();
+            // If it's the same path, just update the hash
+            if (url.pathname === window.location.pathname || url.pathname === '/spec' || url.pathname === '/spec/') {
+              history.pushState(null, '', url.hash);
+              window.dispatchEvent(new HashChangeEvent('hashchange'));
+            } else {
+              // Different path on same origin - navigate but use pushState
+              history.pushState(null, '', url.pathname + url.hash);
+              window.dispatchEvent(new PopStateEvent('popstate'));
+            }
+            return;
+          }
+        } catch {
+          // Invalid URL, ignore
+        }
       }
     };
 
