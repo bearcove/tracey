@@ -42,7 +42,8 @@ use tracing::{debug, error, info, warn};
 
 // Markdown rendering
 use bearmark::{
-    AasvgHandler, ArboriumHandler, PikruHandler, RenderOptions, RuleDefinition, RuleHandler, render,
+    AasvgHandler, ArboriumHandler, PikruHandler, RenderOptions, RuleDefinition, RuleHandler,
+    parse_frontmatter, render,
 };
 use std::future::Future;
 use std::pin::Pin;
@@ -142,14 +143,23 @@ struct ApiCodeUnit {
     rule_refs: Vec<String>,
 }
 
-/// Spec content
+/// A section of a spec (one source file)
+#[derive(Debug, Clone)]
+struct SpecSection {
+    /// Source file path
+    source_file: String,
+    /// Rendered HTML content
+    html: String,
+    /// Weight for ordering (from frontmatter)
+    weight: i32,
+}
+
+/// Spec content (may span multiple files)
 #[derive(Debug, Clone)]
 struct ApiSpecData {
     name: String,
-    /// Rendered HTML content
-    html: String,
-    /// Source file path
-    source_file: Option<String>,
+    /// Sections ordered by weight
+    sections: Vec<SpecSection>,
 }
 
 // ============================================================================
@@ -353,13 +363,23 @@ impl ApiFileData {
     }
 }
 
-impl ApiSpecData {
+impl SpecSection {
     fn to_json(&self) -> String {
         format!(
-            r#"{{"name":{},"html":{},"sourceFile":{}}}"#,
+            r#"{{"sourceFile":{},"html":{}}}"#,
+            json_string(&self.source_file),
+            json_string(&self.html)
+        )
+    }
+}
+
+impl ApiSpecData {
+    fn to_json(&self) -> String {
+        let sections: Vec<String> = self.sections.iter().map(|s| s.to_json()).collect();
+        format!(
+            r#"{{"name":{},"sections":[{}]}}"#,
             json_string(&self.name),
-            json_string(&self.html),
-            json_opt_string(&self.source_file)
+            sections.join(",")
         )
     }
 }
@@ -812,6 +832,9 @@ async fn load_spec_content(
         .with_handler(&["pikchr"], PikruHandler::new())
         .with_rule_handler(rule_handler);
 
+    // Collect all matching files with their content and weight
+    let mut files: Vec<(String, String, i32)> = Vec::new(); // (relative_path, content, weight)
+
     let walker = WalkBuilder::new(root)
         .follow_links(true)
         .hidden(false)
@@ -826,25 +849,44 @@ async fn load_spec_content(
         }
 
         let relative = path.strip_prefix(root).unwrap_or(path);
-        let relative_str = relative.to_string_lossy();
+        let relative_str = relative.to_string_lossy().to_string();
 
         if !glob_match(&relative_str, pattern) {
             continue;
         }
 
         if let Ok(content) = std::fs::read_to_string(path) {
-            // Render markdown to HTML using bearmark with coverage-aware rule rendering
-            let doc = render(&content, &opts).await?;
-
-            specs_content.insert(
-                spec_name.to_string(),
-                ApiSpecData {
-                    name: spec_name.to_string(),
-                    html: doc.html,
-                    source_file: Some(relative_str.to_string()),
-                },
-            );
+            // Parse frontmatter to get weight
+            let weight = match parse_frontmatter(&content) {
+                Ok((fm, _)) => fm.weight,
+                Err(_) => 0, // Default weight if no frontmatter
+            };
+            files.push((relative_str, content, weight));
         }
+    }
+
+    // Sort by weight
+    files.sort_by_key(|(_, _, weight)| *weight);
+
+    // Render each file and build sections
+    let mut sections = Vec::new();
+    for (source_file, content, weight) in files {
+        let doc = render(&content, &opts).await?;
+        sections.push(SpecSection {
+            source_file,
+            html: doc.html,
+            weight,
+        });
+    }
+
+    if !sections.is_empty() {
+        specs_content.insert(
+            spec_name.to_string(),
+            ApiSpecData {
+                name: spec_name.to_string(),
+                sections,
+            },
+        );
     }
 
     Ok(())

@@ -11,6 +11,7 @@ export interface SourcesRoute {
 export interface SpecRoute {
   view: 'spec';
   rule: string | null;
+  heading: string | null;
 }
 
 export interface CoverageRoute {
@@ -85,10 +86,14 @@ export interface CodeUnit {
 
 
 
+export interface SpecSection {
+  sourceFile: string;
+  html: string;
+}
+
 export interface SpecContent {
   name: string;
-  html: string;
-  sourceFile?: string;
+  sections: SpecSection[];
 }
 
 // Search types
@@ -224,6 +229,7 @@ export interface SpecViewProps {
   config: Config;
   forward: ForwardData;
   selectedRule: string | null;
+  selectedHeading: string | null;
   onSelectRule: (ruleId: string) => void;
   onSelectFile: (path: string, line?: number | null, context?: string | null) => void;
   scrollPosition: number;

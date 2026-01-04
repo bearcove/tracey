@@ -4,8 +4,8 @@
   --bg-secondary: light-dark(#ffffff, #1a1b26);
   --bg-sidebar: light-dark(#f3f4f6, #16171d);
   --fg: light-dark(#1a1b26, #c0caf5);
-  --fg-muted: var(--arb-c);
-  --fg-dim: var(--arb-v);
+  --fg-muted: light-dark(#4b5563, #9aa5ce);
+  --fg-dim: light-dark(#6b7280, #727ca7);
   --border: light-dark(#e5e5e5, #292e42);
   --hover: light-dark(#f0f0f2, #1f2335);
   --hover-subtle: light-dark(#f8f8fa, #1a1d2a);
@@ -724,6 +724,37 @@ a.annotation-badge:hover {
   color: var(--fg-muted);
 }
 
+.markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+  font-size: 0.9rem;
+}
+
+.markdown th, .markdown td {
+  padding: 0.6rem 0.8rem;
+  text-align: left;
+  border: 1px solid var(--border);
+}
+
+.markdown th {
+  background: var(--bg-sidebar);
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.markdown td {
+  background: var(--bg-secondary);
+}
+
+.markdown tr:hover td {
+  background: var(--hover);
+}
+
+.markdown td code {
+  font-size: 0.85em;
+}
+
 /* RFC 2119 keyword highlighting */
 kw-must, kw-must-not, kw-required, kw-shall, kw-shall-not {
   color: var(--red);
@@ -1210,6 +1241,8 @@ a.rule-marker:hover {
 .outline-item.active {
   background: var(--accent-dim);
   color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .outline-level-1 { padding-left: 0.5rem; font-weight: 500; }

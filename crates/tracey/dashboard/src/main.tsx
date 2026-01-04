@@ -52,12 +52,13 @@ function parseRoute(): Route {
     }
     return { view: 'sources', file: null, line: null, context };
   }
-  // /spec or /spec/rule.id
-  if (path.startsWith('/spec')) {
+  // /spec or /spec/rule.id (also handle / -> /spec)
+  if (path === '/' || path.startsWith('/spec')) {
     const rule = path.length > 5 ? path.slice(6) : params.get('rule');
-    return { view: 'spec', rule: rule ?? null };
+    const heading = window.location.hash ? window.location.hash.slice(1) : null;
+    return { view: 'spec', rule: rule ?? null, heading };
   }
-  // /coverage (or /forward for backwards compatibility, or default)
+  // /coverage
   return {
     view: 'coverage',
     filter: params.get('filter'), // 'impl' or 'verify' or null
@@ -112,9 +113,13 @@ function useRouter(): Route {
   const [route, setRoute] = useState<Route>(parseRoute);
 
   useEffect(() => {
-    const handlePopState = () => setRoute(parseRoute());
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
+    const handleChange = () => setRoute(parseRoute());
+    window.addEventListener('popstate', handleChange);
+    window.addEventListener('hashchange', handleChange);
+    return () => {
+      window.removeEventListener('popstate', handleChange);
+      window.removeEventListener('hashchange', handleChange);
+    };
   }, []);
 
   return route;
@@ -414,6 +419,7 @@ function App() {
   const line = route.view === 'sources' ? route.line : null;
   const context = route.view === 'sources' ? route.context : null;
   const rule = route.view === 'spec' ? route.rule : null;
+  const heading = route.view === 'spec' ? route.heading : null;
   const filter = route.view === 'coverage' ? route.filter : null;
   const routeLevel = route.view === 'coverage' ? route.level : null;
 
@@ -519,6 +525,7 @@ function App() {
           config=${config}
           forward=${forward}
           selectedRule=${rule}
+          selectedHeading=${heading}
           onSelectRule=${handleSelectRule}
           onSelectFile=${handleSelectFile}
           scrollPosition=${scrollPositions.spec || 0}
@@ -1434,20 +1441,24 @@ function CodeView({ file, config, selectedLine, onSelectRule }: CodeViewProps) {
   `;
 }
 
-function SpecView({ config, forward, selectedRule, onSelectRule, onSelectFile, scrollPosition, onScrollChange }: SpecViewProps) {
+function SpecView({ config, forward, selectedRule, selectedHeading, onSelectRule, onSelectFile, scrollPosition, onScrollChange }: SpecViewProps) {
   const spec = useSpec(config.specs[0]?.name);
   const [activeHeading, setActiveHeading] = useState(null);
   const [headings, setHeadings] = useState<{level: number, text: string, slug: string}[]>([]);
   const contentRef = useRef(null);
   const contentBodyRef = useRef(null);
   const initialScrollPosition = useRef(scrollPosition);
+  const lastScrolledHeading = useRef<string | null>(null);
 
-  // Server renders HTML with coverage - just use it directly
-  const processedContent = spec?.html || '';
+  // Concatenate all sections' HTML (sections are pre-sorted by weight on server)
+  const processedContent = useMemo(() => {
+    if (!spec?.sections) return '';
+    return spec.sections.map(s => s.html).join('\n');
+  }, [spec?.sections]);
 
   // Extract headings from rendered HTML after it's in the DOM
   useEffect(() => {
-    if (!contentRef.current || !spec?.html) return;
+    if (!contentRef.current || !processedContent) return;
 
     const headingElements = contentRef.current.querySelectorAll('h1[id], h2[id], h3[id], h4[id]');
     const extracted = Array.from(headingElements).map((el: HTMLElement) => ({
@@ -1456,7 +1467,7 @@ function SpecView({ config, forward, selectedRule, onSelectRule, onSelectFile, s
       slug: el.id
     }));
     setHeadings(extracted);
-  }, [spec?.html]);
+  }, [processedContent]);
 
   // Set up scroll-based heading tracking
   useEffect(() => {
@@ -1542,17 +1553,32 @@ function SpecView({ config, forward, selectedRule, onSelectRule, onSelectFile, s
     }
   }, []);
 
-  // Handle clicks on headings, rule markers, and spec refs in the markdown
+  // Handle clicks on headings, rule markers, anchor links, and spec refs in the markdown
   useEffect(() => {
     if (!contentRef.current) return;
 
     const handleClick = (e) => {
-      // Handle heading clicks
+      // Handle anchor links (internal navigation)
+      const anchor = e.target.closest('a[href^="#"]');
+      if (anchor) {
+        e.preventDefault();
+        const href = anchor.getAttribute('href');
+        if (href) {
+          history.pushState(null, '', href);
+          window.dispatchEvent(new HashChangeEvent('hashchange'));
+        }
+        return;
+      }
+
+      // Handle heading clicks (copy URL)
       const heading = e.target.closest('h1[id], h2[id], h3[id], h4[id]');
       if (heading) {
         const slug = heading.id;
         const url = `${window.location.origin}${window.location.pathname}#${slug}`;
         navigator.clipboard?.writeText(url);
+        // Also navigate to the heading
+        history.pushState(null, '', `#${slug}`);
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
         return;
       }
 
@@ -1584,7 +1610,7 @@ function SpecView({ config, forward, selectedRule, onSelectRule, onSelectFile, s
     return () => contentRef.current?.removeEventListener('click', handleClick);
   }, [processedContent, onSelectRule, onSelectFile]);
 
-  // Scroll to selected rule, or restore scroll position
+  // Scroll to selected rule or heading, or restore scroll position
   useEffect(() => {
     if (!processedContent) return;
 
@@ -1615,6 +1641,15 @@ function SpecView({ config, forward, selectedRule, onSelectRule, onSelectFile, s
               ruleEl.classList.remove('rule-marker-highlighted');
             }, 3000);
           }
+        } else if (selectedHeading && selectedHeading !== lastScrolledHeading.current) {
+          // Navigate to specific heading
+          lastScrolledHeading.current = selectedHeading;
+          const headingEl = contentRef.current.querySelector(`[id="${selectedHeading}"]`);
+          if (headingEl) {
+            const targetScrollTop = headingEl.offsetTop - 100;
+            contentBodyRef.current.scrollTo({ top: Math.max(0, targetScrollTop) });
+            setActiveHeading(selectedHeading);
+          }
         } else if (initialScrollPosition.current > 0) {
           // Restore previous scroll position (only on initial mount)
           contentBodyRef.current.scrollTo({ top: initialScrollPosition.current });
@@ -1624,7 +1659,7 @@ function SpecView({ config, forward, selectedRule, onSelectRule, onSelectFile, s
     });
 
     return () => { cancelled = true; };
-  }, [selectedRule, processedContent]);
+  }, [selectedRule, selectedHeading, processedContent]);
 
   if (!spec) {
     return html`
@@ -1654,7 +1689,7 @@ function SpecView({ config, forward, selectedRule, onSelectRule, onSelectFile, s
       </div>
       <div class="content">
         <div class="content-header">
-          ${spec.sourceFile || spec.name}
+          ${spec.name}${spec.sections.length > 1 ? ` (${spec.sections.length} files)` : ''}
         </div>
         <div class="content-body" ref=${contentBodyRef}>
           <div
