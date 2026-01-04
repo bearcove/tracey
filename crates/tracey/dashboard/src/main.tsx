@@ -1,8 +1,7 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { marked } from 'marked';
-import { highlight } from '@arborium/arborium';
+// Note: Server-side rendering via bearmark (markdown) and arborium (syntax highlighting)
 import './style.css';
 import type {
   Route, ViewType,
@@ -19,9 +18,6 @@ import type {
 declare const lucide: { createIcons: (opts?: { nodes?: Node[] }) => void };
 
 const html = htm.bind(h);
-
-// Cache for highlighted code
-const highlightCache = new Map<string, string>();
 
 // ========================================================================
 // API
@@ -56,12 +52,18 @@ function parseRoute(): Route {
     }
     return { view: 'sources', file: null, line: null, context };
   }
-  // /spec or /spec/rule.id
-  if (path.startsWith('/spec')) {
-    const rule = path.length > 5 ? path.slice(6) : params.get('rule');
-    return { view: 'spec', rule: rule ?? null };
+  // /spec or /spec/section/ (also handle / -> /spec)
+  if (path === '/' || path.startsWith('/spec')) {
+    // Extract path segment after /spec/ (e.g., /spec/data-model/ -> data-model)
+    let pathSegment = path.length > 5 ? path.slice(6).replace(/\/$/, '') : null;
+    const hashHeading = window.location.hash ? window.location.hash.slice(1) : null;
+    // Path segment becomes heading if present, otherwise use hash
+    const heading = pathSegment || hashHeading;
+    // Rule only from query param now
+    const rule = params.get('rule');
+    return { view: 'spec', rule: rule ?? null, heading };
   }
-  // /coverage (or /forward for backwards compatibility, or default)
+  // /coverage
   return {
     view: 'coverage',
     filter: params.get('filter'), // 'impl' or 'verify' or null
@@ -116,9 +118,13 @@ function useRouter(): Route {
   const [route, setRoute] = useState<Route>(parseRoute);
 
   useEffect(() => {
-    const handlePopState = () => setRoute(parseRoute());
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
+    const handleChange = () => setRoute(parseRoute());
+    window.addEventListener('popstate', handleChange);
+    window.addEventListener('hashchange', handleChange);
+    return () => {
+      window.removeEventListener('popstate', handleChange);
+      window.removeEventListener('hashchange', handleChange);
+    };
   }, []);
 
   return route;
@@ -333,26 +339,6 @@ function renderRuleText(text: string | undefined): string {
   return result;
 }
 
-// Highlight code using arborium (async, with caching)
-async function highlightCode(code, lang = 'rust') {
-  const cacheKey = `${lang}:${code}`;
-  if (highlightCache.has(cacheKey)) {
-    return highlightCache.get(cacheKey);
-  }
-  try {
-    const highlighted = await highlight(lang, code);
-    highlightCache.set(cacheKey, highlighted);
-    return highlighted;
-  } catch (e) {
-    console.warn('Highlight failed:', e);
-    // Fallback: escape HTML
-    return code
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-  }
-}
-
 // Split highlighted HTML into self-contained lines
 // Each line will have properly balanced open/close tags
 function splitHighlightedHtml(html) {
@@ -414,33 +400,6 @@ function splitHighlightedHtml(html) {
   return lines;
 }
 
-// Hook to highlight a file and split into lines
-function useHighlightedLines(content, lang = 'rust') {
-  const [lines, setLines] = useState(null);
-
-  useEffect(() => {
-    if (!content) {
-      setLines(null);
-      return;
-    }
-
-    let cancelled = false;
-
-    highlightCode(content, lang).then(highlighted => {
-      if (cancelled) return;
-      // arborium wraps in <pre><code>...</code></pre>, extract inner content
-      const match = highlighted.match(/<pre[^>]*><code[^>]*>([\s\S]*)<\/code><\/pre>/);
-      const inner = match ? match[1] : highlighted;
-      // Split into self-contained lines with balanced tags
-      setLines(splitHighlightedHtml(inner));
-    });
-
-    return () => { cancelled = true; };
-  }, [content, lang]);
-
-  return lines;
-}
-
 // ========================================================================
 // Components
 // ========================================================================
@@ -465,6 +424,7 @@ function App() {
   const line = route.view === 'sources' ? route.line : null;
   const context = route.view === 'sources' ? route.context : null;
   const rule = route.view === 'spec' ? route.rule : null;
+  const heading = route.view === 'spec' ? route.heading : null;
   const filter = route.view === 'coverage' ? route.filter : null;
   const routeLevel = route.view === 'coverage' ? route.level : null;
 
@@ -570,6 +530,7 @@ function App() {
           config=${config}
           forward=${forward}
           selectedRule=${rule}
+          selectedHeading=${heading}
           onSelectRule=${handleSelectRule}
           onSelectFile=${handleSelectFile}
           scrollPosition=${scrollPositions.spec || 0}
@@ -1349,7 +1310,14 @@ function FileTreeFile({ file, selected, onClick }: FileTreeFileProps) {
 
 function CodeView({ file, config, selectedLine, onSelectRule }: CodeViewProps) {
   const rawLines = file.content.split('\n');
-  const highlightedLines = useHighlightedLines(file.content, 'rust');
+  // Use server-side highlighted HTML, splitting into lines with balanced tags
+  const highlightedLines = useMemo(() => {
+    if (!file.html) return null;
+    // arborium wraps in <pre><code>...</code></pre>, extract inner content
+    const match = file.html.match(/<pre[^>]*><code[^>]*>([\s\S]*)<\/code><\/pre>/);
+    const inner = match ? match[1] : file.html;
+    return splitHighlightedHtml(inner);
+  }, [file.html]);
   const [popoverLine, setPopoverLine] = useState(null);
   const [highlightedLineNum, setHighlightedLineNum] = useState(null);
   const codeViewRef = useRef(null);
@@ -1478,160 +1446,83 @@ function CodeView({ file, config, selectedLine, onSelectRule }: CodeViewProps) {
   `;
 }
 
-function SpecView({ config, forward, selectedRule, onSelectRule, onSelectFile, scrollPosition, onScrollChange }: SpecViewProps) {
+function SpecView({ config, forward, selectedRule, selectedHeading, onSelectRule, onSelectFile, scrollPosition, onScrollChange }: SpecViewProps) {
   const spec = useSpec(config.specs[0]?.name);
   const [activeHeading, setActiveHeading] = useState(null);
+  const [headings, setHeadings] = useState<{level: number, text: string, slug: string}[]>([]);
   const contentRef = useRef(null);
   const contentBodyRef = useRef(null);
   const initialScrollPosition = useRef(scrollPosition);
+  const lastScrolledHeading = useRef<string | null>(null);
 
-  // Build rule coverage map
-  const ruleCoverage = useMemo(() => {
-    const map = new Map();
-    for (const s of forward.specs) {
-      for (const r of s.rules) {
-        const hasImpl = r.implRefs.length > 0;
-        const hasVerify = r.verifyRefs.length > 0;
-        map.set(r.id, {
-          rule: r,
-          status: hasImpl && hasVerify ? 'covered' : hasImpl || hasVerify ? 'partial' : 'uncovered'
-        });
-      }
-    }
-    return map;
-  }, [forward]);
-
-  // Extract headings from markdown and generate slugs
-  const headings = useMemo(() => {
-    if (!spec) return [];
-    const result = [];
-    const lines = spec.content.split('\n');
-    for (const line of lines) {
-      const match = line.match(/^(#{1,4})\s+(.+)$/);
-      if (match) {
-        const level = match[1].length;
-        const text = match[2].trim();
-        const slug = text.toLowerCase().replace(/[^\w]+/g, '-').replace(/^-|-$/g, '');
-        result.push({ level, text, slug });
-      }
-    }
-    return result;
-  }, [spec]);
-
-  // Process markdown to inject rule markers and add IDs to headings
+  // Concatenate all sections' HTML (sections are pre-sorted by weight on server)
   const processedContent = useMemo(() => {
-    if (!spec) return '';
-    let content = spec.content;
+    if (!spec?.sections) return '';
+    return spec.sections.map(s => s.html).join('\n');
+  }, [spec?.sections]);
 
-    // Replace r[rule.id] with styled markers + reference links
-    // Only match at start of file or after a blank line, at the beginning of a line
-    content = content.replace(/(^|\n\n)r\[([^\]]+)\]/g, (match, prefix, ruleId) => {
-      const coverage = ruleCoverage.get(ruleId);
-      const status = coverage?.status || 'uncovered';
-      const rule = coverage?.rule;
+  // Extract headings from rendered HTML after it's in the DOM
+  useEffect(() => {
+    if (!contentRef.current || !processedContent) return;
 
-      // Helper to get just filename from path
-      const getFileName = (path) => path.split('/').pop();
+    const headingElements = contentRef.current.querySelectorAll('h1[id], h2[id], h3[id], h4[id]');
+    const extracted = Array.from(headingElements).map((el: HTMLElement) => ({
+      level: parseInt(el.tagName[1]),
+      text: el.textContent || '',
+      slug: el.id
+    }));
+    setHeadings(extracted);
+  }, [processedContent]);
 
-      let refHtml = '';
-      if (rule) {
-        const allRefs = [];
-        if (rule.implRefs && rule.implRefs.length > 0) {
-          rule.implRefs.forEach(r => {
-            const deviconClass = getDeviconClass(r.file);
-            const iconHtml = deviconClass
-              ? `<i class="${deviconClass} spec-ref-icon"></i>`
-              : `<i data-lucide="file" class="spec-ref-icon"></i>`;
-            allRefs.push(`<a class="spec-ref spec-ref-impl" href="/tree/${r.file}:${r.line}" data-file="${r.file}" data-line="${r.line}" title="${r.file}:${r.line}">${iconHtml}${getFileName(r.file)}:${r.line}</a>`);
-          });
-        }
-        if (rule.verifyRefs && rule.verifyRefs.length > 0) {
-          rule.verifyRefs.forEach(r => {
-            const deviconClass = getDeviconClass(r.file);
-            const iconHtml = deviconClass
-              ? `<i class="${deviconClass} spec-ref-icon"></i>`
-              : `<i data-lucide="file" class="spec-ref-icon"></i>`;
-            allRefs.push(`<a class="spec-ref spec-ref-verify" href="/tree/${r.file}:${r.line}" data-file="${r.file}" data-line="${r.line}" title="${r.file}:${r.line}">${iconHtml}${getFileName(r.file)}:${r.line}</a>`);
-          });
-        }
-        if (allRefs.length > 0) {
-          refHtml = allRefs.join('');
-        }
-      }
-
-      // Use Lucide icon for rule marker
-      const icon = `<i data-lucide="file-check" class="rule-marker-icon"></i>`;
-
-      // Use special markers that we'll process after markdown parsing
-      return `${prefix}<!--RULE_START:${ruleId}:${status}--><a class="rule-marker ${status}" href="/spec/${ruleId}" data-rule="${ruleId}">${icon}${ruleId}</a>${refHtml ? `<div class="spec-refs">${refHtml}</div>` : ''}<!--RULE_CONTENT_START-->`;
-    });
-
-    let html = marked.parse(content) as string;
-
-    // Add IDs to headings
-    headings.forEach(h => {
-      // Match the heading tag and add id attribute
-      const headingRegex = new RegExp(`(<h${h.level}>)(${h.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})(</h${h.level}>)`, 'i');
-      html = html.replace(headingRegex, `<h${h.level} id="${h.slug}" data-slug="${h.slug}">$2$3`);
-    });
-
-    // Wrap rule blocks: find RULE_START marker, capture until next RULE_START or heading
-    html = html.replace(/<!--RULE_START:([^:]+):([^-]+)-->([\s\S]*?)<!--RULE_CONTENT_START-->([\s\S]*?)(?=<!--RULE_START|<h[1-6]|$)/g,
-      (match, ruleId, status, header, content) => {
-        // Clean up paragraph wrapping - the content is usually wrapped in <p> tags
-        return `<div class="rule-block rule-block-${status}"><div class="rule-block-header">${header}</div><div class="rule-block-content">${content.trim()}</div></div>`;
-      }
-    );
-
-    return html;
-  }, [spec, ruleCoverage, headings]);
-
-  // Set up intersection observer for headings
+  // Set up scroll-based heading tracking
   useEffect(() => {
     if (!contentRef.current || !contentBodyRef.current || headings.length === 0) return;
 
-    // Small delay to ensure DOM is ready
-    const timeoutId = setTimeout(() => {
-      const headingElements = contentRef.current.querySelectorAll('h1[id], h2[id], h3[id], h4[id]');
-      if (headingElements.length === 0) return;
+    const contentBody = contentBodyRef.current;
 
-      const observer = new IntersectionObserver(
-        (entries) => {
-          // Track which headings are visible
-          const visibleHeadings = [];
-          entries.forEach(entry => {
-            if (entry.isIntersecting) {
-              visibleHeadings.push({
-                id: entry.target.id,
-                top: entry.boundingClientRect.top
-              });
-            }
-          });
+    const updateActiveHeading = () => {
+      const headingElements = contentRef.current?.querySelectorAll('h1[id], h2[id], h3[id], h4[id]');
+      if (!headingElements || headingElements.length === 0) return;
 
-          // Set the topmost visible heading as active
-          if (visibleHeadings.length > 0) {
-            visibleHeadings.sort((a, b) => a.top - b.top);
-            setActiveHeading(visibleHeadings[0].id);
-          }
-        },
-        {
-          root: contentBodyRef.current,
-          rootMargin: '-5% 0px -70% 0px',
-          threshold: 0
+      // Find the heading closest to the top of the viewport (but not past it)
+      const scrollTop = contentBody.scrollTop;
+      const viewportTop = 100; // offset from top to consider "active"
+
+      let activeId: string | null = null;
+
+      for (const el of headingElements) {
+        const htmlEl = el as HTMLElement;
+        const offsetTop = htmlEl.offsetTop;
+
+        // If this heading is above the viewport threshold, it's the current section
+        if (offsetTop <= scrollTop + viewportTop) {
+          activeId = htmlEl.id;
+        } else {
+          // Once we find a heading below the threshold, stop
+          break;
         }
-      );
-
-      headingElements.forEach(el => observer.observe(el));
-
-      // Set initial active heading
-      if (headings.length > 0) {
-        setActiveHeading(headings[0].slug);
       }
 
-      return () => observer.disconnect();
-    }, 100);
+      // If no heading is above threshold, use the first one
+      if (!activeId && headingElements.length > 0) {
+        activeId = (headingElements[0] as HTMLElement).id;
+      }
 
-    return () => clearTimeout(timeoutId);
+      if (activeId) {
+        setActiveHeading(activeId);
+      }
+    };
+
+    // Initial update
+    const timeoutId = setTimeout(updateActiveHeading, 100);
+
+    // Update on scroll
+    contentBody.addEventListener('scroll', updateActiveHeading, { passive: true });
+
+    return () => {
+      clearTimeout(timeoutId);
+      contentBody.removeEventListener('scroll', updateActiveHeading);
+    };
   }, [processedContent, headings]);
 
   // Track scroll position changes
@@ -1667,17 +1558,20 @@ function SpecView({ config, forward, selectedRule, onSelectRule, onSelectFile, s
     }
   }, []);
 
-  // Handle clicks on headings, rule markers, and spec refs in the markdown
+  // Handle clicks on headings, rule markers, anchor links, and spec refs in the markdown
   useEffect(() => {
     if (!contentRef.current) return;
 
     const handleClick = (e) => {
-      // Handle heading clicks
+      // Handle heading clicks (copy URL)
       const heading = e.target.closest('h1[id], h2[id], h3[id], h4[id]');
       if (heading) {
         const slug = heading.id;
         const url = `${window.location.origin}${window.location.pathname}#${slug}`;
         navigator.clipboard?.writeText(url);
+        // Also navigate to the heading
+        history.pushState(null, '', `#${slug}`);
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
         return;
       }
 
@@ -1687,6 +1581,20 @@ function SpecView({ config, forward, selectedRule, onSelectRule, onSelectFile, s
         e.preventDefault();
         const ruleId = ruleMarker.dataset.rule;
         onSelectRule(ruleId);
+        return;
+      }
+
+      // Handle rule-id badge clicks - open spec source in editor
+      const ruleBadge = e.target.closest('a.rule-badge.rule-id[data-source-file][data-source-line]');
+      if (ruleBadge) {
+        e.preventDefault();
+        const sourceFile = ruleBadge.dataset.sourceFile;
+        const sourceLine = parseInt(ruleBadge.dataset.sourceLine, 10);
+        if (sourceFile && !isNaN(sourceLine)) {
+          const fullPath = config.projectRoot ? `${config.projectRoot}/${sourceFile}` : sourceFile;
+          // Open in Zed (default editor)
+          window.location.href = EDITORS.zed.urlTemplate(fullPath, sourceLine);
+        }
         return;
       }
 
@@ -1703,13 +1611,33 @@ function SpecView({ config, forward, selectedRule, onSelectRule, onSelectFile, s
         onSelectFile(file, line, ruleContext);
         return;
       }
+
+      // Handle other anchor links (internal navigation)
+      const anchor = e.target.closest('a[href]');
+      if (anchor) {
+        const href = anchor.getAttribute('href');
+        if (!href) return;
+
+        // Check if it's an internal link (same origin)
+        try {
+          const url = new URL(href, window.location.href);
+          if (url.origin === window.location.origin) {
+            e.preventDefault();
+            history.pushState(null, '', url.pathname + url.search + url.hash);
+            window.dispatchEvent(new PopStateEvent('popstate'));
+            return;
+          }
+        } catch {
+          // Invalid URL, ignore
+        }
+      }
     };
 
     contentRef.current.addEventListener('click', handleClick);
     return () => contentRef.current?.removeEventListener('click', handleClick);
-  }, [processedContent, onSelectRule, onSelectFile]);
+  }, [processedContent, onSelectRule, onSelectFile, config]);
 
-  // Scroll to selected rule, or restore scroll position
+  // Scroll to selected rule or heading, or restore scroll position
   useEffect(() => {
     if (!processedContent) return;
 
@@ -1740,6 +1668,15 @@ function SpecView({ config, forward, selectedRule, onSelectRule, onSelectFile, s
               ruleEl.classList.remove('rule-marker-highlighted');
             }, 3000);
           }
+        } else if (selectedHeading && selectedHeading !== lastScrolledHeading.current) {
+          // Navigate to specific heading
+          lastScrolledHeading.current = selectedHeading;
+          const headingEl = contentRef.current.querySelector(`[id="${selectedHeading}"]`);
+          if (headingEl) {
+            const targetScrollTop = headingEl.offsetTop - 100;
+            contentBodyRef.current.scrollTo({ top: Math.max(0, targetScrollTop) });
+            setActiveHeading(selectedHeading);
+          }
         } else if (initialScrollPosition.current > 0) {
           // Restore previous scroll position (only on initial mount)
           contentBodyRef.current.scrollTo({ top: initialScrollPosition.current });
@@ -1749,7 +1686,7 @@ function SpecView({ config, forward, selectedRule, onSelectRule, onSelectFile, s
     });
 
     return () => { cancelled = true; };
-  }, [selectedRule, processedContent]);
+  }, [selectedRule, selectedHeading, processedContent]);
 
   if (!spec) {
     return html`
@@ -1779,7 +1716,7 @@ function SpecView({ config, forward, selectedRule, onSelectRule, onSelectFile, s
       </div>
       <div class="content">
         <div class="content-header">
-          ${spec.sourceFile || spec.name}
+          ${spec.name}${spec.sections.length > 1 ? ` (${spec.sections.length} files)` : ''}
         </div>
         <div class="content-body" ref=${contentBodyRef}>
           <div

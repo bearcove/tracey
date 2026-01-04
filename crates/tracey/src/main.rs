@@ -27,32 +27,35 @@ struct Args {
     /// Subcommand to run
     #[facet(args::subcommand)]
     command: Option<Command>,
-
-    /// Path to config file (default: .config/tracey/config.kdl)
-    #[facet(args::named, args::short = 'c', default)]
-    config: Option<PathBuf>,
-
-    /// Only check, don't print detailed report (exit 1 if failing)
-    #[facet(args::named, default)]
-    check: bool,
-
-    /// Minimum coverage percentage to pass (default: 0)
-    #[facet(args::named, default)]
-    threshold: Option<f64>,
-
-    /// Show verbose output including all references
-    #[facet(args::named, args::short = 'v', default)]
-    verbose: bool,
-
-    /// Output format: text, json, markdown, html
-    #[facet(args::named, args::short = 'f', default)]
-    format: Option<String>,
 }
 
 /// Subcommands
 #[derive(Debug, facet::Facet)]
 #[repr(u8)]
 enum Command {
+    /// Check spec coverage and report results
+    Check {
+        /// Project root directory (default: current directory)
+        #[facet(args::positional, default)]
+        root: Option<PathBuf>,
+
+        /// Path to config file (default: .config/tracey/config.kdl)
+        #[facet(args::named, args::short = 'c', default)]
+        config: Option<PathBuf>,
+
+        /// Minimum coverage percentage to pass (default: 0)
+        #[facet(args::named, default)]
+        threshold: Option<f64>,
+
+        /// Show verbose output including all references
+        #[facet(args::named, args::short = 'v', default)]
+        verbose: bool,
+
+        /// Output format: text, json, markdown, html
+        #[facet(args::named, args::short = 'f', default)]
+        format: Option<String>,
+    },
+
     /// Extract rules from markdown spec documents and generate _rules.json
     Rules {
         /// Markdown files to process
@@ -143,6 +146,10 @@ enum Command {
 
     /// Start an interactive dashboard server with live reload
     Serve {
+        /// Project root directory (default: current directory)
+        #[facet(args::positional, default)]
+        root: Option<PathBuf>,
+
         /// Path to config file (default: .config/tracey/config.kdl)
         #[facet(args::named, args::short = 'c', default)]
         config: Option<PathBuf>,
@@ -218,6 +225,13 @@ fn main() -> Result<()> {
     };
 
     match args.command {
+        Some(Command::Check {
+            root,
+            config,
+            threshold,
+            verbose,
+            format,
+        }) => run_check_command(root, config, threshold, verbose, format),
         Some(Command::Rules {
             files,
             base_url,
@@ -248,11 +262,12 @@ fn main() -> Result<()> {
             config, format, uncovered, no_verify, level, status, prefix, output, open,
         ),
         Some(Command::Serve {
+            root,
             config,
             port,
             open,
             dev,
-        }) => serve::run(config, port.unwrap_or(3000), open, dev),
+        }) => serve::run(root, config, port.unwrap_or(3000), open, dev),
         Some(Command::Rev {
             config,
             format,
@@ -260,8 +275,194 @@ fn main() -> Result<()> {
             kind,
             path,
         }) => run_reverse_command(config, format, uncovered, kind, path),
-        None => run_coverage_command(args),
+        None => {
+            // Print help when no subcommand given
+            print_help();
+            Ok(())
+        }
     }
+}
+
+fn print_help() {
+    println!(
+        r#"tracey - Measure spec coverage in Rust codebases
+
+{usage}:
+    tracey <COMMAND> [OPTIONS]
+
+{commands}:
+    {check}      Check spec coverage and report results
+    {serve}      Start an interactive dashboard server
+    {matrix}     Generate a traceability matrix
+    {rules}      Extract rules from markdown spec documents
+    {at}         Show which rules are referenced at a location
+    {impact}     Show what code references a rule
+    {rev}        Reverse coverage: find code lacking spec refs
+
+Run `tracey <COMMAND> --help` for more information on a specific command."#,
+        usage = "USAGE".bold().yellow(),
+        commands = "COMMANDS".bold().yellow(),
+        check = "check".green(),
+        serve = "serve".green(),
+        matrix = "matrix".green(),
+        rules = "rules".green(),
+        at = "at".green(),
+        impact = "impact".green(),
+        rev = "rev".green(),
+    );
+}
+
+fn run_check_command(
+    root: Option<PathBuf>,
+    config: Option<PathBuf>,
+    threshold: Option<f64>,
+    verbose: bool,
+    format: Option<String>,
+) -> Result<()> {
+    // Find project root
+    let project_root = match root {
+        Some(r) => r
+            .canonicalize()
+            .wrap_err("Failed to canonicalize project root")?,
+        None => find_project_root()?,
+    };
+
+    // Load config
+    let config_path = config.unwrap_or_else(|| project_root.join(".config/tracey/config.kdl"));
+    let config = load_config(&config_path)?;
+
+    // Get the directory containing the config file for resolving relative paths
+    let config_dir = config_path
+        .parent()
+        .ok_or_else(|| eyre::eyre!("Config path has no parent directory"))?;
+
+    let threshold = threshold.unwrap_or(0.0);
+    let format = format
+        .as_ref()
+        .and_then(|f| OutputFormat::from_str(f))
+        .unwrap_or_default();
+
+    let mut all_passing = true;
+
+    for spec_config in &config.specs {
+        let spec_name = &spec_config.name.value;
+
+        // Load manifest from URL, local file, or markdown glob
+        let manifest = match (
+            &spec_config.rules_url,
+            &spec_config.rules_file,
+            &spec_config.rules_glob,
+        ) {
+            (Some(url), None, None) => {
+                eprintln!(
+                    "{} Fetching spec manifest for {}...",
+                    "->".blue().bold(),
+                    spec_name.cyan()
+                );
+                SpecManifest::fetch(&url.value)?
+            }
+            (None, Some(file), None) => {
+                let file_path = config_dir.join(&file.path);
+                eprintln!(
+                    "{} Loading spec manifest for {} from {}...",
+                    "->".blue().bold(),
+                    spec_name.cyan(),
+                    file_path.display()
+                );
+                SpecManifest::load(&file_path)?
+            }
+            (None, None, Some(glob)) => {
+                eprintln!(
+                    "{} Extracting rules for {} from markdown files matching {}...",
+                    "->".blue().bold(),
+                    spec_name.cyan(),
+                    glob.pattern.cyan()
+                );
+                load_manifest_from_glob(&project_root, &glob.pattern)?
+            }
+            (None, None, None) => {
+                eyre::bail!(
+                    "Spec '{}' has no rules source - please specify rules_url, rules_file, or rules_glob",
+                    spec_name
+                );
+            }
+            _ => {
+                eyre::bail!(
+                    "Spec '{}' has multiple rules sources - please specify only one of rules_url, rules_file, or rules_glob",
+                    spec_name
+                );
+            }
+        };
+
+        eprintln!(
+            "   Found {} rules in spec",
+            manifest.len().to_string().green()
+        );
+
+        // Scan source files
+        eprintln!("{} Scanning source files...", "->".blue().bold());
+
+        let include: Vec<String> = if spec_config.include.is_empty() {
+            tracey_core::SUPPORTED_EXTENSIONS
+                .iter()
+                .map(|ext| format!("**/*.{}", ext))
+                .collect()
+        } else {
+            spec_config
+                .include
+                .iter()
+                .map(|i| i.pattern.clone())
+                .collect()
+        };
+
+        let exclude: Vec<String> = if spec_config.exclude.is_empty() {
+            vec!["target/**".to_string()]
+        } else {
+            spec_config
+                .exclude
+                .iter()
+                .map(|e| e.pattern.clone())
+                .collect()
+        };
+
+        let rules = Rules::extract(
+            WalkSources::new(&project_root)
+                .include(include)
+                .exclude(exclude),
+        )?;
+
+        eprintln!(
+            "   Found {} rule references",
+            rules.len().to_string().green()
+        );
+
+        // Print any warnings
+        if !rules.warnings.is_empty() {
+            eprintln!(
+                "{} {} parse warnings:",
+                "!".yellow().bold(),
+                rules.warnings.len()
+            );
+            errors::print_warnings(&rules.warnings, &|path| std::fs::read_to_string(path).ok());
+        }
+
+        // Compute coverage
+        let report = CoverageReport::compute(spec_name, &manifest, &rules);
+
+        // Print report
+        let output = render_report(&report, format, verbose);
+        print!("{}", output);
+
+        if !report.is_passing(threshold) {
+            all_passing = false;
+        }
+    }
+
+    if !all_passing {
+        std::process::exit(1);
+    }
+
+    Ok(())
 }
 
 fn run_rules_command(
@@ -381,159 +582,6 @@ fn run_rules_command(
         );
     } else {
         println!("{}", json);
-    }
-
-    Ok(())
-}
-
-fn run_coverage_command(args: Args) -> Result<()> {
-    // Find project root (look for Cargo.toml)
-    let project_root = find_project_root()?;
-
-    // Load config
-    // [impl config.path.default]
-    let config_path = args
-        .config
-        .unwrap_or_else(|| project_root.join(".config/tracey/config.kdl"));
-
-    let config = load_config(&config_path)?;
-
-    // Get the directory containing the config file for resolving relative paths
-    let config_dir = config_path
-        .parent()
-        .ok_or_else(|| eyre::eyre!("Config path has no parent directory"))?;
-
-    let threshold = args.threshold.unwrap_or(0.0);
-    let format = args
-        .format
-        .as_ref()
-        .and_then(|f| OutputFormat::from_str(f))
-        .unwrap_or_default();
-
-    let mut all_passing = true;
-
-    for spec_config in &config.specs {
-        let spec_name = &spec_config.name.value;
-
-        // Load manifest from URL, local file, or markdown glob
-        let manifest = match (
-            &spec_config.rules_url,
-            &spec_config.rules_file,
-            &spec_config.rules_glob,
-        ) {
-            (Some(url), None, None) => {
-                eprintln!(
-                    "{} Fetching spec manifest for {}...",
-                    "->".blue().bold(),
-                    spec_name.cyan()
-                );
-                SpecManifest::fetch(&url.value)?
-            }
-            (None, Some(file), None) => {
-                let file_path = config_dir.join(&file.path);
-                eprintln!(
-                    "{} Loading spec manifest for {} from {}...",
-                    "->".blue().bold(),
-                    spec_name.cyan(),
-                    file_path.display()
-                );
-                SpecManifest::load(&file_path)?
-            }
-            (None, None, Some(glob)) => {
-                eprintln!(
-                    "{} Extracting rules for {} from markdown files matching {}...",
-                    "->".blue().bold(),
-                    spec_name.cyan(),
-                    glob.pattern.cyan()
-                );
-                load_manifest_from_glob(&project_root, &glob.pattern)?
-            }
-            // [impl config.spec.source]
-            (None, None, None) => {
-                eyre::bail!(
-                    "Spec '{}' has no rules source - please specify rules_url, rules_file, or rules_glob",
-                    spec_name
-                );
-            }
-            _ => {
-                eyre::bail!(
-                    "Spec '{}' has multiple rules sources - please specify only one of rules_url, rules_file, or rules_glob",
-                    spec_name
-                );
-            }
-        };
-
-        eprintln!(
-            "   Found {} rules in spec",
-            manifest.len().to_string().green()
-        );
-
-        // Scan source files
-        eprintln!("{} Scanning source files...", "->".blue().bold());
-
-        // [impl config.spec.include]
-        // [impl walk.default-include]
-        let include: Vec<String> = if spec_config.include.is_empty() {
-            // Default: include all supported source file types
-            tracey_core::SUPPORTED_EXTENSIONS
-                .iter()
-                .map(|ext| format!("**/*.{}", ext))
-                .collect()
-        } else {
-            spec_config
-                .include
-                .iter()
-                .map(|i| i.pattern.clone())
-                .collect()
-        };
-
-        // [impl config.spec.exclude]
-        // [impl walk.default-exclude]
-        let exclude: Vec<String> = if spec_config.exclude.is_empty() {
-            vec!["target/**".to_string()]
-        } else {
-            spec_config
-                .exclude
-                .iter()
-                .map(|e| e.pattern.clone())
-                .collect()
-        };
-
-        let rules = Rules::extract(
-            WalkSources::new(&project_root)
-                .include(include)
-                .exclude(exclude),
-        )?;
-
-        eprintln!(
-            "   Found {} rule references",
-            rules.len().to_string().green()
-        );
-
-        // Print any warnings
-        if !rules.warnings.is_empty() {
-            eprintln!(
-                "{} {} parse warnings:",
-                "!".yellow().bold(),
-                rules.warnings.len()
-            );
-            errors::print_warnings(&rules.warnings, &|path| std::fs::read_to_string(path).ok());
-        }
-
-        // Compute coverage
-        let report = CoverageReport::compute(spec_name, &manifest, &rules);
-
-        // Print report
-        let output = render_report(&report, format, args.verbose);
-        print!("{}", output);
-
-        if !report.is_passing(threshold) {
-            all_passing = false;
-        }
-    }
-
-    if args.check && !all_passing {
-        std::process::exit(1);
     }
 
     Ok(())
@@ -2072,21 +2120,21 @@ function initSearch() {{
     hasImpl: !!row.querySelector('.ref-icon-impl'),
     hasVerify: !!row.querySelector('.ref-icon-verify'),
   }}));
-  
+
   fuse = new Fuse(ruleRows, {{
     keys: ['ruleId', 'desc', 'refs'],
     threshold: 0.3,
     ignoreLocation: true,
     includeMatches: true,
   }});
-  
+
   markInstance = new Mark(document.querySelector('tbody'));
 }}
 
 function setCoverageFilter(filter) {{
   const implStat = document.getElementById('stat-impl');
   const verifyStat = document.getElementById('stat-verify');
-  
+
   if (coverageFilter === filter) {{
     // Toggle off
     coverageFilter = null;
@@ -2104,12 +2152,12 @@ function filterTable() {{
   const filter = document.getElementById('filter').value;
   const levelFilter = currentLevel;
   const rows = document.querySelectorAll('tbody tr');
-  
+
   // Clear previous highlights
   if (markInstance) {{
     markInstance.unmark();
   }}
-  
+
   // Determine which rows match the search
   let matchingIndices = new Set();
   if (filter === '') {{
@@ -2120,12 +2168,12 @@ function filterTable() {{
     const results = fuse.search(filter);
     results.forEach(result => matchingIndices.add(result.item.index));
   }}
-  
+
   let currentSectionHeader = null;
   let currentSectionVisible = false;
   let totalRules = 0;
   let hiddenRules = 0;
-  
+
   rows.forEach((row, idx) => {{
     if (row.classList.contains('section-header')) {{
       // Hide section header initially, show if any child matches
@@ -2137,13 +2185,13 @@ function filterTable() {{
       row.style.display = 'none';
       return;
     }}
-    
+
     totalRules++;
-    
+
     // Find the ruleRow index for this row
     const ruleRowIdx = ruleRows.findIndex(r => r.row === row);
     const matchesText = ruleRowIdx >= 0 && matchingIndices.has(ruleRowIdx);
-    
+
     // Check level filter by looking for keyword elements in the row
     let matchesLevel = true;
     if (levelFilter === 'must') {{
@@ -2153,7 +2201,7 @@ function filterTable() {{
     }} else if (levelFilter === 'may') {{
       matchesLevel = !!row.querySelector('kw-may, kw-optional');
     }}
-    
+
     // Check coverage filter
     let matchesCoverage = true;
     if (coverageFilter && ruleRowIdx >= 0) {{
@@ -2164,22 +2212,22 @@ function filterTable() {{
         matchesCoverage = !ruleRow.hasVerify;
       }}
     }}
-    
+
     const visible = matchesText && matchesLevel && matchesCoverage;
     row.style.display = visible ? '' : 'none';
-    
+
     if (visible) {{
       currentSectionVisible = true;
     }} else {{
       hiddenRules++;
     }}
   }});
-  
+
   // Handle last section header
   if (currentSectionHeader && currentSectionVisible) {{
     currentSectionHeader.style.display = '';
   }}
-  
+
   // Update filter notice
   const notice = document.getElementById('filter-notice');
   const noticeText = document.getElementById('filter-notice-text');
@@ -2189,7 +2237,7 @@ function filterTable() {{
   }} else {{
     notice.classList.remove('visible');
   }}
-  
+
   // Highlight matches
   if (filter && markInstance) {{
     markInstance.mark(filter, {{
@@ -2644,7 +2692,7 @@ pub(crate) fn load_manifest_from_glob(
             let message = match &warning.kind {
                 MarkdownWarningKind::NoRfc2119Keyword => "no RFC 2119 keyword".to_string(),
                 MarkdownWarningKind::NegativeRequirement(kw) => {
-                    format!("contains {}", kw.as_str())
+                    format!("{} — negative requirements are hard to test", kw.as_str())
                 }
             };
             eprintln!(

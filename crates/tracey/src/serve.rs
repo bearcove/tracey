@@ -40,6 +40,15 @@ use tracey_core::code_units::CodeUnit;
 use tracey_core::{RefVerb, Rules, SpecManifest};
 use tracing::{debug, error, info, warn};
 
+// Markdown rendering
+use bearmark::{
+    AasvgHandler, ArboriumHandler, PikruHandler, RenderOptions, RuleDefinition, RuleHandler,
+    parse_frontmatter, render,
+};
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Mutex;
+
 use crate::config::Config;
 use crate::search::{self, SearchIndex};
 use crate::vite::ViteServer;
@@ -118,6 +127,8 @@ struct ApiFileEntry {
 struct ApiFileData {
     path: String,
     content: String,
+    /// Syntax-highlighted HTML content
+    html: String,
     /// Code units in this file with their coverage
     units: Vec<ApiCodeUnit>,
 }
@@ -132,14 +143,23 @@ struct ApiCodeUnit {
     rule_refs: Vec<String>,
 }
 
-/// Spec content
+/// A section of a spec (one source file)
+#[derive(Debug, Clone)]
+struct SpecSection {
+    /// Source file path
+    source_file: String,
+    /// Rendered HTML content
+    html: String,
+    /// Weight for ordering (from frontmatter)
+    weight: i32,
+}
+
+/// Spec content (may span multiple files)
 #[derive(Debug, Clone)]
 struct ApiSpecData {
     name: String,
-    /// Raw markdown content
-    content: String,
-    /// Source file path
-    source_file: Option<String>,
+    /// Sections ordered by weight
+    sections: Vec<SpecSection>,
 }
 
 // ============================================================================
@@ -170,6 +190,8 @@ struct AppState {
     project_root: PathBuf,
     dev_mode: bool,
     vite_port: Option<u16>,
+    /// Syntax highlighter for source files
+    highlighter: Arc<Mutex<arborium::Highlighter>>,
 }
 
 // ============================================================================
@@ -201,6 +223,22 @@ fn json_opt_string(s: &Option<String>) -> String {
         Some(s) => json_string(s),
         None => "null".to_string(),
     }
+}
+
+/// Escape HTML special characters
+fn html_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 impl ApiConfig {
@@ -316,22 +354,202 @@ impl ApiFileData {
     fn to_json(&self) -> String {
         let units: Vec<String> = self.units.iter().map(|u| u.to_json()).collect();
         format!(
-            r#"{{"path":{},"content":{},"units":[{}]}}"#,
+            r#"{{"path":{},"content":{},"html":{},"units":[{}]}}"#,
             json_string(&self.path),
             json_string(&self.content),
+            json_string(&self.html),
             units.join(",")
+        )
+    }
+}
+
+impl SpecSection {
+    fn to_json(&self) -> String {
+        format!(
+            r#"{{"sourceFile":{},"html":{}}}"#,
+            json_string(&self.source_file),
+            json_string(&self.html)
         )
     }
 }
 
 impl ApiSpecData {
     fn to_json(&self) -> String {
+        let sections: Vec<String> = self.sections.iter().map(|s| s.to_json()).collect();
         format!(
-            r#"{{"name":{},"content":{},"sourceFile":{}}}"#,
+            r#"{{"name":{},"sections":[{}]}}"#,
             json_string(&self.name),
-            json_string(&self.content),
-            json_opt_string(&self.source_file)
+            sections.join(",")
         )
+    }
+}
+
+// ============================================================================
+// Rule Handler
+// ============================================================================
+
+/// Coverage status for a rule
+#[derive(Debug, Clone)]
+struct RuleCoverage {
+    status: &'static str, // "covered", "partial", "uncovered"
+    impl_refs: Vec<ApiCodeRef>,
+    verify_refs: Vec<ApiCodeRef>,
+}
+
+/// Custom rule handler that renders rules with coverage status and refs
+struct TraceyRuleHandler {
+    coverage: BTreeMap<String, RuleCoverage>,
+    /// Current source file being rendered (shared with rendering loop)
+    current_source_file: Arc<Mutex<String>>,
+}
+
+impl TraceyRuleHandler {
+    fn new(
+        coverage: BTreeMap<String, RuleCoverage>,
+        current_source_file: Arc<Mutex<String>>,
+    ) -> Self {
+        Self {
+            coverage,
+            current_source_file,
+        }
+    }
+}
+
+/// Get devicon class for a file path based on extension
+fn devicon_class(path: &str) -> Option<&'static str> {
+    let ext = path.rsplit('.').next()?;
+    match ext {
+        // Systems languages
+        "rs" => Some("devicon-rust-original"),
+        "go" => Some("devicon-go-plain"),
+        "zig" => Some("devicon-zig-original"),
+        "c" => Some("devicon-c-plain"),
+        "h" => Some("devicon-c-plain"),
+        "cpp" | "cc" | "cxx" => Some("devicon-cplusplus-plain"),
+        "hpp" | "hh" | "hxx" => Some("devicon-cplusplus-plain"),
+        // Web/JS ecosystem
+        "js" | "mjs" | "cjs" => Some("devicon-javascript-plain"),
+        "ts" | "mts" | "cts" => Some("devicon-typescript-plain"),
+        "jsx" => Some("devicon-javascript-plain"),
+        "tsx" => Some("devicon-typescript-plain"),
+        "vue" => Some("devicon-vuejs-plain"),
+        "svelte" => Some("devicon-svelte-plain"),
+        // Mobile
+        "swift" => Some("devicon-swift-plain"),
+        "kt" | "kts" => Some("devicon-kotlin-plain"),
+        "dart" => Some("devicon-dart-plain"),
+        // JVM
+        "java" => Some("devicon-java-plain"),
+        "scala" => Some("devicon-scala-plain"),
+        "clj" | "cljs" | "cljc" => Some("devicon-clojure-plain"),
+        "groovy" => Some("devicon-groovy-plain"),
+        // Scripting
+        "py" => Some("devicon-python-plain"),
+        "rb" => Some("devicon-ruby-plain"),
+        "php" => Some("devicon-php-plain"),
+        "lua" => Some("devicon-lua-plain"),
+        "pl" | "pm" => Some("devicon-perl-plain"),
+        "r" => Some("devicon-r-plain"),
+        "jl" => Some("devicon-julia-plain"),
+        // Functional
+        "hs" | "lhs" => Some("devicon-haskell-plain"),
+        "ml" | "mli" => Some("devicon-ocaml-plain"),
+        "ex" | "exs" => Some("devicon-elixir-plain"),
+        "erl" | "hrl" => Some("devicon-erlang-plain"),
+        "fs" | "fsi" | "fsx" => Some("devicon-fsharp-plain"),
+        // Shell
+        "sh" | "bash" | "zsh" => Some("devicon-bash-plain"),
+        "ps1" | "psm1" => Some("devicon-powershell-plain"),
+        // Config/data
+        "json" => Some("devicon-json-plain"),
+        "yaml" | "yml" => Some("devicon-yaml-plain"),
+        "toml" => Some("devicon-toml-plain"),
+        "xml" => Some("devicon-xml-plain"),
+        "sql" => Some("devicon-postgresql-plain"),
+        // Web
+        "html" | "htm" => Some("devicon-html5-plain"),
+        "css" => Some("devicon-css3-plain"),
+        "scss" | "sass" => Some("devicon-sass-original"),
+        // Docs
+        "md" | "markdown" => Some("devicon-markdown-original"),
+        _ => None,
+    }
+}
+
+impl RuleHandler for TraceyRuleHandler {
+    fn render<'a>(
+        &'a self,
+        rule: &'a RuleDefinition,
+    ) -> Pin<Box<dyn Future<Output = bearmark::Result<String>> + Send + 'a>> {
+        Box::pin(async move {
+            let coverage = self.coverage.get(&rule.id);
+            let status = coverage.map(|c| c.status).unwrap_or("uncovered");
+
+            // Insert <wbr> after dots for better line breaking
+            let display_id = rule.id.replace('.', ".<wbr>");
+
+            // Get current source file for this rule
+            let source_file = self.current_source_file.lock().unwrap().clone();
+
+            // Build the badges that pierce the top border
+            let mut badges_html = String::new();
+
+            // Rule ID badge (always present) - includes source location for editor navigation
+            badges_html.push_str(&format!(
+                r#"<a class="rule-badge rule-id" href="/spec/{}" data-rule="{}" data-source-file="{}" data-source-line="{}" title="{}">{}</a>"#,
+                rule.id, rule.id, source_file, rule.line, rule.id, display_id
+            ));
+
+            // Implementation badge
+            if let Some(cov) = coverage {
+                if !cov.impl_refs.is_empty() {
+                    let r = &cov.impl_refs[0];
+                    let filename = r.file.rsplit('/').next().unwrap_or(&r.file);
+                    let icon = devicon_class(&r.file)
+                        .map(|c| format!(r#"<i class="{c}"></i> "#))
+                        .unwrap_or_default();
+                    let count_suffix = if cov.impl_refs.len() > 1 {
+                        format!(" +{}", cov.impl_refs.len() - 1)
+                    } else {
+                        String::new()
+                    };
+                    badges_html.push_str(&format!(
+                        r#"<a class="rule-badge rule-impl" href="/sources/{}:{}" data-file="{}" data-line="{}" title="Implementation: {}:{}">{icon}{}:{}{}</a>"#,
+                        r.file, r.line, r.file, r.line, r.file, r.line, filename, r.line, count_suffix
+                    ));
+                }
+
+                // Test/verify badge
+                if !cov.verify_refs.is_empty() {
+                    let r = &cov.verify_refs[0];
+                    let filename = r.file.rsplit('/').next().unwrap_or(&r.file);
+                    let icon = devicon_class(&r.file)
+                        .map(|c| format!(r#"<i class="{c}"></i> "#))
+                        .unwrap_or_default();
+                    let count_suffix = if cov.verify_refs.len() > 1 {
+                        format!(" +{}", cov.verify_refs.len() - 1)
+                    } else {
+                        String::new()
+                    };
+                    badges_html.push_str(&format!(
+                        r#"<a class="rule-badge rule-test" href="/sources/{}:{}" data-file="{}" data-line="{}" title="Test: {}:{}">{icon}{}:{}{}</a>"#,
+                        r.file, r.line, r.file, r.line, r.file, r.line, filename, r.line, count_suffix
+                    ));
+                }
+            }
+
+            // Render the rule container with paragraph content
+            Ok(format!(
+                r#"<div class="rule-container rule-{status}" id="{anchor}">
+<div class="rule-badges">{badges}</div>
+<div class="rule-content">{paragraph}</div>
+</div>"#,
+                status = status,
+                anchor = rule.anchor_id,
+                badges = badges_html,
+                paragraph = rule.paragraph_html
+            ))
+        })
     }
 }
 
@@ -339,7 +557,7 @@ impl ApiSpecData {
 // Data Building
 // ============================================================================
 
-fn build_dashboard_data(
+async fn build_dashboard_data(
     project_root: &Path,
     config_path: &Path,
     config: &Config,
@@ -386,12 +604,7 @@ fn build_dashboard_data(
             SpecManifest::load(&path)?
         } else if let Some(glob) = &spec_config.rules_glob {
             eprintln!("   {} rules from {}", "Extracting".green(), glob.pattern);
-            let manifest = crate::load_manifest_from_glob(project_root, &glob.pattern)?;
-
-            // Also load spec content for each matched file
-            load_spec_content(project_root, &glob.pattern, spec_name, &mut specs_content)?;
-
-            manifest
+            crate::load_manifest_from_glob(project_root, &glob.pattern)?
         } else {
             eyre::bail!(
                 "Spec '{}' has no rules_url, rules_file, or rules_glob",
@@ -458,6 +671,40 @@ fn build_dashboard_data(
 
         // Sort rules by ID
         api_rules.sort_by(|a, b| a.id.cmp(&b.id));
+
+        // Build coverage map for this spec's rules
+        let mut coverage: BTreeMap<String, RuleCoverage> = BTreeMap::new();
+        for rule in &api_rules {
+            let has_impl = !rule.impl_refs.is_empty();
+            let has_verify = !rule.verify_refs.is_empty();
+            let status = if has_impl && has_verify {
+                "covered"
+            } else if has_impl || has_verify {
+                "partial"
+            } else {
+                "uncovered"
+            };
+            coverage.insert(
+                rule.id.clone(),
+                RuleCoverage {
+                    status,
+                    impl_refs: rule.impl_refs.clone(),
+                    verify_refs: rule.verify_refs.clone(),
+                },
+            );
+        }
+
+        // Load spec content with coverage-aware rendering (only for rules_glob sources)
+        if let Some(glob) = &spec_config.rules_glob {
+            load_spec_content(
+                project_root,
+                &glob.pattern,
+                spec_name,
+                &coverage,
+                &mut specs_content,
+            )
+            .await?;
+        }
 
         forward_specs.push(ApiSpecForward {
             name: spec_name.clone(),
@@ -579,13 +826,28 @@ fn simple_hash(s: &str) -> u64 {
     hash
 }
 
-fn load_spec_content(
+async fn load_spec_content(
     root: &Path,
     pattern: &str,
     spec_name: &str,
+    coverage: &BTreeMap<String, RuleCoverage>,
     specs_content: &mut BTreeMap<String, ApiSpecData>,
 ) -> Result<()> {
     use ignore::WalkBuilder;
+
+    // Shared source file tracker for rule handler
+    let current_source_file = Arc::new(Mutex::new(String::new()));
+
+    // Set up bearmark handlers for consistent rendering with coverage-aware rule rendering
+    let rule_handler = TraceyRuleHandler::new(coverage.clone(), Arc::clone(&current_source_file));
+    let opts = RenderOptions::new()
+        .with_default_handler(ArboriumHandler::new())
+        .with_handler(&["aasvg"], AasvgHandler::new())
+        .with_handler(&["pikchr"], PikruHandler::new())
+        .with_rule_handler(rule_handler);
+
+    // Collect all matching files with their content and weight
+    let mut files: Vec<(String, String, i32)> = Vec::new(); // (relative_path, content, weight)
 
     let walker = WalkBuilder::new(root)
         .follow_links(true)
@@ -601,22 +863,46 @@ fn load_spec_content(
         }
 
         let relative = path.strip_prefix(root).unwrap_or(path);
-        let relative_str = relative.to_string_lossy();
+        let relative_str = relative.to_string_lossy().to_string();
 
         if !glob_match(&relative_str, pattern) {
             continue;
         }
 
         if let Ok(content) = std::fs::read_to_string(path) {
-            specs_content.insert(
-                spec_name.to_string(),
-                ApiSpecData {
-                    name: spec_name.to_string(),
-                    content,
-                    source_file: Some(relative_str.to_string()),
-                },
-            );
+            // Parse frontmatter to get weight
+            let weight = match parse_frontmatter(&content) {
+                Ok((fm, _)) => fm.weight,
+                Err(_) => 0, // Default weight if no frontmatter
+            };
+            files.push((relative_str, content, weight));
         }
+    }
+
+    // Sort by weight
+    files.sort_by_key(|(_, _, weight)| *weight);
+
+    // Render each file and build sections
+    let mut sections = Vec::new();
+    for (source_file, content, weight) in files {
+        // Update the current source file so rule handler can include it in data attributes
+        *current_source_file.lock().unwrap() = source_file.clone();
+        let doc = render(&content, &opts).await?;
+        sections.push(SpecSection {
+            source_file,
+            html: doc.html,
+            weight,
+        });
+    }
+
+    if !sections.is_empty() {
+        specs_content.insert(
+            spec_name.to_string(),
+            ApiSpecData {
+                name: spec_name.to_string(),
+                sections,
+            },
+        );
     }
 
     Ok(())
@@ -656,10 +942,10 @@ fn glob_match(path: &str, pattern: &str) -> bool {
 const HTML_SHELL: &str = include_str!("../dashboard/dist/index.html");
 
 /// JavaScript bundle from Vite build
-const JS_BUNDLE: &str = include_str!("../dashboard/dist/assets/index-CPUJscSr.js");
+const JS_BUNDLE: &str = include_str!("../dashboard/dist/assets/index.js");
 
 /// CSS bundle from Vite build
-const CSS_BUNDLE: &str = include_str!("../dashboard/dist/assets/index-DxtBNHQk.css");
+const CSS_BUNDLE: &str = include_str!("../dashboard/dist/assets/index.css");
 
 // ============================================================================
 // Route Handlers
@@ -695,6 +981,65 @@ struct FileQuery {
     path: String,
 }
 
+/// Get arborium language name from file extension
+fn arborium_language(path: &str) -> Option<&'static str> {
+    let ext = path.rsplit('.').next()?;
+    match ext {
+        // Rust
+        "rs" => Some("rust"),
+        // Go
+        "go" => Some("go"),
+        // C/C++
+        "c" | "h" => Some("c"),
+        "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => Some("cpp"),
+        // Web
+        "js" | "mjs" | "cjs" => Some("javascript"),
+        "ts" | "mts" | "cts" => Some("typescript"),
+        "jsx" => Some("javascript"),
+        "tsx" => Some("tsx"),
+        // Python
+        "py" => Some("python"),
+        // Ruby
+        "rb" => Some("ruby"),
+        // Java/JVM
+        "java" => Some("java"),
+        "kt" | "kts" => Some("kotlin"),
+        "scala" => Some("scala"),
+        // Shell
+        "sh" | "bash" | "zsh" => Some("bash"),
+        // Config
+        "json" => Some("json"),
+        "yaml" | "yml" => Some("yaml"),
+        "toml" => Some("toml"),
+        "xml" => Some("xml"),
+        // Web markup
+        "html" | "htm" => Some("html"),
+        "css" => Some("css"),
+        "scss" | "sass" => Some("scss"),
+        // Markdown
+        "md" | "markdown" => Some("markdown"),
+        // SQL
+        "sql" => Some("sql"),
+        // Zig
+        "zig" => Some("zig"),
+        // Swift
+        "swift" => Some("swift"),
+        // Elixir
+        "ex" | "exs" => Some("elixir"),
+        // Haskell
+        "hs" | "lhs" => Some("haskell"),
+        // OCaml
+        "ml" | "mli" => Some("ocaml"),
+        // Lua
+        "lua" => Some("lua"),
+        // PHP
+        "php" => Some("php"),
+        // R
+        "r" | "R" => Some("r"),
+        _ => None,
+    }
+}
+
 async fn api_file(
     State(state): State<AppState>,
     Query(params): Query<Vec<(String, String)>>,
@@ -717,6 +1062,17 @@ async fn api_file(
             .display()
             .to_string();
 
+        // Syntax highlight the content
+        let html = if let Some(lang) = arborium_language(&relative) {
+            let mut hl = state.highlighter.lock().unwrap();
+            match hl.highlight(lang, &content) {
+                Ok(highlighted) => highlighted,
+                Err(_) => html_escape(&content),
+            }
+        } else {
+            html_escape(&content)
+        };
+
         let api_units: Vec<ApiCodeUnit> = units
             .iter()
             .map(|u| ApiCodeUnit {
@@ -731,6 +1087,7 @@ async fn api_file(
         let file_data = ApiFileData {
             path: relative,
             content,
+            html,
             units: api_units,
         };
 
@@ -1093,6 +1450,7 @@ async fn handle_vite_ws(
 
 /// Run the serve command
 pub fn run(
+    project_root: Option<PathBuf>,
     config_path: Option<PathBuf>,
     port: u16,
     open_browser: bool,
@@ -1116,23 +1474,31 @@ pub fn run(
         .build()
         .wrap_err("Failed to create tokio runtime")?;
 
-    rt.block_on(async move { run_server(config_path, port, open_browser, dev_mode).await })
+    rt.block_on(
+        async move { run_server(project_root, config_path, port, open_browser, dev_mode).await },
+    )
 }
 
 async fn run_server(
+    project_root: Option<PathBuf>,
     config_path: Option<PathBuf>,
     port: u16,
     open_browser: bool,
     dev_mode: bool,
 ) -> Result<()> {
-    let project_root = crate::find_project_root()?;
+    let project_root = match project_root {
+        Some(root) => root
+            .canonicalize()
+            .wrap_err("Failed to canonicalize project root")?,
+        None => crate::find_project_root()?,
+    };
     let config_path = config_path.unwrap_or_else(|| project_root.join(".config/tracey/config.kdl"));
     let config = crate::load_config(&config_path)?;
 
     let version = Arc::new(AtomicU64::new(1));
 
     // Initial build
-    let initial_data = build_dashboard_data(&project_root, &config_path, &config, 1)?;
+    let initial_data = build_dashboard_data(&project_root, &config_path, &config, 1).await?;
 
     // Channel for state updates
     let (tx, rx) = watch::channel(Arc::new(initial_data));
@@ -1244,7 +1610,9 @@ async fn run_server(
             let current_hash = rebuild_rx.borrow().content_hash;
 
             // Build with placeholder version (we'll set real version if hash changed)
-            match build_dashboard_data(&rebuild_project_root, &rebuild_config_path, &config, 0) {
+            match build_dashboard_data(&rebuild_project_root, &rebuild_config_path, &config, 0)
+                .await
+            {
                 Ok(mut data) => {
                     // Only bump version if content actually changed
                     if data.content_hash != current_hash {
@@ -1271,6 +1639,7 @@ async fn run_server(
         project_root: project_root.clone(),
         dev_mode,
         vite_port,
+        highlighter: Arc::new(Mutex::new(arborium::Highlighter::new())),
     };
 
     // Build router

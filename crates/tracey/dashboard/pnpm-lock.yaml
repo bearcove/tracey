@@ -8,15 +8,9 @@ importers:
 
   .:
     dependencies:
-      '@arborium/arborium':
-        specifier: ^2.4.7
-        version: 2.4.7
       htm:
         specifier: ^3.1.1
         version: 3.1.1
-      marked:
-        specifier: ^17.0.1
-        version: 17.0.1
       preact:
         specifier: ^10.28.1
         version: 10.28.1
@@ -32,9 +26,6 @@ importers:
         version: 7.3.0
 
 packages:
-
-  '@arborium/arborium@2.4.7':
-    resolution: {integrity: sha512-EbM9vboZJ39dji4sa6L+AGXANy8VByvQIw+THM2crG+GqU7tpQmbUb2CH9UU9DiJCVP/lWGzcQEV+MGLshGxAQ==}
 
   '@babel/code-frame@7.27.1':
     resolution: {integrity: sha512-cjQ7ZlQ0Mv3b47hABuTevyTuYN4i+loJKGeV9flcCgIK37cCXRh+L1bd3iBHlynerhQ7BhCkn2BPbQUL+rGqFg==}
@@ -559,11 +550,6 @@ packages:
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
 
-  marked@17.0.1:
-    resolution: {integrity: sha512-boeBdiS0ghpWcSwoNm/jJBwdpFaMnZWRzjA6SkUMYb40SVaN1x7mmfGKp0jvexGcx+7y2La5zRZsYFZI6Qpypg==}
-    engines: {node: '>= 20'}
-    hasBin: true
-
   ms@2.1.3:
     resolution: {integrity: sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==}
 
@@ -687,8 +673,6 @@ packages:
     resolution: {integrity: sha512-a4UGQaWPH59mOXUYnAG2ewncQS4i4F43Tv3JoAM+s2VDAmS9NsK8GpDMLrCHPksFT7h3K6TOoUNn2pb7RoXx4g==}
 
 snapshots:
-
-  '@arborium/arborium@2.4.7': {}
 
   '@babel/code-frame@7.27.1':
     dependencies:
@@ -1142,8 +1126,6 @@ snapshots:
   magic-string@0.30.21:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.5.5
-
-  marked@17.0.1: {}
 
   ms@2.1.3: {}
 
