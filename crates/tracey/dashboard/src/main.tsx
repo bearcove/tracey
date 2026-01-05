@@ -1,40 +1,21 @@
 import htm from "htm";
 import { h, render } from "preact";
-import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { LocationProvider, Router, Route, useLocation, useRoute } from "preact-iso";
+import { useCallback, useEffect, useRef, useState } from "preact/hooks";
+import { LocationProvider, Route, Router, useLocation, useRoute } from "preact-iso";
 import "./style.css";
 
-// Types
-import type {
-  Editor,
-  FileContent,
-  FilePathProps,
-  FileRefProps,
-  HeaderProps,
-  OutlineEntry,
-  SpecViewProps,
-  SourcesViewProps,
-  CoverageViewProps,
-  ViewType,
-} from "./types";
+import { modKey, TAB_ICON_NAMES } from "./config";
 
 // Modules
-import { useApi, useFile, useSpec } from "./hooks";
+import { useApi } from "./hooks";
 import { buildUrl } from "./router";
-import { EDITORS, LEVELS, LANG_DEVICON_MAP, TAB_ICON_NAMES, modKey } from "./config";
-import {
-  buildFileTree,
-  getStatClass,
-  getCoverageBadge,
-  renderRuleText,
-  splitHighlightedHtml,
-  splitPath,
-} from "./utils";
-
+// Types
+import type { FilePathProps, FileRefProps, HeaderProps, LucideIconProps, ViewType } from "./types";
+import { splitPath } from "./utils";
+import { CoverageView } from "./views/coverage";
+import { SourcesView } from "./views/sources";
 // Views (to be imported once moved)
 import { SpecView } from "./views/spec";
-import { SourcesView } from "./views/sources";
-import { CoverageView } from "./views/coverage";
 
 const html = htm.bind(h);
 
@@ -45,35 +26,79 @@ declare const lucide: { createIcons: (opts?: { nodes?: NodeList }) => void };
 // Components
 // ========================================================================
 
+function LucideIcon({ name, className = "" }: LucideIconProps) {
+  const iconRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (iconRef.current && typeof lucide !== "undefined") {
+      iconRef.current.innerHTML = "";
+      const i = document.createElement("i");
+      i.setAttribute("data-lucide", name);
+      iconRef.current.appendChild(i);
+      lucide.createIcons({ nodes: [i] as unknown as NodeList });
+    }
+  }, [name]);
+
+  return html`<span ref=${iconRef} class=${className}></span>`;
+}
+
 function Header({ view, onViewChange, onOpenSearch }: HeaderProps) {
-  const tabs = [
-    { id: "spec", label: "Specification", icon: TAB_ICON_NAMES.specification },
-    { id: "coverage", label: "Coverage", icon: TAB_ICON_NAMES.coverage },
-    { id: "sources", label: "Sources", icon: TAB_ICON_NAMES.sources },
-  ];
+  const handleNavClick = (e: Event, newView: ViewType) => {
+    e.preventDefault();
+    onViewChange(newView);
+  };
 
   return html`
     <header class="header">
-      <div class="tabs">
-        ${tabs.map(
-          (tab) => html`
-            <button
-              key=${tab.id}
-              class="tab ${view === tab.id ? "active" : ""}"
-              onClick=${() => onViewChange(tab.id as ViewType)}
-            >
-              <i data-lucide=${tab.icon}></i>
-              <span>${tab.label}</span>
-            </button>
-          `,
-        )}
-      </div>
-      <div class="header-actions">
-        <button class="search-button" onClick=${onOpenSearch}>
-          <i data-lucide="search"></i>
-          <span>Search</span>
-          <kbd>${modKey}+K</kbd>
-        </button>
+      <div class="header-inner">
+        <nav class="nav">
+          <a
+            href="/spec"
+            class="nav-tab ${view === "spec" ? "active" : ""}"
+            onClick=${(e: Event) => handleNavClick(e, "spec")}
+            ><${LucideIcon} name=${TAB_ICON_NAMES.specification} className="tab-icon" /><span
+              >Specification</span
+            ></a
+          >
+          <a
+            href="/coverage"
+            class="nav-tab ${view === "coverage" ? "active" : ""}"
+            onClick=${(e: Event) => handleNavClick(e, "coverage")}
+            ><${LucideIcon} name=${TAB_ICON_NAMES.coverage} className="tab-icon" /><span
+              >Coverage</span
+            ></a
+          >
+          <a
+            href="/sources"
+            class="nav-tab ${view === "sources" ? "active" : ""}"
+            onClick=${(e: Event) => handleNavClick(e, "sources")}
+            ><${LucideIcon} name=${TAB_ICON_NAMES.sources} className="tab-icon" /><span
+              >Sources</span
+            ></a
+          >
+        </nav>
+
+        <div
+          class="search-box"
+          style="margin-left: auto; margin-right: 1rem; display: flex; align-items: center;"
+        >
+          <input
+            type="text"
+            class="search-input"
+            placeholder="Search... (${modKey}+K)"
+            onClick=${onOpenSearch}
+            onFocus=${(e: FocusEvent) => {
+              (e.target as HTMLInputElement).blur();
+              onOpenSearch();
+            }}
+            readonly
+            style="cursor: pointer;"
+          />
+        </div>
+
+        <a href="https://github.com/bearcove/tracey" class="logo" target="_blank" rel="noopener"
+          >tracey</a
+        >
       </div>
     </header>
   `;
@@ -169,7 +194,7 @@ function FileRef({ file, line, type, onSelectFile }: FileRefProps) {
 
 // Show a popup with all references
 function showRefsPopup(
-  e: Event,
+  _e: Event,
   refs: Array<{ file: string; line: number }>,
   badgeElement: HTMLElement,
   onSelectFile: (file: string, line: number) => void,
@@ -225,7 +250,7 @@ function showRefsPopup(
 function App() {
   const { data, error, version } = useApi();
   const { route } = useLocation();
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [_searchOpen, setSearchOpen] = useState(false);
 
   // Initialize Lucide icons
   useEffect(() => {
@@ -389,11 +414,17 @@ function SourcesViewRoute() {
   }
   const context = query.context || null;
 
-  const [search, setSearch] = useState("");
+  const [search, _setSearch] = useState("");
 
   const handleSelectFile = useCallback(
     (filePath: string, lineNum?: number | null, ruleContext?: string | null) => {
-      route(buildUrl(spec, "sources", { file: filePath, line: lineNum, context: ruleContext }));
+      route(
+        buildUrl(spec, "sources", {
+          file: filePath,
+          line: lineNum,
+          context: ruleContext,
+        }),
+      );
     },
     [route, spec],
   );

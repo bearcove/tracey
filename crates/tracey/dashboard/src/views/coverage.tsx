@@ -1,92 +1,99 @@
-// Coverage view - rule coverage table
-import { h } from "preact";
 import { useCallback, useEffect, useMemo, useState } from "preact/hooks";
-import type { CoverageViewProps } from "../types";
 import { LEVELS } from "../config";
+import { FileRef, html } from "../main";
+import type { CoverageViewProps } from "../types";
 import { getStatClass, renderRuleText } from "../utils";
-import { html, FilePath, FileRef } from "../main";
 
 export function CoverageView({
-  data,
-  search,
-  level,
-  onLevelChange,
-  filter,
-  onFilterChange,
-  onSelectRule,
-  onSelectFile,
+	data,
+	search,
+	level,
+	onLevelChange,
+	filter,
+	onFilterChange,
+	onSelectRule,
+	onSelectFile,
 }: CoverageViewProps) {
-  const [levelOpen, setLevelOpen] = useState(false);
+	const [levelOpen, setLevelOpen] = useState(false);
 
-  // Close dropdowns when clicking outside
-  useEffect(() => {
-    const handleClick = (e: Event) => {
-      if (!(e.target as HTMLElement).closest("#level-dropdown")) setLevelOpen(false);
-    };
-    document.addEventListener("click", handleClick);
-    return () => document.removeEventListener("click", handleClick);
-  }, []);
+	// Close dropdowns when clicking outside
+	useEffect(() => {
+		const handleClick = (e: Event) => {
+			if (!(e.target as HTMLElement).closest("#level-dropdown"))
+				setLevelOpen(false);
+		};
+		document.addEventListener("click", handleClick);
+		return () => document.removeEventListener("click", handleClick);
+	}, []);
 
-  const allRules = useMemo(
-    () => data.specs.flatMap((s) => s.rules.map((r) => ({ ...r, spec: s.name }))),
-    [data],
-  );
+	const allRules = useMemo(
+		() =>
+			data.specs.flatMap((s) => s.rules.map((r) => ({ ...r, spec: s.name }))),
+		[data],
+	);
 
-  // Infer level from rule text if not explicitly set
-  const inferLevel = useCallback((rule: { level?: string; text?: string }) => {
-    if (rule.level) return rule.level.toLowerCase();
-    if (!rule.text) return null;
-    const text = rule.text.toUpperCase();
-    if (text.includes("MUST") || text.includes("SHALL") || text.includes("REQUIRED")) return "must";
-    if (text.includes("SHOULD") || text.includes("RECOMMENDED")) return "should";
-    if (text.includes("MAY") || text.includes("OPTIONAL")) return "may";
-    return null;
-  }, []);
+	// Infer level from rule text if not explicitly set
+	const inferLevel = useCallback((rule: { level?: string; text?: string }) => {
+		if (rule.level) return rule.level.toLowerCase();
+		if (!rule.text) return null;
+		const text = rule.text.toUpperCase();
+		if (
+			text.includes("MUST") ||
+			text.includes("SHALL") ||
+			text.includes("REQUIRED")
+		)
+			return "must";
+		if (text.includes("SHOULD") || text.includes("RECOMMENDED"))
+			return "should";
+		if (text.includes("MAY") || text.includes("OPTIONAL")) return "may";
+		return null;
+	}, []);
 
-  const filteredRules = useMemo(() => {
-    let rules = allRules;
+	const filteredRules = useMemo(() => {
+		let rules = allRules;
 
-    // Filter by level
-    if (level !== "all") {
-      rules = rules.filter((r) => inferLevel(r) === level);
-    }
+		// Filter by level
+		if (level !== "all") {
+			rules = rules.filter((r) => inferLevel(r) === level);
+		}
 
-    // Filter by coverage
-    if (filter === "impl") {
-      rules = rules.filter((r) => r.implRefs.length === 0);
-    } else if (filter === "verify") {
-      rules = rules.filter((r) => r.verifyRefs.length === 0);
-    }
+		// Filter by coverage
+		if (filter === "impl") {
+			rules = rules.filter((r) => r.implRefs.length === 0);
+		} else if (filter === "verify") {
+			rules = rules.filter((r) => r.verifyRefs.length === 0);
+		}
 
-    // Filter by search
-    if (search) {
-      const q = search.toLowerCase();
-      rules = rules.filter(
-        (r) => r.id.toLowerCase().includes(q) || (r.text && r.text.toLowerCase().includes(q)),
-      );
-    }
+		// Filter by search
+		if (search) {
+			const q = search.toLowerCase();
+			rules = rules.filter(
+				(r) =>
+					r.id.toLowerCase().includes(q) || r.text?.toLowerCase().includes(q),
+			);
+		}
 
-    return rules;
-  }, [allRules, search, level, filter, inferLevel]);
+		return rules;
+	}, [allRules, search, level, filter, inferLevel]);
 
-  const stats = useMemo(() => {
-    let rules = allRules;
-    if (level !== "all") {
-      rules = rules.filter((r) => inferLevel(r) === level);
-    }
-    const total = rules.length;
-    const impl = rules.filter((r) => r.implRefs.length > 0).length;
-    const verify = rules.filter((r) => r.verifyRefs.length > 0).length;
-    return {
-      total,
-      impl,
-      verify,
-      implPct: total ? (impl / total) * 100 : 0,
-      verifyPct: total ? (verify / total) * 100 : 0,
-    };
-  }, [allRules, level, inferLevel]);
+	const stats = useMemo(() => {
+		let rules = allRules;
+		if (level !== "all") {
+			rules = rules.filter((r) => inferLevel(r) === level);
+		}
+		const total = rules.length;
+		const impl = rules.filter((r) => r.implRefs.length > 0).length;
+		const verify = rules.filter((r) => r.verifyRefs.length > 0).length;
+		return {
+			total,
+			impl,
+			verify,
+			implPct: total ? (impl / total) * 100 : 0,
+			verifyPct: total ? (verify / total) * 100 : 0,
+		};
+	}, [allRules, level, inferLevel]);
 
-  const mdIcon = html`<svg
+	const mdIcon = html`<svg
     class="rule-icon"
     viewBox="0 0 24 24"
     fill="none"
@@ -98,7 +105,7 @@ export function CoverageView({
     <path d="M9 15l2 2 4-4" />
   </svg>`;
 
-  return html`
+	return html`
     <div class="stats-bar">
       <div class="stat">
         <span class="stat-label">Rules</span>
@@ -125,9 +132,9 @@ export function CoverageView({
         <div
           class="dropdown-selected"
           onClick=${(e: Event) => {
-            e.stopPropagation();
-            setLevelOpen(!levelOpen);
-          }}
+						e.stopPropagation();
+						setLevelOpen(!levelOpen);
+					}}
         >
           <span class="level-dot ${LEVELS[level]?.dotClass || ""}"></span>
           <span>${LEVELS[level]?.name || "All"}</span>
@@ -145,20 +152,20 @@ export function CoverageView({
         </div>
         <div class="dropdown-menu">
           ${Object.entries(LEVELS).map(
-            ([key, cfg]) => html`
+						([key, cfg]) => html`
               <div
                 key=${key}
                 class="dropdown-option ${level === key ? "active" : ""}"
                 onClick=${() => {
-                  onLevelChange(key);
-                  setLevelOpen(false);
-                }}
+									onLevelChange(key);
+									setLevelOpen(false);
+								}}
               >
                 <span class="level-dot ${cfg.dotClass}"></span>
                 <span>${cfg.name}</span>
               </div>
             `,
-          )}
+					)}
         </div>
       </div>
     </div>
@@ -174,7 +181,7 @@ export function CoverageView({
             </thead>
             <tbody>
               ${filteredRules.map(
-                (rule) => html`
+								(rule) => html`
                   <tr
                     key=${rule.id}
                     onClick=${() => onSelectRule(rule.id)}
@@ -185,17 +192,20 @@ export function CoverageView({
                         ${mdIcon}
                         <span class="rule-id">${rule.id}</span>
                       </div>
-                      ${rule.text &&
-                      html`<div
+                      ${
+												rule.text &&
+												html`<div
                         class="rule-text"
                         dangerouslySetInnerHTML=${{ __html: renderRuleText(rule.text) }}
-                      />`}
+                      />`
+											}
                     </td>
                     <td class="rule-refs" onClick=${(e: Event) => e.stopPropagation()}>
-                      ${rule.implRefs.length > 0 || rule.verifyRefs.length > 0
-                        ? html`
+                      ${
+												rule.implRefs.length > 0 || rule.verifyRefs.length > 0
+													? html`
                             ${rule.implRefs.map(
-                              (r) => html`
+															(r) => html`
                                 <${FileRef}
                                   key=${`impl:${r.file}:${r.line}`}
                                   file=${r.file}
@@ -204,9 +214,9 @@ export function CoverageView({
                                   onSelectFile=${onSelectFile}
                                 />
                               `,
-                            )}
+														)}
                             ${rule.verifyRefs.map(
-                              (r) => html`
+															(r) => html`
                                 <${FileRef}
                                   key=${`verify:${r.file}:${r.line}`}
                                   file=${r.file}
@@ -215,13 +225,14 @@ export function CoverageView({
                                   onSelectFile=${onSelectFile}
                                 />
                               `,
-                            )}
+														)}
                           `
-                        : html`<span style="color: var(--fg-dim)">—</span>`}
+													: html`<span style="color: var(--fg-dim)">—</span>`
+											}
                     </td>
                   </tr>
                 `,
-              )}
+							)}
             </tbody>
           </table>
         </div>

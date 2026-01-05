@@ -1,17 +1,9 @@
-// Sources view - file tree with code viewer
-import { h } from "preact";
 import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
-import type {
-  FileContent,
-  FileInfo,
-  SourcesViewProps,
-  TreeNodeWithCoverage,
-  FileInfoWithName,
-} from "../types";
-import { useFile } from "../hooks";
 import { EDITORS, LANG_DEVICON_MAP } from "../config";
-import { buildFileTree, getStatClass, getCoverageBadge, splitHighlightedHtml } from "../utils";
-import { html, FilePath, CoverageArc } from "../main";
+import { useFile } from "../hooks";
+import { FilePath, html } from "../main";
+import type { FileContent, SourcesViewProps, TreeNodeWithCoverage } from "../types";
+import { buildFileTree, getCoverageBadge, getStatClass, splitHighlightedHtml } from "../utils";
 
 // Declare lucide as global
 declare const lucide: { createIcons: (opts?: { nodes?: NodeList }) => void };
@@ -34,102 +26,137 @@ function FileTree({
   search = "",
   parentPath = "",
 }: FileTreeProps) {
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  // Check if selected file is in this subtree
+  const currentPath = parentPath ? `${parentPath}/${node.name}` : node.name;
+  const containsSelectedFile = selectedFile?.startsWith(currentPath + "/");
+  const hasSelectedFile =
+    selectedFile && (containsSelectedFile || node.files.some((f) => f.path === selectedFile));
 
-  // Auto-expand folders containing selected file
+  const [open, setOpen] = useState(depth < 2 || !!hasSelectedFile);
+
+  // Auto-expand when selected file changes to be in this subtree
   useEffect(() => {
-    if (selectedFile) {
-      const parts = selectedFile.split("/");
-      const toExpand: Record<string, boolean> = {};
-      let path = "";
-      for (let i = 0; i < parts.length - 1; i++) {
-        path = path ? `${path}/${parts[i]}` : parts[i];
-        toExpand[path] = true;
-      }
-      setExpanded((prev) => ({ ...prev, ...toExpand }));
+    if (hasSelectedFile && !open) {
+      setOpen(true);
     }
-  }, [selectedFile]);
+  }, [selectedFile, hasSelectedFile]);
 
-  const sortedChildren = useMemo(() => {
-    return Object.entries(node.children).sort(([a], [b]) => a.localeCompare(b));
-  }, [node.children]);
+  const folders = Object.values(node.children).sort((a, b) => a.name.localeCompare(b.name));
+  const files = node.files.sort((a, b) => a.name.localeCompare(b.name));
 
-  const sortedFiles = useMemo(() => {
-    return [...node.files].sort((a, b) => a.name.localeCompare(b.name));
-  }, [node.files]);
+  // Filter if searching
+  const matchesSearch = (path: string) => {
+    if (!search) return true;
+    return path.toLowerCase().includes(search.toLowerCase());
+  };
 
-  const toggleFolder = useCallback((path: string) => {
-    setExpanded((prev) => ({ ...prev, [path]: !prev[path] }));
-  }, []);
+  if (depth === 0) {
+    return html`
+      <div class="file-tree">
+        ${folders.map(
+          (f) => html`
+            <${FileTree}
+              key=${f.name}
+              node=${f}
+              selectedFile=${selectedFile}
+              onSelectFile=${onSelectFile}
+              depth=${depth + 1}
+              search=${search}
+              parentPath=""
+            />
+          `,
+        )}
+        ${files
+          .filter((f) => matchesSearch(f.path))
+          .map(
+            (f) => html`
+              <${FileTreeFile}
+                key=${f.path}
+                file=${f}
+                selected=${selectedFile === f.path}
+                onClick=${() => onSelectFile(f.path)}
+              />
+            `,
+          )}
+      </div>
+    `;
+  }
 
-  // Filter by search
-  const matchesSearch = useCallback(
-    (name: string) => {
-      if (!search) return true;
-      return name.toLowerCase().includes(search.toLowerCase());
-    },
-    [search],
-  );
+  const hasMatchingFiles =
+    files.some((f) => matchesSearch(f.path)) ||
+    folders.some(
+      (f) => Object.values(f.children).length > 0 || f.files.some((ff) => matchesSearch(ff.path)),
+    );
+
+  if (search && !hasMatchingFiles) return null;
+
+  const folderBadge = getCoverageBadge(node.coveredUnits, node.totalUnits);
 
   return html`
-    ${sortedChildren.map(([name, child]) => {
-      const path = parentPath ? `${parentPath}/${name}` : name;
-      const isExpanded = expanded[path] ?? depth < 1;
-      const badge = getCoverageBadge(child.coveredUnits, child.totalUnits);
-
-      return html`
-        <div key=${path} class="tree-folder">
-          <div class="tree-folder-header" onClick=${() => toggleFolder(path)}>
-            <svg
-              class="tree-chevron ${isExpanded ? "expanded" : ""}"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-            >
-              <path d="M9 18l6-6-6-6" />
-            </svg>
-            <i data-lucide="folder${isExpanded ? "-open" : ""}"></i>
-            <span class="tree-folder-name">${name}</span>
-            <span class="tree-badge ${badge.class}">${badge.text}</span>
-          </div>
-          ${isExpanded &&
-          html`
-            <div class="tree-folder-content">
-              <${FileTree}
-                node=${child}
-                selectedFile=${selectedFile}
-                onSelectFile=${onSelectFile}
-                depth=${depth + 1}
-                search=${search}
-                parentPath=${path}
-              />
-            </div>
-          `}
-        </div>
-      `;
-    })}
-    ${sortedFiles
-      .filter((f) => matchesSearch(f.name))
-      .map((file) => {
-        const path = parentPath ? `${parentPath}/${file.name}` : file.name;
-        const isSelected = selectedFile === path;
-        const badge = getCoverageBadge(file.coveredUnits, file.totalUnits);
-        const ext = file.name.split(".").pop() || "";
-        const devicon = LANG_DEVICON_MAP[ext];
-
-        return html`
-          <div
-            key=${path}
-            class="tree-file ${isSelected ? "selected" : ""}"
-            onClick=${() => onSelectFile(path)}
+    <div class="tree-folder ${open ? "open" : ""}">
+      <div class="tree-folder-header" onClick=${() => setOpen(!open)}>
+        <div class="tree-folder-left">
+          <svg
+            class="tree-folder-icon"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
           >
-            ${devicon ? html`<i class="${devicon}"></i>` : html`<i data-lucide="file"></i>`}
-            <span class="tree-file-name">${file.name}</span>
-            <span class="tree-badge ${badge.class}">${badge.text}</span>
-          </div>
-        `;
-      })}
+            <path d="M9 18l6-6-6-6" />
+          </svg>
+          <span>${node.name}</span>
+        </div>
+        <span class="folder-badge ${folderBadge.class}">${folderBadge.text}</span>
+      </div>
+      <div class="tree-folder-children">
+        ${folders.map(
+          (f) => html`
+            <${FileTree}
+              key=${f.name}
+              node=${f}
+              selectedFile=${selectedFile}
+              onSelectFile=${onSelectFile}
+              depth=${depth + 1}
+              search=${search}
+              parentPath=${currentPath}
+            />
+          `,
+        )}
+        ${files
+          .filter((f) => matchesSearch(f.path))
+          .map(
+            (f) => html`
+              <${FileTreeFile}
+                key=${f.path}
+                file=${f}
+                selected=${selectedFile === f.path}
+                onClick=${() => onSelectFile(f.path)}
+              />
+            `,
+          )}
+      </div>
+    </div>
+  `;
+}
+
+interface FileTreeFileProps {
+  file: { name: string; path: string; coveredUnits: number; totalUnits: number };
+  selected: boolean;
+  onClick: () => void;
+}
+
+function FileTreeFile({ file, selected, onClick }: FileTreeFileProps) {
+  const badge = getCoverageBadge(file.coveredUnits, file.totalUnits);
+  const ext = file.name.split(".").pop() || "";
+  const devicon = LANG_DEVICON_MAP[ext];
+
+  return html`
+    <div class="tree-file ${selected ? "selected" : ""}" onClick=${onClick}>
+      ${devicon ? html`<i class="${devicon}"></i>` : html`<i data-lucide="file"></i>`}
+      <span class="tree-file-name">${file.name}</span>
+      <span class="tree-file-badge ${badge.class}">${badge.text}</span>
+    </div>
   `;
 }
 

@@ -154,3 +154,170 @@ When no include patterns are specified, tracey MUST default to `**/*.rs`.
 
 r[walk.default-exclude]
 When no exclude patterns are specified, tracey MUST default to excluding `target/**`.
+
+## Dashboard
+
+Tracey provides a web-based dashboard for browsing specifications, viewing coverage, and navigating source code.
+
+### URL Scheme
+
+r[dashboard.url.structure]
+Dashboard URLs MUST follow the structure `/:specName/:view/:params` where `specName` is the name of a configured spec.
+
+r[dashboard.url.spec-view]
+The specification view MUST be accessible at `/:specName/spec` with optional heading parameter `/:specName/spec/:headingSlug`.
+
+r[dashboard.url.coverage-view]
+The coverage view MUST be accessible at `/:specName/coverage` with optional query parameters `?filter=impl|verify` and `?level=must|should|may`.
+
+r[dashboard.url.sources-view]
+The sources view MUST be accessible at `/:specName/sources` with optional file and line parameters `/:specName/sources/:filePath::lineNumber`.
+
+r[dashboard.url.context]
+Source URLs MAY include a `?context=:ruleId` query parameter to show rule context in the sidebar.
+
+r[dashboard.url.root-redirect]
+Navigating to `/` MUST redirect to `/:defaultSpec/spec` where `defaultSpec` is the first configured spec.
+
+r[dashboard.url.invalid-spec]
+Navigating to an invalid spec name SHOULD redirect to the first valid spec or display an error.
+
+### API Endpoints
+
+r[dashboard.api.config]
+The `/api/config` endpoint MUST return the project configuration including `projectRoot` and `specs` array.
+
+r[dashboard.api.spec]
+The `/api/spec?name=:specName` endpoint MUST return the rendered HTML and outline for the named spec.
+
+r[dashboard.api.forward]
+The `/api/forward` endpoint MUST return the forward mapping (rules to file references) for all specs.
+
+r[dashboard.api.reverse]
+The `/api/reverse` endpoint MUST return the reverse mapping (files to rule references) with coverage statistics.
+
+r[dashboard.api.file]
+The `/api/file?path=:filePath` endpoint MUST return the file content, syntax-highlighted HTML, and code unit annotations.
+
+r[dashboard.api.version]
+The `/api/version` endpoint MUST return a version string that changes when any source data changes.
+
+r[dashboard.api.version-polling]
+The dashboard SHOULD poll `/api/version` and refetch data when the version changes.
+
+### Link Generation
+
+r[dashboard.links.spec-aware]
+All links generated in rendered markdown MUST include the spec name as the first path segment.
+
+r[dashboard.links.rule-links]
+Rule ID badges MUST link to `/:specName/spec/:ruleId` to navigate to the rule in the specification.
+
+r[dashboard.links.impl-refs]
+Implementation reference badges MUST link to `/:specName/sources/:filePath::line?context=:ruleId`.
+
+r[dashboard.links.verify-refs]
+Verification/test reference badges MUST link to `/:specName/sources/:filePath::line?context=:ruleId`.
+
+r[dashboard.links.heading-links]
+Heading links in the outline MUST link to `/:specName/spec/:headingSlug`.
+
+### Specification View
+
+r[dashboard.spec.outline]
+The specification view MUST display a collapsible outline tree of headings in a sidebar.
+
+r[dashboard.spec.outline-coverage]
+Each outline heading SHOULD display a coverage indicator showing the ratio of covered rules within that section.
+
+r[dashboard.spec.content]
+The specification view MUST display the rendered markdown content with rule containers.
+
+r[dashboard.spec.rule-highlight]
+When navigating to a rule via URL parameter `?rule=:ruleId`, the rule container MUST be highlighted and scrolled into view.
+
+r[dashboard.spec.heading-scroll]
+When navigating to a heading via URL path, the heading MUST be scrolled into view.
+
+r[dashboard.spec.switcher]
+When multiple specs are configured, the specification view MUST display a spec switcher UI.
+
+r[dashboard.spec.switcher-single]
+When only one spec is configured, the spec switcher SHOULD be hidden.
+
+### Coverage View
+
+r[dashboard.coverage.table]
+The coverage view MUST display a table of all rules with their coverage status.
+
+r[dashboard.coverage.filter-type]
+The coverage view MUST support filtering by reference type (impl, verify, or all).
+
+r[dashboard.coverage.filter-level]
+The coverage view MUST support filtering by RFC 2119 level (MUST, SHOULD, MAY, or all).
+
+r[dashboard.coverage.stats]
+The coverage view MUST display summary statistics including total rules, covered count, and coverage percentage.
+
+r[dashboard.coverage.rule-links]
+Each rule in the coverage table MUST link to the rule in the specification view.
+
+r[dashboard.coverage.ref-links]
+Each reference in the coverage table MUST link to the source location.
+
+### Sources View
+
+r[dashboard.sources.file-tree]
+The sources view MUST display a collapsible file tree in a sidebar.
+
+r[dashboard.sources.tree-coverage]
+Each folder and file in the tree SHOULD display a coverage percentage badge.
+
+r[dashboard.sources.code-view]
+When a file is selected, the sources view MUST display the syntax-highlighted source code.
+
+r[dashboard.sources.line-numbers]
+The code view MUST display line numbers.
+
+r[dashboard.sources.line-annotations]
+Lines containing rule references MUST be annotated with indicators showing which rules are referenced.
+
+r[dashboard.sources.line-highlight]
+When navigating to a specific line, that line MUST be highlighted and scrolled into view.
+
+r[dashboard.sources.rule-context]
+When a `?context=:ruleId` parameter is present, the sidebar MUST display the rule details and all its references.
+
+r[dashboard.sources.editor-open]
+Clicking a line number SHOULD open the file at that line in the configured editor.
+
+### Search
+
+r[dashboard.search.modal]
+The search modal MUST be openable via keyboard shortcut (Cmd+K on Mac, Ctrl+K elsewhere).
+
+r[dashboard.search.rules]
+Search MUST support finding rules by ID or text content.
+
+r[dashboard.search.files]
+Search MUST support finding files by path.
+
+r[dashboard.search.navigation]
+Selecting a search result MUST navigate to the appropriate view (spec for rules, sources for files).
+
+### Header
+
+r[dashboard.header.nav-tabs]
+The header MUST display navigation tabs for Specification, Coverage, and Sources views.
+
+r[dashboard.header.nav-active]
+The active view tab MUST be visually distinguished.
+
+r[dashboard.header.nav-preserve-spec]
+Navigation tabs MUST preserve the current spec name when switching views.
+
+r[dashboard.header.search]
+The header MUST display a search input that opens the search modal when clicked or focused.
+
+r[dashboard.header.logo]
+The header MUST display a "tracey" link to the project repository.

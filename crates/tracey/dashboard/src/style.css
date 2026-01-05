@@ -1,844 +1,840 @@
 :root {
-    color-scheme: light dark;
-    --bg: light-dark(#f8f9fa, #13141a);
-    --bg-secondary: light-dark(#ffffff, #1a1b26);
-    --bg-sidebar: light-dark(#f3f4f6, #16171d);
-    --fg: light-dark(#1a1b26, #c0caf5);
-    --fg-muted: light-dark(#4b5563, #9aa5ce);
-    --fg-dim: light-dark(#6b7280, #727ca7);
-    --border: light-dark(#e5e5e5, #292e42);
-    --hover: light-dark(#f0f0f2, #1f2335);
-    --hover-subtle: light-dark(#f8f8fa, #1a1d2a);
-    --accent: var(--arb-tu);
-    --accent-dim: color-mix(in srgb, var(--arb-tu) 15%, transparent);
-    --green: var(--arb-da);
-    --green-dim: color-mix(in srgb, var(--arb-da) 15%, transparent);
-    --red: var(--arb-dd);
-    --red-dim: color-mix(in srgb, var(--arb-dd) 15%, transparent);
-    --yellow: var(--arb-n);
-    --yellow-dim: color-mix(in srgb, var(--arb-n) 15%, transparent);
-    --purple: var(--arb-s);
-    --blue: var(--arb-tu);
-    --bg-outer: light-dark(#e5e7eb, #0d0e12);
+	color-scheme: light dark;
+	--bg: light-dark(#f8f9fa, #13141a);
+	--bg-secondary: light-dark(#ffffff, #1a1b26);
+	--bg-sidebar: light-dark(#f3f4f6, #16171d);
+	--fg: light-dark(#1a1b26, #c0caf5);
+	--fg-muted: light-dark(#4b5563, #9aa5ce);
+	--fg-dim: light-dark(#6b7280, #727ca7);
+	--border: light-dark(#e5e5e5, #292e42);
+	--hover: light-dark(#f0f0f2, #1f2335);
+	--hover-subtle: light-dark(#f8f8fa, #1a1d2a);
+	--accent: var(--arb-tu);
+	--accent-dim: color-mix(in srgb, var(--arb-tu) 15%, transparent);
+	--green: var(--arb-da);
+	--green-dim: color-mix(in srgb, var(--arb-da) 15%, transparent);
+	--red: var(--arb-dd);
+	--red-dim: color-mix(in srgb, var(--arb-dd) 15%, transparent);
+	--yellow: var(--arb-n);
+	--yellow-dim: color-mix(in srgb, var(--arb-n) 15%, transparent);
+	--purple: var(--arb-s);
+	--blue: var(--arb-tu);
+	--bg-outer: light-dark(#e5e7eb, #0d0e12);
 
-    --max-width: 1600px;
+	--max-width: 1600px;
 
-    /* Arborium syntax highlighting colors (combined light/dark) */
-    --arb-at: light-dark(var(--arb-at-light), var(--arb-at-dark));
-    --arb-co: light-dark(var(--arb-co-light), var(--arb-co-dark));
-    --arb-fb: light-dark(var(--arb-fb-light), var(--arb-fb-dark));
-    --arb-f: light-dark(var(--arb-f-light), var(--arb-f-dark));
-    --arb-k: light-dark(var(--arb-k-light), var(--arb-k-dark));
-    --arb-o: light-dark(var(--arb-o-light), var(--arb-o-dark));
-    --arb-pr: light-dark(var(--arb-pr-light), var(--arb-pr-dark));
-    --arb-p: light-dark(var(--arb-p-light), var(--arb-p-dark));
-    --arb-s: light-dark(var(--arb-s-light), var(--arb-s-dark));
-    --arb-tg: light-dark(var(--arb-tg-light), var(--arb-tg-dark));
-    --arb-err: light-dark(var(--arb-err-light), var(--arb-err-dark));
-    --arb-t: light-dark(var(--arb-t-light), var(--arb-t-dark));
-    --arb-v: light-dark(var(--arb-v-light), var(--arb-v-dark));
-    --arb-c: light-dark(var(--arb-c-light), var(--arb-c-dark));
-    --arb-m: light-dark(var(--arb-m-light), var(--arb-m-dark));
-    --arb-l: light-dark(var(--arb-l-light), var(--arb-l-dark));
-    --arb-da: light-dark(var(--arb-da-light), var(--arb-da-dark));
-    --arb-dd: light-dark(var(--arb-dd-light), var(--arb-dd-dark));
-    --arb-n: light-dark(var(--arb-n-light), var(--arb-n-dark));
-    --arb-tl: light-dark(var(--arb-tl-light), var(--arb-tl-dark));
-    --arb-tu: light-dark(var(--arb-tu-light), var(--arb-tu-dark));
-    --arb-tr: light-dark(var(--arb-tr-light), var(--arb-tr-dark));
-    --arb-se: light-dark(var(--arb-se-light), var(--arb-se-dark));
-    --arb-tt: light-dark(var(--arb-tt-light), var(--arb-tt-dark));
-    --arb-ch: light-dark(var(--arb-ch-light), var(--arb-ch-dark));
-    --arb-sr: light-dark(var(--arb-sr-light), var(--arb-sr-dark));
-    --arb-bo: light-dark(var(--arb-bo-light), var(--arb-bo-dark));
+	/* Arborium syntax highlighting colors (combined light/dark) */
+	--arb-at: light-dark(var(--arb-at-light), var(--arb-at-dark));
+	--arb-co: light-dark(var(--arb-co-light), var(--arb-co-dark));
+	--arb-fb: light-dark(var(--arb-fb-light), var(--arb-fb-dark));
+	--arb-f: light-dark(var(--arb-f-light), var(--arb-f-dark));
+	--arb-k: light-dark(var(--arb-k-light), var(--arb-k-dark));
+	--arb-o: light-dark(var(--arb-o-light), var(--arb-o-dark));
+	--arb-pr: light-dark(var(--arb-pr-light), var(--arb-pr-dark));
+	--arb-p: light-dark(var(--arb-p-light), var(--arb-p-dark));
+	--arb-s: light-dark(var(--arb-s-light), var(--arb-s-dark));
+	--arb-tg: light-dark(var(--arb-tg-light), var(--arb-tg-dark));
+	--arb-err: light-dark(var(--arb-err-light), var(--arb-err-dark));
+	--arb-t: light-dark(var(--arb-t-light), var(--arb-t-dark));
+	--arb-v: light-dark(var(--arb-v-light), var(--arb-v-dark));
+	--arb-c: light-dark(var(--arb-c-light), var(--arb-c-dark));
+	--arb-m: light-dark(var(--arb-m-light), var(--arb-m-dark));
+	--arb-l: light-dark(var(--arb-l-light), var(--arb-l-dark));
+	--arb-da: light-dark(var(--arb-da-light), var(--arb-da-dark));
+	--arb-dd: light-dark(var(--arb-dd-light), var(--arb-dd-dark));
+	--arb-n: light-dark(var(--arb-n-light), var(--arb-n-dark));
+	--arb-tl: light-dark(var(--arb-tl-light), var(--arb-tl-dark));
+	--arb-tu: light-dark(var(--arb-tu-light), var(--arb-tu-dark));
+	--arb-tr: light-dark(var(--arb-tr-light), var(--arb-tr-dark));
+	--arb-se: light-dark(var(--arb-se-light), var(--arb-se-dark));
+	--arb-tt: light-dark(var(--arb-tt-light), var(--arb-tt-dark));
+	--arb-ch: light-dark(var(--arb-ch-light), var(--arb-ch-dark));
+	--arb-sr: light-dark(var(--arb-sr-light), var(--arb-sr-dark));
+	--arb-bo: light-dark(var(--arb-bo-light), var(--arb-bo-dark));
 }
 
 * {
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0;
+	box-sizing: border-box;
+	margin: 0;
+	padding: 0;
 }
 
 body {
-    font-family:
-        "Public Sans",
-        system-ui,
-        -apple-system,
-        sans-serif;
-    background: var(--bg-outer);
-    color: var(--fg);
-    line-height: 1.5;
+	font-family: "Public Sans", system-ui, -apple-system, sans-serif;
+	background: var(--bg-outer);
+	color: var(--fg);
+	line-height: 1.5;
 }
 
 #app {
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
+	min-height: 100vh;
+	display: flex;
+	flex-direction: column;
 }
 
 .loading {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 100vh;
-    color: var(--fg-muted);
-    font-size: 0.9rem;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 100vh;
+	color: var(--fg-muted);
+	font-size: 0.9rem;
 }
 
 /* Layout */
 .layout {
-    display: flex;
-    flex-direction: column;
-    height: 100vh;
-    width: var(--max-width);
-    max-width: 100%;
-    margin: 0 auto;
-    background: var(--bg);
-    border-left: 1px solid var(--border);
-    border-right: 1px solid var(--border);
+	display: flex;
+	flex-direction: column;
+	height: 100vh;
+	width: var(--max-width);
+	max-width: 100%;
+	margin: 0 auto;
+	background: var(--bg);
+	border-left: 1px solid var(--border);
+	border-right: 1px solid var(--border);
 }
 
 .header {
-    background: var(--bg-secondary);
-    border-bottom: 1px solid var(--border);
-    position: relative;
-    z-index: 100;
+	background: var(--bg-secondary);
+	border-bottom: 1px solid var(--border);
+	position: relative;
+	z-index: 100;
 }
 
 .header-inner {
-    display: flex;
-    align-items: stretch;
-    width: 100%;
-    margin-bottom: -1px; /* tabs overlap the border */
+	display: flex;
+	align-items: stretch;
+	width: 100%;
+	margin-bottom: -1px; /* tabs overlap the border */
 }
 
 .logo {
-    font-weight: 600;
-    font-size: 1.1rem;
-    color: var(--fg);
-    text-decoration: none;
-    display: flex;
-    align-items: center;
-    padding: 0.75rem 1.25rem;
-    margin-left: auto;
+	font-weight: 600;
+	font-size: 1.1rem;
+	color: var(--fg);
+	text-decoration: none;
+	display: flex;
+	align-items: center;
+	padding: 0.75rem 1.25rem;
+	margin-left: auto;
 }
 
 .logo:hover {
-    background: var(--hover-subtle);
+	background: var(--hover-subtle);
 }
 
 .nav {
-    display: flex;
+	display: flex;
 }
 
 .nav-tab {
-    padding: 0.75rem 1.25rem;
-    background: transparent;
-    color: var(--fg-muted);
-    border: none;
-    border-bottom: 2px solid transparent;
-    cursor: pointer;
-    font-size: 0.9rem;
-    font-family: inherit;
-    transition: all 0.15s;
-    text-decoration: none;
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
+	padding: 0.75rem 1.25rem;
+	background: transparent;
+	color: var(--fg-muted);
+	border: none;
+	border-bottom: 2px solid transparent;
+	cursor: pointer;
+	font-size: 0.9rem;
+	font-family: inherit;
+	transition: all 0.15s;
+	text-decoration: none;
+	display: flex;
+	align-items: center;
+	gap: 0.35rem;
 }
 
 .nav-tab:hover {
-    background: var(--hover-subtle);
-    color: var(--fg);
+	background: var(--hover-subtle);
+	color: var(--fg);
 }
 
 .nav-tab.active {
-    color: var(--accent);
-    border-bottom: 2px solid var(--accent);
-    background: var(--bg);
+	color: var(--accent);
+	border-bottom: 2px solid var(--accent);
+	background: var(--bg);
 }
 
 .nav-tab .tab-icon {
-    display: flex;
+	display: flex;
 }
 
 .nav-tab .tab-icon svg {
-    width: 1em;
-    height: 1em;
-    stroke-width: 1.5;
+	width: 1em;
+	height: 1em;
+	stroke-width: 1.5;
 }
 
 .search-box {
-    flex: 1;
-    max-width: 400px;
-    margin-left: auto;
+	flex: 1;
+	max-width: 400px;
+	margin-left: auto;
 }
 
 .search-input {
-    width: 100%;
-    padding: 0.5rem 0.75rem;
-    background: var(--bg);
-    color: var(--fg);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    font-size: 0.85rem;
-    font-family: inherit;
+	width: 100%;
+	padding: 0.5rem 0.75rem;
+	background: var(--bg);
+	color: var(--fg);
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	font-size: 0.85rem;
+	font-family: inherit;
 }
 
 .search-input:focus {
-    outline: none;
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-dim);
+	outline: none;
+	border-color: var(--accent);
+	box-shadow: 0 0 0 3px var(--accent-dim);
 }
 
 .search-input::placeholder {
-    color: var(--fg-dim);
+	color: var(--fg-dim);
 }
 
 .main {
-    flex: 1;
-    display: flex;
-    overflow: hidden;
-    width: 100%;
+	flex: 1;
+	display: flex;
+	overflow: hidden;
+	width: 100%;
 }
 
 /* Stats bar */
 .stats-bar {
-    display: flex;
-    align-items: center;
-    gap: 2rem;
-    padding: 1rem 1.5rem;
-    border-bottom: 1px solid var(--border);
-    background: var(--bg-secondary);
-    width: 100%;
-    position: relative;
-    z-index: 50;
+	display: flex;
+	align-items: center;
+	gap: 2rem;
+	padding: 1rem 1.5rem;
+	border-bottom: 1px solid var(--border);
+	background: var(--bg-secondary);
+	width: 100%;
+	position: relative;
+	z-index: 50;
 }
 
 .stat {
-    display: flex;
-    flex-direction: column;
-    gap: 0.125rem;
+	display: flex;
+	flex-direction: column;
+	gap: 0.125rem;
 }
 
 .stat-label {
-    font-size: 0.75rem;
-    color: var(--fg-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+	font-size: 0.75rem;
+	color: var(--fg-muted);
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
 }
 
 .stat-value {
-    font-size: 1.25rem;
-    font-weight: 600;
-    font-family: "IBM Plex Mono", monospace;
+	font-size: 1.25rem;
+	font-weight: 600;
+	font-family: "IBM Plex Mono", monospace;
 }
 
 .stat-value.good {
-    color: var(--green);
+	color: var(--green);
 }
 .stat-value.warn {
-    color: var(--yellow);
+	color: var(--yellow);
 }
 .stat-value.bad {
-    color: var(--red);
+	color: var(--red);
 }
 
 .stat.clickable {
-    cursor: pointer;
-    padding: 0.5rem;
-    margin: -0.5rem;
-    border-radius: 6px;
-    transition: background 0.15s;
+	cursor: pointer;
+	padding: 0.5rem;
+	margin: -0.5rem;
+	border-radius: 6px;
+	transition: background 0.15s;
 }
 
 .stat.clickable:hover {
-    background: var(--hover);
+	background: var(--hover);
 }
 
 .stats-controls {
-    display: flex;
-    gap: 0.75rem;
-    margin-left: auto;
+	display: flex;
+	gap: 0.75rem;
+	margin-left: auto;
 }
 
 /* Sidebar */
 .sidebar {
-    width: 360px;
-    border-right: 1px solid var(--border);
-    background: var(--bg-sidebar);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
+	width: 360px;
+	border-right: 1px solid var(--border);
+	background: var(--bg-sidebar);
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
 }
 
 .sidebar-header {
-    padding: 0.75rem 1rem;
-    border-bottom: 1px solid var(--border);
-    font-weight: 500;
-    font-size: 0.85rem;
-    color: var(--fg-muted);
+	padding: 0.75rem 1rem;
+	border-bottom: 1px solid var(--border);
+	font-weight: 500;
+	font-size: 0.85rem;
+	color: var(--fg-muted);
 }
 
 .sidebar-content {
-    flex: 1;
-    overflow-y: auto;
+	flex: 1;
+	overflow-y: auto;
 }
 
 /* File tree */
 .file-tree {
-    padding: 0.5rem;
+	padding: 0.5rem;
 }
 
 .tree-folder {
-    user-select: none;
+	user-select: none;
 }
 
 .tree-folder-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.25rem;
-    padding: 0.35rem 0.5rem;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 0.875rem;
-    color: var(--fg);
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.25rem;
+	padding: 0.35rem 0.5rem;
+	border-radius: 4px;
+	cursor: pointer;
+	font-size: 0.875rem;
+	color: var(--fg);
 }
 
 .tree-folder-header:hover {
-    background: var(--hover);
+	background: var(--hover);
 }
 
 .tree-folder-left {
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
+	display: flex;
+	align-items: center;
+	gap: 0.25rem;
 }
 
 .tree-folder-icon {
-    width: 1rem;
-    height: 1rem;
-    color: var(--fg-dim);
-    transition: transform 0.15s;
+	width: 1rem;
+	height: 1rem;
+	color: var(--fg-dim);
+	transition: transform 0.15s;
 }
 
 .tree-folder.open > .tree-folder-header .tree-folder-icon {
-    transform: rotate(90deg);
+	transform: rotate(90deg);
 }
 
 .folder-badge {
-    font-size: 0.7rem;
-    padding: 0.1rem 0.4rem;
-    border-radius: 4px;
-    font-weight: 500;
+	font-size: 0.7rem;
+	padding: 0.1rem 0.4rem;
+	border-radius: 4px;
+	font-weight: 500;
 }
 .folder-badge.full {
-    background: var(--green-dim);
-    color: var(--green);
+	background: var(--green-dim);
+	color: var(--green);
 }
 .folder-badge.partial {
-    background: var(--yellow-dim);
-    color: var(--yellow);
+	background: var(--yellow-dim);
+	color: var(--yellow);
 }
 .folder-badge.none {
-    background: var(--red-dim);
-    color: var(--red);
+	background: var(--red-dim);
+	color: var(--red);
 }
 
 .tree-folder-children {
-    display: none;
-    padding-left: 1rem;
+	display: none;
+	padding-left: 1rem;
 }
 
 .tree-folder.open > .tree-folder-children {
-    display: block;
+	display: block;
 }
 
 .tree-file {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.35rem 0.5rem;
-    padding-left: 0.5rem;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 0.875rem;
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.35rem 0.5rem;
+	padding-left: 0.5rem;
+	border-radius: 4px;
+	cursor: pointer;
+	font-size: 0.875rem;
 }
 
 .tree-file-icon {
-    width: 1rem;
-    height: 1rem;
-    flex-shrink: 0;
-    opacity: 0.8;
+	width: 1rem;
+	height: 1rem;
+	flex-shrink: 0;
+	opacity: 0.8;
 }
 
 .tree-file-name {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+	flex: 1;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .tree-file-badge {
-    flex-shrink: 0;
-    font-size: 0.7rem;
-    padding: 0.1rem 0.4rem;
-    border-radius: 4px;
-    font-weight: 500;
+	flex-shrink: 0;
+	font-size: 0.7rem;
+	padding: 0.1rem 0.4rem;
+	border-radius: 4px;
+	font-weight: 500;
 }
 
 .tree-file:hover {
-    background: var(--hover);
+	background: var(--hover);
 }
 
 .tree-file.selected {
-    background: var(--accent-dim);
-    color: var(--accent);
+	background: var(--accent-dim);
+	color: var(--accent);
 }
 
 .tree-file-badge.full {
-    background: var(--green-dim);
-    color: var(--green);
+	background: var(--green-dim);
+	color: var(--green);
 }
 .tree-file-badge.partial {
-    background: var(--yellow-dim);
-    color: var(--yellow);
+	background: var(--yellow-dim);
+	color: var(--yellow);
 }
 .tree-file-badge.none {
-    background: var(--red-dim);
-    color: var(--red);
+	background: var(--red-dim);
+	color: var(--red);
 }
 
 /* Content area */
 .content {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    background: var(--bg);
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+	background: var(--bg);
 }
 
 .content-header {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    padding: 0.5rem 1rem;
-    border-bottom: 1px solid var(--border);
-    background: var(--bg-secondary);
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 0.85rem;
+	display: flex;
+	align-items: center;
+	gap: 1rem;
+	padding: 0.5rem 1rem;
+	border-bottom: 1px solid var(--border);
+	background: var(--bg-secondary);
+	font-family: "IBM Plex Mono", monospace;
+	font-size: 0.85rem;
 }
 
 /* Spec switcher tabs */
 .spec-switcher {
-    display: flex;
-    gap: 0.25rem;
+	display: flex;
+	gap: 0.25rem;
 }
 
 .spec-tab {
-    padding: 0.375rem 0.75rem;
-    border: none;
-    background: transparent;
-    color: var(--fg-muted);
-    cursor: pointer;
-    border-radius: 4px;
-    font-family: inherit;
-    font-size: inherit;
-    transition:
-        background-color 0.15s,
-        color 0.15s;
+	padding: 0.375rem 0.75rem;
+	border: none;
+	background: transparent;
+	color: var(--fg-muted);
+	cursor: pointer;
+	border-radius: 4px;
+	font-family: inherit;
+	font-size: inherit;
+	transition:
+		background-color 0.15s,
+		color 0.15s;
 }
 
 .spec-tab:hover {
-    background: var(--hover);
-    color: var(--fg);
+	background: var(--hover);
+	color: var(--fg);
 }
 
 .spec-tab.active {
-    background: var(--accent);
-    color: white;
+	background: var(--accent);
+	color: white;
 }
 
 .content-body {
-    flex: 1;
-    overflow: auto;
+	flex: 1;
+	overflow: auto;
 }
 
 /* Code view */
 .code-view {
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 0.75rem;
-    line-height: 1.6;
+	font-family: "IBM Plex Mono", monospace;
+	font-size: 0.75rem;
+	line-height: 1.6;
 }
 
 .code-line {
-    display: flex;
-    min-height: 1.5em;
+	display: flex;
+	min-height: 1.5em;
 }
 
 .code-line:hover {
-    background: var(--hover-subtle);
+	background: var(--hover-subtle);
 }
 
 .code-line.highlighted {
-    background: var(--yellow-dim);
+	background: var(--yellow-dim);
 }
 
 .line-number {
-    width: 4rem;
-    padding: 0 0.75rem 0 0.5rem;
-    text-align: right;
-    color: var(--fg-dim);
-    user-select: none;
-    flex-shrink: 0;
-    cursor: pointer;
-    position: relative;
-    border-left: 3px solid transparent;
+	width: 4rem;
+	padding: 0 0.75rem 0 0.5rem;
+	text-align: right;
+	color: var(--fg-dim);
+	user-select: none;
+	flex-shrink: 0;
+	cursor: pointer;
+	position: relative;
+	border-left: 3px solid transparent;
 }
 
 .code-line.covered .line-number {
-    border-left-color: var(--green);
+	border-left-color: var(--green);
 }
 
 .code-line.uncovered .line-number {
-    border-left-color: var(--red);
+	border-left-color: var(--red);
 }
 
 .line-number:hover {
-    color: var(--accent);
+	color: var(--accent);
 }
 
 .line-popover {
-    position: absolute;
-    left: 100%;
-    top: 50%;
-    transform: translateY(-50%);
-    margin-left: 0.5rem;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    z-index: 100;
-    white-space: nowrap;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
+	position: absolute;
+	left: 100%;
+	top: 50%;
+	transform: translateY(-50%);
+	margin-left: 0.5rem;
+	background: var(--bg-secondary);
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+	z-index: 100;
+	white-space: nowrap;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
 }
 
 .popover-btn {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem 0.75rem;
-    color: var(--fg);
-    text-decoration: none;
-    font-size: 0.8rem;
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.5rem 0.75rem;
+	color: var(--fg);
+	text-decoration: none;
+	font-size: 0.8rem;
 }
 
 .popover-btn:hover {
-    background: var(--hover);
+	background: var(--hover);
 }
 
 .popover-btn i {
-    font-size: 1rem;
+	font-size: 1rem;
 }
 
 .popover-btn .editor-icon-svg {
-    width: 1rem;
-    height: 1rem;
+	width: 1rem;
+	height: 1rem;
 }
 
 .line-content {
-    flex: 1;
-    padding-right: 1rem;
-    white-space: pre;
+	flex: 1;
+	padding-right: 1rem;
+	white-space: pre;
 }
 
 .line-annotations {
-    padding: 0 0.5rem;
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
-    position: relative;
+	padding: 0 0.5rem;
+	display: flex;
+	align-items: center;
+	gap: 0.25rem;
+	position: relative;
 }
 
 .annotation-count {
-    font-size: 0.6rem;
-    min-width: 1.2em;
-    height: 1.2em;
-    padding: 0 0.25rem;
-    border-radius: 3px;
-    background: var(--accent-dim);
-    color: var(--accent);
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
+	font-size: 0.6rem;
+	min-width: 1.2em;
+	height: 1.2em;
+	padding: 0 0.25rem;
+	border-radius: 3px;
+	background: var(--accent-dim);
+	color: var(--accent);
+	font-weight: 600;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	cursor: pointer;
 }
 
 .annotation-badges {
-    display: none;
-    position: absolute;
-    right: 0;
-    top: 50%;
-    transform: translateY(-50%);
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 0.25rem;
-    gap: 0.25rem;
-    flex-wrap: wrap;
-    max-width: 300px;
-    z-index: 50;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+	display: none;
+	position: absolute;
+	right: 0;
+	top: 50%;
+	transform: translateY(-50%);
+	background: var(--bg-secondary);
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	padding: 0.25rem;
+	gap: 0.25rem;
+	flex-wrap: wrap;
+	max-width: 300px;
+	z-index: 50;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
 .line-annotations:hover .annotation-badges {
-    display: flex;
+	display: flex;
 }
 
 .line-annotations:hover .annotation-count {
-    display: none;
+	display: none;
 }
 
 .annotation-badge {
-    font-size: 0.65rem;
-    padding: 0.1rem 0.35rem;
-    border-radius: 3px;
-    background: var(--accent-dim);
-    color: var(--accent);
-    font-weight: 500;
-    white-space: nowrap;
-    text-decoration: none;
-    cursor: pointer;
-    transition: all 0.15s;
+	font-size: 0.65rem;
+	padding: 0.1rem 0.35rem;
+	border-radius: 3px;
+	background: var(--accent-dim);
+	color: var(--accent);
+	font-weight: 500;
+	white-space: nowrap;
+	text-decoration: none;
+	cursor: pointer;
+	transition: all 0.15s;
 }
 
 a.annotation-badge:hover {
-    background: var(--accent);
-    color: white;
+	background: var(--accent);
+	color: white;
 }
 
 /* Rules table */
 .rules-table {
-    width: 100%;
-    border-collapse: collapse;
+	width: 100%;
+	border-collapse: collapse;
 }
 
 .rules-table th {
-    text-align: left;
-    padding: 0.75rem 1rem;
-    font-size: 0.75rem;
-    font-weight: 500;
-    color: var(--fg-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    border-bottom: 1px solid var(--border);
-    background: var(--bg-secondary);
-    position: sticky;
-    top: 0;
-    z-index: 10;
+	text-align: left;
+	padding: 0.75rem 1rem;
+	font-size: 0.75rem;
+	font-weight: 500;
+	color: var(--fg-muted);
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	border-bottom: 1px solid var(--border);
+	background: var(--bg-secondary);
+	position: sticky;
+	top: 0;
+	z-index: 10;
 }
 
 .rules-table td {
-    padding: 0.75rem 1rem;
-    border-bottom: 1px solid var(--border);
-    vertical-align: top;
+	padding: 0.75rem 1rem;
+	border-bottom: 1px solid var(--border);
+	vertical-align: top;
 }
 
 .rules-table tr:hover td {
-    background: var(--hover-subtle);
+	background: var(--hover-subtle);
 }
 
 .rule-id {
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 0.85rem;
-    font-weight: 500;
-    color: var(--accent);
+	font-family: "IBM Plex Mono", monospace;
+	font-size: 0.85rem;
+	font-weight: 500;
+	color: var(--accent);
 }
 
 .rule-text {
-    font-size: 0.85rem;
-    color: var(--fg-muted);
-    margin-top: 0.25rem;
+	font-size: 0.85rem;
+	color: var(--fg-muted);
+	margin-top: 0.25rem;
 }
 
 .rule-text code {
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 90%;
-    background: var(--hover);
-    padding: 0.1rem 0.3rem;
-    border-radius: 3px;
+	font-family: "IBM Plex Mono", monospace;
+	font-size: 90%;
+	background: var(--hover);
+	padding: 0.1rem 0.3rem;
+	border-radius: 3px;
 }
 
 .rule-refs {
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 0.8rem;
+	font-family: "IBM Plex Mono", monospace;
+	font-size: 0.8rem;
 }
 
 .rule-ref {
-    display: block;
-    color: var(--fg-muted);
-    text-decoration: none;
-    padding: 0.125rem 0;
+	display: block;
+	color: var(--fg-muted);
+	text-decoration: none;
+	padding: 0.125rem 0;
 }
 
 .rule-ref:hover {
-    color: var(--accent);
+	color: var(--accent);
 }
 
 .rule-ref.impl {
-    color: var(--green);
+	color: var(--green);
 }
 .rule-ref.verify {
-    color: var(--accent);
+	color: var(--accent);
 }
 
 /* Split view */
 .split-view {
-    display: flex;
-    flex: 1;
-    overflow: hidden;
+	display: flex;
+	flex: 1;
+	overflow: hidden;
 }
 
 .split-pane {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    min-width: 0;
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+	min-width: 0;
 }
 
 .split-pane + .split-pane {
-    border-left: 1px solid var(--border);
+	border-left: 1px solid var(--border);
 }
 
 .split-pane-header {
-    padding: 0.5rem 1rem;
-    border-bottom: 1px solid var(--border);
-    background: var(--bg-secondary);
-    font-size: 0.85rem;
-    font-weight: 500;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
+	padding: 0.5rem 1rem;
+	border-bottom: 1px solid var(--border);
+	background: var(--bg-secondary);
+	font-size: 0.85rem;
+	font-weight: 500;
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
 }
 
 .split-pane-content {
-    flex: 1;
-    overflow: auto;
+	flex: 1;
+	overflow: auto;
 }
 
 /* Markdown content */
 .markdown {
-    padding: 0.75rem 2rem 1.5rem 2rem;
-    font-size: 0.9rem;
-    line-height: 1.7;
+	padding: 0.75rem 2rem 1.5rem 2rem;
+	font-size: 0.9rem;
+	line-height: 1.7;
 }
 
 .markdown h1,
 .markdown h2,
 .markdown h3,
 .markdown h4 {
-    margin: 1.5rem 0 0.75rem;
-    font-weight: 600;
-    color: var(--fg);
-    cursor: pointer;
+	margin: 1.5rem 0 0.75rem;
+	font-weight: 600;
+	color: var(--fg);
+	cursor: pointer;
 }
 
 .markdown h1:hover,
 .markdown h2:hover,
 .markdown h3:hover,
 .markdown h4:hover {
-    color: var(--accent);
+	color: var(--accent);
 }
 
 .markdown h1 {
-    font-size: 1.5rem;
+	font-size: 1.5rem;
 }
 .markdown h2 {
-    font-size: 1.25rem;
+	font-size: 1.25rem;
 }
 .markdown h3 {
-    font-size: 1.1rem;
+	font-size: 1.1rem;
 }
 
 .markdown p {
-    margin: 0.75rem 0;
+	margin: 0.75rem 0;
 }
 
 .markdown code {
-    font-family: "IBM Plex Mono", monospace;
-    background: var(--hover);
-    padding: 0.15rem 0.35rem;
-    border-radius: 4px;
-    font-size: 0.85em;
+	font-family: "IBM Plex Mono", monospace;
+	background: var(--hover);
+	padding: 0.15rem 0.35rem;
+	border-radius: 4px;
+	font-size: 0.85em;
 }
 
 .markdown pre {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 0.6rem 0.8rem;
-    overflow-x: auto;
-    margin: 1rem 0;
+	background: var(--bg-secondary);
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	padding: 0.6rem 0.8rem;
+	overflow-x: auto;
+	margin: 1rem 0;
 }
 
 .markdown pre code {
-    background: none;
-    padding: 0;
+	background: none;
+	padding: 0;
 }
 
 .markdown ul,
 .markdown ol {
-    margin: 0.75rem 0;
-    padding-left: 1.5rem;
+	margin: 0.75rem 0;
+	padding-left: 1.5rem;
 }
 
 .markdown li {
-    margin: 0.25rem 0;
+	margin: 0.25rem 0;
 }
 
 .markdown blockquote {
-    border-left: 3px solid var(--accent);
-    margin: 1rem 0;
-    padding-left: 1rem;
-    color: var(--fg-muted);
+	border-left: 3px solid var(--accent);
+	margin: 1rem 0;
+	padding-left: 1rem;
+	color: var(--fg-muted);
 }
 
 .markdown table {
-    width: 100%;
-    border-collapse: collapse;
-    margin: 1rem 0;
-    font-size: 0.9rem;
+	width: 100%;
+	border-collapse: collapse;
+	margin: 1rem 0;
+	font-size: 0.9rem;
 }
 
 .markdown th,
 .markdown td {
-    padding: 0.6rem 0.8rem;
-    text-align: left;
-    border: 1px solid var(--border);
+	padding: 0.6rem 0.8rem;
+	text-align: left;
+	border: 1px solid var(--border);
 }
 
 .markdown th {
-    background: var(--bg-sidebar);
-    font-weight: 600;
-    color: var(--fg);
+	background: var(--bg-sidebar);
+	font-weight: 600;
+	color: var(--fg);
 }
 
 .markdown td {
-    background: var(--bg-secondary);
-    font-weight: 400;
+	background: var(--bg-secondary);
+	font-weight: 400;
 }
 
 .markdown tr:hover td {
-    background: var(--hover);
+	background: var(--hover);
 }
 
 .markdown td code {
-    font-size: 0.85em;
+	font-size: 0.85em;
 }
 
 /* RFC 2119 keyword highlighting */
@@ -847,1010 +843,1010 @@ kw-must-not,
 kw-required,
 kw-shall,
 kw-shall-not {
-    color: var(--red);
-    font-weight: 600;
+	color: var(--red);
+	font-weight: 600;
 }
 kw-should,
 kw-should-not,
 kw-recommended,
 kw-not-recommended {
-    color: var(--yellow);
-    font-weight: 600;
+	color: var(--yellow);
+	font-weight: 600;
 }
 kw-may,
 kw-optional {
-    color: var(--accent);
-    font-weight: 600;
+	color: var(--accent);
+	font-weight: 600;
 }
 
 /* Rule marker in spec */
 .rule-marker {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    width: fit-content;
-    background: var(--accent-dim);
-    color: var(--accent);
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 0.75rem;
-    padding: 0.1rem 0.35rem;
-    border-radius: 3px;
-    margin: 0.15rem 0;
-    text-decoration: none;
+	display: inline-flex;
+	align-items: center;
+	gap: 0.25rem;
+	width: fit-content;
+	background: var(--accent-dim);
+	color: var(--accent);
+	font-family: "IBM Plex Mono", monospace;
+	font-size: 0.75rem;
+	padding: 0.1rem 0.35rem;
+	border-radius: 3px;
+	margin: 0.15rem 0;
+	text-decoration: none;
 }
 
 a.rule-marker:hover {
-    filter: brightness(1.1);
+	filter: brightness(1.1);
 }
 
 .rule-marker-icon {
-    width: 0.9em;
-    height: 0.9em;
-    flex-shrink: 0;
+	width: 0.9em;
+	height: 0.9em;
+	flex-shrink: 0;
 }
 
 .rule-marker.covered {
-    background: var(--green-dim);
-    color: var(--green);
+	background: var(--green-dim);
+	color: var(--green);
 }
 
 .rule-marker.partial {
-    background: var(--yellow-dim);
-    color: var(--yellow);
+	background: var(--yellow-dim);
+	color: var(--yellow);
 }
 
 .rule-marker.uncovered {
-    background: var(--red-dim);
-    color: var(--red);
+	background: var(--red-dim);
+	color: var(--red);
 }
 
 .rule-marker-highlighted {
-    animation: rule-highlight-pulse 3s ease-out;
+	animation: rule-highlight-pulse 3s ease-out;
 }
 
 @keyframes rule-highlight-pulse {
-    0%,
-    20% {
-        box-shadow: 0 0 0 4px var(--accent);
-        transform: scale(1.05);
-    }
-    100% {
-        box-shadow: 0 0 0 0 transparent;
-        transform: scale(1);
-    }
+	0%,
+	20% {
+		box-shadow: 0 0 0 4px var(--accent);
+		transform: scale(1.05);
+	}
+	100% {
+		box-shadow: 0 0 0 0 transparent;
+		transform: scale(1);
+	}
 }
 
 /* Rule block - fieldset-like container */
 .rule-block {
-    position: relative;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    margin: 1rem 0 1.5rem 0;
-    padding: 1rem 1rem 0.5rem 1rem;
+	position: relative;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	margin: 1rem 0 1.5rem 0;
+	padding: 1rem 1rem 0.5rem 1rem;
 }
 
 .rule-block-covered {
-    border-color: color-mix(in srgb, var(--green) 40%, var(--border));
+	border-color: color-mix(in srgb, var(--green) 40%, var(--border));
 }
 .rule-block-partial {
-    border-color: color-mix(in srgb, var(--yellow) 40%, var(--border));
+	border-color: color-mix(in srgb, var(--yellow) 40%, var(--border));
 }
 .rule-block-uncovered {
-    border-color: color-mix(in srgb, var(--red) 40%, var(--border));
+	border-color: color-mix(in srgb, var(--red) 40%, var(--border));
 }
 
 .rule-block-header {
-    position: absolute;
-    top: -0.65rem;
-    left: 0.75rem;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    background: var(--bg);
-    padding: 0 0.35rem;
+	position: absolute;
+	top: -0.65rem;
+	left: 0.75rem;
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	background: var(--bg);
+	padding: 0 0.35rem;
 }
 
 .rule-block-header .rule-marker {
-    margin: 0;
+	margin: 0;
 }
 
 .rule-block-header .spec-refs {
-    margin: 0;
-    font-size: 0.85rem;
+	margin: 0;
+	font-size: 0.85rem;
 }
 
 .rule-block-content {
-    margin-top: 0.25rem;
+	margin-top: 0.25rem;
 }
 
 .rule-block-content p:first-child {
-    margin-top: 0;
+	margin-top: 0;
 }
 
 .rule-block-content p:last-child {
-    margin-bottom: 0;
+	margin-bottom: 0;
 }
 
 /* Rule container - fieldset-like design with badges piercing the top border */
 .rule-container {
-    position: relative;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    margin: 1.5rem 0;
-    padding: 1rem 1rem 0.75rem 1rem;
+	position: relative;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	margin: 1.5rem 0;
+	padding: 1rem 1rem 0.75rem 1rem;
 }
 
 .rule-container.rule-covered {
-    border-color: color-mix(in srgb, var(--green) 50%, var(--border));
+	border-color: color-mix(in srgb, var(--green) 50%, var(--border));
 }
 
 .rule-container.rule-partial {
-    border-color: color-mix(in srgb, var(--yellow) 50%, var(--border));
+	border-color: color-mix(in srgb, var(--yellow) 50%, var(--border));
 }
 
 .rule-container.rule-uncovered {
-    border-color: color-mix(in srgb, var(--red) 50%, var(--border));
+	border-color: color-mix(in srgb, var(--red) 50%, var(--border));
 }
 
 .rule-badges {
-    position: absolute;
-    top: -0.7rem;
-    left: 0.75rem;
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    background: var(--bg);
-    padding: 0 0.25rem;
+	position: absolute;
+	top: -0.7rem;
+	left: 0.75rem;
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	background: var(--bg);
+	padding: 0 0.25rem;
 }
 
 .rule-badge {
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 0.75rem;
-    padding: 0.15rem 0.5rem;
-    border-radius: 4px;
-    text-decoration: none;
-    font-weight: 500;
-    transition: filter 0.15s;
+	font-family: "IBM Plex Mono", monospace;
+	font-size: 0.75rem;
+	padding: 0.15rem 0.5rem;
+	border-radius: 4px;
+	text-decoration: none;
+	font-weight: 500;
+	transition: filter 0.15s;
 }
 
 .rule-badge:hover {
-    filter: brightness(1.15);
+	filter: brightness(1.15);
 }
 
 .rule-badge.rule-id {
-    background: var(--accent-dim);
-    color: var(--accent);
+	background: var(--accent-dim);
+	color: var(--accent);
 }
 
 .rule-covered .rule-badge.rule-id {
-    background: var(--green-dim);
-    color: var(--green);
+	background: var(--green-dim);
+	color: var(--green);
 }
 
 .rule-partial .rule-badge.rule-id {
-    background: var(--yellow-dim);
-    color: var(--yellow);
+	background: var(--yellow-dim);
+	color: var(--yellow);
 }
 
 .rule-uncovered .rule-badge.rule-id {
-    background: var(--red-dim);
-    color: var(--red);
+	background: var(--red-dim);
+	color: var(--red);
 }
 
 .rule-badge.rule-impl {
-    background: color-mix(in srgb, var(--green) 15%, transparent);
-    color: var(--green);
-    border: 1px solid color-mix(in srgb, var(--green) 30%, transparent);
+	background: color-mix(in srgb, var(--green) 15%, transparent);
+	color: var(--green);
+	border: 1px solid color-mix(in srgb, var(--green) 30%, transparent);
 }
 
 .rule-badge.rule-test {
-    background: color-mix(in srgb, var(--accent) 15%, transparent);
-    color: var(--accent);
-    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+	background: color-mix(in srgb, var(--accent) 15%, transparent);
+	color: var(--accent);
+	border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
 .rule-content {
-    margin-top: 0.25rem;
+	margin-top: 0.25rem;
 }
 
 .rule-content p {
-    margin: 0;
+	margin: 0;
 }
 
 .rule-content p + p {
-    margin-top: 0.5rem;
+	margin-top: 0.5rem;
 }
 
 .spec-refs {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.35rem;
-    margin: 0.25rem 0 0.5rem 0;
-    font-size: 0.85rem;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.35rem;
+	margin: 0.25rem 0 0.5rem 0;
+	font-size: 0.85rem;
 }
 
 .spec-ref {
-    font-family: "IBM Plex Mono", monospace;
-    text-decoration: none;
-    padding: 0.15rem 0.4rem;
-    border-radius: 3px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
+	font-family: "IBM Plex Mono", monospace;
+	text-decoration: none;
+	padding: 0.15rem 0.4rem;
+	border-radius: 3px;
+	background: var(--bg-secondary);
+	border: 1px solid var(--border);
+	display: inline-flex;
+	align-items: center;
+	gap: 0.3rem;
 }
 
 .spec-ref:hover {
-    border-color: var(--accent);
+	border-color: var(--accent);
 }
 
 .spec-ref-icon {
-    width: 0.9em;
-    height: 0.9em;
-    flex-shrink: 0;
+	width: 0.9em;
+	height: 0.9em;
+	flex-shrink: 0;
 }
 
 .spec-ref-icon-impl {
-    color: var(--green);
+	color: var(--green);
 }
 
 .spec-ref-icon-verify {
-    color: var(--accent);
+	color: var(--accent);
 }
 
 .spec-ref-impl {
-    color: var(--green);
+	color: var(--green);
 }
 
 .spec-ref-verify {
-    color: var(--accent);
+	color: var(--accent);
 }
 
 /* References popup (for badges with +N) */
 .refs-popup {
-    position: fixed;
-    z-index: 10000;
+	position: fixed;
+	z-index: 10000;
 }
 
 .refs-popup-inner {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 0.375rem;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    overflow: hidden;
-    min-width: 200px;
-    max-width: 400px;
+	background: var(--bg-secondary);
+	border: 1px solid var(--border);
+	border-radius: 0.375rem;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+	overflow: hidden;
+	min-width: 200px;
+	max-width: 400px;
 }
 
 .refs-popup-item {
-    padding: 0.5rem 0.75rem;
-    cursor: pointer;
-    transition: background 0.15s;
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 0.85rem;
+	padding: 0.5rem 0.75rem;
+	cursor: pointer;
+	transition: background 0.15s;
+	font-family: "IBM Plex Mono", monospace;
+	font-size: 0.85rem;
 }
 
 .refs-popup-item:hover {
-    background: var(--hover);
+	background: var(--hover);
 }
 
 .refs-popup-item + .refs-popup-item {
-    border-top: 1px solid var(--border);
+	border-top: 1px solid var(--border);
 }
 
 .refs-popup-file {
-    color: var(--fg);
+	color: var(--fg);
 }
 
 /* Empty state */
 .empty-state {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-    color: var(--fg-muted);
-    font-size: 0.9rem;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	height: 100%;
+	color: var(--fg-muted);
+	font-size: 0.9rem;
 }
 
 /* Custom dropdowns */
 .custom-dropdown {
-    position: relative;
-    display: inline-block;
+	position: relative;
+	display: inline-block;
 }
 .dropdown-selected {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.4rem 0.6rem;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    cursor: pointer;
-    font-family: inherit;
-    font-size: 0.85rem;
-    color: var(--fg);
-    min-width: 90px;
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.4rem 0.6rem;
+	background: var(--bg);
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	cursor: pointer;
+	font-family: inherit;
+	font-size: 0.85rem;
+	color: var(--fg);
+	min-width: 90px;
 }
 .dropdown-selected:hover {
-    background: var(--hover);
+	background: var(--hover);
 }
 .dropdown-selected svg {
-    width: 1rem;
-    height: 1rem;
-    flex-shrink: 0;
+	width: 1rem;
+	height: 1rem;
+	flex-shrink: 0;
 }
 .dropdown-selected svg path {
-    fill: currentColor;
+	fill: currentColor;
 }
 .dropdown-selected .chevron {
-    margin-left: auto;
-    opacity: 0.5;
+	margin-left: auto;
+	opacity: 0.5;
 }
 .dropdown-selected .chevron path {
-    fill: none;
-    stroke: currentColor;
+	fill: none;
+	stroke: currentColor;
 }
 .dropdown-menu {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    margin-top: 4px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    z-index: 100;
-    min-width: 100%;
-    display: none;
+	position: absolute;
+	top: 100%;
+	left: 0;
+	margin-top: 4px;
+	background: var(--bg-secondary);
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+	z-index: 100;
+	min-width: 100%;
+	display: none;
 }
 .custom-dropdown.open .dropdown-menu {
-    display: block;
+	display: block;
 }
 .dropdown-option {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem 0.75rem;
-    cursor: pointer;
-    font-family: inherit;
-    font-size: 0.85rem;
-    color: var(--fg-muted);
-    white-space: nowrap;
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.5rem 0.75rem;
+	cursor: pointer;
+	font-family: inherit;
+	font-size: 0.85rem;
+	color: var(--fg-muted);
+	white-space: nowrap;
 }
 .dropdown-option:first-child {
-    border-radius: 5px 5px 0 0;
+	border-radius: 5px 5px 0 0;
 }
 .dropdown-option:last-child {
-    border-radius: 0 0 5px 5px;
+	border-radius: 0 0 5px 5px;
 }
 .dropdown-option:hover {
-    background: var(--hover);
+	background: var(--hover);
 }
 .dropdown-option.active {
-    background: var(--hover);
-    color: var(--fg);
+	background: var(--hover);
+	color: var(--fg);
 }
 .dropdown-option svg {
-    width: 1rem;
-    height: 1rem;
-    flex-shrink: 0;
+	width: 1rem;
+	height: 1rem;
+	flex-shrink: 0;
 }
 .dropdown-option svg path {
-    fill: currentColor;
+	fill: currentColor;
 }
 
 /* Level dots */
 .level-dot {
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    flex-shrink: 0;
+	display: inline-block;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	flex-shrink: 0;
 }
 .level-dot-all {
-    background: var(--fg-muted);
+	background: var(--fg-muted);
 }
 .level-dot-must {
-    background: var(--red);
+	background: var(--red);
 }
 .level-dot-should {
-    background: var(--yellow);
+	background: var(--yellow);
 }
 .level-dot-may {
-    background: var(--accent);
+	background: var(--accent);
 }
 
 /* File reference styling */
 .ref-line {
-    white-space: nowrap;
-    margin-bottom: 0.35rem;
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
+	white-space: nowrap;
+	margin-bottom: 0.35rem;
+	display: flex;
+	align-items: center;
+	gap: 0.35rem;
 }
 .ref-line:last-child {
-    margin-bottom: 0;
+	margin-bottom: 0;
 }
 .ref-icon {
-    width: 1.1em;
-    height: 1.1em;
-    flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
+	width: 1.1em;
+	height: 1.1em;
+	flex-shrink: 0;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
 }
 .ref-icon svg {
-    width: 100%;
-    height: 100%;
+	width: 100%;
+	height: 100%;
 }
 .ref-icon-impl {
-    color: var(--green);
+	color: var(--green);
 }
 .ref-icon-verify {
-    color: var(--accent);
+	color: var(--accent);
 }
 
 /* FilePath component */
 .file-path-link,
 .file-path-display {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    text-decoration: none;
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 0.8em;
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35rem;
+	text-decoration: none;
+	font-family: "IBM Plex Mono", monospace;
+	font-size: 0.8em;
 }
 .file-path-link:hover .file-path-name {
-    text-decoration: underline;
+	text-decoration: underline;
 }
 .file-path-icon {
-    width: 1em;
-    height: 1em;
-    flex-shrink: 0;
-    color: var(--fg-muted);
+	width: 1em;
+	height: 1em;
+	flex-shrink: 0;
+	color: var(--fg-muted);
 }
 .file-path-icon-impl {
-    color: var(--green);
+	color: var(--green);
 }
 .file-path-icon-verify {
-    color: var(--accent);
+	color: var(--accent);
 }
 .file-path-text {
-    display: inline;
+	display: inline;
 }
 .file-path-dir {
-    color: var(--fg-dim);
+	color: var(--fg-dim);
 }
 .file-path-name {
-    color: var(--accent);
+	color: var(--accent);
 }
 .file-path-line {
-    color: var(--green);
+	color: var(--green);
 }
 
 /* Legacy file-link styles (for backwards compat) */
 .file-link {
-    text-decoration: none;
-    display: inline-flex;
+	text-decoration: none;
+	display: inline-flex;
 }
 .file-link:hover .file-name {
-    text-decoration: underline;
+	text-decoration: underline;
 }
 .file-path {
-    color: var(--fg-dim);
+	color: var(--fg-dim);
 }
 .file-name {
-    color: var(--accent);
+	color: var(--accent);
 }
 .file-line {
-    color: var(--green);
+	color: var(--green);
 }
 
 /* Header controls */
 .header-controls {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    margin-left: auto;
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	margin-left: auto;
 }
 
 /* Rule ID with icon */
 .rule-id-row {
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
+	display: flex;
+	align-items: center;
+	gap: 0.35rem;
 }
 .rule-icon {
-    width: 1em;
-    height: 1em;
-    color: var(--fg-dim);
-    flex-shrink: 0;
+	width: 1em;
+	height: 1em;
+	color: var(--fg-dim);
+	flex-shrink: 0;
 }
 
 /* Outline tree */
 .outline-tree {
-    padding: 0.5rem;
+	padding: 0.5rem;
 }
 
 .outline-item-row {
-    display: flex;
-    align-items: center;
-    gap: 0.125rem;
+	display: flex;
+	align-items: center;
+	gap: 0.125rem;
 }
 
 .outline-toggle {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.25rem;
-    height: 1.25rem;
-    padding: 0;
-    margin-left: 0.2rem;
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    color: var(--fg-dim);
-    border-radius: 0.25rem;
-    flex-shrink: 0;
-    transition: all 0.15s;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 1.25rem;
+	height: 1.25rem;
+	padding: 0;
+	margin-left: 0.2rem;
+	background: transparent;
+	border: none;
+	cursor: pointer;
+	color: var(--fg-dim);
+	border-radius: 0.25rem;
+	flex-shrink: 0;
+	transition: all 0.15s;
 }
 
 .outline-toggle:hover {
-    background: var(--hover);
-    color: var(--fg);
+	background: var(--hover);
+	color: var(--fg);
 }
 
 .outline-toggle svg {
-    width: 0.875rem;
-    height: 0.875rem;
-    transition: transform 0.15s;
+	width: 0.875rem;
+	height: 0.875rem;
+	transition: transform 0.15s;
 }
 
 .outline-toggle:not(.collapsed) svg {
-    transform: rotate(90deg);
+	transform: rotate(90deg);
 }
 
 .outline-toggle-spacer {
-    width: 1.25rem;
-    flex-shrink: 0;
+	width: 1.25rem;
+	flex-shrink: 0;
 }
 
 /* Paragraph edit button (pencil icon on hover) */
 .markdown p,
 .markdown li,
 .markdown blockquote {
-    position: relative;
+	position: relative;
 }
 
 .markdown p:hover > .para-edit-btn,
 .markdown li:hover > .para-edit-btn,
 .markdown blockquote:hover > .para-edit-btn {
-    opacity: 1;
+	opacity: 1;
 }
 
 .para-edit-btn {
-    position: absolute;
-    right: -1.5rem;
-    top: 0.15rem;
-    width: 1.25rem;
-    height: 1.25rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 0.25rem;
-    color: var(--fg-dim);
-    cursor: pointer;
-    opacity: 0;
-    transition:
-        opacity 0.15s,
-        color 0.15s,
-        background 0.15s;
-    text-decoration: none;
+	position: absolute;
+	right: -1.5rem;
+	top: 0.15rem;
+	width: 1.25rem;
+	height: 1.25rem;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: var(--bg-secondary);
+	border: 1px solid var(--border);
+	border-radius: 0.25rem;
+	color: var(--fg-dim);
+	cursor: pointer;
+	opacity: 0;
+	transition:
+		opacity 0.15s,
+		color 0.15s,
+		background 0.15s;
+	text-decoration: none;
 }
 
 .para-edit-btn:hover {
-    background: var(--hover);
-    color: var(--accent);
-    border-color: var(--accent);
+	background: var(--hover);
+	color: var(--accent);
+	border-color: var(--accent);
 }
 
 .para-edit-btn svg {
-    width: 0.75rem;
-    height: 0.75rem;
+	width: 0.75rem;
+	height: 0.75rem;
 }
 
 .outline-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
-    padding: 0.2rem 0.5rem;
-    cursor: pointer;
-    font-size: 0.875rem;
-    color: var(--fg-muted);
-    text-decoration: none;
-    border-radius: 0.25rem;
-    flex: 1;
-    min-width: 0;
-    transition:
-        background 0.15s,
-        color 0.15s;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.5rem;
+	padding: 0.2rem 0.5rem;
+	cursor: pointer;
+	font-size: 0.875rem;
+	color: var(--fg-muted);
+	text-decoration: none;
+	border-radius: 0.25rem;
+	flex: 1;
+	min-width: 0;
+	transition:
+		background 0.15s,
+		color 0.15s;
 }
 
 .outline-title {
-    flex: 1;
-    min-width: 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+	flex: 1;
+	min-width: 0;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 
 .outline-indicators {
-    display: flex;
-    gap: 0.25rem;
-    flex-shrink: 0;
-    align-items: center;
+	display: flex;
+	gap: 0.25rem;
+	flex-shrink: 0;
+	align-items: center;
 }
 
 .coverage-arc {
-    display: block;
+	display: block;
 }
 
 .outline-item:hover {
-    background: var(--hover);
-    color: var(--fg);
+	background: var(--hover);
+	color: var(--fg);
 }
 
 .outline-item.active {
-    background: var(--accent-dim);
-    color: var(--accent);
+	background: var(--accent-dim);
+	color: var(--accent);
 }
 
 .outline-item.active .outline-title {
-    text-decoration: underline;
-    text-underline-offset: 2px;
+	text-decoration: underline;
+	text-underline-offset: 2px;
 }
 
 /* Outline tree structure */
 .outline-node {
-    /* Root level nodes have no special styling */
+	/* Root level nodes have no special styling */
 }
 
 .outline-node-nested {
-    /* Nested nodes don't need padding - children container handles it */
+	/* Nested nodes don't need padding - children container handles it */
 }
 
 .outline-children {
-    margin-left: 0.75rem;
-    padding-left: 0.75rem;
-    border-left: 2px solid var(--border);
+	margin-left: 0.75rem;
+	padding-left: 0.75rem;
+	border-left: 2px solid var(--border);
 }
 
 .outline-children.has-active {
-    border-left-color: var(--accent);
+	border-left-color: var(--accent);
 }
 
 /* Search results */
 .search-results {
-    flex: 1;
-    overflow-y: auto;
-    background: var(--bg);
+	flex: 1;
+	overflow-y: auto;
+	background: var(--bg);
 }
 
 .search-result {
-    padding: 0.5rem 1rem;
-    border-bottom: 1px solid var(--border);
-    cursor: pointer;
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 0.8rem;
+	padding: 0.5rem 1rem;
+	border-bottom: 1px solid var(--border);
+	cursor: pointer;
+	font-family: "IBM Plex Mono", monospace;
+	font-size: 0.8rem;
 }
 
 .search-result:hover {
-    background: var(--hover);
+	background: var(--hover);
 }
 
 .search-result-file {
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
-    margin-bottom: 0.25rem;
+	display: flex;
+	align-items: center;
+	gap: 0.25rem;
+	margin-bottom: 0.25rem;
 }
 
 .search-result-path {
-    color: var(--fg-dim);
+	color: var(--fg-dim);
 }
 
 .search-result-name {
-    color: var(--accent);
+	color: var(--accent);
 }
 
 .search-result-line {
-    color: var(--green);
+	color: var(--green);
 }
 
 .search-result-content {
-    color: var(--fg-muted);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+	color: var(--fg-muted);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 
 .search-result-highlight {
-    background: var(--yellow-dim);
-    color: var(--yellow);
-    padding: 0.1rem 0.2rem;
-    border-radius: 2px;
+	background: var(--yellow-dim);
+	color: var(--yellow);
+	padding: 0.1rem 0.2rem;
+	border-radius: 2px;
 }
 
 .search-empty {
-    padding: 2rem;
-    text-align: center;
-    color: var(--fg-muted);
+	padding: 2rem;
+	text-align: center;
+	color: var(--fg-muted);
 }
 
 .search-loading {
-    padding: 1rem;
-    text-align: center;
-    color: var(--fg-muted);
-    font-size: 0.85rem;
+	padding: 1rem;
+	text-align: center;
+	color: var(--fg-muted);
+	font-size: 0.85rem;
 }
 
 /* Rule context panel */
 .rule-context {
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    margin: 0.5rem;
-    background: var(--bg);
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	margin: 0.5rem;
+	background: var(--bg);
 }
 
 .rule-context-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0.5rem 0.75rem;
-    background: var(--accent-dim);
-    border-radius: 5px 5px 0 0;
-    border-bottom: 1px solid var(--border);
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 0.5rem 0.75rem;
+	background: var(--accent-dim);
+	border-radius: 5px 5px 0 0;
+	border-bottom: 1px solid var(--border);
 }
 
 .rule-context-id {
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 0.85rem;
-    font-weight: 500;
-    color: var(--accent);
+	font-family: "IBM Plex Mono", monospace;
+	font-size: 0.85rem;
+	font-weight: 500;
+	color: var(--accent);
 }
 
 .rule-context-close {
-    background: none;
-    border: none;
-    cursor: pointer;
-    color: var(--fg-muted);
-    padding: 0.25rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 4px;
+	background: none;
+	border: none;
+	cursor: pointer;
+	color: var(--fg-muted);
+	padding: 0.25rem;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 4px;
 }
 
 .rule-context-close:hover {
-    background: var(--hover);
-    color: var(--fg);
+	background: var(--hover);
+	color: var(--fg);
 }
 
 .rule-context-body {
-    padding: 0.75rem;
+	padding: 0.75rem;
 }
 
 .rule-context-text {
-    font-size: 0.85rem;
-    color: var(--fg-muted);
-    margin-bottom: 0.75rem;
-    line-height: 1.5;
+	font-size: 0.85rem;
+	color: var(--fg-muted);
+	margin-bottom: 0.75rem;
+	line-height: 1.5;
 }
 
 .rule-context-refs {
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
+	display: flex;
+	flex-direction: column;
+	gap: 0.35rem;
 }
 
 .rule-context-ref {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.35rem 0.5rem;
-    border-radius: 4px;
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 0.8rem;
-    cursor: pointer;
-    text-decoration: none;
-    color: var(--fg);
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.35rem 0.5rem;
+	border-radius: 4px;
+	font-family: "IBM Plex Mono", monospace;
+	font-size: 0.8rem;
+	cursor: pointer;
+	text-decoration: none;
+	color: var(--fg);
 }
 
 .rule-context-ref:hover {
-    background: var(--hover);
+	background: var(--hover);
 }
 
 .rule-context-ref.active {
-    background: var(--accent-dim);
+	background: var(--accent-dim);
 }
 
 .rule-context-back {
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-    margin-top: 0.75rem;
-    padding: 0.35rem 0.5rem;
-    border-radius: 4px;
-    font-size: 0.8rem;
-    cursor: pointer;
-    color: var(--fg-muted);
-    text-decoration: none;
+	display: flex;
+	align-items: center;
+	gap: 0.35rem;
+	margin-top: 0.75rem;
+	padding: 0.35rem 0.5rem;
+	border-radius: 4px;
+	font-size: 0.8rem;
+	cursor: pointer;
+	color: var(--fg-muted);
+	text-decoration: none;
 }
 
 .rule-context-back:hover {
-    background: var(--hover);
-    color: var(--fg);
+	background: var(--hover);
+	color: var(--fg);
 }
 
 /* Global search overlay */
 .search-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.5);
-    display: flex;
-    align-items: flex-start;
-    justify-content: center;
-    padding-top: 10vh;
-    z-index: 1000;
+	position: fixed;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	background: rgba(0, 0, 0, 0.5);
+	display: flex;
+	align-items: flex-start;
+	justify-content: center;
+	padding-top: 10vh;
+	z-index: 1000;
 }
 
 .search-modal {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    width: 600px;
-    max-width: 90vw;
-    max-height: 70vh;
-    display: flex;
-    flex-direction: column;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+	background: var(--bg-secondary);
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	width: 600px;
+	max-width: 90vw;
+	max-height: 70vh;
+	display: flex;
+	flex-direction: column;
+	box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
 }
 
 .search-modal-input {
-    padding: 1rem;
-    border-bottom: 1px solid var(--border);
+	padding: 1rem;
+	border-bottom: 1px solid var(--border);
 }
 
 .search-modal-input input {
-    width: 100%;
-    padding: 0.75rem 1rem;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    font-size: 1rem;
-    color: var(--fg);
-    font-family: inherit;
+	width: 100%;
+	padding: 0.75rem 1rem;
+	background: var(--bg);
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	font-size: 1rem;
+	color: var(--fg);
+	font-family: inherit;
 }
 
 .search-modal-input input:focus {
-    outline: none;
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-dim);
+	outline: none;
+	border-color: var(--accent);
+	box-shadow: 0 0 0 3px var(--accent-dim);
 }
 
 .search-modal-results {
-    flex: 1;
-    overflow-y: auto;
+	flex: 1;
+	overflow-y: auto;
 }
 
 .search-modal-result {
-    padding: 0.75rem 1rem;
-    border-bottom: 1px solid var(--border);
-    cursor: pointer;
+	padding: 0.75rem 1rem;
+	border-bottom: 1px solid var(--border);
+	cursor: pointer;
 }
 
 .search-modal-result:hover {
-    background: var(--hover);
+	background: var(--hover);
 }
 
 .search-modal-result-header {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-bottom: 0.25rem;
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	margin-bottom: 0.25rem;
 }
 
 .search-result-icon {
-    width: 1.1rem;
-    height: 1.1rem;
-    flex-shrink: 0;
+	width: 1.1rem;
+	height: 1.1rem;
+	flex-shrink: 0;
 }
 
 .search-result-icon.source {
-    color: var(--green);
+	color: var(--green);
 }
 
 .search-result-icon.rule {
-    color: var(--accent);
+	color: var(--accent);
 }
 
 .search-modal-result-id {
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 0.85rem;
-    color: var(--accent);
+	font-family: "IBM Plex Mono", monospace;
+	font-size: 0.85rem;
+	color: var(--accent);
 }
 
 .search-modal-result-line {
-    color: var(--green);
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 0.85rem;
+	color: var(--green);
+	font-family: "IBM Plex Mono", monospace;
+	font-size: 0.85rem;
 }
 
 .search-modal-result-content {
-    font-size: 0.85rem;
-    color: var(--fg-muted);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+	font-size: 0.85rem;
+	color: var(--fg-muted);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 
 .search-modal-empty {
-    padding: 2rem;
-    text-align: center;
-    color: var(--fg-muted);
+	padding: 2rem;
+	text-align: center;
+	color: var(--fg-muted);
 }
 
 .search-modal-hint {
-    padding: 0.75rem 1rem;
-    border-top: 1px solid var(--border);
-    font-size: 0.75rem;
-    color: var(--fg-dim);
-    display: flex;
-    gap: 1rem;
+	padding: 0.75rem 1rem;
+	border-top: 1px solid var(--border);
+	font-size: 0.75rem;
+	color: var(--fg-dim);
+	display: flex;
+	gap: 1rem;
 }
 
 .search-modal-hint kbd {
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 3px;
-    padding: 0.1rem 0.35rem;
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 0.7rem;
+	background: var(--bg);
+	border: 1px solid var(--border);
+	border-radius: 3px;
+	padding: 0.1rem 0.35rem;
+	font-family: "IBM Plex Mono", monospace;
+	font-size: 0.7rem;
 }
 
 .search-modal-result-code {
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 0.75rem;
-    line-height: 1.6;
-    margin: 0;
-    padding: 0.25rem 0;
-    background: transparent;
-    white-space: pre;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    color: var(--fg-muted);
+	font-family: "IBM Plex Mono", monospace;
+	font-size: 0.75rem;
+	line-height: 1.6;
+	margin: 0;
+	padding: 0.25rem 0;
+	background: transparent;
+	white-space: pre;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	color: var(--fg-muted);
 }
 
 .search-modal-result-code code {
-    background: none;
-    padding: 0;
+	background: none;
+	padding: 0;
 }
 
 .search-modal-result-code mark,
 .search-modal-result-content mark {
-    background: var(--yellow-dim);
-    color: var(--yellow);
-    padding: 0.1em 0.2em;
-    border-radius: 2px;
+	background: var(--yellow-dim);
+	color: var(--yellow);
+	padding: 0.1em 0.2em;
+	border-radius: 2px;
 }
 
 .search-modal-result.selected {
-    background: var(--accent-dim);
+	background: var(--accent-dim);
 }
