@@ -715,69 +715,26 @@ function LucideIcon({ name, className = "" }: LucideIconProps) {
 }
 
 // SVG arc indicator for coverage progress
-// Draws a circular arc from 0 to `fraction` (0-1) of a full circle
+// Two-layer design: thin background ring (always 360°) + thick progress arc + centered text
 interface CoverageArcProps {
-  fraction: number; // 0 to 1
-  color: string; // stroke color
+  count: number; // numerator
+  total: number; // denominator
+  color: string; // stroke color for progress
   title?: string;
   size?: number;
 }
 
-function CoverageArc({ fraction, color, title, size = 12 }: CoverageArcProps) {
-  const radius = (size - 2) / 2; // Leave room for stroke
+function CoverageArc({ count, total, color, title, size = 28 }: CoverageArcProps) {
+  const bgStrokeWidth = 1.5;
+  const fgStrokeWidth = 3;
+  const radius = (size - fgStrokeWidth) / 2;
   const center = size / 2;
-  const strokeWidth = 2;
+  const fraction = total > 0 ? count / total : 0;
 
   // Calculate arc path
   // Start at top (12 o'clock position), draw clockwise
-  const startAngle = -Math.PI / 2; // -90 degrees (top)
+  const startAngle = -Math.PI / 2;
   const endAngle = startAngle + fraction * 2 * Math.PI;
-
-  // For a full circle (fraction >= 1), use a circle element
-  if (fraction >= 1) {
-    return html`
-      <svg
-        width=${size}
-        height=${size}
-        viewBox="0 0 ${size} ${size}"
-        class="coverage-arc"
-        style="flex-shrink: 0"
-      >
-        <title>${title}</title>
-        <circle
-          cx=${center}
-          cy=${center}
-          r=${radius}
-          fill="none"
-          stroke=${color}
-          stroke-width=${strokeWidth}
-        />
-      </svg>
-    `;
-  }
-
-  // For zero, show a dim background circle
-  if (fraction <= 0) {
-    return html`
-      <svg
-        width=${size}
-        height=${size}
-        viewBox="0 0 ${size} ${size}"
-        class="coverage-arc"
-        style="flex-shrink: 0"
-      >
-        <title>${title}</title>
-        <circle
-          cx=${center}
-          cy=${center}
-          r=${radius}
-          fill="none"
-          stroke="var(--bg-hover)"
-          stroke-width=${strokeWidth}
-        />
-      </svg>
-    `;
-  }
 
   // Calculate arc endpoints
   const startX = center + radius * Math.cos(startAngle);
@@ -788,8 +745,13 @@ function CoverageArc({ fraction, color, title, size = 12 }: CoverageArcProps) {
   // Large arc flag: 1 if arc > 180 degrees
   const largeArcFlag = fraction > 0.5 ? 1 : 0;
 
-  // SVG arc path: M start, A rx ry x-axis-rotation large-arc-flag sweep-flag end
-  const path = `M ${startX} ${startY} A ${radius} ${radius} 0 ${largeArcFlag} 1 ${endX} ${endY}`;
+  // SVG arc path
+  const arcPath =
+    fraction >= 1
+      ? null // Use circle for full
+      : fraction > 0
+        ? `M ${startX} ${startY} A ${radius} ${radius} 0 ${largeArcFlag} 1 ${endX} ${endY}`
+        : null;
 
   return html`
     <svg
@@ -800,23 +762,50 @@ function CoverageArc({ fraction, color, title, size = 12 }: CoverageArcProps) {
       style="flex-shrink: 0"
     >
       <title>${title}</title>
-      <!-- Background circle -->
+      <!-- Thin background ring (always full circle) -->
       <circle
         cx=${center}
         cy=${center}
         r=${radius}
         fill="none"
-        stroke="var(--bg-hover)"
-        stroke-width=${strokeWidth}
+        stroke="var(--border)"
+        stroke-width=${bgStrokeWidth}
       />
-      <!-- Progress arc -->
-      <path
-        d=${path}
-        fill="none"
-        stroke=${color}
-        stroke-width=${strokeWidth}
-        stroke-linecap="round"
-      />
+      <!-- Thick progress arc -->
+      ${fraction >= 1
+        ? html`
+            <circle
+              cx=${center}
+              cy=${center}
+              r=${radius}
+              fill="none"
+              stroke=${color}
+              stroke-width=${fgStrokeWidth}
+            />
+          `
+        : arcPath
+          ? html`
+              <path
+                d=${arcPath}
+                fill="none"
+                stroke=${color}
+                stroke-width=${fgStrokeWidth}
+                stroke-linecap="round"
+              />
+            `
+          : null}
+      <!-- Centered text -->
+      <text
+        x=${center}
+        y=${center}
+        text-anchor="middle"
+        dominant-baseline="central"
+        fill="var(--fg-muted)"
+        font-size="8"
+        font-weight="500"
+      >
+        ${count}/${total}
+      </text>
     </svg>
   `;
 }
@@ -2110,12 +2099,14 @@ function SpecView({
                   html`
                     <span class="outline-indicators">
                       <${CoverageArc}
-                        fraction=${h.aggregated.implCount / h.aggregated.total}
+                        count=${h.aggregated.implCount}
+                        total=${h.aggregated.total}
                         color="var(--green)"
                         title="Implementation: ${h.aggregated.implCount}/${h.aggregated.total}"
                       />
                       <${CoverageArc}
-                        fraction=${h.aggregated.verifyCount / h.aggregated.total}
+                        count=${h.aggregated.verifyCount}
+                        total=${h.aggregated.total}
                         color="var(--blue)"
                         title="Tests: ${h.aggregated.verifyCount}/${h.aggregated.total}"
                       />

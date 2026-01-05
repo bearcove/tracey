@@ -751,7 +751,7 @@ a.annotation-badge:hover {
     background: var(--bg-secondary);
     border: 1px solid var(--border);
     border-radius: 6px;
-    padding: 1rem;
+    padding: 0.6rem 0.8rem;
     overflow-x: auto;
     margin: 1rem 0;
 }
