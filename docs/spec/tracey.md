@@ -162,22 +162,22 @@ Tracey provides a web-based dashboard for browsing specifications, viewing cover
 ### URL Scheme
 
 r[dashboard.url.structure]
-Dashboard URLs MUST follow the structure `/:specName/:view/:params` where `specName` is the name of a configured spec.
+Dashboard URLs MUST follow the structure `/:specName/:lang/:view` where `specName` is the name of a configured spec and `lang` is an implementation language.
 
 r[dashboard.url.spec-view]
-The specification view MUST be accessible at `/:specName/spec` with optional heading parameter `/:specName/spec/:headingSlug`.
+The specification view MUST be accessible at `/:specName/:lang/spec` with optional heading hash fragment `/:specName/:lang/spec#:headingSlug`.
 
 r[dashboard.url.coverage-view]
-The coverage view MUST be accessible at `/:specName/coverage` with optional query parameters `?filter=impl|verify` and `?level=must|should|may`.
+The coverage view MUST be accessible at `/:specName/:lang/coverage` with optional query parameters `?filter=impl|verify` and `?level=must|should|may`.
 
 r[dashboard.url.sources-view]
-The sources view MUST be accessible at `/:specName/sources` with optional file and line parameters `/:specName/sources/:filePath::lineNumber`.
+The sources view MUST be accessible at `/:specName/:lang/sources` with optional file and line parameters `/:specName/:lang/sources/:filePath::lineNumber`.
 
 r[dashboard.url.context]
 Source URLs MAY include a `?context=:ruleId` query parameter to show rule context in the sidebar.
 
 r[dashboard.url.root-redirect]
-Navigating to `/` MUST redirect to `/:defaultSpec/spec` where `defaultSpec` is the first configured spec.
+Navigating to `/` MUST redirect to `/:defaultSpec/:defaultLang/spec` where `defaultSpec` is the first configured spec and `defaultLang` is its first implementation.
 
 r[dashboard.url.invalid-spec]
 Navigating to an invalid spec name SHOULD redirect to the first valid spec or display an error.
@@ -188,16 +188,16 @@ r[dashboard.api.config]
 The `/api/config` endpoint MUST return the project configuration including `projectRoot` and `specs` array.
 
 r[dashboard.api.spec]
-The `/api/spec?name=:specName` endpoint MUST return the rendered HTML and outline for the named spec.
+The `/api/spec?spec=:specName&lang=:lang` endpoint MUST return the rendered HTML and outline for the named spec and language.
 
 r[dashboard.api.forward]
-The `/api/forward` endpoint MUST return the forward mapping (rules to file references) for all specs.
+The `/api/forward?spec=:specName&lang=:lang` endpoint MUST return the forward mapping (rules to file references) for the specified implementation.
 
 r[dashboard.api.reverse]
-The `/api/reverse` endpoint MUST return the reverse mapping (files to rule references) with coverage statistics.
+The `/api/reverse?spec=:specName&lang=:lang` endpoint MUST return the reverse mapping (files to rule references) with coverage statistics for the specified implementation.
 
 r[dashboard.api.file]
-The `/api/file?path=:filePath` endpoint MUST return the file content, syntax-highlighted HTML, and code unit annotations.
+The `/api/file?spec=:specName&lang=:lang&path=:filePath` endpoint MUST return the file content, syntax-highlighted HTML, and code unit annotations.
 
 r[dashboard.api.version]
 The `/api/version` endpoint MUST return a version string that changes when any source data changes.
@@ -208,19 +208,19 @@ The dashboard SHOULD poll `/api/version` and refetch data when the version chang
 ### Link Generation
 
 r[dashboard.links.spec-aware]
-All links generated in rendered markdown MUST include the spec name as the first path segment.
+All links generated in rendered markdown MUST include the spec name and language as the first two path segments.
 
 r[dashboard.links.rule-links]
-Rule ID badges MUST link to `/:specName/spec/:ruleId` to navigate to the rule in the specification.
+Rule ID badges MUST link to `/:specName/:lang/spec?rule=:ruleId` to navigate to the rule in the specification.
 
 r[dashboard.links.impl-refs]
-Implementation reference badges MUST link to `/:specName/sources/:filePath::line?context=:ruleId`.
+Implementation reference badges MUST link to `/:specName/:lang/sources/:filePath::line?context=:ruleId`.
 
 r[dashboard.links.verify-refs]
-Verification/test reference badges MUST link to `/:specName/sources/:filePath::line?context=:ruleId`.
+Verification/test reference badges MUST link to `/:specName/:lang/sources/:filePath::line?context=:ruleId`.
 
 r[dashboard.links.heading-links]
-Heading links in the outline MUST link to `/:specName/spec/:headingSlug`.
+Heading links in the outline MUST link to `/:specName/:lang/spec#:headingSlug`.
 
 ### Specification View
 
@@ -314,7 +314,7 @@ r[dashboard.header.nav-active]
 The active view tab MUST be visually distinguished.
 
 r[dashboard.header.nav-preserve-spec]
-Navigation tabs MUST preserve the current spec name when switching views.
+Navigation tabs MUST preserve the current spec name and language when switching views.
 
 r[dashboard.header.search]
 The header MUST display a search input that opens the search modal when clicked or focused.
