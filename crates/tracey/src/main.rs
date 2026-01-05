@@ -2659,7 +2659,6 @@ pub(crate) fn load_manifest_from_glob(
     use std::collections::HashMap;
 
     let mut rules_manifest = RulesManifest::new();
-    let mut file_count = 0;
 
     // Walk the directory tree
     let walker = WalkBuilder::new(root)
@@ -2717,7 +2716,6 @@ pub(crate) fn load_manifest_from_glob(
                 result.rules.len(),
                 relative_str
             );
-            file_count += 1;
 
             // Build manifest for this file (no base URL needed for coverage checking)
             let file_manifest = RulesManifest::from_rules(&result.rules, "", Some(&relative_str));
@@ -2738,13 +2736,6 @@ pub(crate) fn load_manifest_from_glob(
                 );
             }
         }
-    }
-
-    if file_count == 0 {
-        eyre::bail!(
-            "No markdown files with rules found matching pattern '{}'",
-            pattern
-        );
     }
 
     // Convert RulesManifest to SpecManifest
