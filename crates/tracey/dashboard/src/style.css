@@ -1311,8 +1311,7 @@ a.rule-marker:hover {
     align-items: center;
     justify-content: space-between;
     gap: 0.5rem;
-    padding: 0.35rem 0.5rem;
-    border-radius: 4px;
+    padding: 0.2rem 0.5rem;
     cursor: pointer;
     font-size: 0.875rem;
     color: var(--fg-muted);
