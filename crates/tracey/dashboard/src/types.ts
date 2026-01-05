@@ -241,6 +241,7 @@ export interface SourcesViewProps {
 export interface SpecViewProps {
   config: Config;
   forward: ForwardData;
+  version: string | null;
   selectedRule: string | null;
   selectedHeading: string | null;
   onSelectRule: (ruleId: string) => void;

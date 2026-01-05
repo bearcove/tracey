@@ -239,7 +239,7 @@ function useFile(path: string | null): FileContent | null {
   return file;
 }
 
-function useSpec(name: string | null): SpecContent | null {
+function useSpec(name: string | null, version: string | null): SpecContent | null {
   const [spec, setSpec] = useState<SpecContent | null>(null);
 
   useEffect(() => {
@@ -253,7 +253,7 @@ function useSpec(name: string | null): SpecContent | null {
         console.error("Failed to load spec:", e);
         setSpec(null);
       });
-  }, [name]);
+  }, [name, version]);
 
   return spec;
 }
@@ -571,6 +571,7 @@ function App() {
         <${SpecView}
           config=${config}
           forward=${forward}
+          version=${version}
           selectedRule=${rule}
           selectedHeading=${heading}
           onSelectRule=${handleSelectRule}
@@ -1919,6 +1920,7 @@ function OutlineTree({ nodes, activeHeading, onSelectHeading, depth = 0 }: Outli
 
 function SpecView({
   config,
+  version,
   selectedRule,
   selectedHeading,
   onSelectRule,
@@ -1926,7 +1928,7 @@ function SpecView({
   scrollPosition,
   onScrollChange,
 }: SpecViewProps) {
-  const spec = useSpec(config.specs[0]?.name);
+  const spec = useSpec(config.specs[0]?.name, version);
   const [activeHeading, setActiveHeading] = useState(null);
   const contentRef = useRef(null);
   const contentBodyRef = useRef(null);
