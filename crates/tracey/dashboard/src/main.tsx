@@ -447,7 +447,7 @@ const isMac =
 const modKey = isMac ? "⌘" : "Ctrl";
 
 function App() {
-  const { data, error } = useApi();
+  const { data, error, version } = useApi();
   const route = useRouter();
   const [search, setSearch] = useState("");
   const [scrollPositions, setScrollPositions] = useState<Record<string, number>>({});
