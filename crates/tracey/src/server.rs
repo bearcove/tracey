@@ -299,10 +299,16 @@ impl<'a> QueryEngine<'a> {
 
             if matching_file.is_some() {
                 // Get code units for this file
+                // The code_units_by_impl map uses absolute paths, so we need to find
+                // the full path that ends with our relative path
                 let code_units_by_file = self.data.code_units_by_impl.get(&key)?;
-                let path_buf = std::path::PathBuf::from(filter_path);
 
-                if let Some(units) = code_units_by_file.get(&path_buf) {
+                // Find the absolute path that ends with the relative path
+                let abs_path = code_units_by_file
+                    .keys()
+                    .find(|p| p.ends_with(filter_path))?;
+
+                if let Some(units) = code_units_by_file.get(abs_path) {
                     let unit_infos: Vec<CodeUnitInfo> = units
                         .iter()
                         .map(|u| CodeUnitInfo {
