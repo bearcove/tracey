@@ -339,14 +339,17 @@ export function SpecView({
     const handleClick = (e: Event) => {
       const target = e.target as HTMLElement;
 
-      // Handle heading clicks (copy URL)
+      // Handle heading clicks (copy URL and scroll)
       const heading = target.closest("h1[id], h2[id], h3[id], h4[id]");
       if (heading) {
         const slug = heading.id;
         const url = `${window.location.origin}${window.location.pathname}#${slug}`;
         navigator.clipboard?.writeText(url);
         history.pushState(null, "", `#${slug}`);
-        window.dispatchEvent(new HashChangeEvent("hashchange"));
+        setActiveHeading(slug);
+        // Scroll the heading to a comfortable position (not at very top)
+        const targetScrollTop = (heading as HTMLElement).offsetTop - 100;
+        contentBodyRef.current?.scrollTo({ top: Math.max(0, targetScrollTop) });
         return;
       }
 
