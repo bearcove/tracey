@@ -81,9 +81,10 @@ function parseRoute(): Route {
     const hashHeading = window.location.hash ? window.location.hash.slice(1) : null;
     // Path segment becomes heading if present, otherwise use hash
     const heading = pathSegment || hashHeading;
-    // Rule only from query param now
+    // Rule and spec from query params
     const rule = params.get("rule");
-    return { view: "spec", rule: rule ?? null, heading };
+    const spec = params.get("spec");
+    return { view: "spec", spec: spec ?? null, rule: rule ?? null, heading };
   }
   // /coverage
   return {
@@ -97,6 +98,7 @@ interface UrlParams {
   file?: string | null;
   line?: number | null;
   context?: string | null;
+  spec?: string | null;
   rule?: string | null;
   heading?: string | null;
   filter?: string | null;
@@ -116,10 +118,13 @@ function buildUrl(view: ViewType, params: UrlParams = {}): string {
     return url;
   }
   if (view === "spec") {
-    const { rule, heading } = params;
-    if (rule) return `/spec?rule=${encodeURIComponent(rule)}`;
-    if (heading) return `/spec/${heading}`;
-    return "/spec";
+    const { spec, rule, heading } = params;
+    const searchParams = new URLSearchParams();
+    if (spec) searchParams.set("spec", spec);
+    if (rule) searchParams.set("rule", rule);
+    const query = searchParams.toString();
+    if (heading) return `/spec/${heading}${query ? `?${query}` : ""}`;
+    return `/spec${query ? `?${query}` : ""}`;
   }
   // coverage
   const searchParams = new URLSearchParams();
@@ -461,6 +466,7 @@ function App() {
   const file = route.view === "sources" ? route.file : null;
   const line = route.view === "sources" ? route.line : null;
   const context = route.view === "sources" ? route.context : null;
+  const spec = route.view === "spec" ? route.spec : null;
   const rule = route.view === "spec" ? route.rule : null;
   const heading = route.view === "spec" ? route.heading : null;
   const filter = route.view === "coverage" ? route.filter : null;
@@ -484,9 +490,19 @@ function App() {
     navigate("sources", { file: filePath, line: lineNum, context: ruleContext }, false);
   }, []);
 
-  const handleSelectRule = useCallback((ruleId) => {
-    navigate("spec", { rule: ruleId }, false);
-  }, []);
+  const handleSelectSpec = useCallback(
+    (specName: string) => {
+      navigate("spec", { spec: specName, heading }, false);
+    },
+    [heading],
+  );
+
+  const handleSelectRule = useCallback(
+    (ruleId) => {
+      navigate("spec", { spec, rule: ruleId }, false);
+    },
+    [spec],
+  );
 
   const handleClearContext = useCallback(() => {
     navigate("sources", { file, line, context: null }, true);
@@ -572,8 +588,10 @@ function App() {
           config=${config}
           forward=${forward}
           version=${version}
+          selectedSpec=${spec}
           selectedRule=${rule}
           selectedHeading=${heading}
+          onSelectSpec=${handleSelectSpec}
           onSelectRule=${handleSelectRule}
           onSelectFile=${handleSelectFile}
           scrollPosition=${scrollPositions.spec || 0}
@@ -2009,10 +2027,10 @@ function showRefsPopup(e, refs, badgeElement, onSelectFile) {
 
   // Add click handlers
   popup.addEventListener("click", (e) => {
-    const item = e.target.closest(".refs-popup-item");
+    const item = (e.target as HTMLElement).closest(".refs-popup-item") as HTMLElement | null;
     if (item) {
       const file = item.dataset.file;
-      const line = parseInt(item.dataset.line, 10);
+      const line = parseInt(item.dataset.line || "0", 10);
       onSelectFile(file, line);
       popup.remove();
     }
@@ -2033,14 +2051,19 @@ function showRefsPopup(e, refs, badgeElement, onSelectFile) {
 function SpecView({
   config,
   version,
+  selectedSpec,
   selectedRule,
   selectedHeading,
+  onSelectSpec,
   onSelectRule,
   onSelectFile,
   scrollPosition,
   onScrollChange,
 }: SpecViewProps) {
-  const spec = useSpec(config.specs[0]?.name, version);
+  // Use selectedSpec or default to first spec
+  const specName = selectedSpec || config.specs?.[0]?.name || null;
+  const spec = useSpec(specName, version);
+  const hasMultipleSpecs = (config.specs?.length || 0) > 1;
   const [activeHeading, setActiveHeading] = useState(null);
   const [collapsedSlugs, setCollapsedSlugs] = useState<Set<string>>(() => getCollapsedSlugs());
   const contentRef = useRef(null);
@@ -2381,7 +2404,22 @@ function SpecView({
       </div>
       <div class="content">
         <div class="content-header">
-          ${spec.name}${spec.sections.length > 1 ? ` (${spec.sections.length} files)` : ""}
+          ${hasMultipleSpecs
+            ? html`
+                <div class="spec-switcher">
+                  ${config.specs.map(
+                    (s) => html`
+                      <button
+                        class="spec-tab ${s.name === specName ? "active" : ""}"
+                        onClick=${() => onSelectSpec(s.name)}
+                      >
+                        ${s.name}
+                      </button>
+                    `,
+                  )}
+                </div>
+              `
+            : html`${spec.name}${spec.sections.length > 1 ? ` (${spec.sections.length} files)` : ""}`}
         </div>
         <div class="content-body" ref=${contentBodyRef}>
           <div

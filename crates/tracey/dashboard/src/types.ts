@@ -10,6 +10,7 @@ export interface SourcesRoute {
 
 export interface SpecRoute {
   view: "spec";
+  spec: string | null;
   rule: string | null;
   heading: string | null;
 }
@@ -242,8 +243,10 @@ export interface SpecViewProps {
   config: Config;
   forward: ForwardData;
   version: string | null;
+  selectedSpec: string | null;
   selectedRule: string | null;
   selectedHeading: string | null;
+  onSelectSpec: (name: string) => void;
   onSelectRule: (ruleId: string) => void;
   onSelectFile: (path: string, line?: number | null, context?: string | null) => void;
   scrollPosition: number;

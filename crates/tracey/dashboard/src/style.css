@@ -430,6 +430,36 @@ body {
     font-size: 0.85rem;
 }
 
+/* Spec switcher tabs */
+.spec-switcher {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.spec-tab {
+    padding: 0.375rem 0.75rem;
+    border: none;
+    background: transparent;
+    color: var(--fg-muted);
+    cursor: pointer;
+    border-radius: 4px;
+    font-family: inherit;
+    font-size: inherit;
+    transition:
+        background-color 0.15s,
+        color 0.15s;
+}
+
+.spec-tab:hover {
+    background: var(--hover);
+    color: var(--fg);
+}
+
+.spec-tab.active {
+    background: var(--accent);
+    color: white;
+}
+
 .content-body {
     flex: 1;
     overflow: auto;
@@ -1356,6 +1386,7 @@ a.rule-marker:hover {
     width: 1.25rem;
     height: 1.25rem;
     padding: 0;
+    margin-left: 0.2rem;
     background: transparent;
     border: none;
     cursor: pointer;
