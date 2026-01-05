@@ -430,13 +430,14 @@ impl RuleHandler for TraceyRuleHandler {
                         .collect::<Vec<_>>()
                         .join(",");
                     let all_refs_json = format!("[{}]", all_refs_json).replace('"', "&quot;");
+                    // [impl dashboard.links.impl-refs]
                     badges_html.push_str(&format!(
                         r#"<a class="rule-badge rule-impl" href="/{}/{}/sources/{}:{}" data-file="{}" data-line="{}" data-all-refs="{}" title="Implementation: {}:{}">{icon}{}:{}{}</a>"#,
                         self.spec_name, self.lang, r.file, r.line, r.file, r.line, all_refs_json, r.file, r.line, filename, r.line, count_suffix
                     ));
                 }
 
-                // Test/verify badge
+                // [impl dashboard.links.verify-refs]
                 if !cov.verify_refs.is_empty() {
                     let r = &cov.verify_refs[0];
                     let filename = r.file.rsplit('/').next().unwrap_or(&r.file);
@@ -1917,6 +1918,12 @@ async fn run_server(
     };
 
     // Build router
+    // [impl dashboard.api.config]
+    // [impl dashboard.api.forward]
+    // [impl dashboard.api.reverse]
+    // [impl dashboard.api.version]
+    // [impl dashboard.api.file]
+    // [impl dashboard.api.spec]
     let mut app = Router::new()
         .route("/api/config", get(api_config))
         .route("/api/forward", get(api_forward))
