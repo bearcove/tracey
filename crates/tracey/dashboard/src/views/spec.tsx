@@ -65,6 +65,7 @@ interface OutlineTreeProps {
   nodes: OutlineTreeNode[];
   activeHeading: string | null;
   specName: string | null;
+  lang: string | null;
   onSelectHeading: (slug: string) => void;
   collapsedSlugs: Set<string>;
   onToggleCollapse: (slug: string) => void;
@@ -75,6 +76,7 @@ function OutlineTree({
   nodes,
   activeHeading,
   specName,
+  lang,
   onSelectHeading,
   collapsedSlugs,
   onToggleCollapse,
@@ -114,7 +116,7 @@ function OutlineTree({
                 `
               : html`<span class="outline-toggle-spacer"></span>`}
             <a
-              href=${`/${specName}/spec/${h.slug}`}
+              href=${`/${specName}/${lang}/spec/${h.slug}`}
               class="outline-item ${isActive ? "active" : ""}"
               onClick=${(e: Event) => {
                 e.preventDefault();
@@ -149,6 +151,7 @@ function OutlineTree({
                 nodes=${node.children}
                 activeHeading=${activeHeading}
                 specName=${specName}
+                lang=${lang}
                 onSelectHeading=${onSelectHeading}
                 collapsedSlugs=${collapsedSlugs}
                 onToggleCollapse=${onToggleCollapse}
@@ -169,6 +172,7 @@ export function SpecView({
   config,
   version,
   selectedSpec,
+  selectedLang,
   selectedRule,
   selectedHeading,
   onSelectSpec,
@@ -302,7 +306,10 @@ export function SpecView({
       const sourceLine = el.getAttribute("data-source-line");
       if (!sourceFile || !sourceLine) continue;
 
-      const fullPath = config.projectRoot ? `${config.projectRoot}/${sourceFile}` : sourceFile;
+      // Use sourceFile directly if absolute, otherwise prepend projectRoot
+      const fullPath = sourceFile.startsWith('/')
+        ? sourceFile
+        : config.projectRoot ? `${config.projectRoot}/${sourceFile}` : sourceFile;
       const editUrl = EDITORS.zed.urlTemplate(fullPath, parseInt(sourceLine, 10));
 
       const btn = document.createElement("a");
@@ -361,7 +368,10 @@ export function SpecView({
         const sourceFile = ruleBadge.dataset.sourceFile;
         const sourceLine = parseInt(ruleBadge.dataset.sourceLine || "0", 10);
         if (sourceFile && !Number.isNaN(sourceLine)) {
-          const fullPath = config.projectRoot ? `${config.projectRoot}/${sourceFile}` : sourceFile;
+          // Use sourceFile directly if absolute, otherwise prepend projectRoot
+          const fullPath = sourceFile.startsWith('/')
+            ? sourceFile
+            : config.projectRoot ? `${config.projectRoot}/${sourceFile}` : sourceFile;
           window.location.href = EDITORS.zed.urlTemplate(fullPath, sourceLine);
         }
         return;
@@ -492,6 +502,7 @@ export function SpecView({
               nodes=${outlineTree}
               activeHeading=${activeHeading}
               specName=${specName}
+              lang=${selectedLang}
               onSelectHeading=${scrollToHeading}
               collapsedSlugs=${collapsedSlugs}
               onToggleCollapse=${handleToggleCollapse}

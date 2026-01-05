@@ -259,6 +259,7 @@ export interface SpecViewProps {
   forward: ForwardData;
   version: string | null;
   selectedSpec: string | null;
+  selectedLang: string | null;
   selectedRule: string | null;
   selectedHeading: string | null;
   onSelectSpec: (name: string) => void;

@@ -857,8 +857,10 @@ async fn load_spec_content(
 
     // Render the combined document once (so heading_stack works across files)
     // Set source_path so paragraphs get data-source-file attributes for click-to-edit
+    // Must use absolute path for editor navigation to work correctly
     *current_source_file.lock().unwrap() = first_source_file.clone();
-    let opts = opts.with_source_path(&first_source_file);
+    let absolute_source_path = root.join(&first_source_file).display().to_string();
+    let opts = opts.with_source_path(&absolute_source_path);
     let doc = render(&combined_markdown, &opts).await?;
 
     // Create a single section with all content

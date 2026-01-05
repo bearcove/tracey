@@ -709,6 +709,7 @@ function SpecViewRoute() {
       forward=${forward}
       version=${version}
       selectedSpec=${spec}
+      selectedLang=${lang}
       selectedRule=${rule}
       selectedHeading=${heading}
       onSelectSpec=${handleSelectSpec}
