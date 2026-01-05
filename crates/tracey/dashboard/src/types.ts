@@ -3,6 +3,7 @@ export type ViewType = "sources" | "spec" | "coverage";
 
 export interface SourcesRoute {
   view: "sources";
+  spec: string | null;
   file: string | null;
   line: number | null;
   context: string | null;
@@ -17,6 +18,7 @@ export interface SpecRoute {
 
 export interface CoverageRoute {
   view: "coverage";
+  spec: string | null;
   filter: string | null;
   level: string | null;
 }

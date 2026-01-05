@@ -1,6 +1,12 @@
 // Coverage view - rule coverage table
+import { h } from "preact";
+import { useCallback, useEffect, useMemo, useState } from "preact/hooks";
+import type { CoverageViewProps } from "../types";
+import { LEVELS } from "../config";
+import { getStatClass, renderRuleText } from "../utils";
+import { html, FilePath, FileRef } from "../main";
 
-function CoverageView({
+export function CoverageView({
   data,
   search,
   level,
@@ -14,8 +20,8 @@ function CoverageView({
 
   // Close dropdowns when clicking outside
   useEffect(() => {
-    const handleClick = (e) => {
-      if (!e.target.closest("#level-dropdown")) setLevelOpen(false);
+    const handleClick = (e: Event) => {
+      if (!(e.target as HTMLElement).closest("#level-dropdown")) setLevelOpen(false);
     };
     document.addEventListener("click", handleClick);
     return () => document.removeEventListener("click", handleClick);
@@ -27,11 +33,10 @@ function CoverageView({
   );
 
   // Infer level from rule text if not explicitly set
-  const inferLevel = useCallback((rule) => {
+  const inferLevel = useCallback((rule: { level?: string; text?: string }) => {
     if (rule.level) return rule.level.toLowerCase();
     if (!rule.text) return null;
     const text = rule.text.toUpperCase();
-    // Check for MUST NOT, SHALL NOT first (still MUST level)
     if (text.includes("MUST") || text.includes("SHALL") || text.includes("REQUIRED")) return "must";
     if (text.includes("SHOULD") || text.includes("RECOMMENDED")) return "should";
     if (text.includes("MAY") || text.includes("OPTIONAL")) return "may";
@@ -41,12 +46,12 @@ function CoverageView({
   const filteredRules = useMemo(() => {
     let rules = allRules;
 
-    // Filter by level (explicit or inferred from text)
+    // Filter by level
     if (level !== "all") {
       rules = rules.filter((r) => inferLevel(r) === level);
     }
 
-    // Filter by coverage (impl or verify)
+    // Filter by coverage
     if (filter === "impl") {
       rules = rules.filter((r) => r.implRefs.length === 0);
     } else if (filter === "verify") {
@@ -65,7 +70,6 @@ function CoverageView({
   }, [allRules, search, level, filter, inferLevel]);
 
   const stats = useMemo(() => {
-    // Stats are based on level-filtered rules (not coverage filter)
     let rules = allRules;
     if (level !== "all") {
       rules = rules.filter((r) => inferLevel(r) === level);
@@ -82,7 +86,6 @@ function CoverageView({
     };
   }, [allRules, level, inferLevel]);
 
-  // Markdown icon
   const mdIcon = html`<svg
     class="rule-icon"
     viewBox="0 0 24 24"
@@ -118,17 +121,16 @@ function CoverageView({
         >
       </div>
 
-      <!-- Level dropdown -->
       <div class="custom-dropdown ${levelOpen ? "open" : ""}" id="level-dropdown">
         <div
           class="dropdown-selected"
-          onClick=${(e) => {
+          onClick=${(e: Event) => {
             e.stopPropagation();
             setLevelOpen(!levelOpen);
           }}
         >
-          <span class="level-dot ${LEVELS[level].dotClass}"></span>
-          <span>${LEVELS[level].name}</span>
+          <span class="level-dot ${LEVELS[level]?.dotClass || ""}"></span>
+          <span>${LEVELS[level]?.name || "All"}</span>
           <svg
             class="chevron"
             width="12"
@@ -189,7 +191,7 @@ function CoverageView({
                         dangerouslySetInnerHTML=${{ __html: renderRuleText(rule.text) }}
                       />`}
                     </td>
-                    <td class="rule-refs" onClick=${(e) => e.stopPropagation()}>
+                    <td class="rule-refs" onClick=${(e: Event) => e.stopPropagation()}>
                       ${rule.implRefs.length > 0 || rule.verifyRefs.length > 0
                         ? html`
                             ${rule.implRefs.map(

@@ -1,6 +1,170 @@
 // Spec view - displays specification with outline sidebar
+import htm from "htm";
+import { h } from "preact";
+import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
+import type { OutlineEntry, SpecViewProps } from "../types";
+import { useSpec } from "../hooks";
+import { EDITORS } from "../config";
+import { html, CoverageArc, showRefsPopup } from "../main";
 
-function SpecView({
+// Tree node for hierarchical outline
+interface OutlineTreeNode {
+  entry: OutlineEntry;
+  children: OutlineTreeNode[];
+}
+
+// Convert flat outline to tree structure
+function buildOutlineTree(outline: OutlineEntry[]): OutlineTreeNode[] {
+  const roots: OutlineTreeNode[] = [];
+  const stack: OutlineTreeNode[] = [];
+
+  for (const entry of outline) {
+    const node: OutlineTreeNode = { entry, children: [] };
+
+    // Pop stack until we find a parent with lower level
+    while (stack.length > 0 && stack[stack.length - 1].entry.level >= entry.level) {
+      stack.pop();
+    }
+
+    if (stack.length === 0) {
+      roots.push(node);
+    } else {
+      stack[stack.length - 1].children.push(node);
+    }
+
+    stack.push(node);
+  }
+
+  return roots;
+}
+
+// Check if a heading or any of its descendants is active
+function isActiveOrHasActiveChild(node: OutlineTreeNode, activeHeading: string | null): boolean {
+  if (node.entry.slug === activeHeading) return true;
+  return node.children.some((child) => isActiveOrHasActiveChild(child, activeHeading));
+}
+
+// Get collapsed slugs from localStorage
+function getCollapsedSlugs(): Set<string> {
+  try {
+    const stored = localStorage.getItem("tracey-collapsed-slugs");
+    return stored ? new Set(JSON.parse(stored)) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+// Save collapsed slugs to localStorage
+function saveCollapsedSlugs(slugs: Set<string>) {
+  try {
+    localStorage.setItem("tracey-collapsed-slugs", JSON.stringify([...slugs]));
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+// Recursive outline tree renderer
+interface OutlineTreeProps {
+  nodes: OutlineTreeNode[];
+  activeHeading: string | null;
+  onSelectHeading: (slug: string) => void;
+  collapsedSlugs: Set<string>;
+  onToggleCollapse: (slug: string) => void;
+  depth?: number;
+}
+
+function OutlineTree({
+  nodes,
+  activeHeading,
+  onSelectHeading,
+  collapsedSlugs,
+  onToggleCollapse,
+  depth = 0,
+}: OutlineTreeProps) {
+  return html`
+    ${nodes.map((node) => {
+      const isActive = node.entry.slug === activeHeading;
+      const hasActiveChild = isActiveOrHasActiveChild(node, activeHeading);
+      const hasChildren = node.children.length > 0;
+      const isCollapsed = collapsedSlugs.has(node.entry.slug);
+      const h = node.entry;
+
+      // Only show coverage indicators if:
+      // 1. There are rules AND
+      // 2. Either no children OR is collapsed
+      const showCoverage = h.aggregated.total > 0 && (!hasChildren || isCollapsed);
+
+      return html`
+        <div key=${h.slug} class="outline-node ${depth > 0 ? "outline-node-nested" : ""}">
+          <div class="outline-item-row">
+            ${hasChildren &&
+            html`
+              <button
+                class="outline-toggle ${isCollapsed ? "collapsed" : ""}"
+                onClick=${(e: Event) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onToggleCollapse(h.slug);
+                }}
+                title=${isCollapsed ? "Expand" : "Collapse"}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M9 18l6-6-6-6" />
+                </svg>
+              </button>
+            `}
+            <a
+              href=${`/spec/${h.slug}`}
+              class="outline-item ${isActive ? "active" : ""}"
+              onClick=${(e: Event) => {
+                e.preventDefault();
+                onSelectHeading(h.slug);
+              }}
+            >
+              <span class="outline-title">${h.title}</span>
+              ${showCoverage &&
+              html`
+                <span class="outline-indicators">
+                  <${CoverageArc}
+                    count=${h.aggregated.implCount}
+                    total=${h.aggregated.total}
+                    color="var(--green)"
+                    title="Implementation: ${h.aggregated.implCount}/${h.aggregated.total}"
+                  />
+                  <${CoverageArc}
+                    count=${h.aggregated.verifyCount}
+                    total=${h.aggregated.total}
+                    color="var(--blue)"
+                    title="Tests: ${h.aggregated.verifyCount}/${h.aggregated.total}"
+                  />
+                </span>
+              `}
+            </a>
+          </div>
+          ${hasChildren &&
+          !isCollapsed &&
+          html`
+            <div class="outline-children ${hasActiveChild ? "has-active" : ""}">
+              <${OutlineTree}
+                nodes=${node.children}
+                activeHeading=${activeHeading}
+                onSelectHeading=${onSelectHeading}
+                collapsedSlugs=${collapsedSlugs}
+                onToggleCollapse=${onToggleCollapse}
+                depth=${depth + 1}
+              />
+            </div>
+          `}
+        </div>
+      `;
+    })}
+  `;
+}
+
+// Declare lucide as global
+declare const lucide: { createIcons: (opts?: { nodes?: NodeList }) => void };
+
+export function SpecView({
   config,
   version,
   selectedSpec,
@@ -16,10 +180,10 @@ function SpecView({
   const specName = selectedSpec || config.specs?.[0]?.name || null;
   const spec = useSpec(specName, version);
   const hasMultipleSpecs = (config.specs?.length || 0) > 1;
-  const [activeHeading, setActiveHeading] = useState(null);
+  const [activeHeading, setActiveHeading] = useState<string | null>(null);
   const [collapsedSlugs, setCollapsedSlugs] = useState<Set<string>>(() => getCollapsedSlugs());
-  const contentRef = useRef(null);
-  const contentBodyRef = useRef(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const contentBodyRef = useRef<HTMLDivElement>(null);
   const initialScrollPosition = useRef(scrollPosition);
   const lastScrolledHeading = useRef<string | null>(null);
 
@@ -61,9 +225,8 @@ function SpecView({
       );
       if (!headingElements || headingElements.length === 0) return;
 
-      // Find the heading closest to the top of the viewport (but not past it)
       const scrollTop = contentBody.scrollTop;
-      const viewportTop = 100; // offset from top to consider "active"
+      const viewportTop = 100;
 
       let activeId: string | null = null;
 
@@ -71,16 +234,13 @@ function SpecView({
         const htmlEl = el as HTMLElement;
         const offsetTop = htmlEl.offsetTop;
 
-        // If this heading is above the viewport threshold, it's the current section
         if (offsetTop <= scrollTop + viewportTop) {
           activeId = htmlEl.id;
         } else {
-          // Once we find a heading below the threshold, stop
           break;
         }
       }
 
-      // If no heading is above threshold, use the first one
       if (!activeId && headingElements.length > 0) {
         activeId = (headingElements[0] as HTMLElement).id;
       }
@@ -90,13 +250,9 @@ function SpecView({
       }
     };
 
-    // Initial update
     const timeoutId = setTimeout(updateActiveHeading, 100);
 
-    // Update on scroll
-    contentBody.addEventListener("scroll", updateActiveHeading, {
-      passive: true,
-    });
+    contentBody.addEventListener("scroll", updateActiveHeading, { passive: true });
 
     return () => {
       clearTimeout(timeoutId);
@@ -109,14 +265,12 @@ function SpecView({
     if (!contentBodyRef.current) return;
 
     const handleScroll = () => {
-      if (onScrollChange) {
+      if (onScrollChange && contentBodyRef.current) {
         onScrollChange(contentBodyRef.current.scrollTop);
       }
     };
 
-    contentBodyRef.current.addEventListener("scroll", handleScroll, {
-      passive: true,
-    });
+    contentBodyRef.current.addEventListener("scroll", handleScroll, { passive: true });
     return () => contentBodyRef.current?.removeEventListener("scroll", handleScroll);
   }, [onScrollChange]);
 
@@ -125,7 +279,7 @@ function SpecView({
     if (processedContent && contentRef.current && typeof lucide !== "undefined") {
       requestAnimationFrame(() => {
         lucide.createIcons({
-          nodes: contentRef.current.querySelectorAll("[data-lucide]"),
+          nodes: contentRef.current?.querySelectorAll("[data-lucide]"),
         });
       });
     }
@@ -135,11 +289,9 @@ function SpecView({
   useEffect(() => {
     if (!processedContent || !contentRef.current || !config) return;
 
-    // Find all elements with source location data
     const elements = contentRef.current.querySelectorAll("[data-source-file][data-source-line]");
 
     for (const el of elements) {
-      // Skip if already has edit button
       if (el.querySelector(".para-edit-btn")) continue;
 
       const sourceFile = el.getAttribute("data-source-file");
@@ -149,7 +301,6 @@ function SpecView({
       const fullPath = config.projectRoot ? `${config.projectRoot}/${sourceFile}` : sourceFile;
       const editUrl = EDITORS.zed.urlTemplate(fullPath, parseInt(sourceLine, 10));
 
-      // Create pencil button
       const btn = document.createElement("a");
       btn.className = "para-edit-btn";
       btn.href = editUrl;
@@ -164,56 +315,56 @@ function SpecView({
     if (!contentRef.current || !contentBodyRef.current) return;
     const el = contentRef.current.querySelector(`[id="${slug}"]`);
     if (el) {
-      const targetScrollTop = el.offsetTop - 100;
+      const targetScrollTop = (el as HTMLElement).offsetTop - 100;
       contentBodyRef.current.scrollTo({ top: Math.max(0, targetScrollTop) });
       setActiveHeading(slug);
     }
   }, []);
 
-  // Handle clicks on headings, rule markers, anchor links, and spec refs in the markdown
+  // Handle clicks on headings, rule markers, anchor links, and spec refs
   useEffect(() => {
     if (!contentRef.current) return;
 
-    const handleClick = (e) => {
+    const handleClick = (e: Event) => {
+      const target = e.target as HTMLElement;
+
       // Handle heading clicks (copy URL)
-      const heading = e.target.closest("h1[id], h2[id], h3[id], h4[id]");
+      const heading = target.closest("h1[id], h2[id], h3[id], h4[id]");
       if (heading) {
         const slug = heading.id;
         const url = `${window.location.origin}${window.location.pathname}#${slug}`;
         navigator.clipboard?.writeText(url);
-        // Also navigate to the heading
         history.pushState(null, "", `#${slug}`);
         window.dispatchEvent(new HashChangeEvent("hashchange"));
         return;
       }
 
       // Handle rule marker clicks
-      const ruleMarker = e.target.closest("a.rule-marker[data-rule]");
+      const ruleMarker = target.closest("a.rule-marker[data-rule]") as HTMLElement | null;
       if (ruleMarker) {
         e.preventDefault();
         const ruleId = ruleMarker.dataset.rule;
-        onSelectRule(ruleId);
+        if (ruleId) onSelectRule(ruleId);
         return;
       }
 
       // Handle rule-id badge clicks - open spec source in editor
-      const ruleBadge = e.target.closest(
+      const ruleBadge = target.closest(
         "a.rule-badge.rule-id[data-source-file][data-source-line]",
-      );
+      ) as HTMLElement | null;
       if (ruleBadge) {
         e.preventDefault();
         const sourceFile = ruleBadge.dataset.sourceFile;
-        const sourceLine = parseInt(ruleBadge.dataset.sourceLine, 10);
+        const sourceLine = parseInt(ruleBadge.dataset.sourceLine || "0", 10);
         if (sourceFile && !Number.isNaN(sourceLine)) {
           const fullPath = config.projectRoot ? `${config.projectRoot}/${sourceFile}` : sourceFile;
-          // Open in Zed (default editor)
           window.location.href = EDITORS.zed.urlTemplate(fullPath, sourceLine);
         }
         return;
       }
 
       // Handle impl/test badge clicks with multiple refs - show popup
-      const refBadge = e.target.closest("a.rule-badge[data-all-refs]");
+      const refBadge = target.closest("a.rule-badge[data-all-refs]") as HTMLElement | null;
       if (refBadge) {
         const allRefsJson = refBadge.dataset.allRefs;
         if (allRefsJson) {
@@ -221,7 +372,6 @@ function SpecView({
             const refs = JSON.parse(allRefsJson);
             if (refs.length > 1) {
               e.preventDefault();
-              // Show popup with all refs
               showRefsPopup(e, refs, refBadge, onSelectFile);
               return;
             }
@@ -229,30 +379,29 @@ function SpecView({
             console.error("Failed to parse refs:", err);
           }
         }
-        // Single ref or parse error - fall through to default link behavior
       }
 
       // Handle spec ref clicks - pass rule context
-      const specRef = e.target.closest("a.spec-ref");
+      const specRef = target.closest("a.spec-ref") as HTMLElement | null;
       if (specRef) {
         e.preventDefault();
         const file = specRef.dataset.file;
-        const line = parseInt(specRef.dataset.line, 10);
-        // Find the rule ID from the parent rule-block
+        const line = parseInt(specRef.dataset.line || "0", 10);
         const ruleBlock = specRef.closest(".rule-block");
-        const ruleMarker = ruleBlock?.querySelector("a.rule-marker[data-rule]");
-        const ruleContext = ruleMarker?.dataset.rule || null;
-        onSelectFile(file, line, ruleContext);
+        const ruleMarkerEl = ruleBlock?.querySelector(
+          "a.rule-marker[data-rule]",
+        ) as HTMLElement | null;
+        const ruleContext = ruleMarkerEl?.dataset.rule || null;
+        if (file) onSelectFile(file, line, ruleContext);
         return;
       }
 
       // Handle other anchor links (internal navigation)
-      const anchor = e.target.closest("a[href]");
+      const anchor = target.closest("a[href]") as HTMLAnchorElement | null;
       if (anchor) {
         const href = anchor.getAttribute("href");
         if (!href) return;
 
-        // Check if it's an internal link (same origin)
         try {
           const url = new URL(href, window.location.href);
           if (url.origin === window.location.origin) {
@@ -275,52 +424,37 @@ function SpecView({
   useEffect(() => {
     if (!processedContent) return;
 
-    // Use requestAnimationFrame to ensure DOM is updated after render
     let cancelled = false;
     requestAnimationFrame(() => {
       if (cancelled) return;
-      // Double RAF to ensure layout is complete
       requestAnimationFrame(() => {
         if (cancelled || !contentRef.current || !contentBodyRef.current) return;
 
         if (selectedRule) {
-          // Navigate to specific rule
           const ruleEl = contentRef.current.querySelector(`[data-rule="${selectedRule}"]`);
           if (ruleEl) {
-            // Use getBoundingClientRect relative to the scroll container
             const containerRect = contentBodyRef.current.getBoundingClientRect();
             const ruleRect = ruleEl.getBoundingClientRect();
             const currentScroll = contentBodyRef.current.scrollTop;
             const targetScrollTop = currentScroll + (ruleRect.top - containerRect.top) - 150;
-            contentBodyRef.current.scrollTo({
-              top: Math.max(0, targetScrollTop),
-            });
+            contentBodyRef.current.scrollTo({ top: Math.max(0, targetScrollTop) });
 
-            // Add highlight class
             ruleEl.classList.add("rule-marker-highlighted");
-
-            // Remove highlight after animation
             setTimeout(() => {
               ruleEl.classList.remove("rule-marker-highlighted");
             }, 3000);
           }
         } else if (selectedHeading && selectedHeading !== lastScrolledHeading.current) {
-          // Navigate to specific heading
           lastScrolledHeading.current = selectedHeading;
           const headingEl = contentRef.current.querySelector(`[id="${selectedHeading}"]`);
           if (headingEl) {
-            const targetScrollTop = headingEl.offsetTop - 100;
-            contentBodyRef.current.scrollTo({
-              top: Math.max(0, targetScrollTop),
-            });
+            const targetScrollTop = (headingEl as HTMLElement).offsetTop - 100;
+            contentBodyRef.current.scrollTo({ top: Math.max(0, targetScrollTop) });
             setActiveHeading(selectedHeading);
           }
         } else if (initialScrollPosition.current > 0) {
-          // Restore previous scroll position (only on initial mount)
-          contentBodyRef.current.scrollTo({
-            top: initialScrollPosition.current,
-          });
-          initialScrollPosition.current = 0; // Clear so we don't restore again
+          contentBodyRef.current.scrollTo({ top: initialScrollPosition.current });
+          initialScrollPosition.current = 0;
         }
       });
     });
@@ -359,7 +493,7 @@ function SpecView({
           ${hasMultipleSpecs
             ? html`
                 <div class="spec-switcher">
-                  ${config.specs.map(
+                  ${config.specs?.map(
                     (s) => html`
                       <button
                         class="spec-tab ${s.name === specName ? "active" : ""}"
