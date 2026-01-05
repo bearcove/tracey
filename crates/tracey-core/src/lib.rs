@@ -10,7 +10,8 @@
 //! - `walk` - Enable [`WalkSources`] for gitignore-aware directory walking (brings in `ignore`)
 //! - `parallel` - Enable parallel extraction (brings in `rayon`)
 //! - `fetch` - Enable [`SpecManifest::fetch`] for HTTP fetching (brings in `ureq`)
-//! - `markdown` - Enable [`markdown`] module for extracting rules from spec documents
+//!
+//! For markdown rule extraction, use the `bearmark` crate directly (see examples below).
 //!
 //! # Extracting Rule References from Source Code
 //!
@@ -65,10 +66,10 @@
 //! This behavior is deprecated and will be removed.
 //! ```
 //!
-//! Extract rules and generate manifests:
+//! Extract rules using bearmark:
 //!
-//! ```
-//! use tracey_core::markdown::{MarkdownProcessor, RulesManifest};
+//! ```ignore
+//! use bearmark::extract_rules_only;
 //!
 //! let markdown = r#"
 //! # My Spec
@@ -77,17 +78,10 @@
 //! This rule defines important behavior.
 //! "#;
 //!
-//! // Extract rules from markdown
-//! let result = MarkdownProcessor::process(markdown).unwrap();
+//! // Extract rules from markdown (handles both paragraphs and blockquotes)
+//! let result = extract_rules_only(markdown, None).unwrap();
 //! assert_eq!(result.rules.len(), 1);
 //! assert_eq!(result.rules[0].id, "my.rule.id");
-//!
-//! // Generate _rules.json manifest
-//! let manifest = RulesManifest::from_rules(&result.rules, "/spec", None);
-//! println!("{}", manifest.to_json());
-//!
-//! // The transformed output has HTML anchors for rendering
-//! assert!(result.output.contains("id=\"r-my.rule.id\""));
 //! ```
 //!
 //! # In-Memory Sources (for testing/WASM)
@@ -108,8 +102,6 @@
 
 mod coverage;
 mod lexer;
-#[cfg(feature = "markdown")]
-pub mod markdown;
 mod sources;
 mod spec;
 

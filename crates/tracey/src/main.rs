@@ -6,6 +6,7 @@
 
 mod config;
 mod errors;
+mod manifest;
 mod output;
 mod search;
 mod serve;
@@ -14,12 +15,15 @@ mod vite;
 use config::Config;
 use eyre::{Result, WrapErr};
 use facet_args as args;
+use manifest::RulesManifest;
 use output::{OutputFormat, render_report};
 use owo_colors::OwoColorize;
 use std::path::PathBuf;
 use tracey_core::code_units::{CodeUnit, CodeUnitKind, CodeUnits, extract_rust};
-use tracey_core::markdown::{MarkdownProcessor, MarkdownWarningKind, RulesManifest};
 use tracey_core::{CoverageReport, Rules, SpecManifest, WalkSources};
+
+// Re-export from bearmark for rule extraction
+use bearmark::{RuleWarningKind, extract_rules_only};
 
 /// CLI arguments
 #[derive(Debug, facet::Facet)]
@@ -490,8 +494,8 @@ fn run_rules_command(
         let content = std::fs::read_to_string(file_path)
             .wrap_err_with(|| format!("Failed to read {}", file_path.display()))?;
 
-        let result = MarkdownProcessor::process_with_path(&content, Some(file_path))
-            .wrap_err_with(|| format!("Failed to process {}", file_path.display()))?;
+        let result = extract_rules_only(&content, Some(file_path))
+            .map_err(|e| eyre::eyre!("Failed to process {}: {}", file_path.display(), e))?;
 
         eprintln!("   Found {} rules", result.rules.len().to_string().green());
 
@@ -515,7 +519,8 @@ fn run_rules_command(
                     .file_name()
                     .ok_or_else(|| eyre::eyre!("Invalid file path"))?,
             );
-            std::fs::write(&out_file, &result.output)
+            let transformed = generate_transformed_markdown(&content, &result.rules);
+            std::fs::write(&out_file, &transformed)
                 .wrap_err_with(|| format!("Failed to write {}", out_file.display()))?;
             eprintln!("   Wrote transformed markdown to {}", out_file.display());
         }
@@ -548,10 +553,10 @@ fn run_rules_command(
         );
         for warning in &all_warnings {
             let message = match &warning.kind {
-                MarkdownWarningKind::NoRfc2119Keyword => {
+                RuleWarningKind::NoRfc2119Keyword => {
                     "no RFC 2119 keyword (MUST/SHOULD/MAY) - rule may be underspecified".to_string()
                 }
-                MarkdownWarningKind::NegativeRequirement(kw) => {
+                RuleWarningKind::NegativeRequirement(kw) => {
                     format!(
                         "contains {} - negative requirements are hard to verify, consider rephrasing as a positive requirement",
                         kw.as_str()
@@ -2684,14 +2689,14 @@ pub(crate) fn load_manifest_from_glob(
         let content = std::fs::read_to_string(path)
             .wrap_err_with(|| format!("Failed to read {}", path.display()))?;
 
-        let result = MarkdownProcessor::process_with_path(&content, Some(path))
-            .wrap_err_with(|| format!("Failed to process {}", path.display()))?;
+        let result = extract_rules_only(&content, Some(path))
+            .map_err(|e| eyre::eyre!("Failed to process {}: {}", path.display(), e))?;
 
         // Display warnings for rule quality issues
         for warning in &result.warnings {
             let message = match &warning.kind {
-                MarkdownWarningKind::NoRfc2119Keyword => "no RFC 2119 keyword".to_string(),
-                MarkdownWarningKind::NegativeRequirement(kw) => {
+                RuleWarningKind::NoRfc2119Keyword => "no RFC 2119 keyword".to_string(),
+                RuleWarningKind::NegativeRequirement(kw) => {
                     format!("{} — negative requirements are hard to test", kw.as_str())
                 }
             };
@@ -2824,6 +2829,38 @@ pub(crate) fn find_project_root() -> Result<PathBuf> {
             return std::env::current_dir().wrap_err("Failed to get current directory");
         }
     }
+}
+
+/// Generate transformed markdown with rule markers replaced by HTML divs.
+///
+/// This is used for the --markdown-out feature.
+fn generate_transformed_markdown(markdown: &str, rules: &[bearmark::RuleDefinition]) -> String {
+    use std::collections::HashMap;
+
+    // Build a map of rule line numbers to their info for quick lookup
+    let rule_lines: HashMap<usize, &bearmark::RuleDefinition> =
+        rules.iter().map(|r| (r.line, r)).collect();
+
+    let mut output = String::with_capacity(markdown.len());
+
+    for (line_idx, line) in markdown.lines().enumerate() {
+        let line_num = line_idx + 1; // 1-indexed
+
+        if let Some(rule) = rule_lines.get(&line_num) {
+            // Replace the rule marker line with HTML div
+            let display_id = rule.id.replace('.', ".<wbr>");
+            output.push_str(&format!(
+                "<div class=\"rule\" id=\"{}\"><a class=\"rule-link\" href=\"#{}\" title=\"{}\"><span>[{}]</span></a></div>",
+                rule.anchor_id, rule.anchor_id, rule.id, display_id
+            ));
+            output.push_str("\n\n");
+        } else {
+            output.push_str(line);
+            output.push('\n');
+        }
+    }
+
+    output
 }
 
 pub(crate) fn load_config(path: &PathBuf) -> Result<Config> {

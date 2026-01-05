@@ -893,6 +893,7 @@ dependencies = [
  "facet-yaml",
  "pikru",
  "pulldown-cmark",
+ "regex",
  "thiserror 2.0.17",
 ]
 
@@ -3239,11 +3240,9 @@ version = "1.0.0"
 dependencies = [
  "arborium",
  "arborium-rust",
- "bearmark",
  "eyre",
  "facet",
  "facet-json",
- "html-escape",
  "ignore",
  "rayon",
  "ureq",
