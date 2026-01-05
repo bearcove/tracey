@@ -3149,7 +3149,6 @@ dependencies = [
  "facet-json",
  "facet-kdl",
  "futures-util",
- "hyper",
  "hyper-util",
  "ignore",
  "notify",

@@ -87,6 +87,7 @@ struct ApiSpecForward {
 }
 
 #[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
 struct ApiRule {
     id: String,
     html: String,
@@ -111,6 +112,7 @@ struct ApiCodeRef {
 
 /// Reverse traceability: file tree with coverage info
 #[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
 struct ApiReverseData {
     /// Total code units across all files
     total_units: usize,
@@ -121,6 +123,7 @@ struct ApiReverseData {
 }
 
 #[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
 struct ApiFileEntry {
     path: String,
     /// Number of code units in this file
@@ -131,6 +134,7 @@ struct ApiFileEntry {
 
 /// Single file with full coverage details
 #[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
 struct ApiFileData {
     path: String,
     content: String,
@@ -141,6 +145,7 @@ struct ApiFileData {
 }
 
 #[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
 struct ApiCodeUnit {
     kind: String,
     #[facet(default)]
@@ -153,6 +158,7 @@ struct ApiCodeUnit {
 
 /// A section of a spec (one source file)
 #[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
 struct SpecSection {
     /// Source file path
     source_file: String,
@@ -164,6 +170,7 @@ struct SpecSection {
 
 /// Coverage counts for an outline entry
 #[derive(Debug, Clone, Default, Facet)]
+#[facet(rename_all = "camelCase")]
 struct OutlineCoverage {
     /// Number of rules with implementation refs
     impl_count: usize,
@@ -1359,8 +1366,8 @@ async fn handle_vite_ws(
     path: &str,
     query: &str,
 ) -> Result<()> {
+    use tokio_tungstenite::connect_async_with_config;
     use tokio_tungstenite::tungstenite::http::Request;
-    use tokio_tungstenite::{connect_async_with_config, tungstenite::protocol::WebSocketConfig};
 
     let vite_url = format!("ws://127.0.0.1:{}{}{}", vite_port, path, query);
 
