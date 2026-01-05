@@ -3,13 +3,9 @@ spec {
     rules_glob "docs/spec/**/*.md"
 
     impl {
-        lang "rust"
+        name "main"
         include "crates/**/*.rs"
-        exclude "target/**"
-    }
-
-    impl {
-        lang "typescript"
         include "crates/tracey/dashboard/src/**/*.ts"
+        exclude "target/**"
     }
 }
