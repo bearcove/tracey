@@ -138,6 +138,7 @@ pub(crate) async fn load_rules_from_glob(
         // [impl markdown.syntax.marker] - r[rule.id] syntax
         // [impl markdown.syntax.standalone] - rule on its own line
         // [impl markdown.syntax.inline-ignored] - inline markers ignored
+        // [impl markdown.syntax.blockquote] - > r[rule.id] for multi-paragraph rules
         let doc = render(&content, &RenderOptions::default())
             .await
             .map_err(|e| eyre::eyre!("Failed to process {}: {}", path.display(), e))?;

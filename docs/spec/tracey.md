@@ -77,6 +77,9 @@ The rule marker MUST appear on its own line (possibly with leading/trailing whit
 r[markdown.syntax.inline-ignored]
 Rule markers that appear inline within other text MUST be treated as regular text, not rule definitions.
 
+r[markdown.syntax.blockquote]
+A rule definition MAY be written inside a blockquote (`> r[rule.id]`) to allow multi-paragraph content including code blocks.
+
 ### Duplicate Detection
 
 r[markdown.duplicates.same-file]
@@ -98,17 +101,6 @@ The generated div MUST contain a link (`<a>`) pointing to its own anchor.
 
 r[markdown.html.wbr]
 Dots in the displayed rule ID SHOULD be followed by `<wbr>` elements to allow line breaking.
-
-## Manifest Format
-
-r[manifest.format.json]
-The rules manifest MUST be valid JSON.
-
-r[manifest.format.rules-key]
-The manifest MUST have a top-level `rules` object.
-
-r[manifest.format.rule-entry]
-Each rule entry MUST be keyed by the rule ID and MUST contain a `url` field.
 
 ## Coverage Computation
 
@@ -132,17 +124,36 @@ The configuration file MUST be in KDL format.
 r[config.path.default]
 The default configuration path MUST be `.config/tracey/config.kdl` relative to the project root.
 
+> r[config.schema]
+> The configuration MUST follow this schema:
+>
+> ```kdl
+> spec {
+>     name "spec-name"
+>     rules_glob "docs/spec/**/*.md"
+>
+>     impl {
+>         lang "rust"
+>         include "crates/**/*.rs"
+>         exclude "target/**"
+>     }
+> }
+> ```
+
 r[config.spec.name]
-Each spec configuration MUST have a `name` field.
+Each spec configuration MUST have a `name` child node with the spec name as its argument.
 
-r[config.spec.source]
-Each spec configuration MUST have exactly one rules source: `rules_url`, `rules_file`, or `rules_glob`.
+r[config.spec.rules-glob]
+Each spec configuration MUST have a `rules_glob` child node specifying a glob pattern for markdown files containing rule definitions.
 
-r[config.spec.include]
-The `include` patterns MUST filter which source files are scanned.
+r[config.impl.lang]
+Each impl configuration MUST have a `lang` child node identifying the implementation language.
 
-r[config.spec.exclude]
-The `exclude` patterns MUST exclude matching source files from scanning.
+r[config.impl.include]
+Each impl configuration MAY have one or more `include` child nodes specifying glob patterns for source files to scan.
+
+r[config.impl.exclude]
+Each impl configuration MAY have one or more `exclude` child nodes specifying glob patterns for source files to exclude.
 
 ## File Walking
 
@@ -151,9 +162,6 @@ File walking MUST respect `.gitignore` rules.
 
 r[walk.default-include]
 When no include patterns are specified, tracey MUST default to `**/*.rs`.
-
-r[walk.default-exclude]
-When no exclude patterns are specified, tracey MUST default to excluding `target/**`.
 
 ## Dashboard
 
