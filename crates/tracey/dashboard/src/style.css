@@ -1315,6 +1315,11 @@ a.rule-marker:hover {
     cursor: pointer;
     font-size: 0.875rem;
     color: var(--fg-muted);
+    text-decoration: none;
+    border-radius: 0.25rem;
+    transition:
+        background 0.15s,
+        color 0.15s;
 }
 
 .outline-title {
@@ -1367,7 +1372,7 @@ a.rule-marker:hover {
 }
 
 .outline-children.has-active {
-    border-left-color: var(--red);
+    border-left-color: var(--accent);
 }
 
 /* Search results */

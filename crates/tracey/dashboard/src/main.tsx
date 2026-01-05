@@ -98,6 +98,7 @@ interface UrlParams {
   line?: number | null;
   context?: string | null;
   rule?: string | null;
+  heading?: string | null;
   filter?: string | null;
   level?: string | null;
 }
@@ -115,8 +116,10 @@ function buildUrl(view: ViewType, params: UrlParams = {}): string {
     return url;
   }
   if (view === "spec") {
-    const { rule } = params;
-    return rule ? `/spec/${rule}` : "/spec";
+    const { rule, heading } = params;
+    if (rule) return `/spec?rule=${encodeURIComponent(rule)}`;
+    if (heading) return `/spec/${heading}`;
+    return "/spec";
   }
   // coverage
   const searchParams = new URLSearchParams();
@@ -1869,9 +1872,14 @@ function OutlineTree({ nodes, activeHeading, onSelectHeading, depth = 0 }: Outli
 
       return html`
         <div key=${h.slug} class="outline-node ${depth > 0 ? "outline-node-nested" : ""}">
-          <div
+          <a
+            href=${`/spec/${h.slug}`}
             class="outline-item ${isActive ? "active" : ""}"
-            onClick=${() => onSelectHeading(h.slug)}
+            onClick=${(e) => {
+              e.preventDefault();
+              history.pushState(null, "", `/spec/${h.slug}`);
+              onSelectHeading(h.slug);
+            }}
           >
             <span class="outline-title">${h.title}</span>
             ${h.aggregated.total > 0 &&
@@ -1891,7 +1899,7 @@ function OutlineTree({ nodes, activeHeading, onSelectHeading, depth = 0 }: Outli
                 />
               </span>
             `}
-          </div>
+          </a>
           ${node.children.length > 0 &&
           html`
             <div class="outline-children ${hasActiveChild ? "has-active" : ""}">
