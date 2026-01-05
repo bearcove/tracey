@@ -154,12 +154,40 @@ struct SpecSection {
     weight: i32,
 }
 
+/// Coverage counts for an outline entry
+#[derive(Debug, Clone, Default)]
+struct OutlineCoverage {
+    /// Number of rules with implementation refs
+    impl_count: usize,
+    /// Number of rules with verification refs
+    verify_count: usize,
+    /// Total number of rules
+    total: usize,
+}
+
+/// An entry in the spec outline (heading with coverage info)
+#[derive(Debug, Clone)]
+struct OutlineEntry {
+    /// Heading text
+    title: String,
+    /// Slug for linking
+    slug: String,
+    /// Heading level (1-6)
+    level: u8,
+    /// Direct coverage (rules directly under this heading)
+    coverage: OutlineCoverage,
+    /// Aggregated coverage (includes all nested rules)
+    aggregated: OutlineCoverage,
+}
+
 /// Spec content (may span multiple files)
 #[derive(Debug, Clone)]
 struct ApiSpecData {
     name: String,
     /// Sections ordered by weight
     sections: Vec<SpecSection>,
+    /// Outline with coverage info
+    outline: Vec<OutlineEntry>,
 }
 
 // ============================================================================
@@ -373,13 +401,37 @@ impl SpecSection {
     }
 }
 
+impl OutlineCoverage {
+    fn to_json(&self) -> String {
+        format!(
+            r#"{{"implCount":{},"verifyCount":{},"total":{}}}"#,
+            self.impl_count, self.verify_count, self.total
+        )
+    }
+}
+
+impl OutlineEntry {
+    fn to_json(&self) -> String {
+        format!(
+            r#"{{"title":{},"slug":{},"level":{},"coverage":{},"aggregated":{}}}"#,
+            json_string(&self.title),
+            json_string(&self.slug),
+            self.level,
+            self.coverage.to_json(),
+            self.aggregated.to_json()
+        )
+    }
+}
+
 impl ApiSpecData {
     fn to_json(&self) -> String {
         let sections: Vec<String> = self.sections.iter().map(|s| s.to_json()).collect();
+        let outline: Vec<String> = self.outline.iter().map(|o| o.to_json()).collect();
         format!(
-            r#"{{"name":{},"sections":[{}]}}"#,
+            r#"{{"name":{},"sections":[{}],"outline":[{}]}}"#,
             json_string(&self.name),
-            sections.join(",")
+            sections.join(","),
+            outline.join(",")
         )
     }
 }
@@ -882,8 +934,10 @@ async fn load_spec_content(
     // Sort by weight
     files.sort_by_key(|(_, _, weight)| *weight);
 
-    // Render each file and build sections
+    // Render each file and build sections, collecting elements for outline
     let mut sections = Vec::new();
+    let mut all_elements: Vec<bearmark::DocElement> = Vec::new();
+
     for (source_file, content, weight) in files {
         // Update the current source file so rule handler can include it in data attributes
         *current_source_file.lock().unwrap() = source_file.clone();
@@ -893,7 +947,11 @@ async fn load_spec_content(
             html: doc.html,
             weight,
         });
+        all_elements.extend(doc.elements);
     }
+
+    // Build outline from elements
+    let outline = build_outline(&all_elements, coverage);
 
     if !sections.is_empty() {
         specs_content.insert(
@@ -901,11 +959,87 @@ async fn load_spec_content(
             ApiSpecData {
                 name: spec_name.to_string(),
                 sections,
+                outline,
             },
         );
     }
 
     Ok(())
+}
+
+/// Build an outline with coverage info from document elements.
+/// Returns a flat list of outline entries with both direct and aggregated coverage.
+fn build_outline(
+    elements: &[bearmark::DocElement],
+    coverage: &BTreeMap<String, RuleCoverage>,
+) -> Vec<OutlineEntry> {
+    use bearmark::DocElement;
+
+    // First pass: collect headings with their direct rule coverage
+    let mut entries: Vec<OutlineEntry> = Vec::new();
+    let mut current_heading_idx: Option<usize> = None;
+
+    for element in elements {
+        match element {
+            DocElement::Heading(h) => {
+                entries.push(OutlineEntry {
+                    title: h.title.clone(),
+                    slug: h.id.clone(),
+                    level: h.level,
+                    coverage: OutlineCoverage::default(),
+                    aggregated: OutlineCoverage::default(),
+                });
+                current_heading_idx = Some(entries.len() - 1);
+            }
+            DocElement::Rule(r) => {
+                if let Some(idx) = current_heading_idx {
+                    let cov = coverage.get(&r.id);
+                    let has_impl = cov.is_some_and(|c| !c.impl_refs.is_empty());
+                    let has_verify = cov.is_some_and(|c| !c.verify_refs.is_empty());
+
+                    entries[idx].coverage.total += 1;
+                    if has_impl {
+                        entries[idx].coverage.impl_count += 1;
+                    }
+                    if has_verify {
+                        entries[idx].coverage.verify_count += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    // Second pass: aggregate coverage up the hierarchy
+    // For each heading, its aggregated coverage includes:
+    // - Its own direct coverage
+    // - All coverage from headings with higher level numbers (deeper nesting) that follow it
+    //   until we hit a heading with the same or lower level number
+
+    // Start with direct coverage as the base for aggregated
+    for entry in &mut entries {
+        entry.aggregated = entry.coverage.clone();
+    }
+
+    // Process in reverse order to propagate child coverage up to parents
+    for i in (0..entries.len()).rev() {
+        let current_level = entries[i].level;
+
+        // Look forward to find all children (headings with higher level until we hit same/lower level)
+        let mut j = i + 1;
+        while j < entries.len() && entries[j].level > current_level {
+            // Only aggregate immediate children (next level down)
+            // Children already have their subtree aggregated from the reverse pass
+            if entries[j].level == current_level + 1 {
+                let child_agg = entries[j].aggregated.clone();
+                entries[i].aggregated.total += child_agg.total;
+                entries[i].aggregated.impl_count += child_agg.impl_count;
+                entries[i].aggregated.verify_count += child_agg.verify_count;
+            }
+            j += 1;
+        }
+    }
+
+    entries
 }
 
 /// Simple glob pattern matching

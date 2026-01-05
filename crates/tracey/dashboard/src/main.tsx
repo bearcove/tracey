@@ -1,18 +1,34 @@
-import { h, render } from 'preact';
-import { useState, useEffect, useMemo, useCallback, useRef } from 'preact/hooks';
-import htm from 'htm';
+import htm from "htm";
+import { h, render } from "preact";
+import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
 // Note: Server-side rendering via bearmark (markdown) and arborium (syntax highlighting)
-import './style.css';
+import "./style.css";
 import type {
-  Route, ViewType,
-  ApiData, Config, ForwardData, ReverseData,
-  FileContent, SpecContent, SearchResult,
-  FileInfo, Editor,
-  TreeNodeWithCoverage, FileInfoWithName,
-  FileTreeProps, FileTreeFileProps, SearchResultItemProps, SearchModalProps,
-  HeaderProps, FilePathProps, LangIconProps, LucideIconProps,
-  CoverageViewProps, SourcesViewProps, SpecViewProps, CodeViewProps, FileRefProps,
-} from './types';
+  ApiData,
+  CodeViewProps,
+  Config,
+  CoverageViewProps,
+  Editor,
+  FileContent,
+  FileInfo,
+  FilePathProps,
+  FileRefProps,
+  FileTreeFileProps,
+  FileTreeProps,
+  ForwardData,
+  HeaderProps,
+  LangIconProps,
+  LucideIconProps,
+  ReverseData,
+  Route,
+  SearchModalProps,
+  SearchResultItemProps,
+  SourcesViewProps,
+  SpecContent,
+  SpecViewProps,
+  TreeNodeWithCoverage,
+  ViewType,
+} from "./types";
 
 // Declare lucide as global (loaded via CDN)
 declare const lucide: { createIcons: (opts?: { nodes?: Node[] }) => void };
@@ -38,36 +54,41 @@ function parseRoute(): Route {
   const params = new URLSearchParams(window.location.search);
 
   // /sources or /sources/path/to/file.rs:123
-  if (path === '/sources' || path.startsWith('/sources/')) {
-    const rest = path.length > 9 ? path.slice(9) : ''; // Remove '/sources/'
-    const context = params.get('context'); // rule ID context
+  if (path === "/sources" || path.startsWith("/sources/")) {
+    const rest = path.length > 9 ? path.slice(9) : ""; // Remove '/sources/'
+    const context = params.get("context"); // rule ID context
     if (rest) {
-      const colonIdx = rest.lastIndexOf(':');
+      const colonIdx = rest.lastIndexOf(":");
       if (colonIdx !== -1) {
         const file = rest.slice(0, colonIdx);
         const line = parseInt(rest.slice(colonIdx + 1), 10);
-        return { view: 'sources', file, line: isNaN(line) ? null : line, context };
+        return {
+          view: "sources",
+          file,
+          line: Number.isNaN(line) ? null : line,
+          context,
+        };
       }
-      return { view: 'sources', file: rest, line: null, context };
+      return { view: "sources", file: rest, line: null, context };
     }
-    return { view: 'sources', file: null, line: null, context };
+    return { view: "sources", file: null, line: null, context };
   }
   // /spec or /spec/section/ (also handle / -> /spec)
-  if (path === '/' || path.startsWith('/spec')) {
+  if (path === "/" || path.startsWith("/spec")) {
     // Extract path segment after /spec/ (e.g., /spec/data-model/ -> data-model)
-    let pathSegment = path.length > 5 ? path.slice(6).replace(/\/$/, '') : null;
+    const pathSegment = path.length > 5 ? path.slice(6).replace(/\/$/, "") : null;
     const hashHeading = window.location.hash ? window.location.hash.slice(1) : null;
     // Path segment becomes heading if present, otherwise use hash
     const heading = pathSegment || hashHeading;
     // Rule only from query param now
-    const rule = params.get('rule');
-    return { view: 'spec', rule: rule ?? null, heading };
+    const rule = params.get("rule");
+    return { view: "spec", rule: rule ?? null, heading };
   }
   // /coverage
   return {
-    view: 'coverage',
-    filter: params.get('filter'), // 'impl' or 'verify' or null
-    level: params.get('level'), // 'must', 'should', 'may', or null (all)
+    view: "coverage",
+    filter: params.get("filter"), // 'impl' or 'verify' or null
+    level: params.get("level"), // 'must', 'should', 'may', or null (all)
   };
 }
 
@@ -81,9 +102,9 @@ interface UrlParams {
 }
 
 function buildUrl(view: ViewType, params: UrlParams = {}): string {
-  if (view === 'sources') {
+  if (view === "sources") {
     const { file, line, context } = params;
-    let url = '/sources';
+    let url = "/sources";
     if (file) {
       url = line ? `/sources/${file}:${line}` : `/sources/${file}`;
     }
@@ -92,26 +113,26 @@ function buildUrl(view: ViewType, params: UrlParams = {}): string {
     }
     return url;
   }
-  if (view === 'spec') {
+  if (view === "spec") {
     const { rule } = params;
-    return rule ? `/spec/${rule}` : '/spec';
+    return rule ? `/spec/${rule}` : "/spec";
   }
   // coverage
   const searchParams = new URLSearchParams();
-  if (params.filter) searchParams.set('filter', params.filter);
-  if (params.level && params.level !== 'all') searchParams.set('level', params.level);
+  if (params.filter) searchParams.set("filter", params.filter);
+  if (params.level && params.level !== "all") searchParams.set("level", params.level);
   const query = searchParams.toString();
-  return `/coverage${query ? '?' + query : ''}`;
+  return `/coverage${query ? `?${query}` : ""}`;
 }
 
 function navigate(view: ViewType, params: UrlParams = {}, replace = false): void {
   const url = buildUrl(view, params);
   if (replace) {
-    history.replaceState(null, '', url);
+    history.replaceState(null, "", url);
   } else {
-    history.pushState(null, '', url);
+    history.pushState(null, "", url);
   }
-  window.dispatchEvent(new PopStateEvent('popstate'));
+  window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
 function useRouter(): Route {
@@ -119,11 +140,11 @@ function useRouter(): Route {
 
   useEffect(() => {
     const handleChange = () => setRoute(parseRoute());
-    window.addEventListener('popstate', handleChange);
-    window.addEventListener('hashchange', handleChange);
+    window.addEventListener("popstate", handleChange);
+    window.addEventListener("hashchange", handleChange);
     return () => {
-      window.removeEventListener('popstate', handleChange);
-      window.removeEventListener('hashchange', handleChange);
+      window.removeEventListener("popstate", handleChange);
+      window.removeEventListener("hashchange", handleChange);
     };
   }, []);
 
@@ -149,9 +170,9 @@ function useApi(): UseApiResult {
   const fetchData = useCallback(async () => {
     try {
       const [config, forward, reverse] = await Promise.all([
-        fetchJson<Config>('/api/config'),
-        fetchJson<ForwardData>('/api/forward'),
-        fetchJson<ReverseData>('/api/reverse'),
+        fetchJson<Config>("/api/config"),
+        fetchJson<ForwardData>("/api/forward"),
+        fetchJson<ReverseData>("/api/reverse"),
       ]);
       setData({ config, forward, reverse });
       setError(null);
@@ -173,7 +194,7 @@ function useApi(): UseApiResult {
     async function poll() {
       if (!active) return;
       try {
-        const res = await fetchJson<{ version: string }>('/api/version');
+        const res = await fetchJson<{ version: string }>("/api/version");
         if (lastVersion !== null && res.version !== lastVersion) {
           console.log(`Version changed: ${lastVersion} -> ${res.version}, refetching...`);
           await fetchData();
@@ -181,13 +202,15 @@ function useApi(): UseApiResult {
         lastVersion = res.version;
         setVersion(res.version);
       } catch (e) {
-        console.warn('Version poll failed:', e);
+        console.warn("Version poll failed:", e);
       }
       if (active) setTimeout(poll, 500);
     }
 
     poll();
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [fetchData]);
 
   return { data, error, version, refetch: fetchData };
@@ -201,10 +224,10 @@ function useFile(path: string | null): FileContent | null {
       setFile(null);
       return;
     }
-    fetchJson<FileContent>('/api/file?path=' + encodeURIComponent(path))
+    fetchJson<FileContent>(`/api/file?path=${encodeURIComponent(path)}`)
       .then(setFile)
-      .catch(e => {
-        console.error('Failed to load file:', e);
+      .catch((e) => {
+        console.error("Failed to load file:", e);
         setFile(null);
       });
   }, [path]);
@@ -220,10 +243,10 @@ function useSpec(name: string | null): SpecContent | null {
       setSpec(null);
       return;
     }
-    fetchJson<SpecContent>('/api/spec?name=' + encodeURIComponent(name))
+    fetchJson<SpecContent>(`/api/spec?name=${encodeURIComponent(name)}`)
       .then(setSpec)
-      .catch(e => {
-        console.error('Failed to load spec:', e);
+      .catch((e) => {
+        console.error("Failed to load spec:", e);
         setSpec(null);
       });
   }, [name]);
@@ -236,16 +259,28 @@ function useSpec(name: string | null): SpecContent | null {
 // ========================================================================
 
 function buildFileTree(files: FileInfo[]): TreeNodeWithCoverage {
-  const root: TreeNodeWithCoverage = { name: '', children: {}, files: [], totalUnits: 0, coveredUnits: 0 };
+  const root: TreeNodeWithCoverage = {
+    name: "",
+    children: {},
+    files: [],
+    totalUnits: 0,
+    coveredUnits: 0,
+  };
 
   for (const file of files) {
-    const parts = file.path.split('/');
+    const parts = file.path.split("/");
     let current = root;
 
     for (let i = 0; i < parts.length - 1; i++) {
       const part = parts[i];
       if (!current.children[part]) {
-        current.children[part] = { name: part, children: {}, files: [], totalUnits: 0, coveredUnits: 0 };
+        current.children[part] = {
+          name: part,
+          children: {},
+          files: [],
+          totalUnits: 0,
+          coveredUnits: 0,
+        };
       }
       current = current.children[part];
     }
@@ -280,100 +315,98 @@ function buildFileTree(files: FileInfo[]): TreeNodeWithCoverage {
 }
 
 function getCoverageBadge(covered: number, total: number): { class: string; text: string } {
-  if (total === 0) return { class: 'none', text: '-' };
+  if (total === 0) return { class: "none", text: "-" };
   const pct = (covered / total) * 100;
-  if (pct === 100) return { class: 'full', text: '100%' };
-  if (pct >= 50) return { class: 'partial', text: Math.round(pct) + '%' };
-  return { class: 'none', text: Math.round(pct) + '%' };
+  if (pct === 100) return { class: "full", text: "100%" };
+  if (pct >= 50) return { class: "partial", text: `${Math.round(pct)}%` };
+  return { class: "none", text: `${Math.round(pct)}%` };
 }
 
 function getStatClass(pct: number): string {
-  if (pct >= 80) return 'good';
-  if (pct >= 50) return 'warn';
-  return 'bad';
+  if (pct >= 80) return "good";
+  if (pct >= 50) return "warn";
+  return "bad";
 }
 
 // Render rule text with backticks -> <code> and RFC 2119 keywords highlighted
 function renderRuleText(text: string | undefined): string {
-  if (!text) return '';
+  if (!text) return "";
 
   // Escape HTML first
-  let result = text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+  let result = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
   // Process `code` (backticks)
   let inCode = false;
-  let processed = '';
+  let processed = "";
   for (const char of result) {
-    if (char === '`') {
+    if (char === "`") {
       if (inCode) {
-        processed += '</code>';
+        processed += "</code>";
         inCode = false;
       } else {
-        processed += '<code>';
+        processed += "<code>";
         inCode = true;
       }
     } else {
       processed += char;
     }
   }
-  if (inCode) processed += '</code>';
+  if (inCode) processed += "</code>";
   result = processed;
 
   // Wrap RFC 2119 keywords (order matters - longer phrases first)
   result = result
-    .replace(/\bMUST NOT\b/g, '<kw-must-not>MUST NOT</kw-must-not>')
-    .replace(/\bSHALL NOT\b/g, '<kw-shall-not>SHALL NOT</kw-shall-not>')
-    .replace(/\bSHOULD NOT\b/g, '<kw-should-not>SHOULD NOT</kw-should-not>')
-    .replace(/\bNOT RECOMMENDED\b/g, '<kw-not-recommended>NOT RECOMMENDED</kw-not-recommended>')
-    .replace(/\bMUST\b/g, '<kw-must>MUST</kw-must>')
-    .replace(/\bREQUIRED\b/g, '<kw-required>REQUIRED</kw-required>')
-    .replace(/\bSHALL\b/g, '<kw-shall>SHALL</kw-shall>')
-    .replace(/\bSHOULD\b/g, '<kw-should>SHOULD</kw-should>')
-    .replace(/\bRECOMMENDED\b/g, '<kw-recommended>RECOMMENDED</kw-recommended>')
-    .replace(/\bMAY\b/g, '<kw-may>MAY</kw-may>')
-    .replace(/\bOPTIONAL\b/g, '<kw-optional>OPTIONAL</kw-optional>');
+    .replace(/\bMUST NOT\b/g, "<kw-must-not>MUST NOT</kw-must-not>")
+    .replace(/\bSHALL NOT\b/g, "<kw-shall-not>SHALL NOT</kw-shall-not>")
+    .replace(/\bSHOULD NOT\b/g, "<kw-should-not>SHOULD NOT</kw-should-not>")
+    .replace(/\bNOT RECOMMENDED\b/g, "<kw-not-recommended>NOT RECOMMENDED</kw-not-recommended>")
+    .replace(/\bMUST\b/g, "<kw-must>MUST</kw-must>")
+    .replace(/\bREQUIRED\b/g, "<kw-required>REQUIRED</kw-required>")
+    .replace(/\bSHALL\b/g, "<kw-shall>SHALL</kw-shall>")
+    .replace(/\bSHOULD\b/g, "<kw-should>SHOULD</kw-should>")
+    .replace(/\bRECOMMENDED\b/g, "<kw-recommended>RECOMMENDED</kw-recommended>")
+    .replace(/\bMAY\b/g, "<kw-may>MAY</kw-may>")
+    .replace(/\bOPTIONAL\b/g, "<kw-optional>OPTIONAL</kw-optional>");
 
   return result;
 }
 
 // Split highlighted HTML into self-contained lines
 // Each line will have properly balanced open/close tags
-function splitHighlightedHtml(html) {
+function splitHighlightedHtml(html: string) {
   // Use DOMParser for robust HTML parsing
   const parser = new DOMParser();
-  const doc = parser.parseFromString(`<div>${html}</div>`, 'text/html');
+  const doc = parser.parseFromString(`<div>${html}</div>`, "text/html");
   const container = doc.body.firstChild;
 
   const lines = [];
-  let currentLine = '';
-  let openTags = []; // Stack of {tag, attrs}
+  let currentLine = "";
+  const openTags = []; // Stack of {tag, attrs}
 
   function processNode(node) {
     if (node.nodeType === Node.TEXT_NODE) {
       const text = node.textContent;
       for (const char of text) {
-        if (char === '\n') {
+        if (char === "\n") {
           // Close tags, push line, reopen tags
           for (let j = openTags.length - 1; j >= 0; j--) {
             currentLine += `</${openTags[j].tag}>`;
           }
           lines.push(currentLine);
-          currentLine = '';
+          currentLine = "";
           for (const t of openTags) {
             currentLine += `<${t.tag}${t.attrs}>`;
           }
         } else {
-          currentLine += char === '<' ? '&lt;' : char === '>' ? '&gt;' : char === '&' ? '&amp;' : char;
+          currentLine +=
+            char === "<" ? "&lt;" : char === ">" ? "&gt;" : char === "&" ? "&amp;" : char;
         }
       }
     } else if (node.nodeType === Node.ELEMENT_NODE) {
       const tag = node.tagName.toLowerCase();
-      let attrs = '';
+      let attrs = "";
       for (const attr of node.attributes) {
-        attrs += ` ${attr.name}="${attr.value.replace(/"/g, '&quot;')}"`;
+        attrs += ` ${attr.name}="${attr.value.replace(/"/g, "&quot;")}"`;
       }
 
       currentLine += `<${tag}${attrs}>`;
@@ -405,13 +438,14 @@ function splitHighlightedHtml(html) {
 // ========================================================================
 
 // Detect platform for keyboard shortcuts
-const isMac = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().indexOf('MAC') >= 0;
-const modKey = isMac ? '⌘' : 'Ctrl';
+const isMac =
+  typeof navigator !== "undefined" && navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+const modKey = isMac ? "⌘" : "Ctrl";
 
 function App() {
-  const { data, error, version } = useApi();
+  const { data, error } = useApi();
   const route = useRouter();
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState("");
   const [scrollPositions, setScrollPositions] = useState<Record<string, number>>({});
   const [searchOpen, setSearchOpen] = useState(false);
 
@@ -420,64 +454,70 @@ function App() {
 
   const { config, forward, reverse } = data;
   const view = route.view;
-  const file = route.view === 'sources' ? route.file : null;
-  const line = route.view === 'sources' ? route.line : null;
-  const context = route.view === 'sources' ? route.context : null;
-  const rule = route.view === 'spec' ? route.rule : null;
-  const heading = route.view === 'spec' ? route.heading : null;
-  const filter = route.view === 'coverage' ? route.filter : null;
-  const routeLevel = route.view === 'coverage' ? route.level : null;
+  const file = route.view === "sources" ? route.file : null;
+  const line = route.view === "sources" ? route.line : null;
+  const context = route.view === "sources" ? route.context : null;
+  const rule = route.view === "spec" ? route.rule : null;
+  const heading = route.view === "spec" ? route.heading : null;
+  const filter = route.view === "coverage" ? route.filter : null;
+  const routeLevel = route.view === "coverage" ? route.level : null;
 
   // Level comes from URL, defaults to 'all'
-  const level = routeLevel || 'all';
+  const level = routeLevel || "all";
 
-  const handleLevelChange = useCallback((newLevel) => {
-    navigate('coverage', { filter, level: newLevel }, false);
-  }, [filter]);
+  const handleLevelChange = useCallback(
+    (newLevel: string) => {
+      navigate("coverage", { filter, level: newLevel }, false);
+    },
+    [filter],
+  );
 
   const handleViewChange = useCallback((newView) => {
     navigate(newView, {}, false);
   }, []);
 
   const handleSelectFile = useCallback((filePath, lineNum = null, ruleContext = null) => {
-    navigate('sources', { file: filePath, line: lineNum, context: ruleContext }, false);
+    navigate("sources", { file: filePath, line: lineNum, context: ruleContext }, false);
   }, []);
 
   const handleSelectRule = useCallback((ruleId) => {
-    navigate('spec', { rule: ruleId }, false);
+    navigate("spec", { rule: ruleId }, false);
   }, []);
 
   const handleClearContext = useCallback(() => {
-    navigate('sources', { file, line, context: null }, true);
+    navigate("sources", { file, line, context: null }, true);
   }, [file, line]);
 
   // Global keyboard shortcut for search
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
         setSearchOpen(true);
       }
-      if (e.key === 'Escape') {
+      if (e.key === "Escape") {
         setSearchOpen(false);
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
   const handleSearchSelect = useCallback((result) => {
     setSearchOpen(false);
-    if (result.kind === 'rule') {
-      navigate('spec', { rule: result.id }, false);
+    if (result.kind === "rule") {
+      navigate("spec", { rule: result.id }, false);
     } else {
-      navigate('sources', { file: result.id, line: result.line }, false);
+      navigate("sources", { file: result.id, line: result.line }, false);
     }
   }, []);
 
-  const handleFilterChange = useCallback((newFilter) => {
-    navigate('coverage', { filter: newFilter, level }, false);
-  }, [level]);
+  const handleFilterChange = useCallback(
+    (newFilter: string) => {
+      navigate("coverage", { filter: newFilter, level }, false);
+    },
+    [level],
+  );
 
   return html`
     <div class="layout">
@@ -487,14 +527,12 @@ function App() {
         onOpenSearch=${() => setSearchOpen(true)}
       />
 
-      ${searchOpen && html`
-        <${SearchModal}
-          onClose=${() => setSearchOpen(false)}
-          onSelect=${handleSearchSelect}
-        />
+      ${searchOpen &&
+      html`
+        <${SearchModal} onClose=${() => setSearchOpen(false)} onSelect=${handleSearchSelect} />
       `}
-
-      ${view === 'coverage' && html`
+      ${view === "coverage" &&
+      html`
         <${CoverageView}
           data=${forward}
           config=${config}
@@ -508,8 +546,8 @@ function App() {
           onSelectFile=${handleSelectFile}
         />
       `}
-
-      ${view === 'sources' && html`
+      ${view === "sources" &&
+      html`
         <${SourcesView}
           data=${reverse}
           forward=${forward}
@@ -524,8 +562,8 @@ function App() {
           onClearContext=${handleClearContext}
         />
       `}
-
-      ${view === 'spec' && html`
+      ${view === "spec" &&
+      html`
         <${SpecView}
           config=${config}
           forward=${forward}
@@ -534,7 +572,7 @@ function App() {
           onSelectRule=${handleSelectRule}
           onSelectFile=${handleSelectFile}
           scrollPosition=${scrollPositions.spec || 0}
-          onScrollChange=${(pos) => setScrollPositions(prev => ({ ...prev, spec: pos }))}
+          onScrollChange=${(pos) => setScrollPositions((prev) => ({ ...prev, spec: pos }))}
         />
       `}
     </div>
@@ -544,86 +582,110 @@ function App() {
 // Editor configurations with devicon classes (zed uses inline SVG since devicon font doesn't have it yet)
 const ZED_SVG = `<svg class="editor-icon-svg" viewBox="0 0 128 128"><path fill="currentColor" d="M12 8a4 4 0 0 0-4 4v88H0V12C0 5.373 5.373 0 12 0h107.172c5.345 0 8.022 6.463 4.242 10.243L57.407 76.25H76V68h8v10.028a4 4 0 0 1-4 4H49.97l-13.727 13.729H98V56h8v47.757a8 8 0 0 1-8 8H27.657l-13.97 13.97H116a4 4 0 0 0 4-4V28h8v93.757c0 6.627-5.373 12-12 12H8.828c-5.345 0-8.022-6.463-4.242-10.243L70.343 57.757H52v8h-8V55.728a4 4 0 0 1 4-4h30.086l13.727-13.728H30V78h-8V30.243a8 8 0 0 1 8-8h70.343l13.97-13.971H12z"/></svg>`;
 const EDITORS: Record<string, Editor> = {
-  zed: { name: 'Zed', urlTemplate: (path, line) => `zed://file/${path}:${line}`, icon: ZED_SVG },
-  vscode: { name: 'VS Code', urlTemplate: (path, line) => `vscode://file/${path}:${line}`, devicon: 'devicon-vscode-plain' },
-  idea: { name: 'IntelliJ', urlTemplate: (path, line) => `idea://open?file=${path}&line=${line}`, devicon: 'devicon-intellij-plain' },
-  vim: { name: 'Vim', urlTemplate: (path, line) => `mvim://open?url=file://${path}&line=${line}`, devicon: 'devicon-vim-plain' },
-  neovim: { name: 'Neovim', urlTemplate: (path, line) => `nvim://open?file=${path}&line=${line}`, devicon: 'devicon-neovim-plain' },
-  emacs: { name: 'Emacs', urlTemplate: (path, line) => `emacs://open?url=file://${path}&line=${line}`, devicon: 'devicon-emacs-original' },
+  zed: {
+    name: "Zed",
+    urlTemplate: (path, line) => `zed://file/${path}:${line}`,
+    icon: ZED_SVG,
+  },
+  vscode: {
+    name: "VS Code",
+    urlTemplate: (path, line) => `vscode://file/${path}:${line}`,
+    devicon: "devicon-vscode-plain",
+  },
+  idea: {
+    name: "IntelliJ",
+    urlTemplate: (path, line) => `idea://open?file=${path}&line=${line}`,
+    devicon: "devicon-intellij-plain",
+  },
+  vim: {
+    name: "Vim",
+    urlTemplate: (path, line) => `mvim://open?url=file://${path}&line=${line}`,
+    devicon: "devicon-vim-plain",
+  },
+  neovim: {
+    name: "Neovim",
+    urlTemplate: (path, line) => `nvim://open?file=${path}&line=${line}`,
+    devicon: "devicon-neovim-plain",
+  },
+  emacs: {
+    name: "Emacs",
+    urlTemplate: (path, line) => `emacs://open?url=file://${path}&line=${line}`,
+    devicon: "devicon-emacs-original",
+  },
 };
 
 const LEVELS = {
-  all: { name: 'All', dotClass: 'level-dot-all' },
-  must: { name: 'MUST', dotClass: 'level-dot-must' },
-  should: { name: 'SHOULD', dotClass: 'level-dot-should' },
-  may: { name: 'MAY', dotClass: 'level-dot-may' },
+  all: { name: "All", dotClass: "level-dot-all" },
+  must: { name: "MUST", dotClass: "level-dot-must" },
+  should: { name: "SHOULD", dotClass: "level-dot-should" },
+  may: { name: "MAY", dotClass: "level-dot-may" },
 };
 
 // Map file extensions to devicon class names
 // See https://devicon.dev/ for available icons
 const LANG_DEVICON_MAP = {
-  rs: 'devicon-rust-original',
-  ts: 'devicon-typescript-plain',
-  tsx: 'devicon-typescript-plain',
-  js: 'devicon-javascript-plain',
-  jsx: 'devicon-javascript-plain',
-  py: 'devicon-python-plain',
-  go: 'devicon-go-plain',
-  c: 'devicon-c-plain',
-  cpp: 'devicon-cplusplus-plain',
-  h: 'devicon-c-plain',
-  hpp: 'devicon-cplusplus-plain',
-  swift: 'devicon-swift-plain',
-  java: 'devicon-java-plain',
-  rb: 'devicon-ruby-plain',
-  md: 'devicon-markdown-original',
-  json: 'devicon-json-plain',
-  yaml: 'devicon-yaml-plain',
-  yml: 'devicon-yaml-plain',
-  toml: 'devicon-toml-plain',
-  html: 'devicon-html5-plain',
-  css: 'devicon-css3-plain',
-  scss: 'devicon-sass-original',
-  sass: 'devicon-sass-original',
-  sh: 'devicon-bash-plain',
-  bash: 'devicon-bash-plain',
-  zsh: 'devicon-bash-plain',
-  sql: 'devicon-postgresql-plain',
-  kt: 'devicon-kotlin-plain',
-  scala: 'devicon-scala-plain',
-  hs: 'devicon-haskell-plain',
-  ex: 'devicon-elixir-plain',
-  exs: 'devicon-elixir-plain',
-  erl: 'devicon-erlang-plain',
-  clj: 'devicon-clojure-plain',
-  php: 'devicon-php-plain',
-  lua: 'devicon-lua-plain',
-  r: 'devicon-r-plain',
-  jl: 'devicon-julia-plain',
-  dart: 'devicon-dart-plain',
-  vue: 'devicon-vuejs-plain',
-  svelte: 'devicon-svelte-plain',
+  rs: "devicon-rust-original",
+  ts: "devicon-typescript-plain",
+  tsx: "devicon-typescript-plain",
+  js: "devicon-javascript-plain",
+  jsx: "devicon-javascript-plain",
+  py: "devicon-python-plain",
+  go: "devicon-go-plain",
+  c: "devicon-c-plain",
+  cpp: "devicon-cplusplus-plain",
+  h: "devicon-c-plain",
+  hpp: "devicon-cplusplus-plain",
+  swift: "devicon-swift-plain",
+  java: "devicon-java-plain",
+  rb: "devicon-ruby-plain",
+  md: "devicon-markdown-original",
+  json: "devicon-json-plain",
+  yaml: "devicon-yaml-plain",
+  yml: "devicon-yaml-plain",
+  toml: "devicon-toml-plain",
+  html: "devicon-html5-plain",
+  css: "devicon-css3-plain",
+  scss: "devicon-sass-original",
+  sass: "devicon-sass-original",
+  sh: "devicon-bash-plain",
+  bash: "devicon-bash-plain",
+  zsh: "devicon-bash-plain",
+  sql: "devicon-postgresql-plain",
+  kt: "devicon-kotlin-plain",
+  scala: "devicon-scala-plain",
+  hs: "devicon-haskell-plain",
+  ex: "devicon-elixir-plain",
+  exs: "devicon-elixir-plain",
+  erl: "devicon-erlang-plain",
+  clj: "devicon-clojure-plain",
+  php: "devicon-php-plain",
+  lua: "devicon-lua-plain",
+  r: "devicon-r-plain",
+  jl: "devicon-julia-plain",
+  dart: "devicon-dart-plain",
+  vue: "devicon-vuejs-plain",
+  svelte: "devicon-svelte-plain",
   // Default fallback - use Lucide file icon
   default: null,
 };
 
 // Get devicon class for a file extension (returns null if no devicon available)
 function getDeviconClass(filePath) {
-  const ext = filePath.split('.').pop()?.toLowerCase();
+  const ext = filePath.split(".").pop()?.toLowerCase();
   return LANG_DEVICON_MAP[ext] || LANG_DEVICON_MAP.default;
 }
 
 // Language icon component - uses devicon if available, falls back to Lucide
-function LangIcon({ filePath, className = '' }: LangIconProps) {
+function LangIcon({ filePath, className = "" }: LangIconProps) {
   const deviconClass = getDeviconClass(filePath);
   const iconRef = useRef(null);
 
   // For Lucide fallback
   useEffect(() => {
-    if (!deviconClass && iconRef.current && typeof lucide !== 'undefined') {
-      iconRef.current.innerHTML = '';
-      const i = document.createElement('i');
-      i.setAttribute('data-lucide', 'file');
+    if (!deviconClass && iconRef.current && typeof lucide !== "undefined") {
+      iconRef.current.innerHTML = "";
+      const i = document.createElement("i");
+      i.setAttribute("data-lucide", "file");
       iconRef.current.appendChild(i);
       lucide.createIcons({ nodes: [i] });
     }
@@ -636,14 +698,14 @@ function LangIcon({ filePath, className = '' }: LangIconProps) {
 }
 
 // Create a Lucide icon element (for use in htm templates)
-function LucideIcon({ name, className = '' }: LucideIconProps) {
+function LucideIcon({ name, className = "" }: LucideIconProps) {
   const iconRef = useRef(null);
 
   useEffect(() => {
-    if (iconRef.current && typeof lucide !== 'undefined') {
-      iconRef.current.innerHTML = '';
-      const i = document.createElement('i');
-      i.setAttribute('data-lucide', name);
+    if (iconRef.current && typeof lucide !== "undefined") {
+      iconRef.current.innerHTML = "";
+      const i = document.createElement("i");
+      i.setAttribute("data-lucide", name);
       iconRef.current.appendChild(i);
       lucide.createIcons({ nodes: [i] });
     }
@@ -652,40 +714,160 @@ function LucideIcon({ name, className = '' }: LucideIconProps) {
   return html`<span ref=${iconRef} class=${className}></span>`;
 }
 
+// SVG arc indicator for coverage progress
+// Draws a circular arc from 0 to `fraction` (0-1) of a full circle
+interface CoverageArcProps {
+  fraction: number; // 0 to 1
+  color: string; // stroke color
+  title?: string;
+  size?: number;
+}
+
+function CoverageArc({ fraction, color, title, size = 12 }: CoverageArcProps) {
+  const radius = (size - 2) / 2; // Leave room for stroke
+  const center = size / 2;
+  const strokeWidth = 2;
+
+  // Calculate arc path
+  // Start at top (12 o'clock position), draw clockwise
+  const startAngle = -Math.PI / 2; // -90 degrees (top)
+  const endAngle = startAngle + fraction * 2 * Math.PI;
+
+  // For a full circle (fraction >= 1), use a circle element
+  if (fraction >= 1) {
+    return html`
+      <svg
+        width=${size}
+        height=${size}
+        viewBox="0 0 ${size} ${size}"
+        class="coverage-arc"
+        style="flex-shrink: 0"
+      >
+        <title>${title}</title>
+        <circle
+          cx=${center}
+          cy=${center}
+          r=${radius}
+          fill="none"
+          stroke=${color}
+          stroke-width=${strokeWidth}
+        />
+      </svg>
+    `;
+  }
+
+  // For zero, show a dim background circle
+  if (fraction <= 0) {
+    return html`
+      <svg
+        width=${size}
+        height=${size}
+        viewBox="0 0 ${size} ${size}"
+        class="coverage-arc"
+        style="flex-shrink: 0"
+      >
+        <title>${title}</title>
+        <circle
+          cx=${center}
+          cy=${center}
+          r=${radius}
+          fill="none"
+          stroke="var(--bg-hover)"
+          stroke-width=${strokeWidth}
+        />
+      </svg>
+    `;
+  }
+
+  // Calculate arc endpoints
+  const startX = center + radius * Math.cos(startAngle);
+  const startY = center + radius * Math.sin(startAngle);
+  const endX = center + radius * Math.cos(endAngle);
+  const endY = center + radius * Math.sin(endAngle);
+
+  // Large arc flag: 1 if arc > 180 degrees
+  const largeArcFlag = fraction > 0.5 ? 1 : 0;
+
+  // SVG arc path: M start, A rx ry x-axis-rotation large-arc-flag sweep-flag end
+  const path = `M ${startX} ${startY} A ${radius} ${radius} 0 ${largeArcFlag} 1 ${endX} ${endY}`;
+
+  return html`
+    <svg
+      width=${size}
+      height=${size}
+      viewBox="0 0 ${size} ${size}"
+      class="coverage-arc"
+      style="flex-shrink: 0"
+    >
+      <title>${title}</title>
+      <!-- Background circle -->
+      <circle
+        cx=${center}
+        cy=${center}
+        r=${radius}
+        fill="none"
+        stroke="var(--bg-hover)"
+        stroke-width=${strokeWidth}
+      />
+      <!-- Progress arc -->
+      <path
+        d=${path}
+        fill="none"
+        stroke=${color}
+        stroke-width=${strokeWidth}
+        stroke-linecap="round"
+      />
+    </svg>
+  `;
+}
+
 // Tab icon names (Lucide)
 const TAB_ICON_NAMES = {
-  specification: 'file-text',
-  coverage: 'bar-chart-3',
-  sources: 'folder-open',
+  specification: "file-text",
+  coverage: "bar-chart-3",
+  sources: "folder-open",
 };
 
 // Search result item component with syntax highlighting for source
 function SearchResultItem({ result, isSelected, onSelect, onHover }: SearchResultItemProps) {
   return html`
     <div
-      class="search-modal-result ${isSelected ? 'selected' : ''}"
+      class="search-modal-result ${isSelected ? "selected" : ""}"
       onClick=${onSelect}
       onMouseEnter=${onHover}
     >
       <div class="search-modal-result-header">
-        ${result.kind === 'source' ? html`
-          <${FilePath} file=${result.id} line=${result.line > 0 ? result.line : null} type="source" />
-        ` : html`
-          <${LucideIcon} name="file-text" className="search-result-icon rule" />
-          <span class="search-modal-result-id">${result.id}</span>
-        `}
+        ${result.kind === "source"
+          ? html`
+              <${FilePath}
+                file=${result.id}
+                line=${result.line > 0 ? result.line : null}
+                type="source"
+              />
+            `
+          : html`
+              <${LucideIcon} name="file-text" className="search-result-icon rule" />
+              <span class="search-modal-result-id">${result.id}</span>
+            `}
       </div>
-      ${result.kind === 'source' ? html`
-        <pre class="search-modal-result-code"><code dangerouslySetInnerHTML=${{ __html: result.highlighted || result.content.trim() }} /></pre>
-      ` : html`
-        <div class="search-modal-result-content" dangerouslySetInnerHTML=${{ __html: result.highlighted || result.content.trim() }} />
-      `}
+      ${result.kind === "source"
+        ? html`
+            <pre class="search-modal-result-code"><code dangerouslySetInnerHTML=${{
+              __html: result.highlighted || result.content.trim(),
+            }} /></pre>
+          `
+        : html`
+            <div
+              class="search-modal-result-content"
+              dangerouslySetInnerHTML=${{ __html: result.highlighted || result.content.trim() }}
+            />
+          `}
     </div>
   `;
 }
 
 function SearchModal({ onClose, onSelect }: SearchModalProps) {
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState("");
   const [results, setResults] = useState(null);
   const [isSearching, setIsSearching] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -700,7 +882,7 @@ function SearchModal({ onClose, onSelect }: SearchModalProps) {
 
   // Re-render Lucide icons when results change
   useEffect(() => {
-    if (results?.results?.length && typeof lucide !== 'undefined') {
+    if (results?.results?.length && typeof lucide !== "undefined") {
       requestAnimationFrame(() => {
         lucide.createIcons();
       });
@@ -728,7 +910,7 @@ function SearchModal({ onClose, onSelect }: SearchModalProps) {
         setResults(data);
         setSelectedIndex(0);
       } catch (e) {
-        console.error('Search failed:', e);
+        console.error("Search failed:", e);
         setResults({ results: [] });
       } finally {
         setIsSearching(false);
@@ -745,35 +927,41 @@ function SearchModal({ onClose, onSelect }: SearchModalProps) {
   // Scroll selected item into view
   useEffect(() => {
     if (!resultsRef.current) return;
-    const selected = resultsRef.current.querySelector('.search-modal-result.selected');
+    const selected = resultsRef.current.querySelector(".search-modal-result.selected");
     if (selected) {
-      selected.scrollIntoView({ block: 'nearest' });
+      selected.scrollIntoView({ block: "nearest" });
     }
   }, [selectedIndex]);
 
   // Keyboard navigation
-  const handleKeyDown = useCallback((e) => {
-    if (!results?.results?.length) return;
+  const handleKeyDown = useCallback(
+    (e) => {
+      if (!results?.results?.length) return;
 
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setSelectedIndex(i => Math.min(i + 1, results.results.length - 1));
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setSelectedIndex(i => Math.max(i - 1, 0));
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      const result = results.results[selectedIndex];
-      if (result) onSelect(result);
-    }
-  }, [results, selectedIndex, onSelect]);
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSelectedIndex((i) => Math.min(i + 1, results.results.length - 1));
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSelectedIndex((i) => Math.max(i - 1, 0));
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        const result = results.results[selectedIndex];
+        if (result) onSelect(result);
+      }
+    },
+    [results, selectedIndex, onSelect],
+  );
 
   // Close on backdrop click
-  const handleBackdropClick = useCallback((e) => {
-    if (e.target === e.currentTarget) {
-      onClose();
-    }
-  }, [onClose]);
+  const handleBackdropClick = useCallback(
+    (e) => {
+      if (e.target === e.currentTarget) {
+        onClose();
+      }
+    },
+    [onClose],
+  );
 
   return html`
     <div class="search-overlay" onClick=${handleBackdropClick}>
@@ -789,23 +977,25 @@ function SearchModal({ onClose, onSelect }: SearchModalProps) {
           />
         </div>
         <div class="search-modal-results" ref=${resultsRef}>
-          ${isSearching ? html`
-            <div class="search-modal-empty">Searching...</div>
-          ` : results?.results?.length > 0 ? html`
-            ${results.results.map((result, idx) => html`
-              <${SearchResultItem}
-                key=${result.kind + ':' + result.id + ':' + result.line}
-                result=${result}
-                isSelected=${idx === selectedIndex}
-                onSelect=${() => onSelect(result)}
-                onHover=${() => setSelectedIndex(idx)}
-              />
-            `)}
-          ` : query.length >= 2 ? html`
-            <div class="search-modal-empty">No results found</div>
-          ` : html`
-            <div class="search-modal-empty">Type to search code and rules...</div>
-          `}
+          ${isSearching
+            ? html` <div class="search-modal-empty">Searching...</div> `
+            : results?.results?.length > 0
+              ? html`
+                  ${results.results.map(
+                    (result, idx) => html`
+                      <${SearchResultItem}
+                        key=${result.kind + ":" + result.id + ":" + result.line}
+                        result=${result}
+                        isSelected=${idx === selectedIndex}
+                        onSelect=${() => onSelect(result)}
+                        onHover=${() => setSelectedIndex(idx)}
+                      />
+                    `,
+                  )}
+                `
+              : query.length >= 2
+                ? html` <div class="search-modal-empty">No results found</div> `
+                : html` <div class="search-modal-empty">Type to search code and rules...</div> `}
         </div>
         <div class="search-modal-hint">
           <span><kbd>↑</kbd><kbd>↓</kbd> Navigate</span>
@@ -817,7 +1007,11 @@ function SearchModal({ onClose, onSelect }: SearchModalProps) {
   `;
 }
 
-function Header({ view, onViewChange, onOpenSearch }: Omit<HeaderProps, 'search' | 'onSearchChange'>) {
+function Header({
+  view,
+  onViewChange,
+  onOpenSearch,
+}: Omit<HeaderProps, "search" | "onSearchChange">) {
   const handleNavClick = (e, newView) => {
     e.preventDefault();
     onViewChange(newView);
@@ -829,34 +1023,51 @@ function Header({ view, onViewChange, onOpenSearch }: Omit<HeaderProps, 'search'
         <nav class="nav">
           <a
             href="/spec"
-            class="nav-tab ${view === 'spec' ? 'active' : ''}"
-            onClick=${(e) => handleNavClick(e, 'spec')}
-          ><${LucideIcon} name=${TAB_ICON_NAMES.specification} className="tab-icon" /><span>Specification</span></a>
+            class="nav-tab ${view === "spec" ? "active" : ""}"
+            onClick=${(e) => handleNavClick(e, "spec")}
+            ><${LucideIcon} name=${TAB_ICON_NAMES.specification} className="tab-icon" /><span
+              >Specification</span
+            ></a
+          >
           <a
             href="/coverage"
-            class="nav-tab ${view === 'coverage' ? 'active' : ''}"
-            onClick=${(e) => handleNavClick(e, 'coverage')}
-          ><${LucideIcon} name=${TAB_ICON_NAMES.coverage} className="tab-icon" /><span>Coverage</span></a>
+            class="nav-tab ${view === "coverage" ? "active" : ""}"
+            onClick=${(e) => handleNavClick(e, "coverage")}
+            ><${LucideIcon} name=${TAB_ICON_NAMES.coverage} className="tab-icon" /><span
+              >Coverage</span
+            ></a
+          >
           <a
             href="/sources"
-            class="nav-tab ${view === 'sources' ? 'active' : ''}"
-            onClick=${(e) => handleNavClick(e, 'sources')}
-          ><${LucideIcon} name=${TAB_ICON_NAMES.sources} className="tab-icon" /><span>Sources</span></a>
+            class="nav-tab ${view === "sources" ? "active" : ""}"
+            onClick=${(e) => handleNavClick(e, "sources")}
+            ><${LucideIcon} name=${TAB_ICON_NAMES.sources} className="tab-icon" /><span
+              >Sources</span
+            ></a
+          >
         </nav>
 
-        <div class="search-box" style="margin-left: auto; margin-right: 1rem; display: flex; align-items: center;">
+        <div
+          class="search-box"
+          style="margin-left: auto; margin-right: 1rem; display: flex; align-items: center;"
+        >
           <input
             type="text"
             class="search-input"
             placeholder="Search... (${modKey}+K)"
             onClick=${onOpenSearch}
-            onFocus=${(e) => { e.target.blur(); onOpenSearch(); }}
-            readOnly
+            onFocus=${(e) => {
+              e.target.blur();
+              onOpenSearch();
+            }}
+            readonly
             style="cursor: pointer;"
           />
         </div>
 
-        <a href="https://github.com/bearcove/tracey" class="logo" target="_blank" rel="noopener">tracey</a>
+        <a href="https://github.com/bearcove/tracey" class="logo" target="_blank" rel="noopener"
+          >tracey</a
+        >
       </div>
     </header>
   `;
@@ -864,9 +1075,12 @@ function Header({ view, onViewChange, onOpenSearch }: Omit<HeaderProps, 'search'
 
 // Helper to split file path into dir and filename
 function splitPath(filePath) {
-  const lastSlash = filePath.lastIndexOf('/');
-  if (lastSlash === -1) return { dir: '', name: filePath };
-  return { dir: filePath.slice(0, lastSlash + 1), name: filePath.slice(lastSlash + 1) };
+  const lastSlash = filePath.lastIndexOf("/");
+  if (lastSlash === -1) return { dir: "", name: filePath };
+  return {
+    dir: filePath.slice(0, lastSlash + 1),
+    name: filePath.slice(lastSlash + 1),
+  };
 }
 
 // Universal file path display component
@@ -877,12 +1091,26 @@ function splitPath(filePath) {
 //   type: 'impl' | 'verify' | 'source' - affects icon color
 //   onClick: optional click handler
 //   className: optional additional class
-function FilePath({ file, line, short = false, type = 'source', onClick, className = '' }: FilePathProps) {
+function FilePath({
+  file,
+  line,
+  short = false,
+  type = "source",
+  onClick,
+  className = "",
+}: FilePathProps) {
   const { dir, name } = splitPath(file);
-  const iconClass = type === 'impl' ? 'file-path-icon-impl' : type === 'verify' ? 'file-path-icon-verify' : '';
+  const iconClass =
+    type === "impl" ? "file-path-icon-impl" : type === "verify" ? "file-path-icon-verify" : "";
 
   const content = html`
-    <${LangIcon} filePath=${file} className="file-path-icon ${iconClass}" /><span class="file-path-text">${!short && dir ? html`<span class="file-path-dir">${dir}</span>` : ''}<span class="file-path-name">${name}</span>${line != null ? html`<span class="file-path-line">:${line}</span>` : ''}</span>
+    <${LangIcon} filePath=${file} className="file-path-icon ${iconClass}" /><span
+      class="file-path-text"
+      >${!short && dir ? html`<span class="file-path-dir">${dir}</span>` : ""}<span
+        class="file-path-name"
+        >${name}</span
+      >${line != null ? html`<span class="file-path-line">:${line}</span>` : ""}</span
+    >
   `;
 
   if (onClick) {
@@ -890,7 +1118,10 @@ function FilePath({ file, line, short = false, type = 'source', onClick, classNa
       <a
         class="file-path-link ${className}"
         href="#"
-        onClick=${(e) => { e.preventDefault(); onClick(); }}
+        onClick=${(e) => {
+          e.preventDefault();
+          onClick();
+        }}
       >
         ${content}
       </a>
@@ -914,21 +1145,30 @@ function FileRef({ file, line, type, onSelectFile }: FileRefProps) {
   `;
 }
 
-function CoverageView({ data, config, search, onSearchChange, level, onLevelChange, filter, onFilterChange, onSelectRule, onSelectFile }: CoverageViewProps) {
+function CoverageView({
+  data,
+  search,
+  level,
+  onLevelChange,
+  filter,
+  onFilterChange,
+  onSelectRule,
+  onSelectFile,
+}: CoverageViewProps) {
   const [levelOpen, setLevelOpen] = useState(false);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
     const handleClick = (e) => {
-      if (!e.target.closest('#level-dropdown')) setLevelOpen(false);
+      if (!e.target.closest("#level-dropdown")) setLevelOpen(false);
     };
-    document.addEventListener('click', handleClick);
-    return () => document.removeEventListener('click', handleClick);
+    document.addEventListener("click", handleClick);
+    return () => document.removeEventListener("click", handleClick);
   }, []);
 
-  const allRules = useMemo(() =>
-    data.specs.flatMap(s => s.rules.map(r => ({ ...r, spec: s.name }))),
-    [data]
+  const allRules = useMemo(
+    () => data.specs.flatMap((s) => s.rules.map((r) => ({ ...r, spec: s.name }))),
+    [data],
   );
 
   // Infer level from rule text if not explicitly set
@@ -937,9 +1177,9 @@ function CoverageView({ data, config, search, onSearchChange, level, onLevelChan
     if (!rule.text) return null;
     const text = rule.text.toUpperCase();
     // Check for MUST NOT, SHALL NOT first (still MUST level)
-    if (text.includes('MUST') || text.includes('SHALL') || text.includes('REQUIRED')) return 'must';
-    if (text.includes('SHOULD') || text.includes('RECOMMENDED')) return 'should';
-    if (text.includes('MAY') || text.includes('OPTIONAL')) return 'may';
+    if (text.includes("MUST") || text.includes("SHALL") || text.includes("REQUIRED")) return "must";
+    if (text.includes("SHOULD") || text.includes("RECOMMENDED")) return "should";
+    if (text.includes("MAY") || text.includes("OPTIONAL")) return "may";
     return null;
   }, []);
 
@@ -947,23 +1187,22 @@ function CoverageView({ data, config, search, onSearchChange, level, onLevelChan
     let rules = allRules;
 
     // Filter by level (explicit or inferred from text)
-    if (level !== 'all') {
-      rules = rules.filter(r => inferLevel(r) === level);
+    if (level !== "all") {
+      rules = rules.filter((r) => inferLevel(r) === level);
     }
 
     // Filter by coverage (impl or verify)
-    if (filter === 'impl') {
-      rules = rules.filter(r => r.implRefs.length === 0);
-    } else if (filter === 'verify') {
-      rules = rules.filter(r => r.verifyRefs.length === 0);
+    if (filter === "impl") {
+      rules = rules.filter((r) => r.implRefs.length === 0);
+    } else if (filter === "verify") {
+      rules = rules.filter((r) => r.verifyRefs.length === 0);
     }
 
     // Filter by search
     if (search) {
       const q = search.toLowerCase();
-      rules = rules.filter(r =>
-        r.id.toLowerCase().includes(q) ||
-        (r.text && r.text.toLowerCase().includes(q))
+      rules = rules.filter(
+        (r) => r.id.toLowerCase().includes(q) || (r.text && r.text.toLowerCase().includes(q)),
       );
     }
 
@@ -973,12 +1212,12 @@ function CoverageView({ data, config, search, onSearchChange, level, onLevelChan
   const stats = useMemo(() => {
     // Stats are based on level-filtered rules (not coverage filter)
     let rules = allRules;
-    if (level !== 'all') {
-      rules = rules.filter(r => inferLevel(r) === level);
+    if (level !== "all") {
+      rules = rules.filter((r) => inferLevel(r) === level);
     }
     const total = rules.length;
-    const impl = rules.filter(r => r.implRefs.length > 0).length;
-    const verify = rules.filter(r => r.verifyRefs.length > 0).length;
+    const impl = rules.filter((r) => r.implRefs.length > 0).length;
+    const verify = rules.filter((r) => r.verifyRefs.length > 0).length;
     return {
       total,
       impl,
@@ -989,7 +1228,17 @@ function CoverageView({ data, config, search, onSearchChange, level, onLevelChan
   }, [allRules, level, inferLevel]);
 
   // Markdown icon
-  const mdIcon = html`<svg class="rule-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/><path d="M9 15l2 2 4-4"/></svg>`;
+  const mdIcon = html`<svg
+    class="rule-icon"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+  >
+    <path d="M14 3v4a1 1 0 0 0 1 1h4" />
+    <path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z" />
+    <path d="M9 15l2 2 4-4" />
+  </svg>`;
 
   return html`
     <div class="stats-bar">
@@ -997,33 +1246,62 @@ function CoverageView({ data, config, search, onSearchChange, level, onLevelChan
         <span class="stat-label">Rules</span>
         <span class="stat-value">${stats.total}</span>
       </div>
-      <div class="stat clickable" onClick=${() => onFilterChange(filter === 'impl' ? null : 'impl')}>
-        <span class="stat-label">Impl Coverage ${filter === 'impl' ? '(filtered)' : ''}</span>
+      <div
+        class="stat clickable"
+        onClick=${() => onFilterChange(filter === "impl" ? null : "impl")}
+      >
+        <span class="stat-label">Impl Coverage ${filter === "impl" ? "(filtered)" : ""}</span>
         <span class="stat-value ${getStatClass(stats.implPct)}">${stats.implPct.toFixed(1)}%</span>
       </div>
-      <div class="stat clickable" onClick=${() => onFilterChange(filter === 'verify' ? null : 'verify')}>
-        <span class="stat-label">Test Coverage ${filter === 'verify' ? '(filtered)' : ''}</span>
-        <span class="stat-value ${getStatClass(stats.verifyPct)}">${stats.verifyPct.toFixed(1)}%</span>
+      <div
+        class="stat clickable"
+        onClick=${() => onFilterChange(filter === "verify" ? null : "verify")}
+      >
+        <span class="stat-label">Test Coverage ${filter === "verify" ? "(filtered)" : ""}</span>
+        <span class="stat-value ${getStatClass(stats.verifyPct)}"
+          >${stats.verifyPct.toFixed(1)}%</span
+        >
       </div>
 
       <!-- Level dropdown -->
-      <div class="custom-dropdown ${levelOpen ? 'open' : ''}" id="level-dropdown">
-        <div class="dropdown-selected" onClick=${(e) => { e.stopPropagation(); setLevelOpen(!levelOpen); }}>
+      <div class="custom-dropdown ${levelOpen ? "open" : ""}" id="level-dropdown">
+        <div
+          class="dropdown-selected"
+          onClick=${(e) => {
+            e.stopPropagation();
+            setLevelOpen(!levelOpen);
+          }}
+        >
           <span class="level-dot ${LEVELS[level].dotClass}"></span>
           <span>${LEVELS[level].name}</span>
-          <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+          <svg
+            class="chevron"
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <path d="M6 9l6 6 6-6" />
+          </svg>
         </div>
         <div class="dropdown-menu">
-          ${Object.entries(LEVELS).map(([key, cfg]) => html`
-            <div
-              key=${key}
-              class="dropdown-option ${level === key ? 'active' : ''}"
-              onClick=${() => { onLevelChange(key); setLevelOpen(false); }}
-            >
-              <span class="level-dot ${cfg.dotClass}"></span>
-              <span>${cfg.name}</span>
-            </div>
-          `)}
+          ${Object.entries(LEVELS).map(
+            ([key, cfg]) => html`
+              <div
+                key=${key}
+                class="dropdown-option ${level === key ? "active" : ""}"
+                onClick=${() => {
+                  onLevelChange(key);
+                  setLevelOpen(false);
+                }}
+              >
+                <span class="level-dot ${cfg.dotClass}"></span>
+                <span>${cfg.name}</span>
+              </div>
+            `,
+          )}
         </div>
       </div>
     </div>
@@ -1038,42 +1316,55 @@ function CoverageView({ data, config, search, onSearchChange, level, onLevelChan
               </tr>
             </thead>
             <tbody>
-              ${filteredRules.map(rule => html`
-                <tr key=${rule.id} onClick=${() => onSelectRule(rule.id)} style="cursor: pointer;">
-                  <td>
-                    <div class="rule-id-row">
-                      ${mdIcon}
-                      <span class="rule-id">${rule.id}</span>
-                    </div>
-                    ${rule.text && html`<div class="rule-text" dangerouslySetInnerHTML=${{ __html: renderRuleText(rule.text) }} />`}
-                  </td>
-                  <td class="rule-refs" onClick=${(e) => e.stopPropagation()}>
-                    ${rule.implRefs.length > 0 || rule.verifyRefs.length > 0
-                      ? html`
-                          ${rule.implRefs.map(r => html`
-                            <${FileRef}
-                              key=${'impl:' + r.file + ':' + r.line}
-                              file=${r.file}
-                              line=${r.line}
-                              type="impl"
-                              onSelectFile=${onSelectFile}
-                            />
-                          `)}
-                          ${rule.verifyRefs.map(r => html`
-                            <${FileRef}
-                              key=${'verify:' + r.file + ':' + r.line}
-                              file=${r.file}
-                              line=${r.line}
-                              type="verify"
-                              onSelectFile=${onSelectFile}
-                            />
-                          `)}
-                        `
-                      : html`<span style="color: var(--fg-dim)">—</span>`
-                    }
-                  </td>
-                </tr>
-              `)}
+              ${filteredRules.map(
+                (rule) => html`
+                  <tr
+                    key=${rule.id}
+                    onClick=${() => onSelectRule(rule.id)}
+                    style="cursor: pointer;"
+                  >
+                    <td>
+                      <div class="rule-id-row">
+                        ${mdIcon}
+                        <span class="rule-id">${rule.id}</span>
+                      </div>
+                      ${rule.text &&
+                      html`<div
+                        class="rule-text"
+                        dangerouslySetInnerHTML=${{ __html: renderRuleText(rule.text) }}
+                      />`}
+                    </td>
+                    <td class="rule-refs" onClick=${(e) => e.stopPropagation()}>
+                      ${rule.implRefs.length > 0 || rule.verifyRefs.length > 0
+                        ? html`
+                            ${rule.implRefs.map(
+                              (r) => html`
+                                <${FileRef}
+                                  key=${`impl:${r.file}:${r.line}`}
+                                  file=${r.file}
+                                  line=${r.line}
+                                  type="impl"
+                                  onSelectFile=${onSelectFile}
+                                />
+                              `,
+                            )}
+                            ${rule.verifyRefs.map(
+                              (r) => html`
+                                <${FileRef}
+                                  key=${`verify:${r.file}:${r.line}`}
+                                  file=${r.file}
+                                  line=${r.line}
+                                  type="verify"
+                                  onSelectFile=${onSelectFile}
+                                />
+                              `,
+                            )}
+                          `
+                        : html`<span style="color: var(--fg-dim)">—</span>`}
+                    </td>
+                  </tr>
+                `,
+              )}
             </tbody>
           </table>
         </div>
@@ -1082,7 +1373,18 @@ function CoverageView({ data, config, search, onSearchChange, level, onLevelChan
   `;
 }
 
-function SourcesView({ data, forward, config, search, selectedFile, selectedLine, ruleContext, onSelectFile, onSelectRule, onClearContext }: SourcesViewProps) {
+function SourcesView({
+  data,
+  forward,
+  config,
+  search,
+  selectedFile,
+  selectedLine,
+  ruleContext,
+  onSelectFile,
+  onSelectRule,
+  onClearContext,
+}: SourcesViewProps) {
   const fileTree = useMemo(() => buildFileTree(data.files), [data.files]);
   const file = useFile(selectedFile);
 
@@ -1090,7 +1392,7 @@ function SourcesView({ data, forward, config, search, selectedFile, selectedLine
   const contextRule = useMemo(() => {
     if (!ruleContext || !forward) return null;
     for (const spec of forward.specs) {
-      const rule = spec.rules.find(r => r.id === ruleContext);
+      const rule = spec.rules.find((r) => r.id === ruleContext);
       if (rule) return rule;
     }
     return null;
@@ -1103,13 +1405,34 @@ function SourcesView({ data, forward, config, search, selectedFile, selectedLine
   };
 
   // Check if a ref matches the current file:line
-  const isActiveRef = useCallback((ref) => {
-    return ref.file === selectedFile && ref.line === selectedLine;
-  }, [selectedFile, selectedLine]);
+  const isActiveRef = useCallback(
+    (ref) => {
+      return ref.file === selectedFile && ref.line === selectedLine;
+    },
+    [selectedFile, selectedLine],
+  );
 
   // Icons
-  const closeIcon = html`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>`;
-  const backIcon = html`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>`;
+  const closeIcon = html`<svg
+    width="14"
+    height="14"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+  >
+    <path d="M18 6L6 18M6 6l12 12" />
+  </svg>`;
+  const backIcon = html`<svg
+    width="14"
+    height="14"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+  >
+    <path d="M19 12H5M12 19l-7-7 7-7" />
+  </svg>`;
 
   return html`
     <div class="stats-bar">
@@ -1127,84 +1450,108 @@ function SourcesView({ data, forward, config, search, selectedFile, selectedLine
       </div>
       <div class="stat">
         <span class="stat-label">Uncovered</span>
-        <span class="stat-value ${stats.total - stats.covered > 0 ? 'bad' : 'good'}">${stats.total - stats.covered}</span>
+        <span class="stat-value ${stats.total - stats.covered > 0 ? "bad" : "good"}"
+          >${stats.total - stats.covered}</span
+        >
       </div>
     </div>
     <div class="main">
       <div class="sidebar">
-        ${contextRule ? html`
-          <!-- Rule context panel -->
-          <div class="rule-context">
-            <div class="rule-context-header">
-              <span class="rule-context-id">${contextRule.id}</span>
-              <button class="rule-context-close" onClick=${onClearContext} title="Close context">
-                ${closeIcon}
-              </button>
-            </div>
-            <div class="rule-context-body">
-              ${contextRule.text && html`
-                <div class="rule-context-text">${contextRule.text}</div>
-              `}
-              <div class="rule-context-refs">
-                ${contextRule.implRefs.map(ref => html`
-                  <div
-                    key=${'impl:' + ref.file + ':' + ref.line}
-                    class="rule-context-ref ${isActiveRef(ref) ? 'active' : ''}"
-                    onClick=${() => onSelectFile(ref.file, ref.line, ruleContext)}
-                    title=${ref.file}
+        ${contextRule
+          ? html`
+              <!-- Rule context panel -->
+              <div class="rule-context">
+                <div class="rule-context-header">
+                  <span class="rule-context-id">${contextRule.id}</span>
+                  <button
+                    class="rule-context-close"
+                    onClick=${onClearContext}
+                    title="Close context"
                   >
-                    <${FilePath} file=${ref.file} line=${ref.line} short type="impl" />
+                    ${closeIcon}
+                  </button>
+                </div>
+                <div class="rule-context-body">
+                  ${contextRule.text &&
+                  html` <div class="rule-context-text">${contextRule.text}</div> `}
+                  <div class="rule-context-refs">
+                    ${contextRule.implRefs.map(
+                      (ref) => html`
+                        <div
+                          key=${`impl:${ref.file}:${ref.line}`}
+                          class="rule-context-ref ${isActiveRef(ref) ? "active" : ""}"
+                          onClick=${() => onSelectFile(ref.file, ref.line, ruleContext)}
+                          title=${ref.file}
+                        >
+                          <${FilePath} file=${ref.file} line=${ref.line} short type="impl" />
+                        </div>
+                      `,
+                    )}
+                    ${contextRule.verifyRefs.map(
+                      (ref) => html`
+                        <div
+                          key=${`verify:${ref.file}:${ref.line}`}
+                          class="rule-context-ref ${isActiveRef(ref) ? "active" : ""}"
+                          onClick=${() => onSelectFile(ref.file, ref.line, ruleContext)}
+                          title=${ref.file}
+                        >
+                          <${FilePath} file=${ref.file} line=${ref.line} short type="verify" />
+                        </div>
+                      `,
+                    )}
                   </div>
-                `)}
-                ${contextRule.verifyRefs.map(ref => html`
-                  <div
-                    key=${'verify:' + ref.file + ':' + ref.line}
-                    class="rule-context-ref ${isActiveRef(ref) ? 'active' : ''}"
-                    onClick=${() => onSelectFile(ref.file, ref.line, ruleContext)}
-                    title=${ref.file}
-                  >
-                    <${FilePath} file=${ref.file} line=${ref.line} short type="verify" />
-                  </div>
-                `)}
+                  <a class="rule-context-back" onClick=${() => onSelectRule(ruleContext)}>
+                    ${backIcon}
+                    <span>Back to rule in spec</span>
+                  </a>
+                </div>
               </div>
-              <a class="rule-context-back" onClick=${() => onSelectRule(ruleContext)}>
-                ${backIcon}
-                <span>Back to rule in spec</span>
-              </a>
-            </div>
-          </div>
-        ` : html`
-          <!-- Normal file tree -->
-          <div class="sidebar-header">Files</div>
-          <div class="sidebar-content">
-            <${FileTree}
-              node=${fileTree}
-              selectedFile=${selectedFile}
-              onSelectFile=${onSelectFile}
-              search=${search}
-            />
-          </div>
-        `}
+            `
+          : html`
+              <!-- Normal file tree -->
+              <div class="sidebar-header">Files</div>
+              <div class="sidebar-content">
+                <${FileTree}
+                  node=${fileTree}
+                  selectedFile=${selectedFile}
+                  onSelectFile=${onSelectFile}
+                  search=${search}
+                />
+              </div>
+            `}
       </div>
       <div class="content">
-        ${file ? html`
-          <div class="content-header">${file.path}</div>
-          <div class="content-body">
-            <${CodeView} file=${file} config=${config} selectedLine=${selectedLine} onSelectRule=${onSelectRule} />
-          </div>
-        ` : html`
-          <div class="empty-state">Select a file to view coverage</div>
-        `}
+        ${file
+          ? html`
+              <div class="content-header">${file.path}</div>
+              <div class="content-body">
+                <${CodeView}
+                  file=${file}
+                  config=${config}
+                  selectedLine=${selectedLine}
+                  onSelectRule=${onSelectRule}
+                />
+              </div>
+            `
+          : html` <div class="empty-state">Select a file to view coverage</div> `}
       </div>
     </div>
   `;
 }
 
-function FileTree({ node, selectedFile, onSelectFile, depth = 0, search, parentPath = '' }: FileTreeProps) {
+function FileTree({
+  node,
+  selectedFile,
+  onSelectFile,
+  depth = 0,
+  search,
+  parentPath = "",
+}: FileTreeProps) {
   // Check if selected file is in this subtree
   const currentPath = parentPath ? `${parentPath}/${node.name}` : node.name;
-  const containsSelectedFile = selectedFile && selectedFile.startsWith(currentPath + '/');
-  const hasSelectedFile = selectedFile && (containsSelectedFile || node.files.some(f => f.path === selectedFile));
+  const containsSelectedFile = selectedFile?.startsWith(currentPath + "/");
+  const hasSelectedFile =
+    selectedFile && (containsSelectedFile || node.files.some((f) => f.path === selectedFile));
 
   const [open, setOpen] = useState(depth < 2 || hasSelectedFile);
 
@@ -1227,67 +1574,88 @@ function FileTree({ node, selectedFile, onSelectFile, depth = 0, search, parentP
   if (depth === 0) {
     return html`
       <div class="file-tree">
-        ${folders.map(f => html`
-          <${FileTree}
-            key=${f.name}
-            node=${f}
-            selectedFile=${selectedFile}
-            onSelectFile=${onSelectFile}
-            depth=${depth + 1}
-            search=${search}
-            parentPath=""
-          />
-        `)}
-        ${files.filter(f => matchesSearch(f.path)).map(f => html`
-          <${FileTreeFile}
-            key=${f.path}
-            file=${f}
-            selected=${selectedFile === f.path}
-            onClick=${() => onSelectFile(f.path)}
-          />
-        `)}
+        ${folders.map(
+          (f) => html`
+            <${FileTree}
+              key=${f.name}
+              node=${f}
+              selectedFile=${selectedFile}
+              onSelectFile=${onSelectFile}
+              depth=${depth + 1}
+              search=${search}
+              parentPath=""
+            />
+          `,
+        )}
+        ${files
+          .filter((f) => matchesSearch(f.path))
+          .map(
+            (f) => html`
+              <${FileTreeFile}
+                key=${f.path}
+                file=${f}
+                selected=${selectedFile === f.path}
+                onClick=${() => onSelectFile(f.path)}
+              />
+            `,
+          )}
       </div>
     `;
   }
 
-  const hasMatchingFiles = files.some(f => matchesSearch(f.path)) ||
-    folders.some(f => Object.values(f.children).length > 0 || f.files.some(ff => matchesSearch(ff.path)));
+  const hasMatchingFiles =
+    files.some((f) => matchesSearch(f.path)) ||
+    folders.some(
+      (f) => Object.values(f.children).length > 0 || f.files.some((ff) => matchesSearch(ff.path)),
+    );
 
   if (search && !hasMatchingFiles) return null;
 
   const folderBadge = getCoverageBadge(node.coveredUnits, node.totalUnits);
 
   return html`
-    <div class="tree-folder ${open ? 'open' : ''}">
+    <div class="tree-folder ${open ? "open" : ""}">
       <div class="tree-folder-header" onClick=${() => setOpen(!open)}>
         <div class="tree-folder-left">
-          <svg class="tree-folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M9 18l6-6-6-6"/>
+          <svg
+            class="tree-folder-icon"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <path d="M9 18l6-6-6-6" />
           </svg>
           <span>${node.name}</span>
         </div>
         <span class="folder-badge ${folderBadge.class}">${folderBadge.text}</span>
       </div>
       <div class="tree-folder-children">
-        ${folders.map(f => html`
-          <${FileTree}
-            key=${f.name}
-            node=${f}
-            selectedFile=${selectedFile}
-            onSelectFile=${onSelectFile}
-            depth=${depth + 1}
-            search=${search}
-            parentPath=${currentPath}
-          />
-        `)}
-        ${files.filter(f => matchesSearch(f.path)).map(f => html`
-          <${FileTreeFile}
-            key=${f.path}
-            file=${f}
-            selected=${selectedFile === f.path}
-            onClick=${() => onSelectFile(f.path)}
-          />
-        `)}
+        ${folders.map(
+          (f) => html`
+            <${FileTree}
+              key=${f.name}
+              node=${f}
+              selectedFile=${selectedFile}
+              onSelectFile=${onSelectFile}
+              depth=${depth + 1}
+              search=${search}
+              parentPath=${currentPath}
+            />
+          `,
+        )}
+        ${files
+          .filter((f) => matchesSearch(f.path))
+          .map(
+            (f) => html`
+              <${FileTreeFile}
+                key=${f.path}
+                file=${f}
+                selected=${selectedFile === f.path}
+                onClick=${() => onSelectFile(f.path)}
+              />
+            `,
+          )}
       </div>
     </div>
   `;
@@ -1297,10 +1665,7 @@ function FileTreeFile({ file, selected, onClick }: FileTreeFileProps) {
   const badge = getCoverageBadge(file.coveredUnits, file.totalUnits);
 
   return html`
-    <div
-      class="tree-file ${selected ? 'selected' : ''}"
-      onClick=${onClick}
-    >
+    <div class="tree-file ${selected ? "selected" : ""}" onClick=${onClick}>
       <${LangIcon} filePath=${file.name} className="tree-file-icon" />
       <span class="tree-file-name">${file.name}</span>
       <span class="tree-file-badge ${badge.class}">${badge.text}</span>
@@ -1309,7 +1674,7 @@ function FileTreeFile({ file, selected, onClick }: FileTreeFileProps) {
 }
 
 function CodeView({ file, config, selectedLine, onSelectRule }: CodeViewProps) {
-  const rawLines = file.content.split('\n');
+  const rawLines = file.content.split("\n");
   // Use server-side highlighted HTML, splitting into lines with balanced tags
   const highlightedLines = useMemo(() => {
     if (!file.html) return null;
@@ -1341,9 +1706,9 @@ function CodeView({ file, config, selectedLine, onSelectRule }: CodeViewProps) {
   }, [file]);
 
   // Use highlighted lines if available, otherwise show raw (escaped)
-  const displayLines = highlightedLines || rawLines.map(line =>
-    line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  );
+  const displayLines =
+    highlightedLines ||
+    rawLines.map((line) => line.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"));
 
   // Full path for editor URLs
   const fullPath = config?.projectRoot ? `${config.projectRoot}/${file.path}` : file.path;
@@ -1355,12 +1720,12 @@ function CodeView({ file, config, selectedLine, onSelectRule }: CodeViewProps) {
       requestAnimationFrame(() => {
         const lineElement = codeViewRef.current?.querySelector(`[data-line="${selectedLine}"]`);
         if (lineElement) {
-          const container = codeViewRef.current.closest('.content-body');
+          const container = codeViewRef.current.closest(".content-body");
           if (container) {
             // Calculate position to leave ~5 lines above, plus extra for headers
             const lineHeight = lineElement.offsetHeight;
             const headerOffset = 120; // header + stats bar
-            const targetScrollTop = lineElement.offsetTop - (lineHeight * 5) - headerOffset;
+            const targetScrollTop = lineElement.offsetTop - lineHeight * 5 - headerOffset;
             container.scrollTo({ top: Math.max(0, targetScrollTop) });
           }
           // Highlight the line (permanent until navigation changes)
@@ -1373,12 +1738,12 @@ function CodeView({ file, config, selectedLine, onSelectRule }: CodeViewProps) {
   // Close popover when clicking outside
   useEffect(() => {
     const handleClick = (e) => {
-      if (!e.target.closest('.line-popover') && !e.target.closest('.line-number')) {
+      if (!e.target.closest(".line-popover") && !e.target.closest(".line-number")) {
         setPopoverLine(null);
       }
     };
-    document.addEventListener('click', handleClick);
-    return () => document.removeEventListener('click', handleClick);
+    document.addEventListener("click", handleClick);
+    return () => document.removeEventListener("click", handleClick);
   }, []);
 
   return html`
@@ -1394,48 +1759,62 @@ function CodeView({ file, config, selectedLine, onSelectRule }: CodeViewProps) {
           <div
             key=${lineNum}
             data-line=${lineNum}
-            class="code-line ${inUnit ? (covered ? 'covered' : 'uncovered') : ''} ${isHighlighted ? 'highlighted' : ''}"
+            class="code-line ${inUnit ? (covered ? "covered" : "uncovered") : ""} ${isHighlighted
+              ? "highlighted"
+              : ""}"
           >
             <span
               class="line-number"
-              onClick=${(e) => { e.stopPropagation(); setPopoverLine(popoverLine === lineNum ? null : lineNum); }}
+              onClick=${(e) => {
+                e.stopPropagation();
+                setPopoverLine(popoverLine === lineNum ? null : lineNum);
+              }}
             >
               ${lineNum}
-              ${popoverLine === lineNum && html`
+              ${popoverLine === lineNum &&
+              html`
                 <div class="line-popover">
-                  ${Object.entries(EDITORS).map(([key, cfg]) => html`
-                    <a
-                      key=${key}
-                      href=${cfg.urlTemplate(fullPath, lineNum)}
-                      class="popover-btn"
-                      title="Open in ${cfg.name}"
-                    >
-                      ${cfg.devicon
-                        ? html`<i class="${cfg.devicon}"></i>`
-                        : html`<span dangerouslySetInnerHTML=${{ __html: cfg.icon }}></span>`
-                      }
-                      <span>${cfg.name}</span>
-                    </a>
-                  `)}
+                  ${Object.entries(EDITORS).map(
+                    ([key, cfg]) => html`
+                      <a
+                        key=${key}
+                        href=${cfg.urlTemplate(fullPath, lineNum)}
+                        class="popover-btn"
+                        title="Open in ${cfg.name}"
+                      >
+                        ${cfg.devicon
+                          ? html`<i class="${cfg.devicon}"></i>`
+                          : html`<span dangerouslySetInnerHTML=${{ __html: cfg.icon }}></span>`}
+                        <span>${cfg.name}</span>
+                      </a>
+                    `,
+                  )}
                 </div>
               `}
             </span>
-            <span
-              class="line-content"
-              dangerouslySetInnerHTML=${{ __html: lineHtml || ' ' }}
-            />
-            ${anno && anno.ruleRefs.size > 0 && html`
+            <span class="line-content" dangerouslySetInnerHTML=${{ __html: lineHtml || " " }} />
+            ${anno &&
+            anno.ruleRefs.size > 0 &&
+            html`
               <span class="line-annotations">
-                <span class="annotation-count" title=${[...anno.ruleRefs].join(', ')}>${anno.ruleRefs.size}</span>
+                <span class="annotation-count" title=${[...anno.ruleRefs].join(", ")}
+                  >${anno.ruleRefs.size}</span
+                >
                 <span class="annotation-badges">
-                  ${[...anno.ruleRefs].map(ref => html`
-                    <a
-                      key=${ref}
-                      class="annotation-badge"
-                      href=${buildUrl('spec', { rule: ref })}
-                      onClick=${(e) => { e.preventDefault(); onSelectRule(ref); }}
-                    >${ref}</a>
-                  `)}
+                  ${[...anno.ruleRefs].map(
+                    (ref) => html`
+                      <a
+                        key=${ref}
+                        class="annotation-badge"
+                        href=${buildUrl("spec", { rule: ref })}
+                        onClick=${(e) => {
+                          e.preventDefault();
+                          onSelectRule(ref);
+                        }}
+                        >${ref}</a
+                      >
+                    `,
+                  )}
                 </span>
               </span>
             `}
@@ -1446,42 +1825,41 @@ function CodeView({ file, config, selectedLine, onSelectRule }: CodeViewProps) {
   `;
 }
 
-function SpecView({ config, forward, selectedRule, selectedHeading, onSelectRule, onSelectFile, scrollPosition, onScrollChange }: SpecViewProps) {
+function SpecView({
+  config,
+  selectedRule,
+  selectedHeading,
+  onSelectRule,
+  onSelectFile,
+  scrollPosition,
+  onScrollChange,
+}: SpecViewProps) {
   const spec = useSpec(config.specs[0]?.name);
   const [activeHeading, setActiveHeading] = useState(null);
-  const [headings, setHeadings] = useState<{level: number, text: string, slug: string}[]>([]);
   const contentRef = useRef(null);
   const contentBodyRef = useRef(null);
   const initialScrollPosition = useRef(scrollPosition);
   const lastScrolledHeading = useRef<string | null>(null);
 
+  // Use outline from API (already has coverage info)
+  const outline = spec?.outline || [];
+
   // Concatenate all sections' HTML (sections are pre-sorted by weight on server)
   const processedContent = useMemo(() => {
-    if (!spec?.sections) return '';
-    return spec.sections.map(s => s.html).join('\n');
+    if (!spec?.sections) return "";
+    return spec.sections.map((s) => s.html).join("\n");
   }, [spec?.sections]);
-
-  // Extract headings from rendered HTML after it's in the DOM
-  useEffect(() => {
-    if (!contentRef.current || !processedContent) return;
-
-    const headingElements = contentRef.current.querySelectorAll('h1[id], h2[id], h3[id], h4[id]');
-    const extracted = Array.from(headingElements).map((el: HTMLElement) => ({
-      level: parseInt(el.tagName[1]),
-      text: el.textContent || '',
-      slug: el.id
-    }));
-    setHeadings(extracted);
-  }, [processedContent]);
 
   // Set up scroll-based heading tracking
   useEffect(() => {
-    if (!contentRef.current || !contentBodyRef.current || headings.length === 0) return;
+    if (!contentRef.current || !contentBodyRef.current || outline.length === 0) return;
 
     const contentBody = contentBodyRef.current;
 
     const updateActiveHeading = () => {
-      const headingElements = contentRef.current?.querySelectorAll('h1[id], h2[id], h3[id], h4[id]');
+      const headingElements = contentRef.current?.querySelectorAll(
+        "h1[id], h2[id], h3[id], h4[id]",
+      );
       if (!headingElements || headingElements.length === 0) return;
 
       // Find the heading closest to the top of the viewport (but not past it)
@@ -1517,13 +1895,15 @@ function SpecView({ config, forward, selectedRule, selectedHeading, onSelectRule
     const timeoutId = setTimeout(updateActiveHeading, 100);
 
     // Update on scroll
-    contentBody.addEventListener('scroll', updateActiveHeading, { passive: true });
+    contentBody.addEventListener("scroll", updateActiveHeading, {
+      passive: true,
+    });
 
     return () => {
       clearTimeout(timeoutId);
-      contentBody.removeEventListener('scroll', updateActiveHeading);
+      contentBody.removeEventListener("scroll", updateActiveHeading);
     };
-  }, [processedContent, headings]);
+  }, [processedContent, outline]);
 
   // Track scroll position changes
   useEffect(() => {
@@ -1535,20 +1915,24 @@ function SpecView({ config, forward, selectedRule, selectedHeading, onSelectRule
       }
     };
 
-    contentBodyRef.current.addEventListener('scroll', handleScroll, { passive: true });
-    return () => contentBodyRef.current?.removeEventListener('scroll', handleScroll);
+    contentBodyRef.current.addEventListener("scroll", handleScroll, {
+      passive: true,
+    });
+    return () => contentBodyRef.current?.removeEventListener("scroll", handleScroll);
   }, [onScrollChange]);
 
   // Initialize Lucide icons after content renders
   useEffect(() => {
-    if (processedContent && contentRef.current && typeof lucide !== 'undefined') {
+    if (processedContent && contentRef.current && typeof lucide !== "undefined") {
       requestAnimationFrame(() => {
-        lucide.createIcons({ nodes: contentRef.current.querySelectorAll('[data-lucide]') });
+        lucide.createIcons({
+          nodes: contentRef.current.querySelectorAll("[data-lucide]"),
+        });
       });
     }
   }, [processedContent]);
 
-  const scrollToHeading = useCallback((slug) => {
+  const scrollToHeading = useCallback((slug: string) => {
     if (!contentRef.current || !contentBodyRef.current) return;
     const el = contentRef.current.querySelector(`[id="${slug}"]`);
     if (el) {
@@ -1564,19 +1948,19 @@ function SpecView({ config, forward, selectedRule, selectedHeading, onSelectRule
 
     const handleClick = (e) => {
       // Handle heading clicks (copy URL)
-      const heading = e.target.closest('h1[id], h2[id], h3[id], h4[id]');
+      const heading = e.target.closest("h1[id], h2[id], h3[id], h4[id]");
       if (heading) {
         const slug = heading.id;
         const url = `${window.location.origin}${window.location.pathname}#${slug}`;
         navigator.clipboard?.writeText(url);
         // Also navigate to the heading
-        history.pushState(null, '', `#${slug}`);
-        window.dispatchEvent(new HashChangeEvent('hashchange'));
+        history.pushState(null, "", `#${slug}`);
+        window.dispatchEvent(new HashChangeEvent("hashchange"));
         return;
       }
 
       // Handle rule marker clicks
-      const ruleMarker = e.target.closest('a.rule-marker[data-rule]');
+      const ruleMarker = e.target.closest("a.rule-marker[data-rule]");
       if (ruleMarker) {
         e.preventDefault();
         const ruleId = ruleMarker.dataset.rule;
@@ -1585,12 +1969,14 @@ function SpecView({ config, forward, selectedRule, selectedHeading, onSelectRule
       }
 
       // Handle rule-id badge clicks - open spec source in editor
-      const ruleBadge = e.target.closest('a.rule-badge.rule-id[data-source-file][data-source-line]');
+      const ruleBadge = e.target.closest(
+        "a.rule-badge.rule-id[data-source-file][data-source-line]",
+      );
       if (ruleBadge) {
         e.preventDefault();
         const sourceFile = ruleBadge.dataset.sourceFile;
         const sourceLine = parseInt(ruleBadge.dataset.sourceLine, 10);
-        if (sourceFile && !isNaN(sourceLine)) {
+        if (sourceFile && !Number.isNaN(sourceLine)) {
           const fullPath = config.projectRoot ? `${config.projectRoot}/${sourceFile}` : sourceFile;
           // Open in Zed (default editor)
           window.location.href = EDITORS.zed.urlTemplate(fullPath, sourceLine);
@@ -1599,23 +1985,23 @@ function SpecView({ config, forward, selectedRule, selectedHeading, onSelectRule
       }
 
       // Handle spec ref clicks - pass rule context
-      const specRef = e.target.closest('a.spec-ref');
+      const specRef = e.target.closest("a.spec-ref");
       if (specRef) {
         e.preventDefault();
         const file = specRef.dataset.file;
         const line = parseInt(specRef.dataset.line, 10);
         // Find the rule ID from the parent rule-block
-        const ruleBlock = specRef.closest('.rule-block');
-        const ruleMarker = ruleBlock?.querySelector('a.rule-marker[data-rule]');
+        const ruleBlock = specRef.closest(".rule-block");
+        const ruleMarker = ruleBlock?.querySelector("a.rule-marker[data-rule]");
         const ruleContext = ruleMarker?.dataset.rule || null;
         onSelectFile(file, line, ruleContext);
         return;
       }
 
       // Handle other anchor links (internal navigation)
-      const anchor = e.target.closest('a[href]');
+      const anchor = e.target.closest("a[href]");
       if (anchor) {
-        const href = anchor.getAttribute('href');
+        const href = anchor.getAttribute("href");
         if (!href) return;
 
         // Check if it's an internal link (same origin)
@@ -1623,8 +2009,8 @@ function SpecView({ config, forward, selectedRule, selectedHeading, onSelectRule
           const url = new URL(href, window.location.href);
           if (url.origin === window.location.origin) {
             e.preventDefault();
-            history.pushState(null, '', url.pathname + url.search + url.hash);
-            window.dispatchEvent(new PopStateEvent('popstate'));
+            history.pushState(null, "", url.pathname + url.search + url.hash);
+            window.dispatchEvent(new PopStateEvent("popstate"));
             return;
           }
         } catch {
@@ -1633,8 +2019,8 @@ function SpecView({ config, forward, selectedRule, selectedHeading, onSelectRule
       }
     };
 
-    contentRef.current.addEventListener('click', handleClick);
-    return () => contentRef.current?.removeEventListener('click', handleClick);
+    contentRef.current.addEventListener("click", handleClick);
+    return () => contentRef.current?.removeEventListener("click", handleClick);
   }, [processedContent, onSelectRule, onSelectFile, config]);
 
   // Scroll to selected rule or heading, or restore scroll position
@@ -1658,14 +2044,16 @@ function SpecView({ config, forward, selectedRule, selectedHeading, onSelectRule
             const ruleRect = ruleEl.getBoundingClientRect();
             const currentScroll = contentBodyRef.current.scrollTop;
             const targetScrollTop = currentScroll + (ruleRect.top - containerRect.top) - 150;
-            contentBodyRef.current.scrollTo({ top: Math.max(0, targetScrollTop) });
+            contentBodyRef.current.scrollTo({
+              top: Math.max(0, targetScrollTop),
+            });
 
             // Add highlight class
-            ruleEl.classList.add('rule-marker-highlighted');
+            ruleEl.classList.add("rule-marker-highlighted");
 
             // Remove highlight after animation
             setTimeout(() => {
-              ruleEl.classList.remove('rule-marker-highlighted');
+              ruleEl.classList.remove("rule-marker-highlighted");
             }, 3000);
           }
         } else if (selectedHeading && selectedHeading !== lastScrolledHeading.current) {
@@ -1674,18 +2062,24 @@ function SpecView({ config, forward, selectedRule, selectedHeading, onSelectRule
           const headingEl = contentRef.current.querySelector(`[id="${selectedHeading}"]`);
           if (headingEl) {
             const targetScrollTop = headingEl.offsetTop - 100;
-            contentBodyRef.current.scrollTo({ top: Math.max(0, targetScrollTop) });
+            contentBodyRef.current.scrollTo({
+              top: Math.max(0, targetScrollTop),
+            });
             setActiveHeading(selectedHeading);
           }
         } else if (initialScrollPosition.current > 0) {
           // Restore previous scroll position (only on initial mount)
-          contentBodyRef.current.scrollTo({ top: initialScrollPosition.current });
+          contentBodyRef.current.scrollTo({
+            top: initialScrollPosition.current,
+          });
           initialScrollPosition.current = 0; // Clear so we don't restore again
         }
       });
     });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [selectedRule, selectedHeading, processedContent]);
 
   if (!spec) {
@@ -1702,21 +2096,40 @@ function SpecView({ config, forward, selectedRule, selectedHeading, onSelectRule
         <div class="sidebar-header">Outline</div>
         <div class="sidebar-content">
           <div class="outline-tree">
-            ${headings.map(h => html`
-              <div
-                key=${h.slug}
-                class="outline-item outline-level-${h.level} ${activeHeading === h.slug ? 'active' : ''}"
-                onClick=${() => scrollToHeading(h.slug)}
-              >
-                ${h.text}
-              </div>
-            `)}
+            ${outline.map(
+              (h) => html`
+                <div
+                  key=${h.slug}
+                  class="outline-item outline-level-${h.level} ${activeHeading === h.slug
+                    ? "active"
+                    : ""}"
+                  onClick=${() => scrollToHeading(h.slug)}
+                >
+                  <span class="outline-title">${h.title}</span>
+                  ${h.aggregated.total > 0 &&
+                  html`
+                    <span class="outline-indicators">
+                      <${CoverageArc}
+                        fraction=${h.aggregated.implCount / h.aggregated.total}
+                        color="var(--green)"
+                        title="Implementation: ${h.aggregated.implCount}/${h.aggregated.total}"
+                      />
+                      <${CoverageArc}
+                        fraction=${h.aggregated.verifyCount / h.aggregated.total}
+                        color="var(--blue)"
+                        title="Tests: ${h.aggregated.verifyCount}/${h.aggregated.total}"
+                      />
+                    </span>
+                  `}
+                </div>
+              `,
+            )}
           </div>
         </div>
       </div>
       <div class="content">
         <div class="content-header">
-          ${spec.name}${spec.sections.length > 1 ? ` (${spec.sections.length} files)` : ''}
+          ${spec.name}${spec.sections.length > 1 ? ` (${spec.sections.length} files)` : ""}
         </div>
         <div class="content-body" ref=${contentBodyRef}>
           <div
@@ -1734,12 +2147,12 @@ function SpecView({ config, forward, selectedRule, selectedHeading, onSelectRule
 // Mount
 // ========================================================================
 
-render(html`<${App} />`, document.getElementById('app'));
+render(html`<${App} />`, document.getElementById("app"));
 
 // Global keyboard shortcuts
-document.addEventListener('keydown', (e) => {
-  if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+document.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "k") {
     e.preventDefault();
-    (document.querySelector('.search-input') as HTMLElement | null)?.focus();
+    (document.querySelector(".search-input") as HTMLElement | null)?.focus();
   }
 });

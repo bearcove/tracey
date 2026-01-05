@@ -1,21 +1,21 @@
 // Route types
-export type ViewType = 'sources' | 'spec' | 'coverage';
+export type ViewType = "sources" | "spec" | "coverage";
 
 export interface SourcesRoute {
-  view: 'sources';
+  view: "sources";
   file: string | null;
   line: number | null;
   context: string | null;
 }
 
 export interface SpecRoute {
-  view: 'spec';
+  view: "spec";
   rule: string | null;
   heading: string | null;
 }
 
 export interface CoverageRoute {
-  view: 'coverage';
+  view: "coverage";
   filter: string | null;
   level: string | null;
 }
@@ -84,21 +84,34 @@ export interface CodeUnit {
   ruleRefs: string[];
 }
 
-
-
 export interface SpecSection {
   sourceFile: string;
   html: string;
 }
 
+export interface OutlineCoverage {
+  implCount: number;
+  verifyCount: number;
+  total: number;
+}
+
+export interface OutlineEntry {
+  title: string;
+  slug: string;
+  level: number;
+  coverage: OutlineCoverage;
+  aggregated: OutlineCoverage;
+}
+
 export interface SpecContent {
   name: string;
   sections: SpecSection[];
+  outline: OutlineEntry[];
 }
 
 // Search types
 export interface SearchResult {
-  kind: 'source' | 'rule';
+  kind: "source" | "rule";
   id: string;
   line: number;
   content: string;
@@ -184,7 +197,7 @@ export interface FilePathProps {
   file: string;
   line?: number | null;
   short?: boolean;
-  type?: 'impl' | 'verify' | 'source';
+  type?: "impl" | "verify" | "source";
   onClick?: () => void;
   className?: string;
 }
@@ -246,6 +259,6 @@ export interface CodeViewProps {
 export interface FileRefProps {
   file: string;
   line: number;
-  type: 'impl' | 'verify';
+  type: "impl" | "verify";
   onSelectFile: (path: string, line?: number | null) => void;
 }

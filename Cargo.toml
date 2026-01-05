@@ -82,7 +82,7 @@ notify-debouncer-mini = "0.7"
 tantivy = "0.22"
 
 # Markdown processing (with syntax highlighting and diagram handlers)
-bearmark = { git = "https://github.com/bearcove/dodeca", branch = "main", features = ["highlight", "aasvg", "pikru"] }
+bearmark = { path = "../dodeca/crates/bearmark", features = ["highlight", "aasvg", "pikru"] }
 
 # The profile that 'dist' will build with
 [profile.dist]
