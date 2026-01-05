@@ -1076,6 +1076,42 @@ a.rule-marker:hover {
     color: var(--accent);
 }
 
+/* References popup (for badges with +N) */
+.refs-popup {
+    position: fixed;
+    z-index: 10000;
+}
+
+.refs-popup-inner {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 0.375rem;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    overflow: hidden;
+    min-width: 200px;
+    max-width: 400px;
+}
+
+.refs-popup-item {
+    padding: 0.5rem 0.75rem;
+    cursor: pointer;
+    transition: background 0.15s;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.85rem;
+}
+
+.refs-popup-item:hover {
+    background: var(--hover);
+}
+
+.refs-popup-item + .refs-popup-item {
+    border-top: 1px solid var(--border);
+}
+
+.refs-popup-file {
+    color: var(--fg);
+}
+
 /* Empty state */
 .empty-state {
     display: flex;

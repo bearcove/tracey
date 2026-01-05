@@ -1918,6 +1918,58 @@ function OutlineTree({ nodes, activeHeading, onSelectHeading, depth = 0 }: Outli
   `;
 }
 
+// Show a popup with all references when clicking a badge with +N
+function showRefsPopup(e, refs, badgeElement, onSelectFile) {
+  // Remove any existing popup
+  const existing = document.querySelector(".refs-popup");
+  if (existing) existing.remove();
+
+  // Create popup
+  const popup = document.createElement("div");
+  popup.className = "refs-popup";
+
+  // Position near the clicked badge
+  const rect = badgeElement.getBoundingClientRect();
+  popup.style.position = "fixed";
+  popup.style.top = `${rect.bottom + 8}px`;
+  popup.style.left = `${rect.left}px`;
+  popup.style.zIndex = "10000";
+
+  // Build popup content
+  const items = refs
+    .map((ref) => {
+      const filename = ref.file.split("/").pop();
+      return `<div class="refs-popup-item" data-file="${ref.file}" data-line="${ref.line}">
+        <span class="refs-popup-file">${filename}:${ref.line}</span>
+      </div>`;
+    })
+    .join("");
+
+  popup.innerHTML = `<div class="refs-popup-inner">${items}</div>`;
+
+  // Add click handlers
+  popup.addEventListener("click", (e) => {
+    const item = e.target.closest(".refs-popup-item");
+    if (item) {
+      const file = item.dataset.file;
+      const line = parseInt(item.dataset.line, 10);
+      onSelectFile(file, line);
+      popup.remove();
+    }
+  });
+
+  // Close on outside click
+  const closeHandler = (e) => {
+    if (!popup.contains(e.target) && !badgeElement.contains(e.target)) {
+      popup.remove();
+      document.removeEventListener("click", closeHandler);
+    }
+  };
+  setTimeout(() => document.addEventListener("click", closeHandler), 0);
+
+  document.body.appendChild(popup);
+}
+
 function SpecView({
   config,
   version,
@@ -2079,6 +2131,26 @@ function SpecView({
           window.location.href = EDITORS.zed.urlTemplate(fullPath, sourceLine);
         }
         return;
+      }
+
+      // Handle impl/test badge clicks with multiple refs - show popup
+      const refBadge = e.target.closest("a.rule-badge[data-all-refs]");
+      if (refBadge) {
+        const allRefsJson = refBadge.dataset.allRefs;
+        if (allRefsJson) {
+          try {
+            const refs = JSON.parse(allRefsJson);
+            if (refs.length > 1) {
+              e.preventDefault();
+              // Show popup with all refs
+              showRefsPopup(e, refs, refBadge, onSelectFile);
+              return;
+            }
+          } catch (err) {
+            console.error("Failed to parse refs:", err);
+          }
+        }
+        // Single ref or parse error - fall through to default link behavior
       }
 
       // Handle spec ref clicks - pass rule context

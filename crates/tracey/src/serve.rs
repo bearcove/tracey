@@ -565,9 +565,23 @@ impl RuleHandler for TraceyRuleHandler {
                     } else {
                         String::new()
                     };
+                    // Serialize all refs as JSON for popup (manual, no serde)
+                    let all_refs_json = cov
+                        .impl_refs
+                        .iter()
+                        .map(|r| {
+                            format!(
+                                r#"{{"file":"{}","line":{}}}"#,
+                                r.file.replace('\\', "\\\\").replace('"', "\\\""),
+                                r.line
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    let all_refs_json = format!("[{}]", all_refs_json).replace('"', "&quot;");
                     badges_html.push_str(&format!(
-                        r#"<a class="rule-badge rule-impl" href="/sources/{}:{}" data-file="{}" data-line="{}" title="Implementation: {}:{}">{icon}{}:{}{}</a>"#,
-                        r.file, r.line, r.file, r.line, r.file, r.line, filename, r.line, count_suffix
+                        r#"<a class="rule-badge rule-impl" href="/sources/{}:{}" data-file="{}" data-line="{}" data-all-refs="{}" title="Implementation: {}:{}">{icon}{}:{}{}</a>"#,
+                        r.file, r.line, r.file, r.line, all_refs_json, r.file, r.line, filename, r.line, count_suffix
                     ));
                 }
 
@@ -583,9 +597,23 @@ impl RuleHandler for TraceyRuleHandler {
                     } else {
                         String::new()
                     };
+                    // Serialize all refs as JSON for popup (manual, no serde)
+                    let all_refs_json = cov
+                        .verify_refs
+                        .iter()
+                        .map(|r| {
+                            format!(
+                                r#"{{"file":"{}","line":{}}}"#,
+                                r.file.replace('\\', "\\\\").replace('"', "\\\""),
+                                r.line
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    let all_refs_json = format!("[{}]", all_refs_json).replace('"', "&quot;");
                     badges_html.push_str(&format!(
-                        r#"<a class="rule-badge rule-test" href="/sources/{}:{}" data-file="{}" data-line="{}" title="Test: {}:{}">{icon}{}:{}{}</a>"#,
-                        r.file, r.line, r.file, r.line, r.file, r.line, filename, r.line, count_suffix
+                        r#"<a class="rule-badge rule-test" href="/sources/{}:{}" data-file="{}" data-line="{}" data-all-refs="{}" title="Test: {}:{}">{icon}{}:{}{}</a>"#,
+                        r.file, r.line, r.file, r.line, all_refs_json, r.file, r.line, filename, r.line, count_suffix
                     ));
                 }
             }
