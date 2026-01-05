@@ -1026,7 +1026,7 @@ async fn api_config(State(state): State<AppState>) -> Json<ApiConfig> {
     Json(data.config.clone())
 }
 
-/// Helper to extract spec and lang from query params, with defaults
+/// Helper to extract spec and impl from query params, with defaults
 fn get_impl_key(params: &[(String, String)], config: &ApiConfig) -> Option<ImplKey> {
     let spec = params
         .iter()
@@ -1034,9 +1034,9 @@ fn get_impl_key(params: &[(String, String)], config: &ApiConfig) -> Option<ImplK
         .map(|(_, v)| v.clone())
         .or_else(|| config.specs.first().map(|s| s.name.clone()))?;
 
-    let lang = params
+    let impl_name = params
         .iter()
-        .find(|(k, _)| k == "lang")
+        .find(|(k, _)| k == "impl")
         .map(|(_, v)| v.clone())
         .or_else(|| {
             config
@@ -1046,7 +1046,7 @@ fn get_impl_key(params: &[(String, String)], config: &ApiConfig) -> Option<ImplK
                 .and_then(|s| s.implementations.first().cloned())
         })?;
 
-    Some((spec, lang))
+    Some((spec, impl_name))
 }
 
 async fn api_forward(

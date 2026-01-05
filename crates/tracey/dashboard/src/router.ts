@@ -1,5 +1,5 @@
 // Router utilities using preact-iso
-// URL structure: /:spec/:lang/:view
+// URL structure: /:spec/:impl/:view
 //
 // Examples:
 //   /rapace/rust/spec                     -> spec view, no heading
@@ -31,14 +31,14 @@ export interface UrlParams {
 
 export function buildUrl(
 	spec: string | null,
-	lang: string | null,
+	impl: string | null,
 	view: ViewType,
 	params: UrlParams = {},
 ): string {
-	// Build base path: /{spec}/{lang}
+	// Build base path: /{spec}/{impl}
 	const specPart = spec ? `/${encodeURIComponent(spec)}` : "";
-	const langPart = lang ? `/${encodeURIComponent(lang)}` : "";
-	const base = specPart + langPart;
+	const implPart = impl ? `/${encodeURIComponent(impl)}` : "";
+	const base = specPart + implPart;
 
 	if (view === "sources") {
 		const { file, line, context } = params;

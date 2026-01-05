@@ -65,7 +65,7 @@ interface OutlineTreeProps {
   nodes: OutlineTreeNode[];
   activeHeading: string | null;
   specName: string | null;
-  lang: string | null;
+  impl: string | null;
   onSelectHeading: (slug: string) => void;
   collapsedSlugs: Set<string>;
   onToggleCollapse: (slug: string) => void;
@@ -76,7 +76,7 @@ function OutlineTree({
   nodes,
   activeHeading,
   specName,
-  lang,
+  impl,
   onSelectHeading,
   collapsedSlugs,
   onToggleCollapse,
@@ -116,7 +116,7 @@ function OutlineTree({
                 `
               : html`<span class="outline-toggle-spacer"></span>`}
             <a
-              href=${`/${specName}/${lang}/spec#${h.slug}`}
+              href=${`/${specName}/${impl}/spec#${h.slug}`}
               class="outline-item ${isActive ? "active" : ""}"
               onClick=${(e: Event) => {
                 e.preventDefault();
@@ -151,7 +151,7 @@ function OutlineTree({
                 nodes=${node.children}
                 activeHeading=${activeHeading}
                 specName=${specName}
-                lang=${lang}
+                impl=${impl}
                 onSelectHeading=${onSelectHeading}
                 collapsedSlugs=${collapsedSlugs}
                 onToggleCollapse=${onToggleCollapse}
@@ -172,7 +172,7 @@ export function SpecView({
   config,
   version,
   selectedSpec,
-  selectedLang,
+  selectedImpl,
   selectedRule,
   selectedHeading,
   onSelectSpec,
@@ -502,7 +502,7 @@ export function SpecView({
               nodes=${outlineTree}
               activeHeading=${activeHeading}
               specName=${specName}
-              lang=${selectedLang}
+              impl=${selectedImpl}
               onSelectHeading=${scrollToHeading}
               collapsedSlugs=${collapsedSlugs}
               onToggleCollapse=${handleToggleCollapse}

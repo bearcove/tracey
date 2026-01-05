@@ -15,21 +15,21 @@ async function fetchJson<T>(url: string): Promise<T> {
 	return res.json();
 }
 
-// Parse spec and lang from URL pathname
-// URL format: /:spec/:lang/:view/...
-function getImplFromUrl(): { spec: string | null; lang: string | null } {
+// Parse spec and impl from URL pathname
+// URL format: /:spec/:impl/:view/...
+function getImplFromUrl(): { spec: string | null; impl: string | null } {
 	const parts = window.location.pathname.split("/").filter(Boolean);
 	return {
 		spec: parts[0] || null,
-		lang: parts[1] || null,
+		impl: parts[1] || null,
 	};
 }
 
-// Build API URL with spec/lang params
-function apiUrl(base: string, spec?: string | null, lang?: string | null): string {
+// Build API URL with spec/impl params
+function apiUrl(base: string, spec?: string | null, impl?: string | null): string {
 	const params = new URLSearchParams();
 	if (spec) params.set("spec", spec);
-	if (lang) params.set("lang", lang);
+	if (impl) params.set("impl", impl);
 	const query = params.toString();
 	return query ? `${base}?${query}` : base;
 }
@@ -51,20 +51,20 @@ export function useApi(): UseApiResult {
 			// First fetch config to get available specs/impls
 			const config = await fetchJson<Config>("/api/config");
 
-			// Get spec/lang from URL, falling back to first available
-			let { spec, lang } = getImplFromUrl();
+			// Get spec/impl from URL, falling back to first available
+			let { spec, impl } = getImplFromUrl();
 			if (!spec && config.specs?.[0]) {
 				spec = config.specs[0].name;
 			}
-			if (!lang && spec) {
+			if (!impl && spec) {
 				const specInfo = config.specs?.find(s => s.name === spec);
-				lang = specInfo?.implementations?.[0] || null;
+				impl = specInfo?.implementations?.[0] || null;
 			}
 
-			// Fetch forward/reverse with spec/lang params
+			// Fetch forward/reverse with spec/impl params
 			const [forward, reverse] = await Promise.all([
-				fetchJson<ForwardData>(apiUrl("/api/forward", spec, lang)),
-				fetchJson<ReverseData>(apiUrl("/api/reverse", spec, lang)),
+				fetchJson<ForwardData>(apiUrl("/api/forward", spec, impl)),
+				fetchJson<ReverseData>(apiUrl("/api/reverse", spec, impl)),
 			]);
 			setData({ config, forward, reverse });
 			setError(null);
@@ -78,7 +78,7 @@ export function useApi(): UseApiResult {
 		fetchData();
 	}, [fetchData]);
 
-	// Refetch when URL changes (spec/lang might change)
+	// Refetch when URL changes (spec/impl might change)
 	useEffect(() => {
 		const handlePopState = () => fetchData();
 		window.addEventListener("popstate", handlePopState);
@@ -125,12 +125,12 @@ export function useFile(path: string | null): FileContent | null {
 			setFile(null);
 			return;
 		}
-		// Get spec/lang from URL for API call
-		const { spec, lang } = getImplFromUrl();
+		// Get spec/impl from URL for API call
+		const { spec, impl } = getImplFromUrl();
 		const params = new URLSearchParams();
 		params.set("path", path);
 		if (spec) params.set("spec", spec);
-		if (lang) params.set("lang", lang);
+		if (impl) params.set("impl", impl);
 
 		fetchJson<FileContent>(`/api/file?${params.toString()}`)
 			.then(setFile)
@@ -154,11 +154,11 @@ export function useSpec(
 			setSpec(null);
 			return;
 		}
-		// Get spec/lang from URL for API call
-		const { spec: urlSpec, lang } = getImplFromUrl();
+		// Get spec/impl from URL for API call
+		const { spec: urlSpec, impl } = getImplFromUrl();
 		const params = new URLSearchParams();
 		if (urlSpec) params.set("spec", urlSpec);
-		if (lang) params.set("lang", lang);
+		if (impl) params.set("impl", impl);
 
 		fetchJson<SpecContent>(`/api/spec?${params.toString()}`)
 			.then(setSpec)

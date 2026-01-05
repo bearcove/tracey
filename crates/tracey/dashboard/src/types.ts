@@ -4,7 +4,7 @@ export type ViewType = "sources" | "spec" | "coverage";
 export interface SourcesRoute {
   view: "sources";
   spec: string | null;
-  lang: string | null;
+  impl: string | null;
   file: string | null;
   line: number | null;
   context: string | null;
@@ -13,7 +13,7 @@ export interface SourcesRoute {
 export interface SpecRoute {
   view: "spec";
   spec: string | null;
-  lang: string | null;
+  impl: string | null;
   rule: string | null;
   heading: string | null;
 }
@@ -21,7 +21,7 @@ export interface SpecRoute {
 export interface CoverageRoute {
   view: "coverage";
   spec: string | null;
-  lang: string | null;
+  impl: string | null;
   filter: string | null;
   level: string | null;
 }
@@ -199,13 +199,13 @@ export interface SearchModalProps {
 export interface HeaderProps {
   view: ViewType;
   spec: string | null;
-  lang: string | null;
+  impl: string | null;
   config: Config;
   search: string;
   onSearchChange: (search: string) => void;
   onViewChange: (view: ViewType) => void;
   onSpecChange: (spec: string) => void;
-  onLangChange: (lang: string) => void;
+  onImplChange: (impl: string) => void;
   onOpenSearch: () => void;
 }
 
@@ -259,7 +259,7 @@ export interface SpecViewProps {
   forward: ForwardData;
   version: string | null;
   selectedSpec: string | null;
-  selectedLang: string | null;
+  selectedImpl: string | null;
   selectedRule: string | null;
   selectedHeading: string | null;
   onSelectSpec: (name: string) => void;

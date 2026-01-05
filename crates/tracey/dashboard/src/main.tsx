@@ -262,13 +262,13 @@ function SearchModal({ onClose, onSelect }: SearchModalProps) {
   `;
 }
 
-function Header({ view, spec, lang, config, onViewChange, onSpecChange, onLangChange, onOpenSearch }: HeaderProps) {
+function Header({ view, spec, impl, config, onViewChange, onSpecChange, onImplChange, onOpenSearch }: HeaderProps) {
   const handleNavClick = (e: Event, newView: ViewType) => {
     e.preventDefault();
     onViewChange(newView);
   };
 
-  const specBase = spec && lang ? `/${encodeURIComponent(spec)}/${encodeURIComponent(lang)}` : "";
+  const specBase = spec && impl ? `/${encodeURIComponent(spec)}/${encodeURIComponent(impl)}` : "";
 
   // Get available implementations for current spec
   const currentSpecInfo = config.specs?.find(s => s.name === spec);
@@ -288,12 +288,12 @@ function Header({ view, spec, lang, config, onViewChange, onSpecChange, onLangCh
             `)}
           </select>
           <select
-            class="header-select lang-select"
-            value=${lang || ""}
-            onChange=${(e: Event) => onLangChange((e.target as HTMLSelectElement).value)}
+            class="header-select impl-select"
+            value=${impl || ""}
+            onChange=${(e: Event) => onImplChange((e.target as HTMLSelectElement).value)}
           >
-            ${implementations.map(impl => html`
-              <option key=${impl} value=${impl}>${impl}</option>
+            ${implementations.map(i => html`
+              <option key=${i} value=${i}>${i}</option>
             `)}
           </select>
         </div>
@@ -538,35 +538,35 @@ function App() {
 
   // Get defaults from config
   const defaultSpec = config.specs?.[0]?.name || null;
-  const defaultLang = config.specs?.[0]?.implementations?.[0] || null;
+  const defaultImpl = config.specs?.[0]?.implementations?.[0] || null;
 
-  // Determine current spec, lang, and view from pathname
-  // URL format: /:spec/:lang/:view/...
+  // Determine current spec, impl, and view from pathname
+  // URL format: /:spec/:impl/:view/...
   const pathParts = window.location.pathname.split("/").filter(Boolean);
   const currentSpec = pathParts[0] || defaultSpec;
-  const currentLang = pathParts[1] || defaultLang;
+  const currentImpl = pathParts[1] || defaultImpl;
   const currentView = pathParts[2] || "spec";
 
   const handleViewChange = useCallback(
     (newView: string) => {
-      route(buildUrl(currentSpec, currentLang, newView as any));
+      route(buildUrl(currentSpec, currentImpl, newView as any));
     },
-    [route, currentSpec, currentLang],
+    [route, currentSpec, currentImpl],
   );
 
   const handleSpecChange = useCallback(
     (newSpec: string) => {
       // When changing spec, reset to first implementation of new spec
       const newSpecInfo = config.specs?.find(s => s.name === newSpec);
-      const newLang = newSpecInfo?.implementations?.[0] || currentLang;
-      route(buildUrl(newSpec, newLang, currentView as any));
+      const newImpl = newSpecInfo?.implementations?.[0] || currentImpl;
+      route(buildUrl(newSpec, newImpl, currentView as any));
     },
-    [route, config, currentView, currentLang],
+    [route, config, currentView, currentImpl],
   );
 
-  const handleLangChange = useCallback(
-    (newLang: string) => {
-      route(buildUrl(currentSpec, newLang, currentView as any));
+  const handleImplChange = useCallback(
+    (newImpl: string) => {
+      route(buildUrl(currentSpec, newImpl, currentView as any));
     },
     [route, currentSpec, currentView],
   );
@@ -579,12 +579,12 @@ function App() {
     (result: SearchResult) => {
       setSearchOpen(false);
       if (result.kind === "rule") {
-        route(buildUrl(currentSpec, currentLang, "spec", { rule: result.id }));
+        route(buildUrl(currentSpec, currentImpl, "spec", { rule: result.id }));
       } else {
-        route(buildUrl(currentSpec, currentLang, "sources", { file: result.id, line: result.line }));
+        route(buildUrl(currentSpec, currentImpl, "sources", { file: result.id, line: result.line }));
       }
     },
-    [route, currentSpec, currentLang],
+    [route, currentSpec, currentImpl],
   );
 
   // Global keyboard shortcut for search
@@ -608,11 +608,11 @@ function App() {
         <${Header}
           view=${currentView}
           spec=${currentSpec}
-          lang=${currentLang}
+          impl=${currentImpl}
           config=${config}
           onViewChange=${handleViewChange}
           onSpecChange=${handleSpecChange}
-          onLangChange=${handleLangChange}
+          onImplChange=${handleImplChange}
           onOpenSearch=${handleOpenSearch}
         />
         ${searchOpen &&
@@ -623,35 +623,35 @@ function App() {
           <${Route}
             path="/"
             component=${() => {
-              // Redirect to default spec/lang
+              // Redirect to default spec/impl
               useEffect(() => {
-                if (defaultSpec && defaultLang) route(`/${defaultSpec}/${defaultLang}/spec`, true);
+                if (defaultSpec && defaultImpl) route(`/${defaultSpec}/${defaultImpl}/spec`, true);
               }, []);
               return html`<div class="loading">Redirecting...</div>`;
             }}
           />
-          <${Route} path="/:spec/:lang/spec" component=${SpecViewRoute} />
-          <${Route} path="/:spec/:lang/sources/:file*" component=${SourcesViewRoute} />
-          <${Route} path="/:spec/:lang/coverage" component=${CoverageViewRoute} />
+          <${Route} path="/:spec/:impl/spec" component=${SpecViewRoute} />
+          <${Route} path="/:spec/:impl/sources/:file*" component=${SourcesViewRoute} />
+          <${Route} path="/:spec/:impl/coverage" component=${CoverageViewRoute} />
           <${Route}
-            path="/:spec/:lang"
+            path="/:spec/:impl"
             component=${() => {
               const { params } = useRoute();
               useEffect(() => {
-                route(`/${params.spec}/${params.lang}/spec`, true);
-              }, [params.spec, params.lang]);
+                route(`/${params.spec}/${params.impl}/spec`, true);
+              }, [params.spec, params.impl]);
               return html`<div class="loading">Redirecting...</div>`;
             }}
           />
           <${Route}
             path="/:spec"
             component=${() => {
-              // Legacy URL without lang - redirect with default lang
+              // Legacy URL without impl - redirect with default impl
               const { params } = useRoute();
               useEffect(() => {
                 const specInfo = config.specs?.find(s => s.name === params.spec);
-                const lang = specInfo?.implementations?.[0] || defaultLang;
-                route(`/${params.spec}/${lang}/spec`, true);
+                const impl = specInfo?.implementations?.[0] || defaultImpl;
+                route(`/${params.spec}/${impl}/spec`, true);
               }, [params.spec]);
               return html`<div class="loading">Redirecting...</div>`;
             }}
@@ -676,7 +676,7 @@ function SpecViewRoute() {
 
   const { config, forward } = data;
   const spec = params.spec;
-  const lang = params.lang;
+  const impl = params.impl;
   // Heading comes from URL hash (e.g., /spec#heading-name)
   const heading = window.location.hash ? window.location.hash.slice(1) : null;
   const rule = query.rule || null;
@@ -685,23 +685,23 @@ function SpecViewRoute() {
 
   const handleSelectSpec = useCallback(
     (specName: string) => {
-      route(buildUrl(specName, lang, "spec", { heading }));
+      route(buildUrl(specName, impl, "spec", { heading }));
     },
-    [route, lang, heading],
+    [route, impl, heading],
   );
 
   const handleSelectRule = useCallback(
     (ruleId: string) => {
-      route(buildUrl(spec, lang, "spec", { rule: ruleId }));
+      route(buildUrl(spec, impl, "spec", { rule: ruleId }));
     },
-    [route, spec, lang],
+    [route, spec, impl],
   );
 
   const handleSelectFile = useCallback(
     (file: string, line?: number | null, context?: string | null) => {
-      route(buildUrl(spec, lang, "sources", { file, line, context }));
+      route(buildUrl(spec, impl, "sources", { file, line, context }));
     },
-    [route, spec, lang],
+    [route, spec, impl],
   );
 
   return html`
@@ -710,7 +710,7 @@ function SpecViewRoute() {
       forward=${forward}
       version=${version}
       selectedSpec=${spec}
-      selectedLang=${lang}
+      selectedImpl=${impl}
       selectedRule=${rule}
       selectedHeading=${heading}
       onSelectSpec=${handleSelectSpec}
@@ -731,7 +731,7 @@ function SourcesViewRoute() {
 
   const { config, forward, reverse } = data;
   const spec = params.spec;
-  const lang = params.lang;
+  const impl = params.impl;
 
   // Parse file:line from the file param
   let file: string | null = params.file || null;
@@ -753,26 +753,26 @@ function SourcesViewRoute() {
   const handleSelectFile = useCallback(
     (filePath: string, lineNum?: number | null, ruleContext?: string | null) => {
       route(
-        buildUrl(spec, lang, "sources", {
+        buildUrl(spec, impl, "sources", {
           file: filePath,
           line: lineNum,
           context: ruleContext,
         }),
       );
     },
-    [route, spec, lang],
+    [route, spec, impl],
   );
 
   const handleSelectRule = useCallback(
     (ruleId: string) => {
-      route(buildUrl(spec, lang, "spec", { rule: ruleId }));
+      route(buildUrl(spec, impl, "spec", { rule: ruleId }));
     },
-    [route, spec, lang],
+    [route, spec, impl],
   );
 
   const handleClearContext = useCallback(() => {
-    route(buildUrl(spec, lang, "sources", { file, line, context: null }), true);
-  }, [route, spec, lang, file, line]);
+    route(buildUrl(spec, impl, "sources", { file, line, context: null }), true);
+  }, [route, spec, impl, file, line]);
 
   return html`
     <${SourcesView}
@@ -799,7 +799,7 @@ function CoverageViewRoute() {
 
   const { config, forward } = data;
   const spec = params.spec;
-  const lang = params.lang;
+  const impl = params.impl;
   const filter = query.filter || null;
   const level = query.level || "all";
 
@@ -807,30 +807,30 @@ function CoverageViewRoute() {
 
   const handleLevelChange = useCallback(
     (newLevel: string) => {
-      route(buildUrl(spec, lang, "coverage", { filter, level: newLevel }));
+      route(buildUrl(spec, impl, "coverage", { filter, level: newLevel }));
     },
-    [route, spec, lang, filter],
+    [route, spec, impl, filter],
   );
 
   const handleFilterChange = useCallback(
     (newFilter: string | null) => {
-      route(buildUrl(spec, lang, "coverage", { filter: newFilter, level }));
+      route(buildUrl(spec, impl, "coverage", { filter: newFilter, level }));
     },
-    [route, spec, lang, level],
+    [route, spec, impl, level],
   );
 
   const handleSelectRule = useCallback(
     (ruleId: string) => {
-      route(buildUrl(spec, lang, "spec", { rule: ruleId }));
+      route(buildUrl(spec, impl, "spec", { rule: ruleId }));
     },
-    [route, spec, lang],
+    [route, spec, impl],
   );
 
   const handleSelectFile = useCallback(
     (file: string, lineNum?: number | null, context?: string | null) => {
-      route(buildUrl(spec, lang, "sources", { file, line: lineNum, context }));
+      route(buildUrl(spec, impl, "sources", { file, line: lineNum, context }));
     },
-    [route, spec, lang],
+    [route, spec, impl],
   );
 
   return html`
