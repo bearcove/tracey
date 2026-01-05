@@ -287,6 +287,8 @@ struct TraceyRuleHandler {
     current_source_file: Arc<Mutex<String>>,
     /// Spec name for URL generation
     spec_name: String,
+    /// Language for URL generation
+    lang: String,
     /// Project root for absolute paths
     project_root: PathBuf,
 }
@@ -296,12 +298,14 @@ impl TraceyRuleHandler {
         coverage: BTreeMap<String, RuleCoverage>,
         current_source_file: Arc<Mutex<String>>,
         spec_name: String,
+        lang: String,
         project_root: PathBuf,
     ) -> Self {
         Self {
             coverage,
             current_source_file,
             spec_name,
+            lang,
             project_root,
         }
     }
@@ -390,8 +394,8 @@ impl RuleHandler for TraceyRuleHandler {
 
             // Rule ID badge (always present) - includes source location for editor navigation
             badges_html.push_str(&format!(
-                r#"<a class="rule-badge rule-id" href="/{}/spec/{}" data-rule="{}" data-source-file="{}" data-source-line="{}" title="{}">{}</a>"#,
-                self.spec_name, rule.id, rule.id, source_file, rule.line, rule.id, display_id
+                r#"<a class="rule-badge rule-id" href="/{}/{}/spec/{}" data-rule="{}" data-source-file="{}" data-source-line="{}" title="{}">{}</a>"#,
+                self.spec_name, self.lang, rule.id, rule.id, source_file, rule.line, rule.id, display_id
             ));
 
             // Implementation badge
@@ -422,8 +426,8 @@ impl RuleHandler for TraceyRuleHandler {
                         .join(",");
                     let all_refs_json = format!("[{}]", all_refs_json).replace('"', "&quot;");
                     badges_html.push_str(&format!(
-                        r#"<a class="rule-badge rule-impl" href="/{}/sources/{}:{}" data-file="{}" data-line="{}" data-all-refs="{}" title="Implementation: {}:{}">{icon}{}:{}{}</a>"#,
-                        self.spec_name, r.file, r.line, r.file, r.line, all_refs_json, r.file, r.line, filename, r.line, count_suffix
+                        r#"<a class="rule-badge rule-impl" href="/{}/{}/sources/{}:{}" data-file="{}" data-line="{}" data-all-refs="{}" title="Implementation: {}:{}">{icon}{}:{}{}</a>"#,
+                        self.spec_name, self.lang, r.file, r.line, r.file, r.line, all_refs_json, r.file, r.line, filename, r.line, count_suffix
                     ));
                 }
 
@@ -454,8 +458,8 @@ impl RuleHandler for TraceyRuleHandler {
                         .join(",");
                     let all_refs_json = format!("[{}]", all_refs_json).replace('"', "&quot;");
                     badges_html.push_str(&format!(
-                        r#"<a class="rule-badge rule-test" href="/{}/sources/{}:{}" data-file="{}" data-line="{}" data-all-refs="{}" title="Test: {}:{}">{icon}{}:{}{}</a>"#,
-                        self.spec_name, r.file, r.line, r.file, r.line, all_refs_json, r.file, r.line, filename, r.line, count_suffix
+                        r#"<a class="rule-badge rule-test" href="/{}/{}/sources/{}:{}" data-file="{}" data-line="{}" data-all-refs="{}" title="Test: {}:{}">{icon}{}:{}{}</a>"#,
+                        self.spec_name, self.lang, r.file, r.line, r.file, r.line, all_refs_json, r.file, r.line, filename, r.line, count_suffix
                     ));
                 }
             }
@@ -653,6 +657,7 @@ async fn build_dashboard_data(
                 project_root,
                 glob_pattern,
                 spec_name,
+                lang,
                 &coverage,
                 &mut impl_specs_content,
             )
@@ -785,6 +790,7 @@ async fn load_spec_content(
     root: &Path,
     pattern: &str,
     spec_name: &str,
+    lang: &str,
     coverage: &BTreeMap<String, RuleCoverage>,
     specs_content: &mut BTreeMap<String, ApiSpecData>,
 ) -> Result<()> {
@@ -798,6 +804,7 @@ async fn load_spec_content(
         coverage.clone(),
         Arc::clone(&current_source_file),
         spec_name.to_string(),
+        lang.to_string(),
         root.to_path_buf(),
     );
     let opts = RenderOptions::new()
