@@ -5,8 +5,10 @@
 //! manifest to produce coverage reports.
 
 mod config;
+mod mcp;
 mod search;
 mod serve;
+mod server;
 mod vite;
 
 use config::Config;
@@ -53,6 +55,17 @@ enum Command {
         #[facet(args::named, default)]
         dev: bool,
     },
+
+    /// Start the MCP server for AI assistants
+    Mcp {
+        /// Project root directory (default: current directory)
+        #[facet(args::positional, default)]
+        root: Option<PathBuf>,
+
+        /// Path to config file (default: .config/tracey/config.kdl)
+        #[facet(args::named, args::short = 'c', default)]
+        config: Option<PathBuf>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -66,6 +79,10 @@ fn main() -> Result<()> {
             open,
             dev,
         }) => serve::run(root, config, port.unwrap_or(3000), open, dev),
+        Some(Command::Mcp { root, config }) => {
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(mcp::run(root, config))
+        }
         None => {
             print_help();
             Ok(())
@@ -82,6 +99,7 @@ fn print_help() {
 
 {commands}:
     {serve}     Start the interactive web dashboard
+    {mcp}       Start the MCP server for AI assistants
 
 {options}:
     -h, --help      Show this help message
@@ -90,6 +108,7 @@ Run 'tracey <COMMAND> --help' for more information on a command."#,
         usage = "Usage".bold(),
         commands = "Commands".bold(),
         serve = "serve".cyan(),
+        mcp = "mcp".cyan(),
         options = "Options".bold(),
     );
 }
@@ -99,6 +118,7 @@ Run 'tracey <COMMAND> --help' for more information on a command."#,
 pub(crate) async fn load_rules_from_glob(
     root: &std::path::Path,
     pattern: &str,
+    quiet: bool,
 ) -> Result<Vec<(RuleDefinition, String)>> {
     use ignore::WalkBuilder;
     use std::collections::HashSet;
@@ -144,12 +164,14 @@ pub(crate) async fn load_rules_from_glob(
             .map_err(|e| eyre::eyre!("Failed to process {}: {}", path.display(), e))?;
 
         if !doc.rules.is_empty() {
-            eprintln!(
-                "   {} {} rules from {}",
-                "Found".green(),
-                doc.rules.len(),
-                relative_str
-            );
+            if !quiet {
+                eprintln!(
+                    "   {} {} rules from {}",
+                    "Found".green(),
+                    doc.rules.len(),
+                    relative_str
+                );
+            }
 
             // Check for duplicates
             // [impl markdown.duplicates.same-file] - caught when bearmark returns duplicate rules from single file

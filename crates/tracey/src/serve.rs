@@ -61,7 +61,7 @@ use crate::vite::ViteServer;
 
 /// Project configuration info
 #[derive(Debug, Clone, Facet)]
-struct ApiConfig {
+pub struct ApiConfig {
     project_root: String,
     specs: Vec<ApiSpecInfo>,
 }
@@ -78,133 +78,133 @@ struct ApiSpecInfo {
 
 /// Forward traceability: rules with their code references
 #[derive(Debug, Clone, Facet)]
-struct ApiForwardData {
+pub struct ApiForwardData {
     specs: Vec<ApiSpecForward>,
 }
 
 #[derive(Debug, Clone, Facet)]
-struct ApiSpecForward {
-    name: String,
-    rules: Vec<ApiRule>,
+pub struct ApiSpecForward {
+    pub name: String,
+    pub rules: Vec<ApiRule>,
 }
 
 #[derive(Debug, Clone, Facet)]
 #[facet(rename_all = "camelCase")]
-struct ApiRule {
-    id: String,
-    html: String,
+pub struct ApiRule {
+    pub id: String,
+    pub html: String,
     #[facet(default)]
-    status: Option<String>,
+    pub status: Option<String>,
     #[facet(default)]
-    level: Option<String>,
+    pub level: Option<String>,
     #[facet(default)]
-    source_file: Option<String>,
+    pub source_file: Option<String>,
     #[facet(default)]
-    source_line: Option<usize>,
-    impl_refs: Vec<ApiCodeRef>,
-    verify_refs: Vec<ApiCodeRef>,
-    depends_refs: Vec<ApiCodeRef>,
+    pub source_line: Option<usize>,
+    pub impl_refs: Vec<ApiCodeRef>,
+    pub verify_refs: Vec<ApiCodeRef>,
+    pub depends_refs: Vec<ApiCodeRef>,
 }
 
 #[derive(Debug, Clone, Facet)]
-struct ApiCodeRef {
-    file: String,
-    line: usize,
+pub struct ApiCodeRef {
+    pub file: String,
+    pub line: usize,
 }
 
 /// Reverse traceability: file tree with coverage info
 #[derive(Debug, Clone, Facet)]
 #[facet(rename_all = "camelCase")]
-struct ApiReverseData {
+pub struct ApiReverseData {
     /// Total code units across all files
-    total_units: usize,
+    pub total_units: usize,
     /// Code units with at least one rule reference
-    covered_units: usize,
+    pub covered_units: usize,
     /// File tree with coverage info
-    files: Vec<ApiFileEntry>,
+    pub files: Vec<ApiFileEntry>,
 }
 
 #[derive(Debug, Clone, Facet)]
 #[facet(rename_all = "camelCase")]
-struct ApiFileEntry {
-    path: String,
+pub struct ApiFileEntry {
+    pub path: String,
     /// Number of code units in this file
-    total_units: usize,
+    pub total_units: usize,
     /// Number of covered code units
-    covered_units: usize,
+    pub covered_units: usize,
 }
 
 /// Single file with full coverage details
 #[derive(Debug, Clone, Facet)]
 #[facet(rename_all = "camelCase")]
-struct ApiFileData {
-    path: String,
-    content: String,
+pub struct ApiFileData {
+    pub path: String,
+    pub content: String,
     /// Syntax-highlighted HTML content
-    html: String,
+    pub html: String,
     /// Code units in this file with their coverage
-    units: Vec<ApiCodeUnit>,
+    pub units: Vec<ApiCodeUnit>,
 }
 
 #[derive(Debug, Clone, Facet)]
 #[facet(rename_all = "camelCase")]
-struct ApiCodeUnit {
-    kind: String,
+pub struct ApiCodeUnit {
+    pub kind: String,
     #[facet(default)]
-    name: Option<String>,
-    start_line: usize,
-    end_line: usize,
+    pub name: Option<String>,
+    pub start_line: usize,
+    pub end_line: usize,
     /// Rule references found in this code unit's comments
-    rule_refs: Vec<String>,
+    pub rule_refs: Vec<String>,
 }
 
 /// A section of a spec (one source file)
 #[derive(Debug, Clone, Facet)]
 #[facet(rename_all = "camelCase")]
-struct SpecSection {
+pub struct SpecSection {
     /// Source file path
-    source_file: String,
+    pub source_file: String,
     /// Rendered HTML content
-    html: String,
+    pub html: String,
     /// Weight for ordering (from frontmatter)
-    weight: i32,
+    pub weight: i32,
 }
 
 /// Coverage counts for an outline entry
 #[derive(Debug, Clone, Default, Facet)]
 #[facet(rename_all = "camelCase")]
-struct OutlineCoverage {
+pub struct OutlineCoverage {
     /// Number of rules with implementation refs
-    impl_count: usize,
+    pub impl_count: usize,
     /// Number of rules with verification refs
-    verify_count: usize,
+    pub verify_count: usize,
     /// Total number of rules
-    total: usize,
+    pub total: usize,
 }
 
 /// An entry in the spec outline (heading with coverage info)
 #[derive(Debug, Clone, Facet)]
-struct OutlineEntry {
+pub struct OutlineEntry {
     /// Heading text
-    title: String,
+    pub title: String,
     /// Slug for linking
-    slug: String,
+    pub slug: String,
     /// Heading level (1-6)
-    level: u8,
+    pub level: u8,
     /// Direct coverage (rules directly under this heading)
-    coverage: OutlineCoverage,
+    pub coverage: OutlineCoverage,
     /// Aggregated coverage (includes all nested rules)
-    aggregated: OutlineCoverage,
+    pub aggregated: OutlineCoverage,
 }
 
 /// Spec content (may span multiple files)
 #[derive(Debug, Clone, Facet)]
-struct ApiSpecData {
-    name: String,
+pub struct ApiSpecData {
+    pub name: String,
     /// Sections ordered by weight
-    sections: Vec<SpecSection>,
+    pub sections: Vec<SpecSection>,
     /// Outline with coverage info
-    outline: Vec<OutlineEntry>,
+    pub outline: Vec<OutlineEntry>,
 }
 
 /// Search response
@@ -220,25 +220,27 @@ struct ApiSearchResponse {
 // ============================================================================
 
 /// Key for implementation-specific data: (spec_name, impl_name)
-type ImplKey = (String, String);
+pub type ImplKey = (String, String);
 
 /// Computed dashboard data that gets rebuilt on file changes
-struct DashboardData {
-    config: ApiConfig,
+pub struct DashboardData {
+    pub config: ApiConfig,
     /// Forward data per implementation: (spec_name, impl_name) -> data
-    forward_by_impl: BTreeMap<ImplKey, ApiSpecForward>,
+    pub forward_by_impl: BTreeMap<ImplKey, ApiSpecForward>,
     /// Reverse data per implementation: (spec_name, impl_name) -> data
-    reverse_by_impl: BTreeMap<ImplKey, ApiReverseData>,
+    pub reverse_by_impl: BTreeMap<ImplKey, ApiReverseData>,
     /// Code units per implementation for file API
-    code_units_by_impl: BTreeMap<ImplKey, BTreeMap<PathBuf, Vec<CodeUnit>>>,
+    pub code_units_by_impl: BTreeMap<ImplKey, BTreeMap<PathBuf, Vec<CodeUnit>>>,
     /// Spec content per implementation (coverage info varies by impl)
-    specs_content_by_impl: BTreeMap<ImplKey, ApiSpecData>,
+    pub specs_content_by_impl: BTreeMap<ImplKey, ApiSpecData>,
     /// Full-text search index for source files
-    search_index: Box<dyn SearchIndex>,
+    pub search_index: Box<dyn SearchIndex>,
     /// Version number (incremented only when content actually changes)
-    version: u64,
+    pub version: u64,
     /// Hash of forward + reverse JSON for change detection
-    content_hash: u64,
+    pub content_hash: u64,
+    /// Delta from previous build (what changed)
+    pub delta: crate::server::Delta,
 }
 
 /// Shared application state
@@ -497,10 +499,11 @@ impl RuleHandler for TraceyRuleHandler {
 // Data Building
 // ============================================================================
 
-async fn build_dashboard_data(
+pub async fn build_dashboard_data(
     project_root: &Path,
     config: &Config,
     version: u64,
+    quiet: bool,
 ) -> Result<DashboardData> {
     use tracey_core::WalkSources;
     use tracey_core::code_units::extract_rust;
@@ -556,15 +559,20 @@ async fn build_dashboard_data(
         });
 
         // Extract rules directly from markdown files (shared across impls)
-        eprintln!("   {} rules from {}", "Extracting".green(), glob_pattern);
-        let extracted_rules = crate::load_rules_from_glob(project_root, glob_pattern).await?;
+        if !quiet {
+            eprintln!("   {} rules from {}", "Extracting".green(), glob_pattern);
+        }
+        let extracted_rules =
+            crate::load_rules_from_glob(project_root, glob_pattern, quiet).await?;
 
         // Build data for each implementation
         for impl_config in &spec_config.impls {
             let impl_name = &impl_config.name.value;
             let impl_key: ImplKey = (spec_name.clone(), impl_name.clone());
 
-            eprintln!("   {} {} implementation", "Scanning".green(), impl_name);
+            if !quiet {
+                eprintln!("   {} {} implementation", "Scanning".green(), impl_name);
+            }
 
             // Get include/exclude patterns for this impl
             // [impl walk.default-include] - default to **/*.rs when no include patterns
@@ -780,6 +788,7 @@ async fn build_dashboard_data(
         search_index,
         version,
         content_hash,
+        delta: crate::server::Delta::default(),
     })
 }
 
@@ -1128,6 +1137,77 @@ async fn api_version(State(state): State<AppState>) -> impl IntoResponse {
         .header(header::CACHE_CONTROL, "no-cache")
         .body(Body::from(format!(r#"{{"version":{}}}"#, data.version)))
         .unwrap()
+}
+
+/// Delta response for the API
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+struct ApiDeltaResponse {
+    /// Version when this delta was computed
+    version: u64,
+    /// Summary string of changes
+    summary: String,
+    /// Whether there are any changes
+    has_changes: bool,
+    /// Detailed changes per spec/impl
+    changes: Vec<ApiImplDelta>,
+}
+
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+struct ApiImplDelta {
+    /// Spec/impl key (e.g., "my-spec/rust")
+    key: String,
+    /// Coverage percentage change
+    coverage_change: f64,
+    /// Rules that became covered
+    newly_covered: Vec<ApiCoverageChange>,
+    /// Rules that lost coverage
+    newly_uncovered: Vec<String>,
+}
+
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+struct ApiCoverageChange {
+    rule_id: String,
+    file: String,
+    line: usize,
+    ref_type: String,
+}
+
+async fn api_delta(State(state): State<AppState>) -> impl IntoResponse {
+    let data = state.data.borrow().clone();
+    let delta = &data.delta;
+
+    let changes: Vec<ApiImplDelta> = delta
+        .by_impl
+        .iter()
+        .filter(|(_, d)| !d.is_empty())
+        .map(|(key, d)| ApiImplDelta {
+            key: key.clone(),
+            coverage_change: d.coverage_change(),
+            newly_covered: d
+                .newly_covered
+                .iter()
+                .map(|c| ApiCoverageChange {
+                    rule_id: c.rule_id.clone(),
+                    file: c.file.clone(),
+                    line: c.line,
+                    ref_type: c.ref_type.clone(),
+                })
+                .collect(),
+            newly_uncovered: d.newly_uncovered.clone(),
+        })
+        .collect();
+
+    let response = ApiDeltaResponse {
+        version: data.version,
+        summary: delta.summary(),
+        has_changes: !delta.is_empty(),
+        changes,
+    };
+
+    Json(response)
 }
 
 #[derive(Debug)]
@@ -1775,7 +1855,7 @@ async fn run_server(
     let version = Arc::new(AtomicU64::new(1));
 
     // Initial build
-    let initial_data = build_dashboard_data(&project_root, &config, 1).await?;
+    let initial_data = build_dashboard_data(&project_root, &config, 1, false).await?;
 
     // Channel for state updates
     let (tx, rx) = watch::channel(Arc::new(initial_data));
@@ -1883,21 +1963,40 @@ async fn run_server(
                 }
             };
 
-            // Get current hash to compare
-            let current_hash = rebuild_rx.borrow().content_hash;
+            // Get current data for hash comparison and delta computation
+            let old_data = rebuild_rx.borrow().clone();
 
             // Build with placeholder version (we'll set real version if hash changed)
-            match build_dashboard_data(&rebuild_project_root, &config, 0).await {
+            match build_dashboard_data(&rebuild_project_root, &config, 0, false).await {
                 Ok(mut data) => {
                     // Only bump version if content actually changed
-                    if data.content_hash != current_hash {
+                    if data.content_hash != old_data.content_hash {
                         let new_version = rebuild_version.fetch_add(1, Ordering::SeqCst) + 1;
                         data.version = new_version;
-                        eprintln!(
-                            "{} Rebuilt dashboard (v{})",
-                            "->".blue().bold(),
-                            new_version
-                        );
+
+                        // Compute delta between old and new data
+                        let delta = crate::server::Delta::compute(&old_data, &data);
+
+                        // Print rebuild message with delta summary
+                        let delta_summary = delta.summary();
+                        if delta.is_empty() {
+                            eprintln!(
+                                "{} Rebuilt dashboard (v{})",
+                                "->".blue().bold(),
+                                new_version
+                            );
+                        } else {
+                            eprintln!(
+                                "{} Rebuilt dashboard (v{}) - {}",
+                                "->".blue().bold(),
+                                new_version,
+                                delta_summary.green()
+                            );
+                        }
+
+                        // Store delta in the new data
+                        data.delta = delta;
+
                         let _ = rebuild_tx.send(Arc::new(data));
                     }
                     // If hash is same, silently ignore the rebuild
@@ -1929,6 +2028,7 @@ async fn run_server(
         .route("/api/forward", get(api_forward))
         .route("/api/reverse", get(api_reverse))
         .route("/api/version", get(api_version))
+        .route("/api/delta", get(api_delta))
         .route("/api/file", get(api_file))
         .route("/api/spec", get(api_spec))
         .route("/api/search", get(api_search));

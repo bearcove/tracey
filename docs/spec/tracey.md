@@ -329,3 +329,159 @@ The header MUST display a search input that opens the search modal when clicked 
 
 r[dashboard.header.logo]
 The header MUST display a "tracey" link to the project repository.
+
+## Command Line Interface
+
+Tracey provides a minimal command-line interface focused on serving.
+
+### Commands
+
+r[cli.no-args]
+When invoked with no subcommand, tracey MUST display help text listing available commands.
+
+r[cli.serve]
+The `tracey serve` command MUST start the HTTP dashboard server.
+
+r[cli.mcp]
+The `tracey mcp` command MUST start an MCP (Model Context Protocol) server over stdio.
+
+## Server Architecture
+
+Both `tracey serve` (HTTP) and `tracey mcp` (MCP) share a common headless server core.
+
+### File Watching
+
+r[server.watch.sources]
+The server MUST watch source files for changes and update coverage data automatically.
+
+r[server.watch.specs]
+The server MUST watch specification markdown files for changes and update rule data automatically.
+
+r[server.watch.config]
+The server MUST watch its configuration file for changes and reload configuration automatically.
+
+r[server.watch.debounce]
+File change events SHOULD be debounced to avoid excessive recomputation during rapid edits.
+
+### State Management
+
+r[server.state.shared]
+Both HTTP and MCP modes MUST use the same underlying coverage computation and state.
+
+r[server.state.version]
+The server MUST maintain a version identifier that changes when any source data changes.
+
+## MCP Server
+
+The MCP server exposes tracey functionality as tools for AI assistants.
+
+### Response Format
+
+r[mcp.response.header]
+Every MCP tool response MUST begin with a status line showing current coverage for all spec/implementation combinations.
+
+> r[mcp.response.header-format]
+> The header MUST follow this format:
+>
+> ```
+> tracey | spec1/impl1: 72% | spec2/impl2: 45%
+> ```
+
+r[mcp.response.delta]
+Every MCP tool response MUST include a delta section showing changes since the last query in this session.
+
+> r[mcp.response.delta-format]
+> The delta section MUST follow this format:
+>
+> ```
+> Since last query:
+>   ✓ rule.id.one → src/file.rs:42
+>   ✓ rule.id.two → src/other.rs:67
+> ```
+>
+> If no changes occurred, display: `(no changes since last query)`
+
+r[mcp.response.hints]
+Tool responses SHOULD include hints showing how to drill down or query further.
+
+r[mcp.response.text]
+Tool responses MUST be formatted as human-readable text/markdown, not JSON.
+
+### Spec/Implementation Selection
+
+r[mcp.select.single]
+When only one spec and one implementation are configured, tools MUST use them by default without requiring explicit selection.
+
+r[mcp.select.spec-only]
+When a spec has only one implementation, specifying just the spec name MUST be sufficient.
+
+r[mcp.select.full]
+The full `spec/impl` syntax MUST be supported for explicit selection when multiple options exist.
+
+r[mcp.select.ambiguous]
+When selection is ambiguous and not provided, tools MUST return an error listing available options.
+
+### Tools
+
+r[mcp.tool.status]
+The `tracey_status` tool MUST return a coverage overview and list available query commands.
+
+r[mcp.tool.uncovered]
+The `tracey_uncovered` tool MUST return rules without `impl` references, grouped by markdown section.
+
+r[mcp.tool.uncovered-section]
+The `tracey_uncovered` tool MUST support a `--section` parameter to filter to a specific section.
+
+r[mcp.tool.untested]
+The `tracey_untested` tool MUST return rules without `verify` references, grouped by markdown section.
+
+r[mcp.tool.untested-section]
+The `tracey_untested` tool MUST support a `--section` parameter to filter to a specific section.
+
+r[mcp.tool.unmapped]
+The `tracey_unmapped` tool MUST return a tree view of source files with coverage percentages.
+
+> r[mcp.tool.unmapped-tree]
+> The tree view MUST use ASCII art formatting similar to the `tree` command:
+>
+> ```
+> src/
+> ├── channel/           82% ████████░░
+> │   ├── flow.rs        95% █████████░
+> │   └── close.rs       45% ████░░░░░░
+> └── error/             34% ███░░░░░░░
+> ```
+
+r[mcp.tool.unmapped-zoom]
+The `tracey_unmapped` tool MUST accept an optional path parameter to zoom into a specific directory or file.
+
+r[mcp.tool.unmapped-file]
+When zoomed into a specific file, `tracey_unmapped` MUST list individual unmapped code units with line numbers.
+
+r[mcp.tool.rule]
+The `tracey_rule` tool MUST return the full text of a rule and all references to it.
+
+### Configuration Tools
+
+r[mcp.config.exclude]
+The `tracey_config_exclude` tool MUST allow adding exclude patterns to filter out files from scanning.
+
+r[mcp.config.include]
+The `tracey_config_include` tool MUST allow adding include patterns to expand the set of scanned files.
+
+r[mcp.config.list]
+The `tracey_config` tool MUST display the current configuration for all specs and implementations.
+
+r[mcp.config.persist]
+Configuration changes made via MCP tools MUST be persisted to the configuration file.
+
+### Progressive Discovery
+
+r[mcp.discovery.overview-first]
+Initial queries SHOULD return summarized results with counts per section/directory.
+
+r[mcp.discovery.drill-down]
+Responses MUST include hints showing how to query for more specific results.
+
+r[mcp.discovery.pagination]
+Large result sets SHOULD be paginated with hints showing how to retrieve more results.
