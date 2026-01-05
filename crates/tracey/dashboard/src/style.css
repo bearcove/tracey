@@ -1358,13 +1358,26 @@ a.rule-marker:hover {
 }
 .outline-level-2 {
     padding-left: 1.25rem;
+    border-left: 2px solid var(--border);
+    margin-left: 0.5rem;
 }
 .outline-level-3 {
-    padding-left: 2rem;
+    padding-left: 1.25rem;
+    border-left: 2px solid var(--border);
+    margin-left: 1.25rem;
 }
 .outline-level-4 {
-    padding-left: 2.75rem;
+    padding-left: 1.25rem;
+    border-left: 2px solid var(--border);
+    margin-left: 2rem;
     font-size: 0.8rem;
+}
+
+/* Highlight guide lines when item is active */
+.outline-item.active.outline-level-2,
+.outline-item.active.outline-level-3,
+.outline-item.active.outline-level-4 {
+    border-left-color: var(--red);
 }
 
 /* Search results */
