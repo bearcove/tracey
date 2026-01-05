@@ -19,6 +19,7 @@ import type {
   HeaderProps,
   LangIconProps,
   LucideIconProps,
+  OutlineEntry,
   ReverseData,
   Route,
   SearchModalProps,
@@ -1814,6 +1815,100 @@ function CodeView({ file, config, selectedLine, onSelectRule }: CodeViewProps) {
   `;
 }
 
+// Tree node for hierarchical outline
+interface OutlineTreeNode {
+  entry: OutlineEntry;
+  children: OutlineTreeNode[];
+}
+
+// Convert flat outline to tree structure
+function buildOutlineTree(outline: OutlineEntry[]): OutlineTreeNode[] {
+  const roots: OutlineTreeNode[] = [];
+  const stack: OutlineTreeNode[] = [];
+
+  for (const entry of outline) {
+    const node: OutlineTreeNode = { entry, children: [] };
+
+    // Pop items from stack until we find a parent (lower level number)
+    while (stack.length > 0 && stack[stack.length - 1].entry.level >= entry.level) {
+      stack.pop();
+    }
+
+    if (stack.length === 0) {
+      roots.push(node);
+    } else {
+      stack[stack.length - 1].children.push(node);
+    }
+
+    stack.push(node);
+  }
+
+  return roots;
+}
+
+// Check if a heading or any of its descendants is active
+function isActiveOrHasActiveChild(node: OutlineTreeNode, activeHeading: string | null): boolean {
+  if (node.entry.slug === activeHeading) return true;
+  return node.children.some((child) => isActiveOrHasActiveChild(child, activeHeading));
+}
+
+// Recursive outline tree renderer
+interface OutlineTreeProps {
+  nodes: OutlineTreeNode[];
+  activeHeading: string | null;
+  onSelectHeading: (slug: string) => void;
+  depth?: number;
+}
+
+function OutlineTree({ nodes, activeHeading, onSelectHeading, depth = 0 }: OutlineTreeProps) {
+  return html`
+    ${nodes.map((node) => {
+      const isActive = node.entry.slug === activeHeading;
+      const hasActiveChild = isActiveOrHasActiveChild(node, activeHeading);
+      const h = node.entry;
+
+      return html`
+        <div key=${h.slug} class="outline-node ${depth > 0 ? "outline-node-nested" : ""}">
+          <div
+            class="outline-item ${isActive ? "active" : ""}"
+            onClick=${() => onSelectHeading(h.slug)}
+          >
+            <span class="outline-title">${h.title}</span>
+            ${h.aggregated.total > 0 &&
+            html`
+              <span class="outline-indicators">
+                <${CoverageArc}
+                  count=${h.aggregated.implCount}
+                  total=${h.aggregated.total}
+                  color="var(--green)"
+                  title="Implementation: ${h.aggregated.implCount}/${h.aggregated.total}"
+                />
+                <${CoverageArc}
+                  count=${h.aggregated.verifyCount}
+                  total=${h.aggregated.total}
+                  color="var(--blue)"
+                  title="Tests: ${h.aggregated.verifyCount}/${h.aggregated.total}"
+                />
+              </span>
+            `}
+          </div>
+          ${node.children.length > 0 &&
+          html`
+            <div class="outline-children ${hasActiveChild ? "has-active" : ""}">
+              <${OutlineTree}
+                nodes=${node.children}
+                activeHeading=${activeHeading}
+                onSelectHeading=${onSelectHeading}
+                depth=${depth + 1}
+              />
+            </div>
+          `}
+        </div>
+      `;
+    })}
+  `;
+}
+
 function SpecView({
   config,
   selectedRule,
@@ -1832,6 +1927,9 @@ function SpecView({
 
   // Use outline from API (already has coverage info)
   const outline = spec?.outline || [];
+
+  // Build hierarchical tree from flat outline
+  const outlineTree = useMemo(() => buildOutlineTree(outline), [outline]);
 
   // Concatenate all sections' HTML (sections are pre-sorted by weight on server)
   const processedContent = useMemo(() => {
@@ -2085,36 +2183,11 @@ function SpecView({
         <div class="sidebar-header">Outline</div>
         <div class="sidebar-content">
           <div class="outline-tree">
-            ${outline.map(
-              (h) => html`
-                <div
-                  key=${h.slug}
-                  class="outline-item outline-level-${h.level} ${activeHeading === h.slug
-                    ? "active"
-                    : ""}"
-                  onClick=${() => scrollToHeading(h.slug)}
-                >
-                  <span class="outline-title">${h.title}</span>
-                  ${h.aggregated.total > 0 &&
-                  html`
-                    <span class="outline-indicators">
-                      <${CoverageArc}
-                        count=${h.aggregated.implCount}
-                        total=${h.aggregated.total}
-                        color="var(--green)"
-                        title="Implementation: ${h.aggregated.implCount}/${h.aggregated.total}"
-                      />
-                      <${CoverageArc}
-                        count=${h.aggregated.verifyCount}
-                        total=${h.aggregated.total}
-                        color="var(--blue)"
-                        title="Tests: ${h.aggregated.verifyCount}/${h.aggregated.total}"
-                      />
-                    </span>
-                  `}
-                </div>
-              `,
-            )}
+            <${OutlineTree}
+              nodes=${outlineTree}
+              activeHeading=${activeHeading}
+              onSelectHeading=${scrollToHeading}
+            />
           </div>
         </div>
       </div>
