@@ -800,6 +800,7 @@ a.annotation-badge:hover {
 
 .markdown td {
     background: var(--bg-secondary);
+    font-weight: 400;
 }
 
 .markdown tr:hover td {

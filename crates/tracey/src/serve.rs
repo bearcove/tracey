@@ -962,21 +962,35 @@ async fn load_spec_content(
     // Sort by weight
     files.sort_by_key(|(_, _, weight)| *weight);
 
-    // Render each file and build sections, collecting elements for outline
-    let mut sections = Vec::new();
-    let mut all_elements: Vec<bearmark::DocElement> = Vec::new();
+    // Concatenate all markdown files to render as one document
+    // This ensures heading IDs are hierarchical across all files
+    let mut combined_markdown = String::new();
+    let mut first_source_file = String::new();
 
-    for (source_file, content, weight) in files {
-        // Update the current source file so rule handler can include it in data attributes
-        *current_source_file.lock().unwrap() = source_file.clone();
-        let doc = render(&content, &opts).await?;
-        sections.push(SpecSection {
-            source_file,
-            html: doc.html,
-            weight,
-        });
-        all_elements.extend(doc.elements);
+    for (i, (source_file, content, _weight)) in files.iter().enumerate() {
+        if i == 0 {
+            first_source_file = source_file.clone();
+        }
+        combined_markdown.push_str(content);
+        combined_markdown.push_str("\n\n"); // Ensure separation between files
     }
+
+    // Render the combined document once (so heading_stack works across files)
+    *current_source_file.lock().unwrap() = first_source_file.clone();
+    let doc = render(&combined_markdown, &opts).await?;
+
+    // Create a single section with all content
+    // (Frontend concatenates sections anyway, this just simplifies tracking)
+    let mut sections = Vec::new();
+    if !files.is_empty() {
+        sections.push(SpecSection {
+            source_file: first_source_file,
+            html: doc.html,
+            weight: files[0].2,
+        });
+    }
+
+    let all_elements = doc.elements;
 
     // Build outline from elements
     let outline = build_outline(&all_elements, coverage);
