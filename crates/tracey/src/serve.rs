@@ -273,6 +273,8 @@ struct TraceyRuleHandler {
     current_source_file: Arc<Mutex<String>>,
     /// Spec name for URL generation
     spec_name: String,
+    /// Project root for absolute paths
+    project_root: PathBuf,
 }
 
 impl TraceyRuleHandler {
@@ -280,11 +282,13 @@ impl TraceyRuleHandler {
         coverage: BTreeMap<String, RuleCoverage>,
         current_source_file: Arc<Mutex<String>>,
         spec_name: String,
+        project_root: PathBuf,
     ) -> Self {
         Self {
             coverage,
             current_source_file,
             spec_name,
+            project_root,
         }
     }
 }
@@ -362,8 +366,10 @@ impl RuleHandler for TraceyRuleHandler {
             // Insert <wbr> after dots for better line breaking
             let display_id = rule.id.replace('.', ".<wbr>");
 
-            // Get current source file for this rule
-            let source_file = self.current_source_file.lock().unwrap().clone();
+            // Get current source file for this rule (make it absolute)
+            let relative_source = self.current_source_file.lock().unwrap().clone();
+            let absolute_source = self.project_root.join(&relative_source);
+            let source_file = absolute_source.display().to_string();
 
             // Build the badges that pierce the top border
             let mut badges_html = String::new();
@@ -731,6 +737,7 @@ async fn load_spec_content(
         coverage.clone(),
         Arc::clone(&current_source_file),
         spec_name.to_string(),
+        root.to_path_buf(),
     );
     let opts = RenderOptions::new()
         .with_default_handler(ArboriumHandler::new())
