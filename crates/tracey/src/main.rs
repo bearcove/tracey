@@ -134,6 +134,10 @@ pub(crate) async fn load_rules_from_glob(
         let content = std::fs::read_to_string(path)
             .wrap_err_with(|| format!("Failed to read {}", path.display()))?;
 
+        // bearmark implements markdown rule extraction:
+        // [impl markdown.syntax.marker] - r[rule.id] syntax
+        // [impl markdown.syntax.standalone] - rule on its own line
+        // [impl markdown.syntax.inline-ignored] - inline markers ignored
         let doc = render(&content, &RenderOptions::default())
             .await
             .map_err(|e| eyre::eyre!("Failed to process {}: {}", path.display(), e))?;
@@ -147,6 +151,8 @@ pub(crate) async fn load_rules_from_glob(
             );
 
             // Check for duplicates
+            // [impl markdown.duplicates.same-file] - caught when bearmark returns duplicate rules from single file
+            // [impl markdown.duplicates.cross-file] - caught via seen_ids persisting across files
             for rule in &doc.rules {
                 if seen_ids.contains(&rule.id) {
                     eyre::bail!(
