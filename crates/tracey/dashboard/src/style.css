@@ -21,7 +21,7 @@
     --blue: var(--arb-tu);
     --bg-outer: light-dark(#e5e7eb, #0d0e12);
 
-    --max-width: 1200px;
+    --max-width: 1600px;
 
     /* Arborium syntax highlighting colors (combined light/dark) */
     --arb-at: light-dark(var(--arb-at-light), var(--arb-at-dark));
@@ -264,7 +264,7 @@ body {
 
 /* Sidebar */
 .sidebar {
-    width: 280px;
+    width: 360px;
     border-right: 1px solid var(--border);
     background: var(--bg-sidebar);
     display: flex;
@@ -1343,6 +1343,94 @@ a.rule-marker:hover {
     padding: 0.5rem;
 }
 
+.outline-item-row {
+    display: flex;
+    align-items: center;
+    gap: 0.125rem;
+}
+
+.outline-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.25rem;
+    height: 1.25rem;
+    padding: 0;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: var(--fg-dim);
+    border-radius: 0.25rem;
+    flex-shrink: 0;
+    transition: all 0.15s;
+}
+
+.outline-toggle:hover {
+    background: var(--hover);
+    color: var(--fg);
+}
+
+.outline-toggle svg {
+    width: 0.875rem;
+    height: 0.875rem;
+    transition: transform 0.15s;
+}
+
+.outline-toggle:not(.collapsed) svg {
+    transform: rotate(90deg);
+}
+
+.outline-toggle-spacer {
+    width: 1.25rem;
+    flex-shrink: 0;
+}
+
+/* Paragraph edit button (pencil icon on hover) */
+.markdown p,
+.markdown li,
+.markdown blockquote {
+    position: relative;
+}
+
+.markdown p:hover > .para-edit-btn,
+.markdown li:hover > .para-edit-btn,
+.markdown blockquote:hover > .para-edit-btn {
+    opacity: 1;
+}
+
+.para-edit-btn {
+    position: absolute;
+    right: -1.5rem;
+    top: 0.15rem;
+    width: 1.25rem;
+    height: 1.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 0.25rem;
+    color: var(--fg-dim);
+    cursor: pointer;
+    opacity: 0;
+    transition:
+        opacity 0.15s,
+        color 0.15s,
+        background 0.15s;
+    text-decoration: none;
+}
+
+.para-edit-btn:hover {
+    background: var(--hover);
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+.para-edit-btn svg {
+    width: 0.75rem;
+    height: 0.75rem;
+}
+
 .outline-item {
     display: flex;
     align-items: center;
@@ -1354,6 +1442,8 @@ a.rule-marker:hover {
     color: var(--fg-muted);
     text-decoration: none;
     border-radius: 0.25rem;
+    flex: 1;
+    min-width: 0;
     transition:
         background 0.15s,
         color 0.15s;

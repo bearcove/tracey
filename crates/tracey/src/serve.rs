@@ -529,7 +529,7 @@ fn devicon_class(path: &str) -> Option<&'static str> {
 }
 
 impl RuleHandler for TraceyRuleHandler {
-    fn render<'a>(
+    fn start<'a>(
         &'a self,
         rule: &'a RuleDefinition,
     ) -> Pin<Box<dyn Future<Output = bearmark::Result<String>> + Send + 'a>> {
@@ -618,17 +618,25 @@ impl RuleHandler for TraceyRuleHandler {
                 }
             }
 
-            // Render the rule container with paragraph content
+            // Render the opening of the rule container
             Ok(format!(
                 r#"<div class="rule-container rule-{status}" id="{anchor}">
 <div class="rule-badges">{badges}</div>
-<div class="rule-content">{paragraph}</div>
-</div>"#,
+<div class="rule-content">"#,
                 status = status,
                 anchor = rule.anchor_id,
                 badges = badges_html,
-                paragraph = rule.paragraph_html
             ))
+        })
+    }
+
+    fn end<'a>(
+        &'a self,
+        _rule: &'a RuleDefinition,
+    ) -> Pin<Box<dyn Future<Output = bearmark::Result<String>> + Send + 'a>> {
+        Box::pin(async move {
+            // Close the rule container
+            Ok("</div>\n</div>".to_string())
         })
     }
 }
@@ -1047,6 +1055,9 @@ fn build_outline(
                         entries[idx].coverage.verify_count += 1;
                     }
                 }
+            }
+            DocElement::Paragraph(_) => {
+                // Paragraphs don't contribute to outline coverage
             }
         }
     }

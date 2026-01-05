@@ -1856,58 +1856,118 @@ function isActiveOrHasActiveChild(node: OutlineTreeNode, activeHeading: string |
   return node.children.some((child) => isActiveOrHasActiveChild(child, activeHeading));
 }
 
+// localStorage key for outline collapse state
+const OUTLINE_COLLAPSE_KEY = "tracey-outline-collapsed";
+
+// Get collapsed slugs from localStorage
+function getCollapsedSlugs(): Set<string> {
+  try {
+    const stored = localStorage.getItem(OUTLINE_COLLAPSE_KEY);
+    return stored ? new Set(JSON.parse(stored)) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+// Save collapsed slugs to localStorage
+function saveCollapsedSlugs(slugs: Set<string>): void {
+  try {
+    localStorage.setItem(OUTLINE_COLLAPSE_KEY, JSON.stringify([...slugs]));
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 // Recursive outline tree renderer
 interface OutlineTreeProps {
   nodes: OutlineTreeNode[];
   activeHeading: string | null;
   onSelectHeading: (slug: string) => void;
+  collapsedSlugs: Set<string>;
+  onToggleCollapse: (slug: string) => void;
   depth?: number;
 }
 
-function OutlineTree({ nodes, activeHeading, onSelectHeading, depth = 0 }: OutlineTreeProps) {
+function OutlineTree({
+  nodes,
+  activeHeading,
+  onSelectHeading,
+  collapsedSlugs,
+  onToggleCollapse,
+  depth = 0,
+}: OutlineTreeProps) {
   return html`
     ${nodes.map((node) => {
       const isActive = node.entry.slug === activeHeading;
       const hasActiveChild = isActiveOrHasActiveChild(node, activeHeading);
+      const hasChildren = node.children.length > 0;
+      const isCollapsed = collapsedSlugs.has(node.entry.slug);
       const h = node.entry;
+
+      // Only show coverage indicators if:
+      // 1. There are rules AND
+      // 2. Either no children OR is collapsed
+      const showCoverage = h.aggregated.total > 0 && (!hasChildren || isCollapsed);
 
       return html`
         <div key=${h.slug} class="outline-node ${depth > 0 ? "outline-node-nested" : ""}">
-          <a
-            href=${`/spec/${h.slug}`}
-            class="outline-item ${isActive ? "active" : ""}"
-            onClick=${(e) => {
-              e.preventDefault();
-              history.pushState(null, "", `/spec/${h.slug}`);
-              onSelectHeading(h.slug);
-            }}
-          >
-            <span class="outline-title">${h.title}</span>
-            ${h.aggregated.total > 0 &&
-            html`
-              <span class="outline-indicators">
-                <${CoverageArc}
-                  count=${h.aggregated.implCount}
-                  total=${h.aggregated.total}
-                  color="var(--green)"
-                  title="Implementation: ${h.aggregated.implCount}/${h.aggregated.total}"
-                />
-                <${CoverageArc}
-                  count=${h.aggregated.verifyCount}
-                  total=${h.aggregated.total}
-                  color="var(--blue)"
-                  title="Tests: ${h.aggregated.verifyCount}/${h.aggregated.total}"
-                />
-              </span>
-            `}
-          </a>
-          ${node.children.length > 0 &&
+          <div class="outline-item-row">
+            ${hasChildren
+              ? html`
+                  <button
+                    class="outline-toggle ${isCollapsed ? "collapsed" : ""}"
+                    onClick=${(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      onToggleCollapse(h.slug);
+                    }}
+                    title=${isCollapsed ? "Expand" : "Collapse"}
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M9 18l6-6-6-6" />
+                    </svg>
+                  </button>
+                `
+              : html`<span class="outline-toggle-spacer"></span>`}
+            <a
+              href=${`/spec/${h.slug}`}
+              class="outline-item ${isActive ? "active" : ""}"
+              onClick=${(e) => {
+                e.preventDefault();
+                history.pushState(null, "", `/spec/${h.slug}`);
+                onSelectHeading(h.slug);
+              }}
+            >
+              <span class="outline-title">${h.title}</span>
+              ${showCoverage &&
+              html`
+                <span class="outline-indicators">
+                  <${CoverageArc}
+                    count=${h.aggregated.implCount}
+                    total=${h.aggregated.total}
+                    color="var(--green)"
+                    title="Implementation: ${h.aggregated.implCount}/${h.aggregated.total}"
+                  />
+                  <${CoverageArc}
+                    count=${h.aggregated.verifyCount}
+                    total=${h.aggregated.total}
+                    color="var(--blue)"
+                    title="Tests: ${h.aggregated.verifyCount}/${h.aggregated.total}"
+                  />
+                </span>
+              `}
+            </a>
+          </div>
+          ${hasChildren &&
+          !isCollapsed &&
           html`
             <div class="outline-children ${hasActiveChild ? "has-active" : ""}">
               <${OutlineTree}
                 nodes=${node.children}
                 activeHeading=${activeHeading}
                 onSelectHeading=${onSelectHeading}
+                collapsedSlugs=${collapsedSlugs}
+                onToggleCollapse=${onToggleCollapse}
                 depth=${depth + 1}
               />
             </div>
@@ -1982,6 +2042,7 @@ function SpecView({
 }: SpecViewProps) {
   const spec = useSpec(config.specs[0]?.name, version);
   const [activeHeading, setActiveHeading] = useState(null);
+  const [collapsedSlugs, setCollapsedSlugs] = useState<Set<string>>(() => getCollapsedSlugs());
   const contentRef = useRef(null);
   const contentBodyRef = useRef(null);
   const initialScrollPosition = useRef(scrollPosition);
@@ -1992,6 +2053,20 @@ function SpecView({
 
   // Build hierarchical tree from flat outline
   const outlineTree = useMemo(() => buildOutlineTree(outline), [outline]);
+
+  // Toggle collapse state for a heading
+  const handleToggleCollapse = useCallback((slug: string) => {
+    setCollapsedSlugs((prev) => {
+      const next = new Set(prev);
+      if (next.has(slug)) {
+        next.delete(slug);
+      } else {
+        next.add(slug);
+      }
+      saveCollapsedSlugs(next);
+      return next;
+    });
+  }, []);
 
   // Concatenate all sections' HTML (sections are pre-sorted by weight on server)
   const processedContent = useMemo(() => {
@@ -2080,6 +2155,35 @@ function SpecView({
       });
     }
   }, [processedContent]);
+
+  // Add pencil edit buttons to paragraphs with data-source-file/data-source-line
+  useEffect(() => {
+    if (!processedContent || !contentRef.current || !config) return;
+
+    // Find all elements with source location data
+    const elements = contentRef.current.querySelectorAll("[data-source-file][data-source-line]");
+
+    for (const el of elements) {
+      // Skip if already has edit button
+      if (el.querySelector(".para-edit-btn")) continue;
+
+      const sourceFile = el.getAttribute("data-source-file");
+      const sourceLine = el.getAttribute("data-source-line");
+      if (!sourceFile || !sourceLine) continue;
+
+      const fullPath = config.projectRoot ? `${config.projectRoot}/${sourceFile}` : sourceFile;
+      const editUrl = EDITORS.zed.urlTemplate(fullPath, parseInt(sourceLine, 10));
+
+      // Create pencil button
+      const btn = document.createElement("a");
+      btn.className = "para-edit-btn";
+      btn.href = editUrl;
+      btn.title = `Edit in Zed (${sourceFile}:${sourceLine})`;
+      btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>`;
+
+      el.appendChild(btn);
+    }
+  }, [processedContent, config]);
 
   const scrollToHeading = useCallback((slug: string) => {
     if (!contentRef.current || !contentBodyRef.current) return;
@@ -2269,6 +2373,8 @@ function SpecView({
               nodes=${outlineTree}
               activeHeading=${activeHeading}
               onSelectHeading=${scrollToHeading}
+              collapsedSlugs=${collapsedSlugs}
+              onToggleCollapse=${handleToggleCollapse}
             />
           </div>
         </div>
