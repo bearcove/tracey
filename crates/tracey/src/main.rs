@@ -72,6 +72,7 @@ fn main() -> Result<()> {
     let args: Args = args::from_std_args().expect("failed to parse arguments");
 
     match args.command {
+        // [impl cli.serve]
         Some(Command::Serve {
             root,
             config,
@@ -79,10 +80,12 @@ fn main() -> Result<()> {
             open,
             dev,
         }) => serve::run(root, config, port.unwrap_or(3000), open, dev),
+        // [impl cli.mcp]
         Some(Command::Mcp { root, config }) => {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(mcp::run(root, config))
         }
+        // [impl cli.no-args]
         None => {
             print_help();
             Ok(())

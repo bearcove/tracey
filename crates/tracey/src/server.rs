@@ -484,6 +484,8 @@ fn insert_into_tree(
 // ============================================================================
 
 /// Format status header for MCP responses
+// [impl mcp.response.header]
+// [impl mcp.response.header-format]
 pub fn format_status_header(data: &DashboardData, delta: &Delta) -> String {
     let status_parts: Vec<String> = data
         .forward_by_impl
@@ -513,6 +515,8 @@ pub fn format_status_header(data: &DashboardData, delta: &Delta) -> String {
 }
 
 /// Format delta section for MCP responses
+// [impl mcp.response.delta]
+// [impl mcp.response.delta-format]
 pub fn format_delta_section(delta: &Delta) -> String {
     if delta.is_empty() {
         return "(no changes since last query)\n".to_string();
@@ -540,6 +544,7 @@ pub fn format_delta_section(delta: &Delta) -> String {
 
 impl UncoveredResult {
     /// Format as text for MCP response
+    // [impl mcp.response.text]
     pub fn format_text(&self) -> String {
         let mut out = String::new();
         out.push_str(&format!(
@@ -572,6 +577,7 @@ impl UncoveredResult {
 
 impl UntestedResult {
     /// Format as text for MCP response
+    // [impl mcp.response.text]
     pub fn format_text(&self) -> String {
         let mut out = String::new();
         out.push_str(&format!(
@@ -609,6 +615,7 @@ impl UntestedResult {
 
 impl UnmappedResult {
     /// Format as ASCII tree for MCP response
+    // [impl mcp.response.text]
     pub fn format_tree(&self) -> String {
         let mut out = String::new();
         let overall_percent = if self.total_units > 0 {
@@ -663,6 +670,7 @@ fn coverage_bar(percent: f64) -> String {
 
 impl RuleInfo {
     /// Format as text for MCP response
+    // [impl mcp.response.text]
     pub fn format_text(&self) -> String {
         let mut out = String::new();
         out.push_str(&format!("# Rule: {}\n\n", self.id));
