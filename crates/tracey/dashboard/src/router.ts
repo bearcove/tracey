@@ -1,5 +1,5 @@
 // Router utilities using preact-iso
-// URL structure: /:spec/:impl/:view
+// [impl dashboard.url.structure] - URL structure: /:spec/:impl/:view
 //
 // Examples:
 //   /rapace/rust/spec                     -> spec view, no heading
@@ -40,6 +40,8 @@ export function buildUrl(
 	const implPart = impl ? `/${encodeURIComponent(impl)}` : "";
 	const base = specPart + implPart;
 
+	// [impl dashboard.url.sources-view]
+	// [impl dashboard.url.context]
 	if (view === "sources") {
 		const { file, line, context } = params;
 		let url = `${base}/sources`;
@@ -54,6 +56,7 @@ export function buildUrl(
 		return url;
 	}
 
+	// [impl dashboard.url.spec-view]
 	if (view === "spec") {
 		const { rule, heading } = params;
 		let url = `${base}/spec`;
@@ -62,7 +65,7 @@ export function buildUrl(
 		return url;
 	}
 
-	// coverage
+	// [impl dashboard.url.coverage-view]
 	const searchParams = new URLSearchParams();
 	if (params.filter) searchParams.set("filter", params.filter);
 	if (params.level && params.level !== "all")

@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 
 /// Result type for unified search
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Facet)]
+#[facet(rename_all = "lowercase")]
 #[repr(u8)]
 pub enum ResultKind {
     /// Source code line

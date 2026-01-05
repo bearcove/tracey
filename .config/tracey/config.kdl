@@ -7,4 +7,9 @@ spec {
         include "crates/**/*.rs"
         exclude "target/**"
     }
+
+    impl {
+        lang "typescript"
+        include "crates/tracey/dashboard/src/**/*.ts"
+    }
 }
