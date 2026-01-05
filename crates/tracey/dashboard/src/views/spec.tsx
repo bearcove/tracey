@@ -116,7 +116,7 @@ function OutlineTree({
                 `
               : html`<span class="outline-toggle-spacer"></span>`}
             <a
-              href=${`/${specName}/${lang}/spec/${h.slug}`}
+              href=${`/${specName}/${lang}/spec#${h.slug}`}
               class="outline-item ${isActive ? "active" : ""}"
               onClick=${(e: Event) => {
                 e.preventDefault();

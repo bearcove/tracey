@@ -1,9 +1,9 @@
 // Router utilities using preact-iso
-// URL structure: /:spec/:lang/:view/...
+// URL structure: /:spec/:lang/:view
 //
 // Examples:
 //   /rapace/rust/spec                     -> spec view, no heading
-//   /rapace/rust/spec/channels            -> spec view, heading "channels"
+//   /rapace/rust/spec#channels            -> spec view, heading "channels" (hash fragment)
 //   /rapace/swift/sources                 -> sources view, no file
 //   /rapace/rust/sources/src/lib.rs:42    -> sources view, file + line
 //   /rapace/rust/coverage                 -> coverage view
@@ -57,8 +57,8 @@ export function buildUrl(
 	if (view === "spec") {
 		const { rule, heading } = params;
 		let url = `${base}/spec`;
-		if (heading) url += `/${heading}`;
 		if (rule) url += `?rule=${encodeURIComponent(rule)}`;
+		if (heading) url += `#${heading}`;
 		return url;
 	}
 

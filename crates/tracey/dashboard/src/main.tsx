@@ -630,7 +630,7 @@ function App() {
               return html`<div class="loading">Redirecting...</div>`;
             }}
           />
-          <${Route} path="/:spec/:lang/spec/:heading*" component=${SpecViewRoute} />
+          <${Route} path="/:spec/:lang/spec" component=${SpecViewRoute} />
           <${Route} path="/:spec/:lang/sources/:file*" component=${SourcesViewRoute} />
           <${Route} path="/:spec/:lang/coverage" component=${CoverageViewRoute} />
           <${Route}
@@ -677,7 +677,8 @@ function SpecViewRoute() {
   const { config, forward } = data;
   const spec = params.spec;
   const lang = params.lang;
-  const heading = params.heading || null;
+  // Heading comes from URL hash (e.g., /spec#heading-name)
+  const heading = window.location.hash ? window.location.hash.slice(1) : null;
   const rule = query.rule || null;
 
   const [scrollPosition, setScrollPosition] = useState(0);
