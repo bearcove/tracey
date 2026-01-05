@@ -44,8 +44,8 @@ use tracing::{debug, error, info, warn};
 
 // Markdown rendering
 use bearmark::{
-    AasvgHandler, ArboriumHandler, PikruHandler, RenderOptions, RuleDefinition, RuleHandler,
-    parse_frontmatter, render,
+    AasvgHandler, ArboriumHandler, PikruHandler, RenderOptions, RuleHandler, parse_frontmatter,
+    render,
 };
 use std::future::Future;
 use std::pin::Pin;

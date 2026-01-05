@@ -5,8 +5,6 @@
 //! manifest to produce coverage reports.
 
 mod config;
-mod errors;
-mod manifest;
 mod search;
 mod serve;
 mod vite;
@@ -14,10 +12,9 @@ mod vite;
 use config::Config;
 use eyre::{Result, WrapErr};
 use facet_args as args;
-use manifest::RulesManifest;
 use owo_colors::OwoColorize;
 use std::path::PathBuf;
-use tracey_core::SpecManifest;
+use tracey_core::RuleDefinition;
 
 // Re-export from bearmark for rule extraction
 use bearmark::{RuleWarningKind, extract_rules_only};
@@ -26,7 +23,7 @@ use bearmark::{RuleWarningKind, extract_rules_only};
 #[derive(Debug, facet::Facet)]
 struct Args {
     /// Subcommand to run
-    #[facet(subcommand)]
+    #[facet(args::subcommand)]
     command: Option<Command>,
 }
 
@@ -37,30 +34,29 @@ enum Command {
     /// Start the interactive web dashboard
     Serve {
         /// Project root directory (default: current directory)
-        #[facet(positional, default)]
+        #[facet(args::positional, default)]
         root: Option<PathBuf>,
 
         /// Path to config file (default: .config/tracey/config.kdl)
-        #[facet(named, short = 'c', default)]
+        #[facet(args::named, args::short = 'c', default)]
         config: Option<PathBuf>,
 
         /// Port to serve on (default: 3000)
-        #[facet(named, short = 'p', default)]
+        #[facet(args::named, args::short = 'p', default)]
         port: Option<u16>,
 
         /// Open the dashboard in your browser
-        #[facet(named, default)]
+        #[facet(args::named, default)]
         open: bool,
 
         /// Development mode: serve dashboard from Vite dev server
-        #[facet(named, default)]
+        #[facet(args::named, default)]
         dev: bool,
     },
 }
 
 fn main() -> Result<()> {
-    let args: Args =
-        args::from_slice(&std::env::args().collect::<Vec<_>>()).expect("failed to parse arguments");
+    let args: Args = args::from_std_args().expect("failed to parse arguments");
 
     match args.command {
         Some(Command::Serve {
@@ -98,14 +94,17 @@ Run 'tracey <COMMAND> --help' for more information on a command."#,
     );
 }
 
-pub(crate) fn load_manifest_from_glob(
+/// Load rules from markdown files matching a glob pattern.
+/// Returns a Vec of (RuleDefinition, source_file) tuples.
+pub(crate) fn load_rules_from_glob(
     root: &std::path::Path,
     pattern: &str,
-) -> Result<SpecManifest> {
+) -> Result<Vec<(RuleDefinition, String)>> {
     use ignore::WalkBuilder;
-    use std::collections::HashMap;
+    use std::collections::HashSet;
 
-    let mut rules_manifest = RulesManifest::new();
+    let mut rules: Vec<(RuleDefinition, String)> = Vec::new();
+    let mut seen_ids: HashSet<String> = HashSet::new();
 
     // Walk the directory tree
     let walker = WalkBuilder::new(root)
@@ -125,7 +124,7 @@ pub(crate) fn load_manifest_from_glob(
 
         // Check if the path matches the glob pattern
         let relative = path.strip_prefix(root).unwrap_or(path);
-        let relative_str = relative.to_string_lossy();
+        let relative_str = relative.to_string_lossy().to_string();
 
         if !matches_glob(&relative_str, pattern) {
             continue;
@@ -164,32 +163,26 @@ pub(crate) fn load_manifest_from_glob(
                 relative_str
             );
 
-            // Build manifest for this file (no base URL needed for coverage checking)
-            let file_manifest = RulesManifest::from_rules(&result.rules, "", &relative_str);
-            let duplicates = rules_manifest.merge(&file_manifest);
-
-            if !duplicates.is_empty() {
-                for dup in &duplicates {
-                    eprintln!(
-                        "   {} Duplicate rule '{}' in {}",
-                        "!".yellow().bold(),
-                        dup.id.red(),
+            // Check for duplicates
+            for rule in &result.rules {
+                if seen_ids.contains(&rule.id) {
+                    eyre::bail!(
+                        "Duplicate rule '{}' found in {}",
+                        rule.id.red(),
                         relative_str
                     );
                 }
-                eyre::bail!(
-                    "Found {} duplicate rule IDs in markdown files",
-                    duplicates.len()
-                );
+                seen_ids.insert(rule.id.clone());
+            }
+
+            // Add rules with their source file
+            for rule in result.rules {
+                rules.push((rule, relative_str.clone()));
             }
         }
     }
 
-    // Convert BTreeMap to HashMap for SpecManifest
-    let spec_rules: HashMap<String, tracey_core::RuleInfo> =
-        rules_manifest.rules.into_iter().collect();
-
-    Ok(SpecManifest { rules: spec_rules })
+    Ok(rules)
 }
 
 /// Simple glob pattern matching
@@ -258,7 +251,7 @@ pub(crate) fn load_config(path: &PathBuf) -> Result<Config> {
              Create a config file with your spec configuration:\n\n\
              spec {{\n    \
                  name \"my-spec\"\n    \
-                 rules_url \"https://example.com/_rules.json\"\n\
+                 rules_glob \"docs/**/*.md\"\n\
              }}",
             path.display()
         );

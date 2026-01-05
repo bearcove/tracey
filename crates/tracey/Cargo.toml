@@ -25,7 +25,7 @@ name = "tracey"
 path = "src/main.rs"
 
 [dependencies]
-tracey-core = { workspace = true, features = ["walk", "parallel", "fetch", "reverse"] }
+tracey-core = { workspace = true, features = ["walk", "parallel", "reverse"] }
 
 # Facet ecosystem for config parsing and CLI
 facet = { workspace = true }
@@ -36,9 +36,7 @@ facet-axum = { workspace = true }
 
 # Error handling
 eyre = { workspace = true }
-miette = { workspace = true }
 facet-error = { workspace = true }
-facet-miette = { workspace = true }
 
 # Pretty output
 owo-colors = { workspace = true }
@@ -46,17 +44,11 @@ owo-colors = { workspace = true }
 # File walking (for rules_glob)
 ignore = { workspace = true }
 
-# Syntax highlighting for miette
-miette-arborium = { workspace = true }
-
 # Markdown rendering with syntax highlighting and diagrams
 bearmark = { workspace = true }
 
 # Syntax highlighting for source files
 arborium = { workspace = true }
-
-# JSON output
-html-escape = "0.2.13"
 
 # Open files in browser
 open = "5"
@@ -88,4 +80,3 @@ default = []
 search = ["dep:tantivy", "dep:tempfile"]
 
 [dev-dependencies]
-facet-value = { workspace = true }

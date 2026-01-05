@@ -19,18 +19,15 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 default = ["walk", "parallel"]
 walk = ["dep:ignore"]
 parallel = ["dep:rayon"]
-fetch = ["dep:ureq"]
 reverse = ["dep:arborium", "dep:arborium-rust"]
 
 [dependencies]
 facet = { workspace = true }
-facet-json = { workspace = true }
 eyre = { workspace = true }
 bearmark = { workspace = true }
 
 # Optional
 ignore = { workspace = true, optional = true }
 rayon = { workspace = true, optional = true }
-ureq = { workspace = true, optional = true }
 arborium = { workspace = true, optional = true }
 arborium-rust = { workspace = true, optional = true }

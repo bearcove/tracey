@@ -22,19 +22,10 @@ facet-args = { git = "https://github.com/facet-rs/facet", branch = "main", versi
 facet-axum = { git = "https://github.com/facet-rs/facet", branch = "main", version = "0.41.0" }
 facet-kdl = { git = "https://github.com/facet-rs/facet", branch = "main", version = "0.41.0" }
 facet-json = { git = "https://github.com/facet-rs/facet", branch = "main", version = "0.41.0" }
-facet-value = { git = "https://github.com/facet-rs/facet", branch = "main", version = "0.41.0" }
 facet-error = { git = "https://github.com/facet-rs/facet", branch = "main", version = "0.41.0" }
-facet-miette = { git = "https://github.com/facet-rs/facet", branch = "main", version = "0.41.0" }
 
 # Error handling
 eyre = "0.6"
-
-# HTML utilities
-html-escape = "0.2"
-miette = { version = "7", default-features = false, features = ["fancy-no-backtrace"] }
-
-# HTTP fetching
-ureq = "3"
 
 
 
@@ -48,9 +39,6 @@ rayon = "1"
 
 # Pretty output
 owo-colors = "4"
-
-# Syntax highlighting for miette
-miette-arborium = "2"
 
 # Tree-sitter parsing (for reverse traceability)
 # Note: async_tiny was removed - now using axum
