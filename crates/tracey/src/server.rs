@@ -231,7 +231,13 @@ impl<'a> QueryEngine<'a> {
     }
 
     /// Get uncovered rules (no impl refs) for a spec/impl
-    pub fn uncovered(&self, spec: &str, impl_name: &str) -> Option<UncoveredResult> {
+    // [impl mcp.discovery.pagination] - Section filtering provides pagination
+    pub fn uncovered(
+        &self,
+        spec: &str,
+        impl_name: &str,
+        section_filter: Option<&str>,
+    ) -> Option<UncoveredResult> {
         let key: ImplKey = (spec.to_string(), impl_name.to_string());
         let forward = self.data.forward_by_impl.get(&key)?;
         let spec_data = self.data.specs_content_by_impl.get(&key)?;
@@ -246,7 +252,12 @@ impl<'a> QueryEngine<'a> {
             .collect();
 
         // Build section mapping from outline
-        let by_section = group_rules_by_section(&uncovered_rules, &spec_data.outline);
+        let mut by_section = group_rules_by_section(&uncovered_rules, &spec_data.outline);
+
+        // Filter by section if specified
+        if let Some(filter) = section_filter {
+            by_section.retain(|section, _| section == filter);
+        }
 
         Some(UncoveredResult {
             spec: spec.to_string(),
@@ -258,7 +269,13 @@ impl<'a> QueryEngine<'a> {
     }
 
     /// Get untested rules (have impl but no verify refs) for a spec/impl
-    pub fn untested(&self, spec: &str, impl_name: &str) -> Option<UntestedResult> {
+    // [impl mcp.discovery.pagination] - Section filtering provides pagination
+    pub fn untested(
+        &self,
+        spec: &str,
+        impl_name: &str,
+        section_filter: Option<&str>,
+    ) -> Option<UntestedResult> {
         let key: ImplKey = (spec.to_string(), impl_name.to_string());
         let forward = self.data.forward_by_impl.get(&key)?;
         let spec_data = self.data.specs_content_by_impl.get(&key)?;
@@ -271,7 +288,12 @@ impl<'a> QueryEngine<'a> {
             .filter(|r| !r.impl_refs.is_empty() && r.verify_refs.is_empty())
             .collect();
 
-        let by_section = group_rules_by_section(&untested_rules, &spec_data.outline);
+        let mut by_section = group_rules_by_section(&untested_rules, &spec_data.outline);
+
+        // Filter by section if specified
+        if let Some(filter) = section_filter {
+            by_section.retain(|section, _| section == filter);
+        }
 
         Some(UntestedResult {
             spec: spec.to_string(),
@@ -653,6 +675,7 @@ impl UncoveredResult {
             return out;
         }
 
+        // [impl mcp.discovery.overview-first] - Show sections with counts
         for (section, rules) in &self.by_section {
             out.push_str(&format!("## {} ({} uncovered)\n", section, rules.len()));
             for rule in rules {
@@ -661,6 +684,7 @@ impl UncoveredResult {
             out.push('\n');
         }
 
+        // [impl mcp.discovery.drill-down] - Provide hints for drilling down
         out.push_str("---\n→ tracey_rule <id> to see rule details\n");
 
         out
@@ -686,6 +710,7 @@ impl UntestedResult {
             return out;
         }
 
+        // [impl mcp.discovery.overview-first] - Show sections with counts
         for (section, rules) in &self.by_section {
             out.push_str(&format!("## {} ({} untested)\n", section, rules.len()));
             for rule in rules {
@@ -699,6 +724,7 @@ impl UntestedResult {
             out.push('\n');
         }
 
+        // [impl mcp.discovery.drill-down] - Provide hints for drilling down
         out.push_str("---\n→ tracey_rule <id> to see where rule is implemented\n");
 
         out
@@ -730,6 +756,7 @@ impl UnmappedResult {
             "# Code Traceability for {}/{}\n\n",
             self.spec, self.impl_name
         ));
+        // [impl mcp.discovery.overview-first] - Show overall stats first
         out.push_str(&format!(
             "Overall: {:.0}% ({}/{} code units mapped to requirements)\n\n",
             overall_percent, self.covered_units, self.total_units
@@ -739,6 +766,7 @@ impl UnmappedResult {
             format_tree_node(node, "", i == self.tree.len() - 1, &mut out);
         }
 
+        // [impl mcp.discovery.drill-down] - Provide hints for drilling down
         out.push_str("\n---\n→ tracey_unmapped <path> to zoom into a directory\n");
 
         out

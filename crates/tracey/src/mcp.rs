@@ -93,6 +93,42 @@ pub struct RuleTool {
     pub rule_id: String,
 }
 
+/// Display current configuration
+#[mcp_tool(
+    name = "tracey_config",
+    description = "Display the current configuration for all specs and implementations, including include/exclude patterns."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ConfigTool {}
+
+/// Add exclude pattern to implementation
+#[mcp_tool(
+    name = "tracey_config_exclude",
+    description = "Add an exclude pattern to filter out files from scanning for a specific implementation."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ConfigExcludeTool {
+    /// Spec/impl to modify (e.g., "my-spec/rust"). Optional if only one exists.
+    #[serde(default)]
+    pub spec_impl: Option<String>,
+    /// Glob pattern to exclude (e.g., "**/*_test.rs")
+    pub pattern: String,
+}
+
+/// Add include pattern to implementation
+#[mcp_tool(
+    name = "tracey_config_include",
+    description = "Add an include pattern to expand the set of scanned files for a specific implementation."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ConfigIncludeTool {
+    /// Spec/impl to modify (e.g., "my-spec/rust"). Optional if only one exists.
+    #[serde(default)]
+    pub spec_impl: Option<String>,
+    /// Glob pattern to include (e.g., "src/**/*.rs")
+    pub pattern: String,
+}
+
 // Generate the toolbox enum
 tool_box!(
     TraceyTools,
@@ -101,7 +137,10 @@ tool_box!(
         UncoveredTool,
         UntestedTool,
         UnmappedTool,
-        RuleTool
+        RuleTool,
+        ConfigTool,
+        ConfigExcludeTool,
+        ConfigIncludeTool
     ]
 );
 
@@ -116,13 +155,16 @@ pub struct TraceyHandler {
     /// Last delta shown to the user (for tracking what's changed since last query)
     #[allow(dead_code)]
     last_delta: std::sync::Mutex<Delta>,
+    /// Path to config file for persistence
+    config_path: PathBuf,
 }
 
 impl TraceyHandler {
-    pub fn new(data: watch::Receiver<Arc<DashboardData>>) -> Self {
+    pub fn new(data: watch::Receiver<Arc<DashboardData>>, config_path: PathBuf) -> Self {
         Self {
             data,
             last_delta: std::sync::Mutex::new(Delta::default()),
+            config_path,
         }
     }
 
@@ -229,7 +271,7 @@ impl TraceyHandler {
 
     // [impl mcp.tool.uncovered]
     // [impl mcp.tool.uncovered-section]
-    fn handle_uncovered(&self, spec_impl: Option<&str>, _section: Option<&str>) -> String {
+    fn handle_uncovered(&self, spec_impl: Option<&str>, section: Option<&str>) -> String {
         let mut out = self.format_header();
 
         let (spec, impl_name) = match self.parse_spec_impl(spec_impl) {
@@ -240,7 +282,7 @@ impl TraceyHandler {
         let data = self.get_data();
         let engine = QueryEngine::new(&data);
 
-        match engine.uncovered(&spec, &impl_name) {
+        match engine.uncovered(&spec, &impl_name, section) {
             Some(result) => {
                 out.push_str(&result.format_text());
             }
@@ -254,7 +296,7 @@ impl TraceyHandler {
 
     // [impl mcp.tool.untested]
     // [impl mcp.tool.untested-section]
-    fn handle_untested(&self, spec_impl: Option<&str>, _section: Option<&str>) -> String {
+    fn handle_untested(&self, spec_impl: Option<&str>, section: Option<&str>) -> String {
         let mut out = self.format_header();
 
         let (spec, impl_name) = match self.parse_spec_impl(spec_impl) {
@@ -265,7 +307,7 @@ impl TraceyHandler {
         let data = self.get_data();
         let engine = QueryEngine::new(&data);
 
-        match engine.untested(&spec, &impl_name) {
+        match engine.untested(&spec, &impl_name, section) {
             Some(result) => {
                 out.push_str(&result.format_text());
             }
@@ -322,6 +364,180 @@ impl TraceyHandler {
 
         out
     }
+
+    // [impl mcp.config.list]
+    fn handle_config(&self) -> String {
+        let mut out = self.format_header();
+
+        // Load current config
+        let config = match crate::load_config(&self.config_path) {
+            Ok(c) => c,
+            Err(e) => {
+                out.push_str(&format!("Error loading config: {}", e));
+                return out;
+            }
+        };
+
+        out.push_str("# Tracey Configuration\n\n");
+        out.push_str(&format!("Config file: {}\n\n", self.config_path.display()));
+
+        for spec in &config.specs {
+            out.push_str(&format!("## Spec: {}\n", spec.name.value));
+            out.push_str(&format!("Rules: `{}`\n\n", spec.rules_glob.pattern));
+
+            for impl_ in &spec.impls {
+                out.push_str(&format!("### Implementation: {}\n", impl_.name.value));
+
+                if !impl_.include.is_empty() {
+                    out.push_str("**Include patterns:**\n");
+                    for include in &impl_.include {
+                        out.push_str(&format!("- `{}`\n", include.pattern));
+                    }
+                    out.push('\n');
+                }
+
+                if !impl_.exclude.is_empty() {
+                    out.push_str("**Exclude patterns:**\n");
+                    for exclude in &impl_.exclude {
+                        out.push_str(&format!("- `{}`\n", exclude.pattern));
+                    }
+                    out.push('\n');
+                }
+            }
+        }
+
+        out.push_str("---\n");
+        out.push_str("Use tracey_config_include to add include patterns\n");
+        out.push_str("Use tracey_config_exclude to add exclude patterns\n");
+
+        out
+    }
+
+    // [impl mcp.config.exclude]
+    fn handle_config_exclude(&self, spec_impl: Option<&str>, pattern: &str) -> String {
+        let mut out = self.format_header();
+
+        let (spec_name, impl_name) = match self.parse_spec_impl(spec_impl) {
+            Ok(v) => v,
+            Err(e) => return format!("{}{}", out, e),
+        };
+
+        // Load current config
+        let mut config = match crate::load_config(&self.config_path) {
+            Ok(c) => c,
+            Err(e) => {
+                out.push_str(&format!("Error loading config: {}", e));
+                return out;
+            }
+        };
+
+        // Find the spec and impl
+        let mut found = false;
+        for spec in &mut config.specs {
+            if spec.name.value == spec_name {
+                for impl_ in &mut spec.impls {
+                    if impl_.name.value == impl_name {
+                        impl_.exclude.push(crate::config::Exclude {
+                            pattern: pattern.to_string(),
+                        });
+                        found = true;
+                        break;
+                    }
+                }
+                break;
+            }
+        }
+
+        if !found {
+            out.push_str(&format!(
+                "Spec/impl '{}/{}' not found",
+                spec_name, impl_name
+            ));
+            return out;
+        }
+
+        // [impl mcp.config.persist] - Save config back to file
+        if let Err(e) = self.save_config(&config) {
+            out.push_str(&format!("Error saving config: {}", e));
+            return out;
+        }
+
+        out.push_str(&format!(
+            "Added exclude pattern '{}' to {}/{}\n\n",
+            pattern, spec_name, impl_name
+        ));
+        out.push_str("Configuration saved successfully.\n");
+
+        out
+    }
+
+    // [impl mcp.config.include]
+    fn handle_config_include(&self, spec_impl: Option<&str>, pattern: &str) -> String {
+        let mut out = self.format_header();
+
+        let (spec_name, impl_name) = match self.parse_spec_impl(spec_impl) {
+            Ok(v) => v,
+            Err(e) => return format!("{}{}", out, e),
+        };
+
+        // Load current config
+        let mut config = match crate::load_config(&self.config_path) {
+            Ok(c) => c,
+            Err(e) => {
+                out.push_str(&format!("Error loading config: {}", e));
+                return out;
+            }
+        };
+
+        // Find the spec and impl
+        let mut found = false;
+        for spec in &mut config.specs {
+            if spec.name.value == spec_name {
+                for impl_ in &mut spec.impls {
+                    if impl_.name.value == impl_name {
+                        impl_.include.push(crate::config::Include {
+                            pattern: pattern.to_string(),
+                        });
+                        found = true;
+                        break;
+                    }
+                }
+                break;
+            }
+        }
+
+        if !found {
+            out.push_str(&format!(
+                "Spec/impl '{}/{}' not found",
+                spec_name, impl_name
+            ));
+            return out;
+        }
+
+        // [impl mcp.config.persist] - Save config back to file
+        if let Err(e) = self.save_config(&config) {
+            out.push_str(&format!("Error saving config: {}", e));
+            return out;
+        }
+
+        out.push_str(&format!(
+            "Added include pattern '{}' to {}/{}\n\n",
+            pattern, spec_name, impl_name
+        ));
+        out.push_str("Configuration saved successfully.\n");
+
+        out
+    }
+
+    // [impl mcp.config.persist]
+    fn save_config(&self, config: &crate::config::Config) -> Result<()> {
+        use std::io::Write;
+
+        let kdl_string = facet_kdl::to_string(config)?;
+        let mut file = std::fs::File::create(&self.config_path)?;
+        file.write_all(kdl_string.as_bytes())?;
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -368,6 +584,23 @@ impl ServerHandler for TraceyHandler {
                 match rule_id {
                     Some(id) => self.handle_rule(id),
                     None => "Error: rule_id is required".to_string(),
+                }
+            }
+            "tracey_config" => self.handle_config(),
+            "tracey_config_exclude" => {
+                let spec_impl = args.get("spec_impl").and_then(|v| v.as_str());
+                let pattern = args.get("pattern").and_then(|v| v.as_str());
+                match pattern {
+                    Some(p) => self.handle_config_exclude(spec_impl, p),
+                    None => "Error: pattern is required".to_string(),
+                }
+            }
+            "tracey_config_include" => {
+                let spec_impl = args.get("spec_impl").and_then(|v| v.as_str());
+                let pattern = args.get("pattern").and_then(|v| v.as_str());
+                match pattern {
+                    Some(p) => self.handle_config_include(spec_impl, p),
+                    None => "Error: pattern is required".to_string(),
                 }
             }
             other => format!("Unknown tool: {}", other),
@@ -487,7 +720,7 @@ pub async fn run(root: Option<PathBuf>, config_path: Option<PathBuf>) -> Result<
     });
 
     // Create MCP handler
-    let handler = TraceyHandler::new(data_rx);
+    let handler = TraceyHandler::new(data_rx, config_path.clone());
 
     // Configure server
     let server_details = InitializeResult {
