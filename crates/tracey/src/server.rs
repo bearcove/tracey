@@ -282,20 +282,90 @@ impl<'a> QueryEngine<'a> {
         })
     }
 
-    /// Get unmapped code tree for a spec/impl
-    pub fn unmapped(&self, spec: &str, impl_name: &str) -> Option<UnmappedResult> {
+    /// Get unmapped code tree for a spec/impl, optionally filtered by path
+    pub fn unmapped(
+        &self,
+        spec: &str,
+        impl_name: &str,
+        path: Option<&str>,
+    ) -> Option<UnmappedResult> {
         let key: ImplKey = (spec.to_string(), impl_name.to_string());
         let reverse = self.data.reverse_by_impl.get(&key)?;
 
-        // Build tree from flat file list
-        let tree = build_file_tree(&reverse.files);
+        // Check if path points to a specific file
+        let file_details = if let Some(filter_path) = path {
+            // Check if this exact path exists as a file
+            let matching_file = reverse.files.iter().find(|f| f.path == filter_path);
+
+            if matching_file.is_some() {
+                // Get code units for this file
+                let code_units_by_file = self.data.code_units_by_impl.get(&key)?;
+                let path_buf = std::path::PathBuf::from(filter_path);
+
+                if let Some(units) = code_units_by_file.get(&path_buf) {
+                    let unit_infos: Vec<CodeUnitInfo> = units
+                        .iter()
+                        .map(|u| CodeUnitInfo {
+                            kind: format!("{:?}", u.kind).to_lowercase(),
+                            name: u.name.clone(),
+                            start_line: u.start_line,
+                            end_line: u.end_line,
+                            is_covered: !u.rule_refs.is_empty(),
+                        })
+                        .collect();
+
+                    Some(FileDetails {
+                        path: filter_path.to_string(),
+                        units: unit_infos,
+                    })
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // If we're showing file details, don't build a tree
+        if file_details.is_some() {
+            return Some(UnmappedResult {
+                spec: spec.to_string(),
+                impl_name: impl_name.to_string(),
+                total_units: 0, // Will be calculated from file_details
+                covered_units: 0,
+                tree: vec![],
+                file_details,
+            });
+        }
+
+        // Otherwise, filter files to those matching the path prefix
+        let filtered_files: Vec<_> = if let Some(filter_path) = path {
+            reverse
+                .files
+                .iter()
+                .filter(|f| f.path.starts_with(filter_path))
+                .cloned()
+                .collect()
+        } else {
+            reverse.files.clone()
+        };
+
+        // Build tree from (possibly filtered) file list
+        let tree = build_file_tree(&filtered_files);
+
+        // Recalculate totals for filtered view
+        let total_units = filtered_files.iter().map(|f| f.total_units).sum();
+        let covered_units = filtered_files.iter().map(|f| f.covered_units).sum();
 
         Some(UnmappedResult {
             spec: spec.to_string(),
             impl_name: impl_name.to_string(),
-            total_units: reverse.total_units,
-            covered_units: reverse.covered_units,
+            total_units,
+            covered_units,
             tree,
+            file_details: None,
         })
     }
 
@@ -357,6 +427,22 @@ pub struct UnmappedResult {
     pub total_units: usize,
     pub covered_units: usize,
     pub tree: Vec<FileTreeNode>,
+    pub file_details: Option<FileDetails>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FileDetails {
+    pub path: String,
+    pub units: Vec<CodeUnitInfo>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CodeUnitInfo {
+    pub kind: String,
+    pub name: Option<String>,
+    pub start_line: usize,
+    pub end_line: usize,
+    pub is_covered: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -614,9 +700,19 @@ impl UntestedResult {
 }
 
 impl UnmappedResult {
-    /// Format as ASCII tree for MCP response
+    /// Format output for MCP response (either tree or file details)
     // [impl mcp.response.text]
-    pub fn format_tree(&self) -> String {
+    pub fn format_output(&self) -> String {
+        // If we have file details, format them
+        if let Some(ref details) = self.file_details {
+            return self.format_file_details(details);
+        }
+
+        // Otherwise, format as tree
+        self.format_tree()
+    }
+
+    fn format_tree(&self) -> String {
         let mut out = String::new();
         let overall_percent = if self.total_units > 0 {
             (self.covered_units as f64 / self.total_units as f64) * 100.0
@@ -638,6 +734,62 @@ impl UnmappedResult {
         }
 
         out.push_str("\n---\n→ tracey_unmapped <path> to zoom into a directory\n");
+
+        out
+    }
+
+    fn format_file_details(&self, details: &FileDetails) -> String {
+        let mut out = String::new();
+
+        let total = details.units.len();
+        let covered = details.units.iter().filter(|u| u.is_covered).count();
+        let percent = if total > 0 {
+            (covered as f64 / total as f64) * 100.0
+        } else {
+            100.0
+        };
+
+        out.push_str(&format!("# Code Units in {}\n\n", details.path));
+        out.push_str(&format!(
+            "Coverage: {:.0}% ({}/{} units mapped to requirements)\n\n",
+            percent, covered, total
+        ));
+
+        // List unmapped units first
+        let unmapped: Vec<_> = details.units.iter().filter(|u| !u.is_covered).collect();
+        if !unmapped.is_empty() {
+            out.push_str("## Unmapped Units\n\n");
+            for unit in unmapped {
+                let name_part = unit
+                    .name
+                    .as_ref()
+                    .map(|n| format!(" {}", n))
+                    .unwrap_or_default();
+                out.push_str(&format!(
+                    "- {}:{}-{} {}{}\n",
+                    details.path, unit.start_line, unit.end_line, unit.kind, name_part
+                ));
+            }
+            out.push('\n');
+        }
+
+        // Then list covered units
+        let covered_units: Vec<_> = details.units.iter().filter(|u| u.is_covered).collect();
+        if !covered_units.is_empty() {
+            out.push_str("## Mapped Units\n\n");
+            for unit in covered_units {
+                let name_part = unit
+                    .name
+                    .as_ref()
+                    .map(|n| format!(" {}", n))
+                    .unwrap_or_default();
+                out.push_str(&format!(
+                    "- {}:{}-{} {}{}\n",
+                    details.path, unit.start_line, unit.end_line, unit.kind, name_part
+                ));
+            }
+            out.push('\n');
+        }
 
         out
     }

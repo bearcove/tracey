@@ -280,7 +280,8 @@ impl TraceyHandler {
     // [impl mcp.tool.unmapped]
     // [impl mcp.tool.unmapped-zoom]
     // [impl mcp.tool.unmapped-tree]
-    fn handle_unmapped(&self, spec_impl: Option<&str>, _path: Option<&str>) -> String {
+    // [impl mcp.tool.unmapped-file]
+    fn handle_unmapped(&self, spec_impl: Option<&str>, path: Option<&str>) -> String {
         let mut out = self.format_header();
 
         let (spec, impl_name) = match self.parse_spec_impl(spec_impl) {
@@ -291,9 +292,9 @@ impl TraceyHandler {
         let data = self.get_data();
         let engine = QueryEngine::new(&data);
 
-        match engine.unmapped(&spec, &impl_name) {
+        match engine.unmapped(&spec, &impl_name, path) {
             Some(result) => {
-                out.push_str(&result.format_tree());
+                out.push_str(&result.format_output());
             }
             None => {
                 out.push_str(&format!("Spec/impl '{}/{}' not found", spec, impl_name));
