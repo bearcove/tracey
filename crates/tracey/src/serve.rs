@@ -72,6 +72,8 @@ struct ApiSpecInfo {
     /// Path to spec file(s) if local
     #[facet(default)]
     source: Option<String>,
+    /// Available implementations (languages) for this spec
+    implementations: Vec<String>,
 }
 
 /// Forward traceability: rules with their code references
@@ -217,15 +219,20 @@ struct ApiSearchResponse {
 // Server State
 // ============================================================================
 
+/// Key for implementation-specific data: (spec_name, lang)
+type ImplKey = (String, String);
+
 /// Computed dashboard data that gets rebuilt on file changes
 struct DashboardData {
     config: ApiConfig,
-    forward: ApiForwardData,
-    reverse: ApiReverseData,
-    /// All code units indexed by file path
-    code_units_by_file: BTreeMap<PathBuf, Vec<CodeUnit>>,
-    /// Spec content by name
-    specs_content: BTreeMap<String, ApiSpecData>,
+    /// Forward data per implementation: (spec_name, lang) -> data
+    forward_by_impl: BTreeMap<ImplKey, ApiSpecForward>,
+    /// Reverse data per implementation: (spec_name, lang) -> data
+    reverse_by_impl: BTreeMap<ImplKey, ApiReverseData>,
+    /// Code units per implementation for file API
+    code_units_by_impl: BTreeMap<ImplKey, BTreeMap<PathBuf, Vec<CodeUnit>>>,
+    /// Spec content per implementation (coverage info varies by impl)
+    specs_content_by_impl: BTreeMap<ImplKey, ApiSpecData>,
     /// Full-text search index for source files
     search_index: Box<dyn SearchIndex>,
     /// Version number (incremented only when content actually changes)
@@ -497,220 +504,267 @@ async fn build_dashboard_data(
         specs: Vec::new(),
     };
 
-    let mut forward_specs = Vec::new();
-    let mut code_units_by_file: BTreeMap<PathBuf, Vec<CodeUnit>> = BTreeMap::new();
-    let mut specs_content: BTreeMap<String, ApiSpecData> = BTreeMap::new();
+    let mut forward_by_impl: BTreeMap<ImplKey, ApiSpecForward> = BTreeMap::new();
+    let mut reverse_by_impl: BTreeMap<ImplKey, ApiReverseData> = BTreeMap::new();
+    let mut code_units_by_impl: BTreeMap<ImplKey, BTreeMap<PathBuf, Vec<CodeUnit>>> =
+        BTreeMap::new();
+    let mut specs_content_by_impl: BTreeMap<ImplKey, ApiSpecData> = BTreeMap::new();
+    let mut all_file_contents: BTreeMap<PathBuf, String> = BTreeMap::new();
+    let mut all_search_rules: Vec<search::RuleEntry> = Vec::new();
 
     for spec_config in &config.specs {
         let spec_name = &spec_config.name.value;
-
         let glob_pattern = &spec_config.rules_glob.pattern;
+
+        // Validate that spec has at least one implementation
+        if spec_config.impls.is_empty() {
+            return Err(eyre::eyre!(
+                "Spec '{}' has no implementations defined.\n\n\
+                Add at least one impl block to your config:\n\n\
+                spec {{\n    \
+                    name \"{}\"\n    \
+                    rules_glob \"{}\"\n\n    \
+                    impl {{\n        \
+                        lang \"rust\"\n        \
+                        include \"src/**/*.rs\"\n    \
+                    }}\n\
+                }}",
+                spec_name,
+                spec_name,
+                glob_pattern
+            ));
+        }
 
         api_config.specs.push(ApiSpecInfo {
             name: spec_name.clone(),
             source: Some(glob_pattern.clone()),
+            implementations: spec_config
+                .impls
+                .iter()
+                .map(|i| i.lang.value.clone())
+                .collect(),
         });
 
-        // Extract rules directly from markdown files
+        // Extract rules directly from markdown files (shared across impls)
         eprintln!("   {} rules from {}", "Extracting".green(), glob_pattern);
         let extracted_rules = crate::load_rules_from_glob(project_root, glob_pattern).await?;
 
-        // Scan source files
-        let include: Vec<String> = if spec_config.include.is_empty() {
-            vec!["**/*.rs".to_string()]
-        } else {
-            spec_config
-                .include
+        // Build data for each implementation
+        for impl_config in &spec_config.impls {
+            let lang = &impl_config.lang.value;
+            let impl_key: ImplKey = (spec_name.clone(), lang.clone());
+
+            eprintln!("   {} {} implementation", "Scanning".green(), lang);
+
+            // Get include/exclude patterns for this impl
+            let include: Vec<String> = if impl_config.include.is_empty() {
+                vec!["**/*.rs".to_string()]
+            } else {
+                impl_config
+                    .include
+                    .iter()
+                    .map(|inc| inc.pattern.clone())
+                    .collect()
+            };
+            let exclude: Vec<String> = impl_config
+                .exclude
                 .iter()
-                .map(|i| i.pattern.clone())
-                .collect()
-        };
-        let exclude: Vec<String> = spec_config
-            .exclude
-            .iter()
-            .map(|e| e.pattern.clone())
-            .collect();
+                .map(|exc| exc.pattern.clone())
+                .collect();
 
-        let rules = Rules::extract(
-            WalkSources::new(project_root)
-                .include(include.clone())
-                .exclude(exclude.clone()),
-        )?;
+            // Extract rule references from this impl's source files
+            let rules = Rules::extract(
+                WalkSources::new(project_root)
+                    .include(include.clone())
+                    .exclude(exclude.clone()),
+            )?;
 
-        // Build forward data for this spec
-        let mut api_rules = Vec::new();
-        for (rule_def, source_file) in &extracted_rules {
-            let mut impl_refs = Vec::new();
-            let mut verify_refs = Vec::new();
-            let mut depends_refs = Vec::new();
+            // Build forward data for this impl
+            let mut api_rules = Vec::new();
+            for (rule_def, source_file) in &extracted_rules {
+                let mut impl_refs = Vec::new();
+                let mut verify_refs = Vec::new();
+                let mut depends_refs = Vec::new();
 
-            for r in &rules.references {
-                if r.rule_id == rule_def.id {
-                    let relative = r.file.strip_prefix(project_root).unwrap_or(&r.file);
-                    let code_ref = ApiCodeRef {
-                        file: relative.display().to_string(),
-                        line: r.line,
-                    };
-                    match r.verb {
-                        RefVerb::Impl | RefVerb::Define => impl_refs.push(code_ref),
-                        RefVerb::Verify => verify_refs.push(code_ref),
-                        RefVerb::Depends | RefVerb::Related => depends_refs.push(code_ref),
+                for r in &rules.references {
+                    if r.rule_id == rule_def.id {
+                        let relative = r.file.strip_prefix(project_root).unwrap_or(&r.file);
+                        let code_ref = ApiCodeRef {
+                            file: relative.display().to_string(),
+                            line: r.line,
+                        };
+                        match r.verb {
+                            RefVerb::Impl | RefVerb::Define => impl_refs.push(code_ref),
+                            RefVerb::Verify => verify_refs.push(code_ref),
+                            RefVerb::Depends | RefVerb::Related => depends_refs.push(code_ref),
+                        }
                     }
                 }
+
+                api_rules.push(ApiRule {
+                    id: rule_def.id.clone(),
+                    html: rule_def.html.clone(),
+                    status: rule_def.metadata.status.map(|s| s.as_str().to_string()),
+                    level: rule_def.metadata.level.map(|l| l.as_str().to_string()),
+                    source_file: Some(source_file.clone()),
+                    source_line: Some(rule_def.line),
+                    impl_refs,
+                    verify_refs,
+                    depends_refs,
+                });
             }
 
-            api_rules.push(ApiRule {
-                id: rule_def.id.clone(),
-                html: rule_def.html.clone(),
-                status: rule_def.metadata.status.map(|s| s.as_str().to_string()),
-                level: rule_def.metadata.level.map(|l| l.as_str().to_string()),
-                source_file: Some(source_file.clone()),
-                source_line: Some(rule_def.line),
-                impl_refs,
-                verify_refs,
-                depends_refs,
-            });
-        }
+            // Sort rules by ID
+            api_rules.sort_by(|a, b| a.id.cmp(&b.id));
 
-        // Sort rules by ID
-        api_rules.sort_by(|a, b| a.id.cmp(&b.id));
+            // Collect rules for search index (deduplicated later)
+            for r in &api_rules {
+                all_search_rules.push(search::RuleEntry {
+                    id: r.id.clone(),
+                    html: r.html.clone(),
+                });
+            }
 
-        // Build coverage map for this spec's rules
-        let mut coverage: BTreeMap<String, RuleCoverage> = BTreeMap::new();
-        for rule in &api_rules {
-            let has_impl = !rule.impl_refs.is_empty();
-            let has_verify = !rule.verify_refs.is_empty();
-            let status = if has_impl && has_verify {
-                "covered"
-            } else if has_impl || has_verify {
-                "partial"
-            } else {
-                "uncovered"
-            };
-            coverage.insert(
-                rule.id.clone(),
-                RuleCoverage {
-                    status,
-                    impl_refs: rule.impl_refs.clone(),
-                    verify_refs: rule.verify_refs.clone(),
+            // Build coverage map for this impl
+            let mut coverage: BTreeMap<String, RuleCoverage> = BTreeMap::new();
+            for rule in &api_rules {
+                let has_impl = !rule.impl_refs.is_empty();
+                let has_verify = !rule.verify_refs.is_empty();
+                let status = if has_impl && has_verify {
+                    "covered"
+                } else if has_impl || has_verify {
+                    "partial"
+                } else {
+                    "uncovered"
+                };
+                coverage.insert(
+                    rule.id.clone(),
+                    RuleCoverage {
+                        status,
+                        impl_refs: rule.impl_refs.clone(),
+                        verify_refs: rule.verify_refs.clone(),
+                    },
+                );
+            }
+
+            // Load spec content with coverage-aware rendering for this impl
+            let mut impl_specs_content: BTreeMap<String, ApiSpecData> = BTreeMap::new();
+            load_spec_content(
+                project_root,
+                glob_pattern,
+                spec_name,
+                &coverage,
+                &mut impl_specs_content,
+            )
+            .await?;
+            if let Some(spec_data) = impl_specs_content.remove(spec_name) {
+                specs_content_by_impl.insert(impl_key.clone(), spec_data);
+            }
+
+            forward_by_impl.insert(
+                impl_key.clone(),
+                ApiSpecForward {
+                    name: spec_name.clone(),
+                    rules: api_rules,
                 },
             );
-        }
 
-        // Load spec content with coverage-aware rendering
-        load_spec_content(
-            project_root,
-            glob_pattern,
-            spec_name,
-            &coverage,
-            &mut specs_content,
-        )
-        .await?;
+            // Extract code units for reverse traceability
+            let mut impl_code_units: BTreeMap<PathBuf, Vec<CodeUnit>> = BTreeMap::new();
+            let walker = ignore::WalkBuilder::new(project_root)
+                .follow_links(true)
+                .hidden(false)
+                .git_ignore(true)
+                .build();
 
-        forward_specs.push(ApiSpecForward {
-            name: spec_name.clone(),
-            rules: api_rules,
-        });
+            for entry in walker.flatten() {
+                let path = entry.path();
 
-        // Extract code units for reverse traceability
-        let walker = ignore::WalkBuilder::new(project_root)
-            .follow_links(true)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
+                if path.extension().is_some_and(|e| e == "rs") {
+                    let relative = path.strip_prefix(project_root).unwrap_or(path);
+                    let relative_str = relative.to_string_lossy();
 
-        for entry in walker.flatten() {
-            let path = entry.path();
+                    let included = include
+                        .iter()
+                        .any(|pattern| glob_match(&relative_str, pattern));
 
-            if path.extension().is_some_and(|e| e == "rs") {
-                // Check include/exclude
-                let relative = path.strip_prefix(project_root).unwrap_or(path);
-                let relative_str = relative.to_string_lossy();
+                    let excluded = exclude
+                        .iter()
+                        .any(|pattern| glob_match(&relative_str, pattern));
 
-                let included = include
-                    .iter()
-                    .any(|pattern| glob_match(&relative_str, pattern));
-
-                let excluded = exclude
-                    .iter()
-                    .any(|pattern| glob_match(&relative_str, pattern));
-
-                if included
-                    && !excluded
-                    && let Ok(content) = std::fs::read_to_string(path)
-                {
-                    let code_units = extract_rust(path, &content);
-                    if !code_units.is_empty() {
-                        code_units_by_file.insert(path.to_path_buf(), code_units.units);
+                    if included
+                        && !excluded
+                        && let Ok(content) = std::fs::read_to_string(path)
+                    {
+                        let code_units = extract_rust(path, &content);
+                        if !code_units.is_empty() {
+                            impl_code_units.insert(path.to_path_buf(), code_units.units);
+                        }
+                        // Also collect for search index
+                        all_file_contents.insert(path.to_path_buf(), content);
                     }
                 }
             }
+
+            // Build reverse data for this impl
+            let mut total_units = 0;
+            let mut covered_units = 0;
+            let mut file_entries = Vec::new();
+
+            for (path, units) in &impl_code_units {
+                let relative = path.strip_prefix(project_root).unwrap_or(path);
+                let file_total = units.len();
+                let file_covered = units.iter().filter(|u| !u.rule_refs.is_empty()).count();
+
+                total_units += file_total;
+                covered_units += file_covered;
+
+                file_entries.push(ApiFileEntry {
+                    path: relative.display().to_string(),
+                    total_units: file_total,
+                    covered_units: file_covered,
+                });
+            }
+
+            file_entries.sort_by(|a, b| a.path.cmp(&b.path));
+
+            reverse_by_impl.insert(
+                impl_key.clone(),
+                ApiReverseData {
+                    total_units,
+                    covered_units,
+                    files: file_entries,
+                },
+            );
+
+            code_units_by_impl.insert(impl_key, impl_code_units);
         }
     }
 
-    // Build reverse data summary and collect file contents for search
-    let mut total_units = 0;
-    let mut covered_units = 0;
-    let mut file_entries = Vec::new();
-    let mut file_contents: BTreeMap<PathBuf, String> = BTreeMap::new();
+    // Deduplicate search rules by ID
+    all_search_rules.sort_by(|a, b| a.id.cmp(&b.id));
+    all_search_rules.dedup_by(|a, b| a.id == b.id);
 
-    for (path, units) in &code_units_by_file {
-        let relative = path.strip_prefix(project_root).unwrap_or(path);
-        let file_total = units.len();
-        let file_covered = units.iter().filter(|u| !u.rule_refs.is_empty()).count();
+    // Build search index with all sources and rules
+    let search_index = search::build_index(project_root, &all_file_contents, &all_search_rules);
 
-        total_units += file_total;
-        covered_units += file_covered;
-
-        file_entries.push(ApiFileEntry {
-            path: relative.display().to_string(),
-            total_units: file_total,
-            covered_units: file_covered,
-        });
-
-        // Load file content for search index
-        if let Ok(content) = std::fs::read_to_string(path) {
-            file_contents.insert(path.clone(), content);
-        }
+    // Compute content hash for change detection (hash all forward/reverse data)
+    let mut content_hash: u64 = 0;
+    for (key, forward) in &forward_by_impl {
+        let json = facet_json::to_string(forward).unwrap_or_default();
+        content_hash ^= simple_hash(&format!("{:?}:{}", key, json));
     }
-
-    // Sort files by path
-    file_entries.sort_by(|a, b| a.path.cmp(&b.path));
-
-    // Collect all rules for search index
-    let search_rules: Vec<search::RuleEntry> = forward_specs
-        .iter()
-        .flat_map(|spec| {
-            spec.rules.iter().map(|r| search::RuleEntry {
-                id: r.id.clone(),
-                html: r.html.clone(),
-            })
-        })
-        .collect();
-
-    // Build search index with sources and rules
-    let search_index = search::build_index(project_root, &file_contents, &search_rules);
-
-    let forward = ApiForwardData {
-        specs: forward_specs,
-    };
-    let reverse = ApiReverseData {
-        total_units,
-        covered_units,
-        files: file_entries,
-    };
-
-    // Compute content hash for change detection
-    let forward_json = facet_json::to_string(&forward).unwrap_or_default();
-    let reverse_json = facet_json::to_string(&reverse).unwrap_or_default();
-    let content_hash = simple_hash(&forward_json) ^ simple_hash(&reverse_json);
+    for (key, reverse) in &reverse_by_impl {
+        let json = facet_json::to_string(reverse).unwrap_or_default();
+        content_hash ^= simple_hash(&format!("{:?}:{}", key, json));
+    }
 
     Ok(DashboardData {
         config: api_config,
-        forward,
-        reverse,
-        code_units_by_file,
-        specs_content,
+        forward_by_impl,
+        reverse_by_impl,
+        code_units_by_impl,
+        specs_content_by_impl,
         search_index,
         version,
         content_hash,
@@ -963,14 +1017,91 @@ async fn api_config(State(state): State<AppState>) -> Json<ApiConfig> {
     Json(data.config.clone())
 }
 
-async fn api_forward(State(state): State<AppState>) -> Json<ApiForwardData> {
-    let data = state.data.borrow().clone();
-    Json(data.forward.clone())
+/// Helper to extract spec and lang from query params, with defaults
+fn get_impl_key(params: &[(String, String)], config: &ApiConfig) -> Option<ImplKey> {
+    let spec = params
+        .iter()
+        .find(|(k, _)| k == "spec")
+        .map(|(_, v)| v.clone())
+        .or_else(|| config.specs.first().map(|s| s.name.clone()))?;
+
+    let lang = params
+        .iter()
+        .find(|(k, _)| k == "lang")
+        .map(|(_, v)| v.clone())
+        .or_else(|| {
+            config
+                .specs
+                .iter()
+                .find(|s| s.name == spec)
+                .and_then(|s| s.implementations.first().cloned())
+        })?;
+
+    Some((spec, lang))
 }
 
-async fn api_reverse(State(state): State<AppState>) -> Json<ApiReverseData> {
+async fn api_forward(
+    State(state): State<AppState>,
+    Query(params): Query<Vec<(String, String)>>,
+) -> impl IntoResponse {
     let data = state.data.borrow().clone();
-    Json(data.reverse.clone())
+
+    let Some(impl_key) = get_impl_key(&params, &data.config) else {
+        return Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(r#"{"error":"No specs configured"}"#))
+            .unwrap()
+            .into_response();
+    };
+
+    if let Some(forward) = data.forward_by_impl.get(&impl_key) {
+        // Wrap in ApiForwardData for backward compatibility
+        Json(ApiForwardData {
+            specs: vec![forward.clone()],
+        })
+        .into_response()
+    } else {
+        Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(format!(
+                r#"{{"error":"Implementation not found: {} {}"}}"#,
+                impl_key.0, impl_key.1
+            )))
+            .unwrap()
+            .into_response()
+    }
+}
+
+async fn api_reverse(
+    State(state): State<AppState>,
+    Query(params): Query<Vec<(String, String)>>,
+) -> impl IntoResponse {
+    let data = state.data.borrow().clone();
+
+    let Some(impl_key) = get_impl_key(&params, &data.config) else {
+        return Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(r#"{"error":"No specs configured"}"#))
+            .unwrap()
+            .into_response();
+    };
+
+    if let Some(reverse) = data.reverse_by_impl.get(&impl_key) {
+        Json(reverse.clone()).into_response()
+    } else {
+        Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(format!(
+                r#"{{"error":"Implementation not found: {} {}"}}"#,
+                impl_key.0, impl_key.1
+            )))
+            .unwrap()
+            .into_response()
+    }
 }
 
 async fn api_version(State(state): State<AppState>) -> impl IntoResponse {
@@ -1061,7 +1192,29 @@ async fn api_file(
     let full_path = state.project_root.join(file_path.as_ref());
     let data = state.data.borrow().clone();
 
-    if let Some(units) = data.code_units_by_file.get(&full_path) {
+    // Get impl key to find the right code units map
+    let Some(impl_key) = get_impl_key(&params, &data.config) else {
+        return Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(r#"{"error":"No specs configured"}"#))
+            .unwrap()
+            .into_response();
+    };
+
+    let Some(code_units_by_file) = data.code_units_by_impl.get(&impl_key) else {
+        return Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(format!(
+                r#"{{"error":"Implementation not found: {} {}"}}"#,
+                impl_key.0, impl_key.1
+            )))
+            .unwrap()
+            .into_response();
+    };
+
+    if let Some(units) = code_units_by_file.get(&full_path) {
         let content = std::fs::read_to_string(&full_path).unwrap_or_default();
         let relative = full_path
             .strip_prefix(&state.project_root)
@@ -1105,6 +1258,7 @@ async fn api_file(
             .header(header::CONTENT_TYPE, "application/json")
             .body(Body::from(r#"{"error":"File not found"}"#))
             .unwrap()
+            .into_response()
     }
 }
 
@@ -1112,23 +1266,30 @@ async fn api_spec(
     State(state): State<AppState>,
     Query(params): Query<Vec<(String, String)>>,
 ) -> impl IntoResponse {
-    let name = params
-        .iter()
-        .find(|(k, _)| k == "name")
-        .map(|(_, v)| v.clone())
-        .unwrap_or_default();
-
-    let spec_name = urlencoding::decode(&name).unwrap_or_default();
     let data = state.data.borrow().clone();
 
-    if let Some(spec_data) = data.specs_content.get(spec_name.as_ref()) {
+    // Get impl key (spec name comes from impl_key, lang also needed for coverage)
+    let Some(impl_key) = get_impl_key(&params, &data.config) else {
+        return Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(r#"{"error":"No specs configured"}"#))
+            .unwrap()
+            .into_response();
+    };
+
+    if let Some(spec_data) = data.specs_content_by_impl.get(&impl_key) {
         Json(spec_data.clone()).into_response()
     } else {
         Response::builder()
             .status(StatusCode::NOT_FOUND)
             .header(header::CONTENT_TYPE, "application/json")
-            .body(Body::from(r#"{"error":"Spec not found"}"#))
+            .body(Body::from(format!(
+                r#"{{"error":"Spec not found: {} {}"}}"#,
+                impl_key.0, impl_key.1
+            )))
             .unwrap()
+            .into_response()
     }
 }
 

@@ -355,8 +355,8 @@ export function SourcesView({
                   </button>
                 </div>
                 <div class="rule-context-body">
-                  ${contextRule.text &&
-                  html` <div class="rule-context-text">${contextRule.text}</div> `}
+                  ${contextRule.html &&
+                  html` <div class="rule-context-text" dangerouslySetInnerHTML=${{ __html: contextRule.html }}></div> `}
                   <div class="rule-context-refs">
                     ${contextRule.implRefs.map(
                       (ref) => html`

@@ -30,8 +30,21 @@ pub struct SpecConfig {
     #[facet(kdl::child)]
     pub rules_glob: RulesGlob,
 
+    /// Implementations of this spec (by language)
+    /// Each impl block specifies which source files to scan
+    #[facet(kdl::children, default)]
+    pub impls: Vec<Impl>,
+}
+
+/// Configuration for a single implementation of a spec
+/// Note: struct name `Impl` maps to KDL node name `impl`
+#[derive(Debug, Clone, Facet)]
+pub struct Impl {
+    /// Language name (e.g., "rust", "swift", "typescript")
+    #[facet(kdl::child)]
+    pub lang: Lang,
+
     /// Glob patterns for source files to scan
-    /// Defaults to ["**/*.rs"] if not specified
     #[facet(kdl::children, default)]
     pub include: Vec<Include>,
 
@@ -50,6 +63,12 @@ pub struct Name {
 pub struct RulesGlob {
     #[facet(kdl::argument)]
     pub pattern: String,
+}
+
+#[derive(Debug, Clone, Facet)]
+pub struct Lang {
+    #[facet(kdl::argument)]
+    pub value: String,
 }
 
 #[derive(Debug, Clone, Facet)]

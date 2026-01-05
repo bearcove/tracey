@@ -112,6 +112,35 @@ body {
     margin-bottom: -1px; /* tabs overlap the border */
 }
 
+.header-pickers {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0 1rem;
+    border-right: 1px solid var(--border);
+}
+
+.header-select {
+    padding: 0.4rem 0.6rem;
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.85rem;
+    font-family: inherit;
+    cursor: pointer;
+    min-width: 80px;
+}
+
+.header-select:hover {
+    border-color: var(--fg-muted);
+}
+
+.header-select:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
 .logo {
     font-weight: 600;
     font-size: 1.1rem;

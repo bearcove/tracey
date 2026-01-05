@@ -262,17 +262,42 @@ function SearchModal({ onClose, onSelect }: SearchModalProps) {
   `;
 }
 
-function Header({ view, spec, onViewChange, onOpenSearch }: HeaderProps) {
+function Header({ view, spec, lang, config, onViewChange, onSpecChange, onLangChange, onOpenSearch }: HeaderProps) {
   const handleNavClick = (e: Event, newView: ViewType) => {
     e.preventDefault();
     onViewChange(newView);
   };
 
-  const specBase = spec ? `/${encodeURIComponent(spec)}` : "";
+  const specBase = spec && lang ? `/${encodeURIComponent(spec)}/${encodeURIComponent(lang)}` : "";
+
+  // Get available implementations for current spec
+  const currentSpecInfo = config.specs?.find(s => s.name === spec);
+  const implementations = currentSpecInfo?.implementations || [];
 
   return html`
     <header class="header">
       <div class="header-inner">
+        <div class="header-pickers">
+          <select
+            class="header-select spec-select"
+            value=${spec || ""}
+            onChange=${(e: Event) => onSpecChange((e.target as HTMLSelectElement).value)}
+          >
+            ${config.specs?.map(s => html`
+              <option key=${s.name} value=${s.name}>${s.name}</option>
+            `)}
+          </select>
+          <select
+            class="header-select lang-select"
+            value=${lang || ""}
+            onChange=${(e: Event) => onLangChange((e.target as HTMLSelectElement).value)}
+          >
+            ${implementations.map(impl => html`
+              <option key=${impl} value=${impl}>${impl}</option>
+            `)}
+          </select>
+        </div>
+
         <nav class="nav">
           <a
             href="${specBase}/spec"
@@ -511,21 +536,39 @@ function App() {
 
   const { config, forward, reverse } = data;
 
-  // Get current spec from URL or default to first
+  // Get defaults from config
   const defaultSpec = config.specs?.[0]?.name || null;
+  const defaultLang = config.specs?.[0]?.implementations?.[0] || null;
 
-  // Determine current spec and view from pathname
+  // Determine current spec, lang, and view from pathname
+  // URL format: /:spec/:lang/:view/...
   const pathParts = window.location.pathname.split("/").filter(Boolean);
   const currentSpec = pathParts[0] || defaultSpec;
-  const currentView = pathParts[1] || "spec";
+  const currentLang = pathParts[1] || defaultLang;
+  const currentView = pathParts[2] || "spec";
 
   const handleViewChange = useCallback(
     (newView: string) => {
-      // Get current spec from URL
-      const currentSpec = window.location.pathname.split("/")[1] || defaultSpec;
-      route(buildUrl(currentSpec, newView as any));
+      route(buildUrl(currentSpec, currentLang, newView as any));
     },
-    [route, defaultSpec],
+    [route, currentSpec, currentLang],
+  );
+
+  const handleSpecChange = useCallback(
+    (newSpec: string) => {
+      // When changing spec, reset to first implementation of new spec
+      const newSpecInfo = config.specs?.find(s => s.name === newSpec);
+      const newLang = newSpecInfo?.implementations?.[0] || currentLang;
+      route(buildUrl(newSpec, newLang, currentView as any));
+    },
+    [route, config, currentView, currentLang],
+  );
+
+  const handleLangChange = useCallback(
+    (newLang: string) => {
+      route(buildUrl(currentSpec, newLang, currentView as any));
+    },
+    [route, currentSpec, currentView],
   );
 
   const handleOpenSearch = useCallback(() => {
@@ -536,12 +579,12 @@ function App() {
     (result: SearchResult) => {
       setSearchOpen(false);
       if (result.kind === "rule") {
-        route(buildUrl(currentSpec, "spec", { rule: result.id }));
+        route(buildUrl(currentSpec, currentLang, "spec", { rule: result.id }));
       } else {
-        route(buildUrl(currentSpec, "sources", { file: result.id, line: result.line }));
+        route(buildUrl(currentSpec, currentLang, "sources", { file: result.id, line: result.line }));
       }
     },
-    [route, currentSpec],
+    [route, currentSpec, currentLang],
   );
 
   // Global keyboard shortcut for search
@@ -565,7 +608,11 @@ function App() {
         <${Header}
           view=${currentView}
           spec=${currentSpec}
+          lang=${currentLang}
+          config=${config}
           onViewChange=${handleViewChange}
+          onSpecChange=${handleSpecChange}
+          onLangChange=${handleLangChange}
           onOpenSearch=${handleOpenSearch}
         />
         ${searchOpen &&
@@ -576,22 +623,35 @@ function App() {
           <${Route}
             path="/"
             component=${() => {
-              // Redirect to default spec
+              // Redirect to default spec/lang
               useEffect(() => {
-                if (defaultSpec) route(`/${defaultSpec}/spec`, true);
+                if (defaultSpec && defaultLang) route(`/${defaultSpec}/${defaultLang}/spec`, true);
               }, []);
               return html`<div class="loading">Redirecting...</div>`;
             }}
           />
-          <${Route} path="/:spec/spec/:heading*" component=${SpecViewRoute} />
-          <${Route} path="/:spec/sources/:file*" component=${SourcesViewRoute} />
-          <${Route} path="/:spec/coverage" component=${CoverageViewRoute} />
+          <${Route} path="/:spec/:lang/spec/:heading*" component=${SpecViewRoute} />
+          <${Route} path="/:spec/:lang/sources/:file*" component=${SourcesViewRoute} />
+          <${Route} path="/:spec/:lang/coverage" component=${CoverageViewRoute} />
           <${Route}
-            path="/:spec"
+            path="/:spec/:lang"
             component=${() => {
               const { params } = useRoute();
               useEffect(() => {
-                route(`/${params.spec}/spec`, true);
+                route(`/${params.spec}/${params.lang}/spec`, true);
+              }, [params.spec, params.lang]);
+              return html`<div class="loading">Redirecting...</div>`;
+            }}
+          />
+          <${Route}
+            path="/:spec"
+            component=${() => {
+              // Legacy URL without lang - redirect with default lang
+              const { params } = useRoute();
+              useEffect(() => {
+                const specInfo = config.specs?.find(s => s.name === params.spec);
+                const lang = specInfo?.implementations?.[0] || defaultLang;
+                route(`/${params.spec}/${lang}/spec`, true);
               }, [params.spec]);
               return html`<div class="loading">Redirecting...</div>`;
             }}
@@ -616,6 +676,7 @@ function SpecViewRoute() {
 
   const { config, forward } = data;
   const spec = params.spec;
+  const lang = params.lang;
   const heading = params.heading || null;
   const rule = query.rule || null;
 
@@ -623,23 +684,23 @@ function SpecViewRoute() {
 
   const handleSelectSpec = useCallback(
     (specName: string) => {
-      route(buildUrl(specName, "spec", { heading }));
+      route(buildUrl(specName, lang, "spec", { heading }));
     },
-    [route, heading],
+    [route, lang, heading],
   );
 
   const handleSelectRule = useCallback(
     (ruleId: string) => {
-      route(buildUrl(spec, "spec", { rule: ruleId }));
+      route(buildUrl(spec, lang, "spec", { rule: ruleId }));
     },
-    [route, spec],
+    [route, spec, lang],
   );
 
   const handleSelectFile = useCallback(
     (file: string, line?: number | null, context?: string | null) => {
-      route(buildUrl(spec, "sources", { file, line, context }));
+      route(buildUrl(spec, lang, "sources", { file, line, context }));
     },
-    [route, spec],
+    [route, spec, lang],
   );
 
   return html`
@@ -668,6 +729,7 @@ function SourcesViewRoute() {
 
   const { config, forward, reverse } = data;
   const spec = params.spec;
+  const lang = params.lang;
 
   // Parse file:line from the file param
   let file: string | null = params.file || null;
@@ -689,26 +751,26 @@ function SourcesViewRoute() {
   const handleSelectFile = useCallback(
     (filePath: string, lineNum?: number | null, ruleContext?: string | null) => {
       route(
-        buildUrl(spec, "sources", {
+        buildUrl(spec, lang, "sources", {
           file: filePath,
           line: lineNum,
           context: ruleContext,
         }),
       );
     },
-    [route, spec],
+    [route, spec, lang],
   );
 
   const handleSelectRule = useCallback(
     (ruleId: string) => {
-      route(buildUrl(spec, "spec", { rule: ruleId }));
+      route(buildUrl(spec, lang, "spec", { rule: ruleId }));
     },
-    [route, spec],
+    [route, spec, lang],
   );
 
   const handleClearContext = useCallback(() => {
-    route(buildUrl(spec, "sources", { file, line, context: null }), true);
-  }, [route, spec, file, line]);
+    route(buildUrl(spec, lang, "sources", { file, line, context: null }), true);
+  }, [route, spec, lang, file, line]);
 
   return html`
     <${SourcesView}
@@ -735,6 +797,7 @@ function CoverageViewRoute() {
 
   const { config, forward } = data;
   const spec = params.spec;
+  const lang = params.lang;
   const filter = query.filter || null;
   const level = query.level || "all";
 
@@ -742,30 +805,30 @@ function CoverageViewRoute() {
 
   const handleLevelChange = useCallback(
     (newLevel: string) => {
-      route(buildUrl(spec, "coverage", { filter, level: newLevel }));
+      route(buildUrl(spec, lang, "coverage", { filter, level: newLevel }));
     },
-    [route, spec, filter],
+    [route, spec, lang, filter],
   );
 
   const handleFilterChange = useCallback(
     (newFilter: string | null) => {
-      route(buildUrl(spec, "coverage", { filter: newFilter, level }));
+      route(buildUrl(spec, lang, "coverage", { filter: newFilter, level }));
     },
-    [route, spec, level],
+    [route, spec, lang, level],
   );
 
   const handleSelectRule = useCallback(
     (ruleId: string) => {
-      route(buildUrl(spec, "spec", { rule: ruleId }));
+      route(buildUrl(spec, lang, "spec", { rule: ruleId }));
     },
-    [route, spec],
+    [route, spec, lang],
   );
 
   const handleSelectFile = useCallback(
     (file: string, lineNum?: number | null, context?: string | null) => {
-      route(buildUrl(spec, "sources", { file, line: lineNum, context }));
+      route(buildUrl(spec, lang, "sources", { file, line: lineNum, context }));
     },
-    [route, spec],
+    [route, spec, lang],
   );
 
   return html`

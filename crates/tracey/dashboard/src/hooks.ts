@@ -15,6 +15,25 @@ async function fetchJson<T>(url: string): Promise<T> {
 	return res.json();
 }
 
+// Parse spec and lang from URL pathname
+// URL format: /:spec/:lang/:view/...
+function getImplFromUrl(): { spec: string | null; lang: string | null } {
+	const parts = window.location.pathname.split("/").filter(Boolean);
+	return {
+		spec: parts[0] || null,
+		lang: parts[1] || null,
+	};
+}
+
+// Build API URL with spec/lang params
+function apiUrl(base: string, spec?: string | null, lang?: string | null): string {
+	const params = new URLSearchParams();
+	if (spec) params.set("spec", spec);
+	if (lang) params.set("lang", lang);
+	const query = params.toString();
+	return query ? `${base}?${query}` : base;
+}
+
 export interface UseApiResult {
 	data: ApiData | null;
 	error: string | null;
@@ -29,10 +48,23 @@ export function useApi(): UseApiResult {
 
 	const fetchData = useCallback(async () => {
 		try {
-			const [config, forward, reverse] = await Promise.all([
-				fetchJson<Config>("/api/config"),
-				fetchJson<ForwardData>("/api/forward"),
-				fetchJson<ReverseData>("/api/reverse"),
+			// First fetch config to get available specs/impls
+			const config = await fetchJson<Config>("/api/config");
+
+			// Get spec/lang from URL, falling back to first available
+			let { spec, lang } = getImplFromUrl();
+			if (!spec && config.specs?.[0]) {
+				spec = config.specs[0].name;
+			}
+			if (!lang && spec) {
+				const specInfo = config.specs?.find(s => s.name === spec);
+				lang = specInfo?.implementations?.[0] || null;
+			}
+
+			// Fetch forward/reverse with spec/lang params
+			const [forward, reverse] = await Promise.all([
+				fetchJson<ForwardData>(apiUrl("/api/forward", spec, lang)),
+				fetchJson<ReverseData>(apiUrl("/api/reverse", spec, lang)),
 			]);
 			setData({ config, forward, reverse });
 			setError(null);
@@ -44,6 +76,13 @@ export function useApi(): UseApiResult {
 	// Initial fetch
 	useEffect(() => {
 		fetchData();
+	}, [fetchData]);
+
+	// Refetch when URL changes (spec/lang might change)
+	useEffect(() => {
+		const handlePopState = () => fetchData();
+		window.addEventListener("popstate", handlePopState);
+		return () => window.removeEventListener("popstate", handlePopState);
 	}, [fetchData]);
 
 	// Poll for version changes and refetch if changed
@@ -86,7 +125,14 @@ export function useFile(path: string | null): FileContent | null {
 			setFile(null);
 			return;
 		}
-		fetchJson<FileContent>(`/api/file?path=${encodeURIComponent(path)}`)
+		// Get spec/lang from URL for API call
+		const { spec, lang } = getImplFromUrl();
+		const params = new URLSearchParams();
+		params.set("path", path);
+		if (spec) params.set("spec", spec);
+		if (lang) params.set("lang", lang);
+
+		fetchJson<FileContent>(`/api/file?${params.toString()}`)
 			.then(setFile)
 			.catch((e) => {
 				console.error("Failed to load file:", e);
@@ -108,7 +154,13 @@ export function useSpec(
 			setSpec(null);
 			return;
 		}
-		fetchJson<SpecContent>(`/api/spec?name=${encodeURIComponent(name)}`)
+		// Get spec/lang from URL for API call
+		const { spec: urlSpec, lang } = getImplFromUrl();
+		const params = new URLSearchParams();
+		if (urlSpec) params.set("spec", urlSpec);
+		if (lang) params.set("lang", lang);
+
+		fetchJson<SpecContent>(`/api/spec?${params.toString()}`)
 			.then(setSpec)
 			.catch((e) => {
 				console.error("Failed to load spec:", e);

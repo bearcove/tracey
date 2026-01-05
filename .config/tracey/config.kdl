@@ -1,4 +1,10 @@
 spec {
     name "tracey"
     rules_glob "docs/spec/**/*.md"
+
+    impl {
+        lang "rust"
+        include "crates/**/*.rs"
+        exclude "target/**"
+    }
 }

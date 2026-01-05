@@ -180,7 +180,6 @@ export function SpecView({
   // Use selectedSpec or default to first spec
   const specName = selectedSpec || config.specs?.[0]?.name || null;
   const spec = useSpec(specName, version);
-  const hasMultipleSpecs = (config.specs?.length || 0) > 1;
   const [activeHeading, setActiveHeading] = useState<string | null>(null);
   const [collapsedSlugs, setCollapsedSlugs] = useState<Set<string>>(() => getCollapsedSlugs());
   const contentRef = useRef<HTMLDivElement>(null);
@@ -501,24 +500,6 @@ export function SpecView({
         </div>
       </div>
       <div class="content">
-        <div class="content-header">
-          ${hasMultipleSpecs
-            ? html`
-                <div class="spec-switcher">
-                  ${config.specs?.map(
-                    (s) => html`
-                      <button
-                        class="spec-tab ${s.name === specName ? "active" : ""}"
-                        onClick=${() => onSelectSpec(s.name)}
-                      >
-                        ${s.name}
-                      </button>
-                    `,
-                  )}
-                </div>
-              `
-            : html`${spec.name}${spec.sections.length > 1 ? ` (${spec.sections.length} files)` : ""}`}
-        </div>
         <div class="content-body" ref=${contentBodyRef}>
           <div
             class="markdown"

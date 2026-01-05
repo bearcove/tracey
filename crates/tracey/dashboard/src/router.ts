@@ -1,13 +1,13 @@
 // Router utilities using preact-iso
-// URL structure: /:specName/:view/...
+// URL structure: /:spec/:lang/:view/...
 //
 // Examples:
-//   /rapace/spec                     -> spec view, no heading
-//   /rapace/spec/channels            -> spec view, heading "channels"
-//   /rapace/sources                  -> sources view, no file
-//   /rapace/sources/src/lib.rs:42    -> sources view, file + line
-//   /rapace/coverage                 -> coverage view
-//   /rapace/coverage?filter=impl     -> coverage view with filter
+//   /rapace/rust/spec                     -> spec view, no heading
+//   /rapace/rust/spec/channels            -> spec view, heading "channels"
+//   /rapace/swift/sources                 -> sources view, no file
+//   /rapace/rust/sources/src/lib.rs:42    -> sources view, file + line
+//   /rapace/rust/coverage                 -> coverage view
+//   /rapace/rust/coverage?filter=impl     -> coverage view with filter
 
 export {
 	LocationProvider,
@@ -31,10 +31,14 @@ export interface UrlParams {
 
 export function buildUrl(
 	spec: string | null,
+	lang: string | null,
 	view: ViewType,
 	params: UrlParams = {},
 ): string {
-	const base = spec ? `/${encodeURIComponent(spec)}` : "";
+	// Build base path: /{spec}/{lang}
+	const specPart = spec ? `/${encodeURIComponent(spec)}` : "";
+	const langPart = lang ? `/${encodeURIComponent(lang)}` : "";
+	const base = specPart + langPart;
 
 	if (view === "sources") {
 		const { file, line, context } = params;
