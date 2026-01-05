@@ -26,6 +26,7 @@ reverse = ["dep:arborium", "dep:arborium-rust"]
 facet = { workspace = true }
 facet-json = { workspace = true }
 eyre = { workspace = true }
+bearmark = { workspace = true }
 
 # Optional
 ignore = { workspace = true, optional = true }

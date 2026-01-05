@@ -1,16 +1,26 @@
 import htm from "htm";
-import { h, render } from "preact";
-import { useCallback, useEffect, useRef, useState } from "preact/hooks";
+import { createContext, h, render } from "preact";
+import { useCallback, useContext, useEffect, useRef, useState } from "preact/hooks";
 import { LocationProvider, Route, Router, useLocation, useRoute } from "preact-iso";
 import "./style.css";
 
-import { modKey, TAB_ICON_NAMES } from "./config";
+import { getDeviconClass, modKey, TAB_ICON_NAMES } from "./config";
 
 // Modules
-import { useApi } from "./hooks";
+import { useApi, UseApiResult } from "./hooks";
 import { buildUrl } from "./router";
 // Types
-import type { FilePathProps, FileRefProps, HeaderProps, LucideIconProps, ViewType } from "./types";
+import type {
+  FilePathProps,
+  FileRefProps,
+  HeaderProps,
+  LangIconProps,
+  LucideIconProps,
+  SearchModalProps,
+  SearchResult,
+  SearchResultItemProps,
+  ViewType,
+} from "./types";
 import { splitPath } from "./utils";
 import { CoverageView } from "./views/coverage";
 import { SourcesView } from "./views/sources";
@@ -21,6 +31,15 @@ const html = htm.bind(h);
 
 // Declare lucide as global (loaded via CDN)
 declare const lucide: { createIcons: (opts?: { nodes?: NodeList }) => void };
+
+// Context to share API data across route components
+const ApiContext = createContext<UseApiResult | null>(null);
+
+function useApiContext(): UseApiResult {
+  const ctx = useContext(ApiContext);
+  if (!ctx) throw new Error("useApiContext must be used within ApiContext.Provider");
+  return ctx;
+}
 
 // ========================================================================
 // Components
@@ -42,18 +61,221 @@ function LucideIcon({ name, className = "" }: LucideIconProps) {
   return html`<span ref=${iconRef} class=${className}></span>`;
 }
 
-function Header({ view, onViewChange, onOpenSearch }: HeaderProps) {
+// Language icon component - uses devicon if available, falls back to Lucide
+function LangIcon({ filePath, className = "" }: LangIconProps) {
+  const deviconClass = getDeviconClass(filePath);
+  const iconRef = useRef<HTMLSpanElement>(null);
+
+  // For Lucide fallback
+  useEffect(() => {
+    if (!deviconClass && iconRef.current && typeof lucide !== "undefined") {
+      iconRef.current.innerHTML = "";
+      const i = document.createElement("i");
+      i.setAttribute("data-lucide", "file");
+      iconRef.current.appendChild(i);
+      lucide.createIcons({ nodes: [i] as unknown as NodeList });
+    }
+  }, [deviconClass]);
+
+  if (deviconClass) {
+    return html`<i class="${deviconClass} ${className}"></i>`;
+  }
+  return html`<span ref=${iconRef} class=${className}></span>`;
+}
+
+// Search result item component with syntax highlighting for source
+function SearchResultItem({ result, isSelected, onSelect, onHover }: SearchResultItemProps) {
+  return html`
+    <div
+      class="search-modal-result ${isSelected ? "selected" : ""}"
+      onClick=${onSelect}
+      onMouseEnter=${onHover}
+    >
+      <div class="search-modal-result-header">
+        ${result.kind === "source"
+          ? html`
+              <${FilePath}
+                file=${result.id}
+                line=${result.line > 0 ? result.line : null}
+                type="source"
+              />
+            `
+          : html`
+              <${LucideIcon} name="file-text" className="search-result-icon rule" />
+              <span class="search-modal-result-id">${result.id}</span>
+            `}
+      </div>
+      ${result.kind === "source"
+        ? html`
+            <pre class="search-modal-result-code"><code dangerouslySetInnerHTML=${{
+              __html: result.highlighted || result.content.trim(),
+            }} /></pre>
+          `
+        : html`
+            <div
+              class="search-modal-result-content"
+              dangerouslySetInnerHTML=${{ __html: result.highlighted || result.content.trim() }}
+            />
+          `}
+    </div>
+  `;
+}
+
+function SearchModal({ onClose, onSelect }: SearchModalProps) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<{ results: SearchResult[] } | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Focus input on mount
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  // Re-render Lucide icons when results change
+  useEffect(() => {
+    if (results?.results?.length && typeof lucide !== "undefined") {
+      requestAnimationFrame(() => {
+        lucide.createIcons();
+      });
+    }
+  }, [results]);
+
+  // Debounced search
+  useEffect(() => {
+    if (!query || query.length < 2) {
+      setResults(null);
+      setSelectedIndex(0);
+      return;
+    }
+
+    setIsSearching(true);
+
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    searchTimeoutRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&limit=50`);
+        const data = await res.json();
+        setResults(data);
+        setSelectedIndex(0);
+      } catch (e) {
+        console.error("Search failed:", e);
+        setResults({ results: [] });
+      } finally {
+        setIsSearching(false);
+      }
+    }, 150);
+
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, [query]);
+
+  // Scroll selected item into view
+  useEffect(() => {
+    if (!resultsRef.current) return;
+    const selected = resultsRef.current.querySelector(".search-modal-result.selected");
+    if (selected) {
+      selected.scrollIntoView({ block: "nearest" });
+    }
+  }, [selectedIndex]);
+
+  // Keyboard navigation
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      if (!results?.results?.length) return;
+
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSelectedIndex((i) => Math.min(i + 1, results.results.length - 1));
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSelectedIndex((i) => Math.max(i - 1, 0));
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        const result = results.results[selectedIndex];
+        if (result) onSelect(result);
+      }
+    },
+    [results, selectedIndex, onSelect],
+  );
+
+  // Close on backdrop click
+  const handleBackdropClick = useCallback(
+    (e: MouseEvent) => {
+      if (e.target === e.currentTarget) {
+        onClose();
+      }
+    },
+    [onClose],
+  );
+
+  return html`
+    <div class="search-overlay" onClick=${handleBackdropClick}>
+      <div class="search-modal">
+        <div class="search-modal-input">
+          <input
+            ref=${inputRef}
+            type="text"
+            placeholder="Search code and rules..."
+            value=${query}
+            onInput=${(e: Event) => setQuery((e.target as HTMLInputElement).value)}
+            onKeyDown=${handleKeyDown}
+          />
+        </div>
+        <div class="search-modal-results" ref=${resultsRef}>
+          ${isSearching
+            ? html` <div class="search-modal-empty">Searching...</div> `
+            : results?.results?.length > 0
+              ? html`
+                  ${results.results.map(
+                    (result, idx) => html`
+                      <${SearchResultItem}
+                        key=${result.kind + ":" + result.id + ":" + result.line}
+                        result=${result}
+                        isSelected=${idx === selectedIndex}
+                        onSelect=${() => onSelect(result)}
+                        onHover=${() => setSelectedIndex(idx)}
+                      />
+                    `,
+                  )}
+                `
+              : query.length >= 2
+                ? html` <div class="search-modal-empty">No results found</div> `
+                : html` <div class="search-modal-empty">Type to search code and rules...</div> `}
+        </div>
+        <div class="search-modal-hint">
+          <span><kbd>↑</kbd><kbd>↓</kbd> Navigate</span>
+          <span><kbd>Enter</kbd> Select</span>
+          <span><kbd>Esc</kbd> Close</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function Header({ view, spec, onViewChange, onOpenSearch }: HeaderProps) {
   const handleNavClick = (e: Event, newView: ViewType) => {
     e.preventDefault();
     onViewChange(newView);
   };
+
+  const specBase = spec ? `/${encodeURIComponent(spec)}` : "";
 
   return html`
     <header class="header">
       <div class="header-inner">
         <nav class="nav">
           <a
-            href="/spec"
+            href="${specBase}/spec"
             class="nav-tab ${view === "spec" ? "active" : ""}"
             onClick=${(e: Event) => handleNavClick(e, "spec")}
             ><${LucideIcon} name=${TAB_ICON_NAMES.specification} className="tab-icon" /><span
@@ -61,7 +283,7 @@ function Header({ view, onViewChange, onOpenSearch }: HeaderProps) {
             ></a
           >
           <a
-            href="/coverage"
+            href="${specBase}/coverage"
             class="nav-tab ${view === "coverage" ? "active" : ""}"
             onClick=${(e: Event) => handleNavClick(e, "coverage")}
             ><${LucideIcon} name=${TAB_ICON_NAMES.coverage} className="tab-icon" /><span
@@ -69,7 +291,7 @@ function Header({ view, onViewChange, onOpenSearch }: HeaderProps) {
             ></a
           >
           <a
-            href="/sources"
+            href="${specBase}/sources"
             class="nav-tab ${view === "sources" ? "active" : ""}"
             onClick=${(e: Event) => handleNavClick(e, "sources")}
             ><${LucideIcon} name=${TAB_ICON_NAMES.sources} className="tab-icon" /><span
@@ -162,20 +384,44 @@ function CoverageArc({ count, total, color, title, size = 20 }: CoverageArcProps
 }
 
 // File path display component
-function FilePath({ file, line, short, type, onClick, className = "" }: FilePathProps) {
+function FilePath({
+  file,
+  line,
+  short = false,
+  type = "source",
+  onClick,
+  className = "",
+}: FilePathProps) {
   const { dir, name } = splitPath(file);
-  const lineStr = line ? `:${line}` : "";
+  const iconClass =
+    type === "impl" ? "file-path-icon-impl" : type === "verify" ? "file-path-icon-verify" : "";
 
-  const typeClass = type === "impl" ? "impl" : type === "verify" ? "verify" : "";
-  const typeLabel = type === "impl" ? "impl" : type === "verify" ? "test" : "";
-
-  return html`
-    <span class="file-path ${className} ${onClick ? "clickable" : ""}" onClick=${onClick}>
-      ${type && html`<span class="file-type-badge ${typeClass}">${typeLabel}</span>`}
-      ${!short && dir && html`<span class="file-dir">${dir}</span>`}
-      <span class="file-name">${name}${lineStr}</span>
-    </span>
+  const content = html`
+    <${LangIcon} filePath=${file} className="file-path-icon ${iconClass}" /><span
+      class="file-path-text"
+      >${!short && dir ? html`<span class="file-path-dir">${dir}</span>` : ""}<span
+        class="file-path-name"
+        >${name}</span
+      >${line != null ? html`<span class="file-path-line">:${line}</span>` : ""}</span
+    >
   `;
+
+  if (onClick) {
+    return html`
+      <a
+        class="file-path-link ${className}"
+        href="#"
+        onClick=${(e: Event) => {
+          e.preventDefault();
+          onClick();
+        }}
+      >
+        ${content}
+      </a>
+    `;
+  }
+
+  return html`<span class="file-path-display ${className}">${content}</span>`;
 }
 
 // File reference component
@@ -248,9 +494,10 @@ function showRefsPopup(
 // ========================================================================
 
 function App() {
-  const { data, error, version } = useApi();
+  const apiResult = useApi();
+  const { data, error } = apiResult;
   const { route } = useLocation();
-  const [_searchOpen, setSearchOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
 
   // Initialize Lucide icons
   useEffect(() => {
@@ -267,6 +514,11 @@ function App() {
   // Get current spec from URL or default to first
   const defaultSpec = config.specs?.[0]?.name || null;
 
+  // Determine current spec and view from pathname
+  const pathParts = window.location.pathname.split("/").filter(Boolean);
+  const currentSpec = pathParts[0] || defaultSpec;
+  const currentView = pathParts[1] || "spec";
+
   const handleViewChange = useCallback(
     (newView: string) => {
       // Get current spec from URL
@@ -279,6 +531,18 @@ function App() {
   const handleOpenSearch = useCallback(() => {
     setSearchOpen(true);
   }, []);
+
+  const handleSearchSelect = useCallback(
+    (result: SearchResult) => {
+      setSearchOpen(false);
+      if (result.kind === "rule") {
+        route(buildUrl(currentSpec, "spec", { rule: result.id }));
+      } else {
+        route(buildUrl(currentSpec, "sources", { file: result.id, line: result.line }));
+      }
+    },
+    [route, currentSpec],
+  );
 
   // Global keyboard shortcut for search
   useEffect(() => {
@@ -295,44 +559,50 @@ function App() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  // Determine current view from pathname
-  const pathParts = window.location.pathname.split("/").filter(Boolean);
-  const currentView = pathParts[1] || "spec";
-
   return html`
-    <div class="layout">
-      <${Header}
-        view=${currentView}
-        onViewChange=${handleViewChange}
-        onOpenSearch=${handleOpenSearch}
-      />
-      <${Router}>
-        <${Route}
-          path="/"
-          component=${() => {
-            // Redirect to default spec
-            useEffect(() => {
-              if (defaultSpec) route(`/${defaultSpec}/spec`, true);
-            }, []);
-            return html`<div class="loading">Redirecting...</div>`;
-          }}
+    <${ApiContext.Provider} value=${apiResult}>
+      <div class="layout">
+        <${Header}
+          view=${currentView}
+          spec=${currentSpec}
+          onViewChange=${handleViewChange}
+          onOpenSearch=${handleOpenSearch}
         />
-        <${Route} path="/:spec/spec/:heading*" component=${SpecViewRoute} />
-        <${Route} path="/:spec/sources/:file*" component=${SourcesViewRoute} />
-        <${Route} path="/:spec/coverage" component=${CoverageViewRoute} />
-        <${Route}
-          path="/:spec"
-          component=${() => {
-            const { params } = useRoute();
-            useEffect(() => {
-              route(`/${params.spec}/spec`, true);
-            }, [params.spec]);
-            return html`<div class="loading">Redirecting...</div>`;
-          }}
-        />
-        <${Route} default component=${() => html`<div class="empty-state">Page not found</div>`} />
-      <//>
-    </div>
+        ${searchOpen &&
+        html`
+          <${SearchModal} onClose=${() => setSearchOpen(false)} onSelect=${handleSearchSelect} />
+        `}
+        <${Router}>
+          <${Route}
+            path="/"
+            component=${() => {
+              // Redirect to default spec
+              useEffect(() => {
+                if (defaultSpec) route(`/${defaultSpec}/spec`, true);
+              }, []);
+              return html`<div class="loading">Redirecting...</div>`;
+            }}
+          />
+          <${Route} path="/:spec/spec/:heading*" component=${SpecViewRoute} />
+          <${Route} path="/:spec/sources/:file*" component=${SourcesViewRoute} />
+          <${Route} path="/:spec/coverage" component=${CoverageViewRoute} />
+          <${Route}
+            path="/:spec"
+            component=${() => {
+              const { params } = useRoute();
+              useEffect(() => {
+                route(`/${params.spec}/spec`, true);
+              }, [params.spec]);
+              return html`<div class="loading">Redirecting...</div>`;
+            }}
+          />
+          <${Route}
+            default
+            component=${() => html`<div class="empty-state">Page not found</div>`}
+          />
+        <//>
+      </div>
+    <//>
   `;
 }
 
@@ -340,7 +610,7 @@ function App() {
 function SpecViewRoute() {
   const { params, query } = useRoute();
   const { route } = useLocation();
-  const { data, version } = useApi();
+  const { data, version } = useApiContext();
 
   if (!data) return html`<div class="loading">Loading...</div>`;
 
@@ -392,7 +662,7 @@ function SpecViewRoute() {
 function SourcesViewRoute() {
   const { params, query } = useRoute();
   const { route } = useLocation();
-  const { data } = useApi();
+  const { data } = useApiContext();
 
   if (!data) return html`<div class="loading">Loading...</div>`;
 
@@ -459,7 +729,7 @@ function SourcesViewRoute() {
 function CoverageViewRoute() {
   const { params, query } = useRoute();
   const { route } = useLocation();
-  const { data } = useApi();
+  const { data } = useApiContext();
 
   if (!data) return html`<div class="loading">Loading...</div>`;
 
@@ -536,4 +806,4 @@ document.addEventListener("keydown", (e) => {
 });
 
 // Export shared components for views
-export { html, CoverageArc, FilePath, FileRef, showRefsPopup };
+export { html, CoverageArc, FilePath, FileRef, LangIcon, showRefsPopup };

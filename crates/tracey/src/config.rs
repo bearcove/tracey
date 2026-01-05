@@ -24,23 +24,13 @@ pub struct SpecConfig {
     #[facet(kdl::child)]
     pub name: Name,
 
-    /// URL to the spec's _rules.json manifest
-    /// e.g., `https://rapace.dev/_rules.json`
-    #[facet(kdl::child, default)]
-    pub rules_url: Option<RulesUrl>,
-
-    /// Path to a local _rules.json file (relative to the config file)
-    /// e.g., "specs/my-spec/_rules.json"
-    #[facet(kdl::child, default)]
-    pub rules_file: Option<RulesFile>,
-
     /// Glob pattern for markdown spec files to extract rules from
     /// e.g., "docs/spec/**/*.md"
     /// Rules will be extracted from r[rule.id] syntax in the markdown
-    #[facet(kdl::child, default)]
-    pub rules_glob: Option<RulesGlob>,
+    #[facet(kdl::child)]
+    pub rules_glob: RulesGlob,
 
-    /// Glob patterns for Rust files to scan
+    /// Glob patterns for source files to scan
     /// Defaults to ["**/*.rs"] if not specified
     #[facet(kdl::children, default)]
     pub include: Vec<Include>,
@@ -54,18 +44,6 @@ pub struct SpecConfig {
 pub struct Name {
     #[facet(kdl::argument)]
     pub value: String,
-}
-
-#[derive(Debug, Clone, Facet)]
-pub struct RulesUrl {
-    #[facet(kdl::argument)]
-    pub value: String,
-}
-
-#[derive(Debug, Clone, Facet)]
-pub struct RulesFile {
-    #[facet(kdl::argument)]
-    pub path: String,
 }
 
 #[derive(Debug, Clone, Facet)]

@@ -6,11 +6,13 @@
 //!
 //! When the `search` feature is disabled, it falls back to simple substring matching.
 
+use facet::Facet;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// Result type for unified search
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Facet)]
+#[repr(u8)]
 pub enum ResultKind {
     /// Source code line
     Source,
@@ -18,17 +20,8 @@ pub enum ResultKind {
     Rule,
 }
 
-impl ResultKind {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            ResultKind::Source => "source",
-            ResultKind::Rule => "rule",
-        }
-    }
-}
-
 /// A unified search result
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Facet)]
 pub struct SearchResult {
     /// Type of result
     pub kind: ResultKind,
@@ -44,25 +37,12 @@ pub struct SearchResult {
     pub score: f32,
 }
 
-impl SearchResult {
-    pub fn to_json(&self) -> String {
-        format!(
-            r#"{{"kind":"{}","id":{},"line":{},"content":{},"highlighted":{},"score":{}}}"#,
-            self.kind.as_str(),
-            crate::serve::json_string(&self.id),
-            self.line,
-            crate::serve::json_string(&self.content),
-            crate::serve::json_string(&self.highlighted),
-            self.score
-        )
-    }
-}
-
 /// A rule to be indexed
 #[derive(Debug, Clone)]
 pub struct RuleEntry {
     pub id: String,
-    pub text: Option<String>,
+    /// HTML content (tags will be stripped for indexing)
+    pub html: String,
 }
 
 /// Search index abstraction
@@ -171,12 +151,9 @@ mod tantivy_impl {
 
             // Index rules
             for rule in rules {
-                // Index the rule ID itself as searchable content
-                let searchable_content = if let Some(ref text) = rule.text {
-                    format!("{} {}", rule.id, text)
-                } else {
-                    rule.id.clone()
-                };
+                // Index the rule ID and HTML content (stripped of tags)
+                let text = strip_html_tags(&rule.html);
+                let searchable_content = format!("{} {}", rule.id, text);
 
                 index_writer.add_document(doc!(
                     kind_field => "rule",
@@ -288,6 +265,21 @@ fn html_escape(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
+/// Strip HTML tags from a string for indexing
+fn strip_html_tags(html: &str) -> String {
+    let mut result = String::with_capacity(html.len());
+    let mut in_tag = false;
+    for c in html.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => result.push(c),
+            _ => {}
+        }
+    }
+    result
+}
+
 #[cfg(feature = "search")]
 pub use tantivy_impl::TantivyIndex;
 
@@ -349,11 +341,8 @@ impl SimpleIndex {
 
         // Index rules
         for rule in rules {
-            let searchable_content = if let Some(ref text) = rule.text {
-                format!("{} {}", rule.id, text)
-            } else {
-                rule.id.clone()
-            };
+            let text = strip_html_tags(&rule.html);
+            let searchable_content = format!("{} {}", rule.id, text);
             entries.push(SimpleEntry {
                 kind: ResultKind::Rule,
                 id: rule.id.clone(),

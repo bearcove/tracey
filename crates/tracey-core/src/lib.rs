@@ -2,16 +2,14 @@
 //!
 //! This crate provides the building blocks for:
 //! - Extracting rule references from source code (Rust, Swift, TypeScript, and more)
-//! - Extracting rule definitions from markdown spec documents
-//! - Computing coverage against a spec manifest
+//! - Computing coverage statistics
 //!
 //! # Features
 //!
 //! - `walk` - Enable [`WalkSources`] for gitignore-aware directory walking (brings in `ignore`)
 //! - `parallel` - Enable parallel extraction (brings in `rayon`)
-//! - `fetch` - Enable [`SpecManifest::fetch`] for HTTP fetching (brings in `ureq`)
 //!
-//! For markdown rule extraction, use the `bearmark` crate directly (see examples below).
+//! For markdown rule extraction, use the `bearmark` crate directly.
 //!
 //! # Extracting Rule References from Source Code
 //!
@@ -29,7 +27,7 @@
 //! Extract references using [`Rules::extract`]:
 //!
 //! ```ignore
-//! use tracey_core::{Rules, WalkSources, SpecManifest, CoverageReport};
+//! use tracey_core::{Rules, WalkSources};
 //!
 //! // Scan Rust files for rule references
 //! let rules = Rules::extract(
@@ -38,13 +36,10 @@
 //!         .exclude(["target/**"])
 //! )?;
 //!
-//! // Load spec manifest and compute coverage
-//! let manifest = SpecManifest::load("spec/_rules.json")?;
-//! let report = CoverageReport::compute("my-spec", &manifest, &rules);
-//! println!("Coverage: {:.1}%", report.coverage_percent());
+//! println!("Found {} rule references", rules.len());
 //! ```
 //!
-//! # Extracting Rules from Markdown (feature: `markdown`)
+//! # Extracting Rules from Markdown
 //!
 //! Rules are defined in markdown using the `r[rule.id]` syntax:
 //!
@@ -113,7 +108,7 @@ pub use lexer::{ParseWarning, RefVerb, RuleReference, Rules, SourceSpan, Warning
 pub use sources::{
     MemorySources, PathSources, SUPPORTED_EXTENSIONS, Sources, is_supported_extension,
 };
-pub use spec::{RuleInfo, SpecManifest};
+pub use spec::RuleDefinition;
 
 #[cfg(feature = "walk")]
 pub use sources::WalkSources;

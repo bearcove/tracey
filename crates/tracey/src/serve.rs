@@ -24,6 +24,8 @@ use axum::{
     routing::get,
 };
 use eyre::{Result, WrapErr};
+use facet::Facet;
+use facet_axum::Json;
 use futures_util::{SinkExt, StreamExt};
 use hyper_util::client::legacy::Client;
 use hyper_util::rt::TokioExecutor;
@@ -37,7 +39,7 @@ use std::time::Duration;
 use tokio::sync::watch;
 use tower_http::cors::{Any, CorsLayer};
 use tracey_core::code_units::CodeUnit;
-use tracey_core::{RefVerb, Rules, SpecManifest};
+use tracey_core::{RefVerb, RuleDefinition, Rules};
 use tracing::{debug, error, info, warn};
 
 // Markdown rendering
@@ -58,52 +60,57 @@ use crate::vite::ViteServer;
 // ============================================================================
 
 /// Project configuration info
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Facet)]
 struct ApiConfig {
     project_root: String,
     specs: Vec<ApiSpecInfo>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Facet)]
 struct ApiSpecInfo {
     name: String,
     /// Path to spec file(s) if local
+    #[facet(default)]
     source: Option<String>,
 }
 
 /// Forward traceability: rules with their code references
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Facet)]
 struct ApiForwardData {
     specs: Vec<ApiSpecForward>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Facet)]
 struct ApiSpecForward {
     name: String,
     rules: Vec<ApiRule>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Facet)]
 struct ApiRule {
     id: String,
-    text: Option<String>,
+    html: String,
+    #[facet(default)]
     status: Option<String>,
+    #[facet(default)]
     level: Option<String>,
+    #[facet(default)]
     source_file: Option<String>,
+    #[facet(default)]
     source_line: Option<usize>,
     impl_refs: Vec<ApiCodeRef>,
     verify_refs: Vec<ApiCodeRef>,
     depends_refs: Vec<ApiCodeRef>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Facet)]
 struct ApiCodeRef {
     file: String,
     line: usize,
 }
 
 /// Reverse traceability: file tree with coverage info
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Facet)]
 struct ApiReverseData {
     /// Total code units across all files
     total_units: usize,
@@ -113,7 +120,7 @@ struct ApiReverseData {
     files: Vec<ApiFileEntry>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Facet)]
 struct ApiFileEntry {
     path: String,
     /// Number of code units in this file
@@ -123,7 +130,7 @@ struct ApiFileEntry {
 }
 
 /// Single file with full coverage details
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Facet)]
 struct ApiFileData {
     path: String,
     content: String,
@@ -133,9 +140,10 @@ struct ApiFileData {
     units: Vec<ApiCodeUnit>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Facet)]
 struct ApiCodeUnit {
     kind: String,
+    #[facet(default)]
     name: Option<String>,
     start_line: usize,
     end_line: usize,
@@ -144,7 +152,7 @@ struct ApiCodeUnit {
 }
 
 /// A section of a spec (one source file)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Facet)]
 struct SpecSection {
     /// Source file path
     source_file: String,
@@ -155,7 +163,7 @@ struct SpecSection {
 }
 
 /// Coverage counts for an outline entry
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Facet)]
 struct OutlineCoverage {
     /// Number of rules with implementation refs
     impl_count: usize,
@@ -166,7 +174,7 @@ struct OutlineCoverage {
 }
 
 /// An entry in the spec outline (heading with coverage info)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Facet)]
 struct OutlineEntry {
     /// Heading text
     title: String,
@@ -181,13 +189,21 @@ struct OutlineEntry {
 }
 
 /// Spec content (may span multiple files)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Facet)]
 struct ApiSpecData {
     name: String,
     /// Sections ordered by weight
     sections: Vec<SpecSection>,
     /// Outline with coverage info
     outline: Vec<OutlineEntry>,
+}
+
+/// Search response
+#[derive(Debug, Clone, Facet)]
+struct ApiSearchResponse {
+    query: String,
+    results: Vec<crate::search::SearchResult>,
+    available: bool,
 }
 
 // ============================================================================
@@ -222,37 +238,6 @@ struct AppState {
     highlighter: Arc<Mutex<arborium::Highlighter>>,
 }
 
-// ============================================================================
-// JSON Serialization (manual, no serde)
-// ============================================================================
-
-pub fn json_string(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 2);
-    out.push('"');
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if c.is_control() => {
-                out.push_str(&format!("\\u{:04x}", c as u32));
-            }
-            c => out.push(c),
-        }
-    }
-    out.push('"');
-    out
-}
-
-fn json_opt_string(s: &Option<String>) -> String {
-    match s {
-        Some(s) => json_string(s),
-        None => "null".to_string(),
-    }
-}
-
 /// Escape HTML special characters
 fn html_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -267,173 +252,6 @@ fn html_escape(s: &str) -> String {
         }
     }
     out
-}
-
-impl ApiConfig {
-    fn to_json(&self) -> String {
-        let specs: Vec<String> = self
-            .specs
-            .iter()
-            .map(|s| {
-                format!(
-                    r#"{{"name":{},"source":{}}}"#,
-                    json_string(&s.name),
-                    json_opt_string(&s.source)
-                )
-            })
-            .collect();
-        format!(
-            r#"{{"projectRoot":{},"specs":[{}]}}"#,
-            json_string(&self.project_root),
-            specs.join(",")
-        )
-    }
-}
-
-impl ApiCodeRef {
-    fn to_json(&self) -> String {
-        format!(
-            r#"{{"file":{},"line":{}}}"#,
-            json_string(&self.file),
-            self.line
-        )
-    }
-}
-
-impl ApiRule {
-    fn to_json(&self) -> String {
-        let impl_refs: Vec<String> = self.impl_refs.iter().map(|r| r.to_json()).collect();
-        let verify_refs: Vec<String> = self.verify_refs.iter().map(|r| r.to_json()).collect();
-        let depends_refs: Vec<String> = self.depends_refs.iter().map(|r| r.to_json()).collect();
-
-        format!(
-            r#"{{"id":{},"text":{},"status":{},"level":{},"sourceFile":{},"sourceLine":{},"implRefs":[{}],"verifyRefs":[{}],"dependsRefs":[{}]}}"#,
-            json_string(&self.id),
-            json_opt_string(&self.text),
-            json_opt_string(&self.status),
-            json_opt_string(&self.level),
-            json_opt_string(&self.source_file),
-            self.source_line
-                .map(|n| n.to_string())
-                .unwrap_or_else(|| "null".to_string()),
-            impl_refs.join(","),
-            verify_refs.join(","),
-            depends_refs.join(",")
-        )
-    }
-}
-
-impl ApiForwardData {
-    fn to_json(&self) -> String {
-        let specs: Vec<String> = self
-            .specs
-            .iter()
-            .map(|s| {
-                let rules: Vec<String> = s.rules.iter().map(|r| r.to_json()).collect();
-                format!(
-                    r#"{{"name":{},"rules":[{}]}}"#,
-                    json_string(&s.name),
-                    rules.join(",")
-                )
-            })
-            .collect();
-        format!(r#"{{"specs":[{}]}}"#, specs.join(","))
-    }
-}
-
-impl ApiFileEntry {
-    fn to_json(&self) -> String {
-        format!(
-            r#"{{"path":{},"totalUnits":{},"coveredUnits":{}}}"#,
-            json_string(&self.path),
-            self.total_units,
-            self.covered_units
-        )
-    }
-}
-
-impl ApiReverseData {
-    fn to_json(&self) -> String {
-        let files: Vec<String> = self.files.iter().map(|f| f.to_json()).collect();
-        format!(
-            r#"{{"totalUnits":{},"coveredUnits":{},"files":[{}]}}"#,
-            self.total_units,
-            self.covered_units,
-            files.join(",")
-        )
-    }
-}
-
-impl ApiCodeUnit {
-    fn to_json(&self) -> String {
-        let refs: Vec<String> = self.rule_refs.iter().map(|r| json_string(r)).collect();
-        format!(
-            r#"{{"kind":{},"name":{},"startLine":{},"endLine":{},"ruleRefs":[{}]}}"#,
-            json_string(&self.kind),
-            json_opt_string(&self.name),
-            self.start_line,
-            self.end_line,
-            refs.join(",")
-        )
-    }
-}
-
-impl ApiFileData {
-    fn to_json(&self) -> String {
-        let units: Vec<String> = self.units.iter().map(|u| u.to_json()).collect();
-        format!(
-            r#"{{"path":{},"content":{},"html":{},"units":[{}]}}"#,
-            json_string(&self.path),
-            json_string(&self.content),
-            json_string(&self.html),
-            units.join(",")
-        )
-    }
-}
-
-impl SpecSection {
-    fn to_json(&self) -> String {
-        format!(
-            r#"{{"sourceFile":{},"html":{}}}"#,
-            json_string(&self.source_file),
-            json_string(&self.html)
-        )
-    }
-}
-
-impl OutlineCoverage {
-    fn to_json(&self) -> String {
-        format!(
-            r#"{{"implCount":{},"verifyCount":{},"total":{}}}"#,
-            self.impl_count, self.verify_count, self.total
-        )
-    }
-}
-
-impl OutlineEntry {
-    fn to_json(&self) -> String {
-        format!(
-            r#"{{"title":{},"slug":{},"level":{},"coverage":{},"aggregated":{}}}"#,
-            json_string(&self.title),
-            json_string(&self.slug),
-            self.level,
-            self.coverage.to_json(),
-            self.aggregated.to_json()
-        )
-    }
-}
-
-impl ApiSpecData {
-    fn to_json(&self) -> String {
-        let sections: Vec<String> = self.sections.iter().map(|s| s.to_json()).collect();
-        let outline: Vec<String> = self.outline.iter().map(|o| o.to_json()).collect();
-        format!(
-            r#"{{"name":{},"sections":[{}],"outline":[{}]}}"#,
-            json_string(&self.name),
-            sections.join(","),
-            outline.join(",")
-        )
-    }
 }
 
 // ============================================================================
@@ -453,16 +271,20 @@ struct TraceyRuleHandler {
     coverage: BTreeMap<String, RuleCoverage>,
     /// Current source file being rendered (shared with rendering loop)
     current_source_file: Arc<Mutex<String>>,
+    /// Spec name for URL generation
+    spec_name: String,
 }
 
 impl TraceyRuleHandler {
     fn new(
         coverage: BTreeMap<String, RuleCoverage>,
         current_source_file: Arc<Mutex<String>>,
+        spec_name: String,
     ) -> Self {
         Self {
             coverage,
             current_source_file,
+            spec_name,
         }
     }
 }
@@ -548,8 +370,8 @@ impl RuleHandler for TraceyRuleHandler {
 
             // Rule ID badge (always present) - includes source location for editor navigation
             badges_html.push_str(&format!(
-                r#"<a class="rule-badge rule-id" href="/spec/{}" data-rule="{}" data-source-file="{}" data-source-line="{}" title="{}">{}</a>"#,
-                rule.id, rule.id, source_file, rule.line, rule.id, display_id
+                r#"<a class="rule-badge rule-id" href="/{}/spec/{}" data-rule="{}" data-source-file="{}" data-source-line="{}" title="{}">{}</a>"#,
+                self.spec_name, rule.id, rule.id, source_file, rule.line, rule.id, display_id
             ));
 
             // Implementation badge
@@ -580,8 +402,8 @@ impl RuleHandler for TraceyRuleHandler {
                         .join(",");
                     let all_refs_json = format!("[{}]", all_refs_json).replace('"', "&quot;");
                     badges_html.push_str(&format!(
-                        r#"<a class="rule-badge rule-impl" href="/sources/{}:{}" data-file="{}" data-line="{}" data-all-refs="{}" title="Implementation: {}:{}">{icon}{}:{}{}</a>"#,
-                        r.file, r.line, r.file, r.line, all_refs_json, r.file, r.line, filename, r.line, count_suffix
+                        r#"<a class="rule-badge rule-impl" href="/{}/sources/{}:{}" data-file="{}" data-line="{}" data-all-refs="{}" title="Implementation: {}:{}">{icon}{}:{}{}</a>"#,
+                        self.spec_name, r.file, r.line, r.file, r.line, all_refs_json, r.file, r.line, filename, r.line, count_suffix
                     ));
                 }
 
@@ -612,8 +434,8 @@ impl RuleHandler for TraceyRuleHandler {
                         .join(",");
                     let all_refs_json = format!("[{}]", all_refs_json).replace('"', "&quot;");
                     badges_html.push_str(&format!(
-                        r#"<a class="rule-badge rule-test" href="/sources/{}:{}" data-file="{}" data-line="{}" data-all-refs="{}" title="Test: {}:{}">{icon}{}:{}{}</a>"#,
-                        r.file, r.line, r.file, r.line, all_refs_json, r.file, r.line, filename, r.line, count_suffix
+                        r#"<a class="rule-badge rule-test" href="/{}/sources/{}:{}" data-file="{}" data-line="{}" data-all-refs="{}" title="Test: {}:{}">{icon}{}:{}{}</a>"#,
+                        self.spec_name, r.file, r.line, r.file, r.line, all_refs_json, r.file, r.line, filename, r.line, count_suffix
                     ));
                 }
             }
@@ -647,7 +469,6 @@ impl RuleHandler for TraceyRuleHandler {
 
 async fn build_dashboard_data(
     project_root: &Path,
-    config_path: &Path,
     config: &Config,
     version: u64,
 ) -> Result<DashboardData> {
@@ -657,10 +478,6 @@ async fn build_dashboard_data(
     let abs_root = project_root
         .canonicalize()
         .unwrap_or_else(|_| project_root.to_path_buf());
-
-    let config_dir = config_path
-        .parent()
-        .ok_or_else(|| eyre::eyre!("Config path has no parent directory"))?;
 
     let mut api_config = ApiConfig {
         project_root: abs_root.display().to_string(),
@@ -674,31 +491,16 @@ async fn build_dashboard_data(
     for spec_config in &config.specs {
         let spec_name = &spec_config.name.value;
 
+        let glob_pattern = &spec_config.rules_glob.pattern;
+
         api_config.specs.push(ApiSpecInfo {
             name: spec_name.clone(),
-            source: spec_config.rules_glob.as_ref().map(|g| g.pattern.clone()),
+            source: Some(glob_pattern.clone()),
         });
 
-        // Load manifest
-        let manifest: SpecManifest = if let Some(rules_url) = &spec_config.rules_url {
-            eprintln!(
-                "   {} manifest from {}",
-                "Fetching".green(),
-                rules_url.value
-            );
-            SpecManifest::fetch(&rules_url.value)?
-        } else if let Some(rules_file) = &spec_config.rules_file {
-            let path = config_dir.join(&rules_file.path);
-            SpecManifest::load(&path)?
-        } else if let Some(glob) = &spec_config.rules_glob {
-            eprintln!("   {} rules from {}", "Extracting".green(), glob.pattern);
-            crate::load_manifest_from_glob(project_root, &glob.pattern)?
-        } else {
-            eyre::bail!(
-                "Spec '{}' has no rules_url, rules_file, or rules_glob",
-                spec_name
-            );
-        };
+        // Extract rules directly from markdown files
+        eprintln!("   {} rules from {}", "Extracting".green(), glob_pattern);
+        let extracted_rules = crate::load_rules_from_glob(project_root, glob_pattern)?;
 
         // Scan source files
         let include: Vec<String> = if spec_config.include.is_empty() {
@@ -724,13 +526,13 @@ async fn build_dashboard_data(
 
         // Build forward data for this spec
         let mut api_rules = Vec::new();
-        for (rule_id, rule_info) in &manifest.rules {
+        for (rule_def, source_file) in &extracted_rules {
             let mut impl_refs = Vec::new();
             let mut verify_refs = Vec::new();
             let mut depends_refs = Vec::new();
 
             for r in &rules.references {
-                if r.rule_id == *rule_id {
+                if r.rule_id == rule_def.id {
                     let relative = r.file.strip_prefix(project_root).unwrap_or(&r.file);
                     let code_ref = ApiCodeRef {
                         file: relative.display().to_string(),
@@ -745,12 +547,12 @@ async fn build_dashboard_data(
             }
 
             api_rules.push(ApiRule {
-                id: rule_id.clone(),
-                text: rule_info.text.clone(),
-                status: rule_info.status.clone(),
-                level: rule_info.level.clone(),
-                source_file: rule_info.source_file.clone(),
-                source_line: rule_info.source_line,
+                id: rule_def.id.clone(),
+                html: rule_def.html.clone(),
+                status: rule_def.metadata.status.map(|s| s.as_str().to_string()),
+                level: rule_def.metadata.level.map(|l| l.as_str().to_string()),
+                source_file: Some(source_file.clone()),
+                source_line: Some(rule_def.line),
                 impl_refs,
                 verify_refs,
                 depends_refs,
@@ -782,17 +584,15 @@ async fn build_dashboard_data(
             );
         }
 
-        // Load spec content with coverage-aware rendering (only for rules_glob sources)
-        if let Some(glob) = &spec_config.rules_glob {
-            load_spec_content(
-                project_root,
-                &glob.pattern,
-                spec_name,
-                &coverage,
-                &mut specs_content,
-            )
-            .await?;
-        }
+        // Load spec content with coverage-aware rendering
+        load_spec_content(
+            project_root,
+            glob_pattern,
+            spec_name,
+            &coverage,
+            &mut specs_content,
+        )
+        .await?;
 
         forward_specs.push(ApiSpecForward {
             name: spec_name.clone(),
@@ -870,7 +670,7 @@ async fn build_dashboard_data(
         .flat_map(|spec| {
             spec.rules.iter().map(|r| search::RuleEntry {
                 id: r.id.clone(),
-                text: r.text.clone(),
+                html: r.html.clone(),
             })
         })
         .collect();
@@ -888,8 +688,8 @@ async fn build_dashboard_data(
     };
 
     // Compute content hash for change detection
-    let forward_json = forward.to_json();
-    let reverse_json = reverse.to_json();
+    let forward_json = facet_json::to_string(&forward).unwrap_or_default();
+    let reverse_json = facet_json::to_string(&reverse).unwrap_or_default();
     let content_hash = simple_hash(&forward_json) ^ simple_hash(&reverse_json);
 
     Ok(DashboardData {
@@ -927,7 +727,11 @@ async fn load_spec_content(
     let current_source_file = Arc::new(Mutex::new(String::new()));
 
     // Set up bearmark handlers for consistent rendering with coverage-aware rule rendering
-    let rule_handler = TraceyRuleHandler::new(coverage.clone(), Arc::clone(&current_source_file));
+    let rule_handler = TraceyRuleHandler::new(
+        coverage.clone(),
+        Arc::clone(&current_source_file),
+        spec_name.to_string(),
+    );
     let opts = RenderOptions::new()
         .with_default_handler(ArboriumHandler::new())
         .with_handler(&["aasvg"], AasvgHandler::new())
@@ -1140,19 +944,19 @@ const CSS_BUNDLE: &str = include_str!("../dashboard/dist/assets/index.css");
 // Route Handlers
 // ============================================================================
 
-async fn api_config(State(state): State<AppState>) -> impl IntoResponse {
+async fn api_config(State(state): State<AppState>) -> Json<ApiConfig> {
     let data = state.data.borrow().clone();
-    json_response(data.config.to_json())
+    Json(data.config.clone())
 }
 
-async fn api_forward(State(state): State<AppState>) -> impl IntoResponse {
+async fn api_forward(State(state): State<AppState>) -> Json<ApiForwardData> {
     let data = state.data.borrow().clone();
-    json_response(data.forward.to_json())
+    Json(data.forward.clone())
 }
 
-async fn api_reverse(State(state): State<AppState>) -> impl IntoResponse {
+async fn api_reverse(State(state): State<AppState>) -> Json<ApiReverseData> {
     let data = state.data.borrow().clone();
-    json_response(data.reverse.to_json())
+    Json(data.reverse.clone())
 }
 
 async fn api_version(State(state): State<AppState>) -> impl IntoResponse {
@@ -1280,7 +1084,7 @@ async fn api_file(
             units: api_units,
         };
 
-        json_response(file_data.to_json())
+        Json(file_data).into_response()
     } else {
         Response::builder()
             .status(StatusCode::NOT_FOUND)
@@ -1304,7 +1108,7 @@ async fn api_spec(
     let data = state.data.borrow().clone();
 
     if let Some(spec_data) = data.specs_content.get(spec_name.as_ref()) {
-        json_response(spec_data.to_json())
+        Json(spec_data.clone()).into_response()
     } else {
         Response::builder()
             .status(StatusCode::NOT_FOUND)
@@ -1335,15 +1139,13 @@ async fn api_search(
 
     let data = state.data.borrow().clone();
     let results = data.search_index.search(&query, limit);
-    let results_json: Vec<String> = results.iter().map(|r| r.to_json()).collect();
-    let json = format!(
-        r#"{{"query":{},"results":[{}],"available":{}}}"#,
-        json_string(&query),
-        results_json.join(","),
-        data.search_index.is_available()
-    );
+    let response = ApiSearchResponse {
+        query: query.into_owned(),
+        results,
+        available: data.search_index.is_available(),
+    };
 
-    json_response(json)
+    Json(response)
 }
 
 async fn serve_js() -> impl IntoResponse {
@@ -1379,14 +1181,6 @@ async fn serve_html(State(state): State<AppState>) -> impl IntoResponse {
             .unwrap();
     }
     Html(HTML_SHELL).into_response()
-}
-
-fn json_response(body: String) -> Response<Body> {
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "application/json")
-        .body(Body::from(body))
-        .unwrap()
 }
 
 // ============================================================================
@@ -1687,7 +1481,7 @@ async fn run_server(
     let version = Arc::new(AtomicU64::new(1));
 
     // Initial build
-    let initial_data = build_dashboard_data(&project_root, &config_path, &config, 1).await?;
+    let initial_data = build_dashboard_data(&project_root, &config, 1).await?;
 
     // Channel for state updates
     let (tx, rx) = watch::channel(Arc::new(initial_data));
@@ -1799,9 +1593,7 @@ async fn run_server(
             let current_hash = rebuild_rx.borrow().content_hash;
 
             // Build with placeholder version (we'll set real version if hash changed)
-            match build_dashboard_data(&rebuild_project_root, &rebuild_config_path, &config, 0)
-                .await
-            {
+            match build_dashboard_data(&rebuild_project_root, &config, 0).await {
                 Ok(mut data) => {
                     // Only bump version if content actually changed
                     if data.content_hash != current_hash {

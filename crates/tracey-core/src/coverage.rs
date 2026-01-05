@@ -1,7 +1,6 @@
 //! Coverage analysis and reporting
 
 use crate::lexer::{RefVerb, RuleReference, Rules};
-use crate::spec::SpecManifest;
 use facet::Facet;
 use std::collections::{HashMap, HashSet};
 
@@ -31,12 +30,16 @@ pub struct CoverageReport {
 }
 
 impl CoverageReport {
-    /// Compute coverage from rules and manifest
+    /// Compute coverage from rules and a set of known rule IDs
     ///
     /// [impl coverage.compute.covered]
     /// [impl coverage.compute.uncovered]
     /// [impl coverage.compute.invalid]
-    pub fn compute(spec_name: impl Into<String>, manifest: &SpecManifest, rules: &Rules) -> Self {
+    pub fn compute(
+        spec_name: impl Into<String>,
+        known_rule_ids: &HashSet<String>,
+        rules: &Rules,
+    ) -> Self {
         let spec_name = spec_name.into();
         let mut covered_rules = HashSet::new();
         let mut invalid_references = Vec::new();
@@ -45,7 +48,7 @@ impl CoverageReport {
             HashMap::new();
 
         for reference in &rules.references {
-            if manifest.has_rule(&reference.rule_id) {
+            if known_rule_ids.contains(&reference.rule_id) {
                 covered_rules.insert(reference.rule_id.clone());
                 references_by_rule
                     .entry(reference.rule_id.clone())
@@ -64,13 +67,12 @@ impl CoverageReport {
             }
         }
 
-        let all_rules: HashSet<String> = manifest.rule_ids().map(|s| s.to_string()).collect();
         let uncovered_rules: HashSet<String> =
-            all_rules.difference(&covered_rules).cloned().collect();
+            known_rule_ids.difference(&covered_rules).cloned().collect();
 
         CoverageReport {
             spec_name,
-            total_rules: manifest.rules.len(),
+            total_rules: known_rule_ids.len(),
             covered_rules,
             uncovered_rules,
             invalid_references,

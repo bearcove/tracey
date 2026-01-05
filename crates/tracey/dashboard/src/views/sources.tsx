@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { EDITORS, LANG_DEVICON_MAP } from "../config";
+import { EDITORS } from "../config";
 import { useFile } from "../hooks";
-import { FilePath, html } from "../main";
+import { FilePath, html, LangIcon } from "../main";
 import type { FileContent, SourcesViewProps, TreeNodeWithCoverage } from "../types";
 import { buildFileTree, getCoverageBadge, getStatClass, splitHighlightedHtml } from "../utils";
 
@@ -148,12 +148,10 @@ interface FileTreeFileProps {
 
 function FileTreeFile({ file, selected, onClick }: FileTreeFileProps) {
   const badge = getCoverageBadge(file.coveredUnits, file.totalUnits);
-  const ext = file.name.split(".").pop() || "";
-  const devicon = LANG_DEVICON_MAP[ext];
 
   return html`
     <div class="tree-file ${selected ? "selected" : ""}" onClick=${onClick}>
-      ${devicon ? html`<i class="${devicon}"></i>` : html`<i data-lucide="file"></i>`}
+      <${LangIcon} filePath=${file.name} className="tree-file-icon" />
       <span class="tree-file-name">${file.name}</span>
       <span class="tree-file-badge ${badge.class}">${badge.text}</span>
     </div>

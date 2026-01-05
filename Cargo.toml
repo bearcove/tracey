@@ -19,6 +19,7 @@ tracey-core = { path = "crates/tracey-core", version = "1.0.0" }
 # Facet ecosystem (from git for facet-miette support)
 facet = { git = "https://github.com/facet-rs/facet", branch = "main", version = "0.41.0" }
 facet-args = { git = "https://github.com/facet-rs/facet", branch = "main", version = "0.41.0" }
+facet-axum = { git = "https://github.com/facet-rs/facet", branch = "main", version = "0.41.0" }
 facet-kdl = { git = "https://github.com/facet-rs/facet", branch = "main", version = "0.41.0" }
 facet-json = { git = "https://github.com/facet-rs/facet", branch = "main", version = "0.41.0" }
 facet-value = { git = "https://github.com/facet-rs/facet", branch = "main", version = "0.41.0" }

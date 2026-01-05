@@ -32,6 +32,7 @@ facet = { workspace = true }
 facet-args = { workspace = true }
 facet-kdl = { workspace = true }
 facet-json = { workspace = true }
+facet-axum = { workspace = true }
 
 # Error handling
 eyre = { workspace = true }
