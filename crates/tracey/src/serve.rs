@@ -72,7 +72,7 @@ struct ApiSpecInfo {
     /// Path to spec file(s) if local
     #[facet(default)]
     source: Option<String>,
-    /// Available implementations (languages) for this spec
+    /// Available implementations for this spec
     implementations: Vec<String>,
 }
 
@@ -219,15 +219,15 @@ struct ApiSearchResponse {
 // Server State
 // ============================================================================
 
-/// Key for implementation-specific data: (spec_name, lang)
+/// Key for implementation-specific data: (spec_name, impl_name)
 type ImplKey = (String, String);
 
 /// Computed dashboard data that gets rebuilt on file changes
 struct DashboardData {
     config: ApiConfig,
-    /// Forward data per implementation: (spec_name, lang) -> data
+    /// Forward data per implementation: (spec_name, impl_name) -> data
     forward_by_impl: BTreeMap<ImplKey, ApiSpecForward>,
-    /// Reverse data per implementation: (spec_name, lang) -> data
+    /// Reverse data per implementation: (spec_name, impl_name) -> data
     reverse_by_impl: BTreeMap<ImplKey, ApiReverseData>,
     /// Code units per implementation for file API
     code_units_by_impl: BTreeMap<ImplKey, BTreeMap<PathBuf, Vec<CodeUnit>>>,
@@ -287,8 +287,8 @@ struct TraceyRuleHandler {
     current_source_file: Arc<Mutex<String>>,
     /// Spec name for URL generation
     spec_name: String,
-    /// Language for URL generation
-    lang: String,
+    /// Implementation name for URL generation
+    impl_name: String,
     /// Project root for absolute paths
     project_root: PathBuf,
 }
@@ -298,14 +298,14 @@ impl TraceyRuleHandler {
         coverage: BTreeMap<String, RuleCoverage>,
         current_source_file: Arc<Mutex<String>>,
         spec_name: String,
-        lang: String,
+        impl_name: String,
         project_root: PathBuf,
     ) -> Self {
         Self {
             coverage,
             current_source_file,
             spec_name,
-            lang,
+            impl_name,
             project_root,
         }
     }
@@ -400,7 +400,7 @@ impl RuleHandler for TraceyRuleHandler {
             // [impl dashboard.links.rule-links]
             badges_html.push_str(&format!(
                 r#"<a class="rule-badge rule-id" href="/{}/{}/spec?rule={}" data-rule="{}" data-source-file="{}" data-source-line="{}" title="{}">{}</a>"#,
-                self.spec_name, self.lang, rule.id, rule.id, source_file, rule.line, rule.id, display_id
+                self.spec_name, self.impl_name, rule.id, rule.id, source_file, rule.line, rule.id, display_id
             ));
 
             // Implementation badge
@@ -433,7 +433,7 @@ impl RuleHandler for TraceyRuleHandler {
                     // [impl dashboard.links.impl-refs]
                     badges_html.push_str(&format!(
                         r#"<a class="rule-badge rule-impl" href="/{}/{}/sources/{}:{}" data-file="{}" data-line="{}" data-all-refs="{}" title="Implementation: {}:{}">{icon}{}:{}{}</a>"#,
-                        self.spec_name, self.lang, r.file, r.line, r.file, r.line, all_refs_json, r.file, r.line, filename, r.line, count_suffix
+                        self.spec_name, self.impl_name, r.file, r.line, r.file, r.line, all_refs_json, r.file, r.line, filename, r.line, count_suffix
                     ));
                 }
 
@@ -465,7 +465,7 @@ impl RuleHandler for TraceyRuleHandler {
                     let all_refs_json = format!("[{}]", all_refs_json).replace('"', "&quot;");
                     badges_html.push_str(&format!(
                         r#"<a class="rule-badge rule-test" href="/{}/{}/sources/{}:{}" data-file="{}" data-line="{}" data-all-refs="{}" title="Test: {}:{}">{icon}{}:{}{}</a>"#,
-                        self.spec_name, self.lang, r.file, r.line, r.file, r.line, all_refs_json, r.file, r.line, filename, r.line, count_suffix
+                        self.spec_name, self.impl_name, r.file, r.line, r.file, r.line, all_refs_json, r.file, r.line, filename, r.line, count_suffix
                     ));
                 }
             }
@@ -535,7 +535,7 @@ async fn build_dashboard_data(
                     name \"{}\"\n    \
                     rules_glob \"{}\"\n\n    \
                     impl {{\n        \
-                        lang \"rust\"\n        \
+                        name \"main\"\n        \
                         include \"src/**/*.rs\"\n    \
                     }}\n\
                 }}",
@@ -551,7 +551,7 @@ async fn build_dashboard_data(
             implementations: spec_config
                 .impls
                 .iter()
-                .map(|i| i.lang.value.clone())
+                .map(|i| i.name.value.clone())
                 .collect(),
         });
 
@@ -561,10 +561,10 @@ async fn build_dashboard_data(
 
         // Build data for each implementation
         for impl_config in &spec_config.impls {
-            let lang = &impl_config.lang.value;
-            let impl_key: ImplKey = (spec_name.clone(), lang.clone());
+            let impl_name = &impl_config.name.value;
+            let impl_key: ImplKey = (spec_name.clone(), impl_name.clone());
 
-            eprintln!("   {} {} implementation", "Scanning".green(), lang);
+            eprintln!("   {} {} implementation", "Scanning".green(), impl_name);
 
             // Get include/exclude patterns for this impl
             // [impl walk.default-include] - default to **/*.rs when no include patterns
@@ -664,7 +664,7 @@ async fn build_dashboard_data(
                 project_root,
                 glob_pattern,
                 spec_name,
-                lang,
+                impl_name,
                 &coverage,
                 &mut impl_specs_content,
             )
@@ -797,7 +797,7 @@ async fn load_spec_content(
     root: &Path,
     pattern: &str,
     spec_name: &str,
-    lang: &str,
+    impl_name: &str,
     coverage: &BTreeMap<String, RuleCoverage>,
     specs_content: &mut BTreeMap<String, ApiSpecData>,
 ) -> Result<()> {
@@ -811,7 +811,7 @@ async fn load_spec_content(
         coverage.clone(),
         Arc::clone(&current_source_file),
         spec_name.to_string(),
-        lang.to_string(),
+        impl_name.to_string(),
         root.to_path_buf(),
     );
     let opts = RenderOptions::new()
@@ -1284,7 +1284,7 @@ async fn api_spec(
 ) -> impl IntoResponse {
     let data = state.data.borrow().clone();
 
-    // Get impl key (spec name comes from impl_key, lang also needed for coverage)
+    // Get impl key (spec_name, impl_name)
     let Some(impl_key) = get_impl_key(&params, &data.config) else {
         return Response::builder()
             .status(StatusCode::NOT_FOUND)

@@ -6,6 +6,7 @@ spec {
         name "main"
         include "crates/**/*.rs"
         include "crates/tracey/dashboard/src/**/*.ts"
+        include "crates/tracey/dashboard/src/**/*.tsx"
         exclude "target/**"
     }
 }

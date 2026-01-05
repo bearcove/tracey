@@ -85,6 +85,7 @@ export function useApi(): UseApiResult {
 		return () => window.removeEventListener("popstate", handlePopState);
 	}, [fetchData]);
 
+	// [impl dashboard.api.version-polling]
 	// Poll for version changes and refetch if changed
 	useEffect(() => {
 		let active = true;

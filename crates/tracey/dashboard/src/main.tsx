@@ -121,6 +121,10 @@ function SearchResultItem({ result, isSelected, onSelect, onHover }: SearchResul
   `;
 }
 
+// [impl dashboard.search.modal]
+// [impl dashboard.search.rules]
+// [impl dashboard.search.files]
+// [impl dashboard.search.navigation]
 function SearchModal({ onClose, onSelect }: SearchModalProps) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<{ results: SearchResult[] } | null>(null);
@@ -262,6 +266,11 @@ function SearchModal({ onClose, onSelect }: SearchModalProps) {
   `;
 }
 
+// [impl dashboard.header.nav-tabs]
+// [impl dashboard.header.nav-active]
+// [impl dashboard.header.nav-preserve-spec]
+// [impl dashboard.header.search]
+// [impl dashboard.header.logo]
 function Header({ view, spec, impl, config, onViewChange, onSpecChange, onImplChange, onOpenSearch }: HeaderProps) {
   const handleNavClick = (e: Event, newView: ViewType) => {
     e.preventDefault();
@@ -274,6 +283,9 @@ function Header({ view, spec, impl, config, onViewChange, onSpecChange, onImplCh
   const currentSpecInfo = config.specs?.find(s => s.name === spec);
   const implementations = currentSpecInfo?.implementations || [];
 
+  // [impl dashboard.spec.switcher]
+  // [impl dashboard.spec.switcher-single]
+  // Always show spec and impl dropdowns, even with single options
   return html`
     <header class="header">
       <div class="header-inner">
@@ -623,6 +635,7 @@ function App() {
           <${Route}
             path="/"
             component=${() => {
+              // [impl dashboard.url.root-redirect]
               // Redirect to default spec/impl
               useEffect(() => {
                 if (defaultSpec && defaultImpl) route(`/${defaultSpec}/${defaultImpl}/spec`, true);
@@ -658,7 +671,10 @@ function App() {
           />
           <${Route}
             default
-            component=${() => html`<div class="empty-state">Page not found</div>`}
+            component=${() => {
+              // [impl dashboard.url.invalid-spec]
+              return html`<div class="empty-state">Page not found</div>`;
+            }}
           />
         <//>
       </div>

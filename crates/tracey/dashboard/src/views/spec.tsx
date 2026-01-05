@@ -168,6 +168,13 @@ function OutlineTree({
 // Declare lucide as global
 declare const lucide: { createIcons: (opts?: { nodes?: NodeList }) => void };
 
+// [impl dashboard.spec.outline]
+// [impl dashboard.spec.outline-coverage]
+// [impl dashboard.spec.content]
+// [impl dashboard.spec.rule-highlight]
+// [impl dashboard.spec.heading-scroll]
+// [impl dashboard.links.heading-links]
+// [impl dashboard.links.spec-aware]
 export function SpecView({
   config,
   version,

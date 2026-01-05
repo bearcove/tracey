@@ -40,10 +40,10 @@ pub struct SpecConfig {
 /// Note: struct name `Impl` maps to KDL node name `impl`
 #[derive(Debug, Clone, Facet)]
 pub struct Impl {
-    /// Language name (e.g., "rust", "swift", "typescript")
-    /// [impl config.impl.lang]
+    /// Name of this implementation (e.g., "main", "core", "frontend")
+    /// [impl config.impl.name]
     #[facet(kdl::child)]
-    pub lang: Lang,
+    pub name: ImplName,
 
     /// Glob patterns for source files to scan
     /// [impl config.impl.include]
@@ -69,7 +69,7 @@ pub struct RulesGlob {
 }
 
 #[derive(Debug, Clone, Facet)]
-pub struct Lang {
+pub struct ImplName {
     #[facet(kdl::argument)]
     pub value: String,
 }

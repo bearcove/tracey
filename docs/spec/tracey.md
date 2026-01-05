@@ -146,8 +146,8 @@ Each spec configuration MUST have a `name` child node with the spec name as its 
 r[config.spec.rules-glob]
 Each spec configuration MUST have a `rules_glob` child node specifying a glob pattern for markdown files containing rule definitions.
 
-r[config.impl.lang]
-Each impl configuration MUST have a `lang` child node identifying the implementation language.
+r[config.impl.name]
+Each impl configuration MUST have a `name` child node identifying the implementation (e.g., "main", "core").
 
 r[config.impl.include]
 Each impl configuration MAY have one or more `include` child nodes specifying glob patterns for source files to scan.
@@ -248,10 +248,10 @@ r[dashboard.spec.heading-scroll]
 When navigating to a heading via URL path, the heading MUST be scrolled into view.
 
 r[dashboard.spec.switcher]
-When multiple specs are configured, the specification view MUST display a spec switcher UI.
+The header MUST always display spec and implementation switcher dropdowns, even when only one option is available.
 
 r[dashboard.spec.switcher-single]
-When only one spec is configured, the spec switcher SHOULD be hidden.
+When only one spec or implementation is configured, the switcher MUST still be visible (showing the single option).
 
 ### Coverage View
 
