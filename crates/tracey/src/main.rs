@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use tracey_core::RuleDefinition;
 
 // Re-export from bearmark for rule extraction
-use bearmark::{RuleWarningKind, extract_rules_only};
+use bearmark::{RenderOptions, render};
 
 /// CLI arguments
 #[derive(Debug, facet::Facet)]
@@ -96,7 +96,7 @@ Run 'tracey <COMMAND> --help' for more information on a command."#,
 
 /// Load rules from markdown files matching a glob pattern.
 /// Returns a Vec of (RuleDefinition, source_file) tuples.
-pub(crate) fn load_rules_from_glob(
+pub(crate) async fn load_rules_from_glob(
     root: &std::path::Path,
     pattern: &str,
 ) -> Result<Vec<(RuleDefinition, String)>> {
@@ -130,41 +130,24 @@ pub(crate) fn load_rules_from_glob(
             continue;
         }
 
-        // Read and extract rules
+        // Read and render markdown to extract rules with HTML
         let content = std::fs::read_to_string(path)
             .wrap_err_with(|| format!("Failed to read {}", path.display()))?;
 
-        let result = extract_rules_only(&content, Some(path))
+        let doc = render(&content, &RenderOptions::default())
+            .await
             .map_err(|e| eyre::eyre!("Failed to process {}: {}", path.display(), e))?;
 
-        // Display warnings for rule quality issues
-        for warning in &result.warnings {
-            let message = match &warning.kind {
-                RuleWarningKind::NoRfc2119Keyword => "no RFC 2119 keyword".to_string(),
-                RuleWarningKind::NegativeRequirement(kw) => {
-                    format!("{} — negative requirements are hard to test", kw.as_str())
-                }
-            };
-            eprintln!(
-                "   {} {}:{} {} - {}",
-                "!".yellow(),
-                relative_str,
-                warning.line,
-                warning.rule_id.yellow(),
-                message
-            );
-        }
-
-        if !result.rules.is_empty() {
+        if !doc.rules.is_empty() {
             eprintln!(
                 "   {} {} rules from {}",
                 "Found".green(),
-                result.rules.len(),
+                doc.rules.len(),
                 relative_str
             );
 
             // Check for duplicates
-            for rule in &result.rules {
+            for rule in &doc.rules {
                 if seen_ids.contains(&rule.id) {
                     eyre::bail!(
                         "Duplicate rule '{}' found in {}",
@@ -176,7 +159,7 @@ pub(crate) fn load_rules_from_glob(
             }
 
             // Add rules with their source file
-            for rule in result.rules {
+            for rule in doc.rules {
                 rules.push((rule, relative_str.clone()));
             }
         }

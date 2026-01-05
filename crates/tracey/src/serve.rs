@@ -513,7 +513,7 @@ async fn build_dashboard_data(
 
         // Extract rules directly from markdown files
         eprintln!("   {} rules from {}", "Extracting".green(), glob_pattern);
-        let extracted_rules = crate::load_rules_from_glob(project_root, glob_pattern)?;
+        let extracted_rules = crate::load_rules_from_glob(project_root, glob_pattern).await?;
 
         // Scan source files
         let include: Vec<String> = if spec_config.include.is_empty() {

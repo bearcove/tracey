@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "preact/hooks";
 import { LEVELS } from "../config";
 import { FileRef, html } from "../main";
 import type { CoverageViewProps } from "../types";
-import { getStatClass, renderRuleText } from "../utils";
+import { getStatClass } from "../utils";
 
 export function CoverageView({
 	data,
@@ -32,11 +32,11 @@ export function CoverageView({
 		[data],
 	);
 
-	// Infer level from rule text if not explicitly set
-	const inferLevel = useCallback((rule: { level?: string; text?: string }) => {
+	// Infer level from rule html if not explicitly set
+	const inferLevel = useCallback((rule: { level?: string; html?: string }) => {
 		if (rule.level) return rule.level.toLowerCase();
-		if (!rule.text) return null;
-		const text = rule.text.toUpperCase();
+		if (!rule.html) return null;
+		const text = rule.html.toUpperCase();
 		if (
 			text.includes("MUST") ||
 			text.includes("SHALL") ||
@@ -69,7 +69,7 @@ export function CoverageView({
 			const q = search.toLowerCase();
 			rules = rules.filter(
 				(r) =>
-					r.id.toLowerCase().includes(q) || r.text?.toLowerCase().includes(q),
+					r.id.toLowerCase().includes(q) || r.html?.toLowerCase().includes(q),
 			);
 		}
 
@@ -193,10 +193,10 @@ export function CoverageView({
                         <span class="rule-id">${rule.id}</span>
                       </div>
                       ${
-												rule.text &&
+												rule.html &&
 												html`<div
                         class="rule-text"
-                        dangerouslySetInnerHTML=${{ __html: renderRuleText(rule.text) }}
+                        dangerouslySetInnerHTML=${{ __html: rule.html }}
                       />`
 											}
                     </td>

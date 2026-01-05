@@ -33,7 +33,7 @@ export interface FileRef {
 
 export interface Rule {
   id: string;
-  text?: string;
+  html?: string;
   level?: string;
   implRefs: FileRef[];
   verifyRefs: FileRef[];

@@ -61,22 +61,21 @@
 //! This behavior is deprecated and will be removed.
 //! ```
 //!
-//! Extract rules using bearmark:
+//! Extract rules using bearmark's render function:
 //!
 //! ```ignore
-//! use bearmark::extract_rules_only;
+//! use bearmark::{render, RenderOptions};
 //!
 //! let markdown = r#"
 //! # My Spec
 //!
-//! r[my.rule.id]
-//! This rule defines important behavior.
+//! r[my.rule.id] This rule defines important behavior.
 //! "#;
 //!
-//! // Extract rules from markdown (handles both paragraphs and blockquotes)
-//! let result = extract_rules_only(markdown, None).unwrap();
-//! assert_eq!(result.rules.len(), 1);
-//! assert_eq!(result.rules[0].id, "my.rule.id");
+//! // Render markdown to extract rules with HTML content
+//! let doc = render(markdown, &RenderOptions::default()).await.unwrap();
+//! assert_eq!(doc.rules.len(), 1);
+//! assert_eq!(doc.rules[0].id, "my.rule.id");
 //! ```
 //!
 //! # In-Memory Sources (for testing/WASM)
