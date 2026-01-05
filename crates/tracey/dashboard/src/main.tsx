@@ -1930,23 +1930,22 @@ function OutlineTree({
       return html`
         <div key=${h.slug} class="outline-node ${depth > 0 ? "outline-node-nested" : ""}">
           <div class="outline-item-row">
-            ${hasChildren
-              ? html`
-                  <button
-                    class="outline-toggle ${isCollapsed ? "collapsed" : ""}"
-                    onClick=${(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      onToggleCollapse(h.slug);
-                    }}
-                    title=${isCollapsed ? "Expand" : "Collapse"}
-                  >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <path d="M9 18l6-6-6-6" />
-                    </svg>
-                  </button>
-                `
-              : html`<span class="outline-toggle-spacer"></span>`}
+            ${hasChildren &&
+            html`
+              <button
+                class="outline-toggle ${isCollapsed ? "collapsed" : ""}"
+                onClick=${(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onToggleCollapse(h.slug);
+                }}
+                title=${isCollapsed ? "Expand" : "Collapse"}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M9 18l6-6-6-6" />
+                </svg>
+              </button>
+            `}
             <a
               href=${`/spec/${h.slug}`}
               class="outline-item ${isActive ? "active" : ""}"
