@@ -1203,11 +1203,13 @@ fn format_headers(headers: &axum::http::HeaderMap) -> String {
         .join("\n")
 }
 
-/// Check if request has a WebSocket upgrade (like cove/home's has_ws())
+/// Check if request has a WebSocket upgrade
 fn has_ws(req: &Request<Body>) -> bool {
-    req.extensions()
-        .get::<hyper::upgrade::OnUpgrade>()
-        .is_some()
+    // Check for Upgrade header with "websocket" value
+    req.headers()
+        .get(header::UPGRADE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.eq_ignore_ascii_case("websocket"))
 }
 
 /// Proxy requests to Vite dev server (handles both HTTP and WebSocket)
@@ -1250,6 +1252,12 @@ async fn vite_proxy(State(state): State<AppState>, req: Request<Body>) -> Respon
         // Split into parts so we can extract WebSocketUpgrade
         let (mut parts, _body) = req.into_parts();
 
+        // Log all request headers for websocket upgrade
+        info!(
+            headers = %format_headers(&parts.headers),
+            "=> websocket upgrade request headers"
+        );
+
         // Manually extract WebSocketUpgrade from request parts (like cove/home)
         let ws = match WebSocketUpgrade::from_request_parts(&mut parts, &()).await {
             Ok(ws) => ws,
@@ -1266,6 +1274,7 @@ async fn vite_proxy(State(state): State<AppState>, req: Request<Body>) -> Respon
         info!(target = %target_uri, "-> upgrading websocket to vite");
 
         return ws
+            .protocols(["vite-hmr"])
             .on_upgrade(move |socket| async move {
                 info!(path = %path, "websocket connection established, starting proxy");
                 if let Err(e) = handle_vite_ws(socket, vite_port, &path, &query).await {
@@ -1350,16 +1359,63 @@ async fn handle_vite_ws(
     path: &str,
     query: &str,
 ) -> Result<()> {
-    use tokio_tungstenite::connect_async;
+    use tokio_tungstenite::tungstenite::http::Request;
+    use tokio_tungstenite::{connect_async_with_config, tungstenite::protocol::WebSocketConfig};
 
     let vite_url = format!("ws://127.0.0.1:{}{}{}", vite_port, path, query);
 
-    let (vite_ws, _) = connect_async(&vite_url)
-        .await
-        .wrap_err("Failed to connect to Vite WebSocket")?;
+    info!(vite_url = %vite_url, "-> connecting to vite websocket");
+
+    // Build request with vite-hmr subprotocol
+    let request = Request::builder()
+        .uri(&vite_url)
+        .header("Sec-WebSocket-Protocol", "vite-hmr")
+        .header("Host", format!("127.0.0.1:{}", vite_port))
+        .header("Connection", "Upgrade")
+        .header("Upgrade", "websocket")
+        .header("Sec-WebSocket-Version", "13")
+        .header("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+        .body(())
+        .unwrap();
+
+    let connect_timeout = Duration::from_secs(5);
+    let connect_result = tokio::time::timeout(
+        connect_timeout,
+        connect_async_with_config(request, None, false),
+    )
+    .await;
+
+    let (vite_ws, response) = match connect_result {
+        Ok(Ok((ws, resp))) => {
+            info!(vite_url = %vite_url, "-> successfully connected to vite websocket");
+            (ws, resp)
+        }
+        Ok(Err(e)) => {
+            info!(vite_url = %vite_url, error = %e, "!! failed to connect to vite websocket");
+            return Err(e.into());
+        }
+        Err(_) => {
+            info!(vite_url = %vite_url, timeout_secs = ?connect_timeout.as_secs(), "!! timeout connecting to vite websocket");
+            return Err(eyre::eyre!(
+                "Timeout connecting to Vite WebSocket after {:?}",
+                connect_timeout
+            ));
+        }
+    };
+
+    info!(
+        status = %response.status(),
+        "<- vite websocket connection established"
+    );
+    debug!(
+        headers = %format_headers(response.headers()),
+        "<- vite websocket response headers"
+    );
 
     let (mut client_tx, mut client_rx) = client_socket.split();
     let (mut vite_tx, mut vite_rx) = vite_ws.split();
+
+    info!("websocket proxy: starting bidirectional relay");
 
     // Bidirectional proxy
     let client_to_vite = async {
@@ -1367,6 +1423,11 @@ async fn handle_vite_ws(
             match msg {
                 Ok(ws::Message::Text(text)) => {
                     let text_str: String = text.to_string();
+                    info!(
+                        size = text_str.len(),
+                        preview = %text_str.chars().take(100).collect::<String>(),
+                        "=> forwarding text message to vite"
+                    );
                     if vite_tx
                         .send(tokio_tungstenite::tungstenite::Message::Text(
                             text_str.into(),
@@ -1374,11 +1435,16 @@ async fn handle_vite_ws(
                         .await
                         .is_err()
                     {
+                        info!("!! vite send failed (client_to_vite), breaking");
                         break;
                     }
                 }
                 Ok(ws::Message::Binary(data)) => {
                     let data_vec: Vec<u8> = data.to_vec();
+                    info!(
+                        size = data_vec.len(),
+                        "=> forwarding binary message to vite"
+                    );
                     if vite_tx
                         .send(tokio_tungstenite::tungstenite::Message::Binary(
                             data_vec.into(),
@@ -1386,14 +1452,24 @@ async fn handle_vite_ws(
                         .await
                         .is_err()
                     {
+                        info!("!! vite send failed (client_to_vite), breaking");
                         break;
                     }
                 }
-                Ok(ws::Message::Close(_)) => break,
-                Err(_) => break,
-                _ => {}
+                Ok(ws::Message::Close(_)) => {
+                    info!("=> client closed connection");
+                    break;
+                }
+                Err(e) => {
+                    info!(error = %e, "!! client receive error, breaking");
+                    break;
+                }
+                _ => {
+                    debug!("=> ignoring other message type from client");
+                }
             }
         }
+        info!("client_to_vite relay ended");
     };
 
     let vite_to_client = async {
@@ -1401,35 +1477,61 @@ async fn handle_vite_ws(
             match msg {
                 Ok(tokio_tungstenite::tungstenite::Message::Text(text)) => {
                     let text_str: String = text.to_string();
+                    info!(
+                        size = text_str.len(),
+                        preview = %text_str.chars().take(100).collect::<String>(),
+                        "<= forwarding text message to client"
+                    );
                     if client_tx
                         .send(ws::Message::Text(text_str.into()))
                         .await
                         .is_err()
                     {
+                        info!("!! client send failed (vite_to_client), breaking");
                         break;
                     }
                 }
                 Ok(tokio_tungstenite::tungstenite::Message::Binary(data)) => {
                     let data_vec: Vec<u8> = data.to_vec();
+                    info!(
+                        size = data_vec.len(),
+                        "<= forwarding binary message to client"
+                    );
                     if client_tx
                         .send(ws::Message::Binary(data_vec.into()))
                         .await
                         .is_err()
                     {
+                        info!("!! client send failed (vite_to_client), breaking");
                         break;
                     }
                 }
-                Ok(tokio_tungstenite::tungstenite::Message::Close(_)) => break,
-                Err(_) => break,
-                _ => {}
+                Ok(tokio_tungstenite::tungstenite::Message::Close(_)) => {
+                    info!("<= vite closed connection");
+                    break;
+                }
+                Err(e) => {
+                    info!(error = %e, "!! vite receive error, breaking");
+                    break;
+                }
+                _ => {
+                    debug!("<= ignoring other message type from vite");
+                }
             }
         }
+        info!("vite_to_client relay ended");
     };
 
     tokio::select! {
-        _ = client_to_vite => {}
-        _ = vite_to_client => {}
+        _ = client_to_vite => {
+            info!("websocket proxy: client_to_vite completed first");
+        }
+        _ = vite_to_client => {
+            info!("websocket proxy: vite_to_client completed first");
+        }
     }
+
+    info!("websocket proxy: connection closed, exiting");
 
     Ok(())
 }
