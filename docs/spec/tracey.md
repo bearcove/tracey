@@ -1,6 +1,14 @@
 # Tracey Specification
 
-This document specifies the behavior of tracey, a tool for measuring spec coverage in Rust codebases.
+This document has two parts:
+- **Part 1: Annotation Language** - How to write rule references in code and markdown
+- **Part 2: Tool Specification** - How the tracey tool, server, and integrations work
+
+---
+
+# Part 1: Annotation Language
+
+This section specifies the syntax for annotating code and documentation with rule references.
 
 ## Rule References in Rust Code
 
@@ -101,6 +109,12 @@ The generated div MUST contain a link (`<a>`) pointing to its own anchor.
 
 r[markdown.html.wbr]
 Dots in the displayed rule ID SHOULD be followed by `<wbr>` elements to allow line breaking.
+
+---
+
+# Part 2: Tool Specification
+
+This section specifies how the tracey tool processes annotations, computes coverage, and exposes results.
 
 ## Coverage Computation
 
