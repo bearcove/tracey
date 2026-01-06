@@ -29,8 +29,15 @@ A rule reference MAY include a verb prefix before the rule ID, separated by a sp
 
 Source code references use verbs to indicate the relationship between code and rules:
 
-r[ref.verb.impl]
-Tracey MUST interpret the `impl` verb as indicating that the code implements the referenced rule.
+> r[ref.verb.impl]
+> Tracey MUST interpret the `impl` verb as indicating that the code implements the referenced rule.
+> 
+> ```rust
+> // [impl auth.token.validation]
+> fn validate_token(token: &str) -> bool {
+>     // etc.
+> }
+> ```
 
 r[ref.verb.verify]
 Tracey MUST interpret the `verify` verb as indicating that the code tests or verifies the referenced rule.
@@ -44,21 +51,9 @@ Tracey MUST interpret the `related` verb as indicating a loose connection, shown
 r[ref.verb.default]
 When no verb is provided, the reference SHOULD be treated as an `impl` reference.
 
-r[ref.verb.unknown]
-When an unrecognized verb is encountered, tracey MUST emit a warning but SHOULD still extract the rule reference.
+**Language Examples:**
 
-### Language Examples
-
-**Rust:**
-```rust
-// [impl auth.token.validation]
-fn validate_token(token: &str) -> bool {
-    // [verify auth.token.expiry]
-    check_expiry(token)
-}
-
-/* [impl user.permissions.check] */
-```
+The same syntax works across all languages:
 
 **TypeScript:**
 ```typescript
@@ -201,6 +196,11 @@ Rules in the manifest with no references MUST be reported as uncovered.
 
 r[coverage.compute.invalid]
 References to rule IDs not present in the manifest MUST be reported as invalid.
+
+## Reference Extraction
+
+r[ref.verb.unknown]
+When an unrecognized verb is encountered, tracey MUST emit a warning but SHOULD still extract the rule reference.
 
 ## Configuration
 
