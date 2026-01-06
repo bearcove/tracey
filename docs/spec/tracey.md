@@ -485,3 +485,54 @@ Responses MUST include hints showing how to query for more specific results.
 
 r[mcp.discovery.pagination]
 Large result sets SHOULD be paginated with hints showing how to retrieve more results.
+
+### Analysis Tools
+
+r[mcp.analysis.orphaned]
+The `tracey_orphaned` tool MUST identify rules that are defined in specs but never referenced in implementation or verification comments.
+
+r[mcp.analysis.duplicates]
+The `tracey_duplicates` tool MUST detect duplicate rule IDs across all spec files.
+
+r[dashboard.analysis.orphaned]
+The dashboard MUST display orphaned rules (defined but never referenced) in a dedicated view.
+
+r[dashboard.analysis.duplicates]
+The dashboard MUST display duplicate rule IDs with their locations in a dedicated view.
+
+### Smart Queries
+
+r[mcp.query.search]
+The `tracey_search` tool MUST support keyword search across rule text and IDs, returning matching rules with their definitions and references.
+
+r[mcp.query.file-rules]
+The `tracey_file_rules` tool MUST return all rules referenced in a specific source file, grouped by reference type (impl/verify).
+
+r[mcp.query.priority]
+The `tracey_priority` tool MUST suggest which uncovered rules to implement next, prioritizing by section completeness and rule dependencies.
+
+r[dashboard.query.search]
+The dashboard MUST provide a search interface for finding rules by keyword in their text or ID.
+
+r[dashboard.query.file-rules]
+The dashboard MUST show all rules referenced by a specific file when viewing file details.
+
+### Validation
+
+r[validation.broken-refs]
+The system MUST detect and report references to non-existent rule IDs in implementation and verification comments.
+
+r[validation.naming]
+The system MUST validate that rule IDs follow the configured naming convention (e.g., section.subsection.name format).
+
+r[validation.circular-deps]
+The system MUST detect circular dependencies if rules reference each other, preventing infinite loops in dependency resolution.
+
+r[mcp.validation.check]
+The `tracey_validate` tool MUST run all validation checks and return a report of issues found (broken refs, naming violations, circular deps).
+
+r[dashboard.validation.display]
+The dashboard MUST display validation errors prominently, with links to the problematic locations.
+
+r[dashboard.validation.continuous]
+The dashboard SHOULD run validation continuously and update the UI when new issues are detected.
