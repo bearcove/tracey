@@ -774,6 +774,14 @@ a.annotation-badge:hover {
     hyphens: auto;
 }
 
+.markdown hr {
+    border-style: solid;
+    border-width: 0.5px;
+    max-width: 100%;
+    margin: 2rem auto;
+    opacity: 0.5;
+}
+
 .markdown h1,
 .markdown h2,
 .markdown h3,
@@ -788,6 +796,18 @@ a.annotation-badge:hover {
 .markdown h3:hover,
 .markdown h4:hover {
     color: var(--accent);
+}
+
+.markdown h1:target,
+.markdown h2:target,
+.markdown h3:target,
+.markdown h4:target {
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    margin-left: -0.5rem;
+    margin-right: -0.5rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
 }
 
 .markdown h1 {
@@ -1019,7 +1039,7 @@ a.rule-marker:hover {
     border-radius: 6px;
     margin: 1.5rem 0;
     padding: 1.25rem 1rem 1rem 1rem;
-    font-size: 90%;
+    font-size: 95%;
 }
 
 .req-container.req-covered {
@@ -1408,9 +1428,121 @@ a.rule-marker:hover {
     flex-shrink: 0;
 }
 
-/* Outline tree */
+/* Outline tree - new toc-item based layout */
 .outline-tree {
-    padding: 0.75rem;
+    padding: 0.5rem;
+    padding-bottom: 12rem;
+    margin: 0;
+    list-style: none;
+}
+
+/* TOC item - column layout so children list goes below */
+.toc-item {
+    list-style: none;
+}
+
+/* Row containing link + badges */
+.toc-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 6px;
+}
+
+/* Title takes remaining width, ellipsizes nicely */
+.toc-link {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--fg-muted);
+    text-decoration: none;
+    font-size: 0.875rem;
+}
+
+/* Make badges a stable right-hand "column" */
+.toc-badges {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    flex: 0 0 auto;
+    margin-left: auto;
+}
+
+/* Hover/active states */
+.toc-row:hover {
+    background: var(--hover);
+}
+
+.toc-row:hover .toc-link {
+    color: var(--fg);
+}
+
+.toc-item.is-active > .toc-row {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.toc-item.is-active > .toc-row .toc-link {
+    color: var(--accent);
+}
+
+/* TOC children - tree guides */
+.toc-children {
+    margin: 0;
+    padding: 0;
+    padding-left: 0.75rem;
+    margin-left: 0.5rem;
+    border-left: 1px solid color-mix(in srgb, var(--fg) 12%, transparent);
+    list-style: none;
+}
+
+/* Active branch gets a subtle accent guide */
+.toc-children.has-active {
+    border-left-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+/* Sidebar header with legend */
+.sidebar-header {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border);
+    font-weight: 500;
+    font-size: 0.85rem;
+    color: var(--fg-muted);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+/* Legend for badge colors */
+.outline-legend {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.7rem;
+    font-weight: 400;
+    color: var(--fg-dim);
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.legend-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.legend-dot--impl {
+    background: var(--green);
+}
+
+.legend-dot--test {
+    background: var(--blue);
 }
 
 /* Paragraph edit button (pencil icon on hover) */
@@ -1457,77 +1589,6 @@ a.rule-marker:hover {
 .para-edit-btn svg {
     width: 0.75rem;
     height: 0.75rem;
-}
-
-.outline-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
-    padding: 0.2rem 0.35rem;
-    cursor: pointer;
-    font-size: 0.875rem;
-    color: var(--fg-muted);
-    text-decoration: none;
-    border-radius: 0.25rem;
-    flex: 1;
-    min-width: 0;
-    transition:
-        background 0.15s,
-        color 0.15s;
-}
-
-.outline-title {
-    flex: 1;
-    min-width: 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.outline-indicators {
-    display: flex;
-    gap: 0.25rem;
-    flex-shrink: 0;
-    align-items: center;
-}
-
-.coverage-arc {
-    display: block;
-}
-
-.outline-item:hover {
-    background: var(--hover);
-    color: var(--fg);
-}
-
-.outline-item.active {
-    background: var(--accent-dim);
-    color: var(--accent);
-}
-
-.outline-item.active .outline-title {
-    text-decoration: underline;
-    text-underline-offset: 2px;
-}
-
-/* Outline tree structure */
-.outline-node {
-    /* Root level nodes have no special styling */
-}
-
-.outline-node-nested {
-    /* Nested nodes don't need padding - children container handles it */
-}
-
-.outline-children {
-    margin-left: 0.75rem;
-    padding-left: 0.5rem;
-    border-left: 2px solid var(--border);
-}
-
-.outline-children.has-active {
-    border-left-color: var(--accent);
 }
 
 /* Search results */

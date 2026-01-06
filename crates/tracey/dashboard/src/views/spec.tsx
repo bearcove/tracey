@@ -41,6 +41,30 @@ function isActiveOrHasActiveChild(node: OutlineTreeNode, activeHeading: string |
   return node.children.some((child) => isActiveOrHasActiveChild(child, activeHeading));
 }
 
+// Aggregate coverage stats for a node and all its descendants
+interface AggregatedCoverage {
+  total: number;
+  implCount: number;
+  verifyCount: number;
+}
+
+function aggregateCoverage(node: OutlineTreeNode): AggregatedCoverage {
+  // Start with this node's own stats
+  let total = node.entry.aggregated.total;
+  let implCount = node.entry.aggregated.implCount;
+  let verifyCount = node.entry.aggregated.verifyCount;
+
+  // Add children's aggregated stats
+  for (const child of node.children) {
+    const childStats = aggregateCoverage(child);
+    total += childStats.total;
+    implCount += childStats.implCount;
+    verifyCount += childStats.verifyCount;
+  }
+
+  return { total, implCount, verifyCount };
+}
+
 // Recursive outline tree renderer
 interface OutlineTreeProps {
   nodes: OutlineTreeNode[];
@@ -66,41 +90,51 @@ function OutlineTree({
       const hasChildren = node.children.length > 0;
       const h = node.entry;
 
-      // Only show coverage indicators if there are rules and no children
-      const showCoverage = h.aggregated.total > 0 && !hasChildren;
+      // Aggregate coverage from this node and all descendants
+      const coverage = aggregateCoverage(node);
+      const showCoverage = coverage.total > 0;
 
       return html`
-        <div key=${h.slug} class="outline-node ${depth > 0 ? "outline-node-nested" : ""}">
-          <a
-            href=${`/${specName}/${impl}/spec#${h.slug}`}
-            class="outline-item ${isActive ? "active" : ""}"
-            onClick=${(e: Event) => {
-              e.preventDefault();
-              onSelectHeading(h.slug);
-            }}
-          >
-            <span class="outline-title">${h.title}</span>
+        <li
+          key=${h.slug}
+          class="toc-item depth-${depth} ${isActive ? "is-active" : ""} ${hasActiveChild
+            ? "is-in-active-branch"
+            : ""}"
+        >
+          <div class="toc-row">
+            <a
+              href=${`/${specName}/${impl}/spec#${h.slug}`}
+              class="toc-link"
+              onClick=${(e: Event) => {
+                e.preventDefault();
+                onSelectHeading(h.slug);
+              }}
+            >
+              ${h.title}
+            </a>
             ${showCoverage &&
             html`
-              <span class="outline-indicators">
+              <span class="toc-badges" aria-label="coverage">
                 <${CoverageArc}
-                  count=${h.aggregated.implCount}
-                  total=${h.aggregated.total}
+                  count=${coverage.implCount}
+                  total=${coverage.total}
                   color="var(--green)"
-                  title="Implementation: ${h.aggregated.implCount}/${h.aggregated.total}"
+                  title="Impl: ${coverage.implCount}/${coverage.total}"
+                  hideNumber
                 />
                 <${CoverageArc}
-                  count=${h.aggregated.verifyCount}
-                  total=${h.aggregated.total}
+                  count=${coverage.verifyCount}
+                  total=${coverage.total}
                   color="var(--blue)"
-                  title="Tests: ${h.aggregated.verifyCount}/${h.aggregated.total}"
+                  title="Tests: ${coverage.verifyCount}/${coverage.total}"
+                  hideNumber
                 />
               </span>
             `}
-          </a>
+          </div>
           ${hasChildren &&
           html`
-            <div class="outline-children ${hasActiveChild ? "has-active" : ""}">
+            <ul class="toc-children ${hasActiveChild ? "has-active" : ""}">
               <${OutlineTree}
                 nodes=${node.children}
                 activeHeading=${activeHeading}
@@ -109,9 +143,9 @@ function OutlineTree({
                 onSelectHeading=${onSelectHeading}
                 depth=${depth + 1}
               />
-            </div>
+            </ul>
           `}
-        </div>
+        </li>
       `;
     })}
   `;
@@ -446,9 +480,15 @@ export function SpecView({
   return html`
     <div class="main">
       <div class="sidebar">
-        <div class="sidebar-header">Outline</div>
+        <div class="sidebar-header">
+          <span>Outline</span>
+          <span class="outline-legend">
+            <span class="legend-item"><span class="legend-dot legend-dot--impl"></span>Impl</span>
+            <span class="legend-item"><span class="legend-dot legend-dot--test"></span>Test</span>
+          </span>
+        </div>
         <div class="sidebar-content">
-          <div class="outline-tree">
+          <ul class="outline-tree">
             <${OutlineTree}
               nodes=${outlineTree}
               activeHeading=${activeHeading}
@@ -456,7 +496,7 @@ export function SpecView({
               impl=${selectedImpl}
               onSelectHeading=${scrollToHeading}
             />
-          </div>
+          </ul>
         </div>
       </div>
       <div class="content">

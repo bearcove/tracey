@@ -41,12 +41,12 @@ This section specifies the annotation language: how to define requirements in ma
 
 ## Requirement Definitions in Markdown
 
-Requirements are defined in markdown specification documents. Unlike source code which uses verbs like `r[impl req.id]`, markdown uses `r[req.id]` to define requirements.
+Requirements are defined in markdown specification documents using the syntax `r[REQ]` where REQ is a requirement ID.
 
 ### Markdown Requirement Syntax
 
 > r[markdown.syntax.marker]
-> A requirement definition MUST be written as `r[req.id]` in one of two contexts: as a standalone paragraph starting at column 0, or inside a blockquote. This implicitly uses the "define" verb.
+> A requirement definition MUST be written as `r[REQ]` in one of two contexts: as a standalone paragraph starting at column 0, or inside a blockquote. The VERB is implicitly "define" in markdown (unlike source code which uses explicit verbs like `r[impl REQ]`).
 >
 > Valid (standalone):
 > ```markdown
@@ -108,58 +108,44 @@ Requirements are defined in markdown specification documents. Unlike source code
 > Error - this requirement ID is already defined in spec1.md!
 > ```
 
-### HTML Output
-
-> r[markdown.html.div]
-> When transforming markdown, each requirement marker MUST be replaced with a `<div>` element with class `requirement`.
->
-> Input:
-> ```markdown
-> r[auth.token.validation]
-> ```
->
-> Output:
-> ```html
-> <div class="requirement" id="r-auth.token.validation">
->   <a href="#r-auth.token.validation">auth.<wbr>token.<wbr>validation</a>
-> </div>
-> ```
-
-> r[markdown.html.anchor]
-> The generated div MUST have an `id` attribute in the format `r-{req.id}` for linking.
->
-> ```html
-> <div class="requirement" id="r-api.response.format">
-> ```
-
-> r[markdown.html.link]
-> The generated div MUST contain a link (`<a>`) pointing to its own anchor.
->
-> ```html
-> <a href="#r-user.login.flow">user.<wbr>login.<wbr>flow</a>
-> ```
-
-> r[markdown.html.wbr]
-> Dots in the displayed requirement ID SHOULD be followed by `<wbr>` elements to allow line breaking.
->
-> ```html
-> database.<wbr>connection.<wbr>pool
-> ```
-
 ## Requirement References in Source Code
 
-Requirement references are extracted from source code comments in any programming language.
+Requirement references are extracted from source code comments using the syntax `r[VERB REQ]`.
 
 ### Basic Syntax
 
 r[ref.syntax.brackets]
-A requirement reference MUST be written as `r[verb req.id]` within a comment, where the `r` prefix identifies it as a tracey requirement reference.
+A requirement reference MUST be written as `r[VERB REQ]` within a comment, where
+`r` identifies it as a tracey annotation.
 
-r[ref.syntax.req-id]
-A requirement ID MUST consist of one or more segments separated by dots. Each segment MUST contain only alphanumeric characters, hyphens, or underscores.
+> r[ref.syntax.verb]
+> VERB indicates the relationship type (impl, verify, depends, related).
+> 
+> If omitted, defaults to `impl`.
 
-r[ref.syntax.verb]
-A requirement reference MAY include a verb prefix before the requirement ID, separated by a space. If no verb is provided, `impl` is assumed.
+> r[ref.syntax.req-id]
+> REQ is a requirement ID consisting of dot-separated segments.
+>
+> Each segment MUST contain only ASCII letters (a-z, A-Z), digits (0-9), hyphens, or underscores. This restriction ensures requirement IDs work cleanly in URLs without encoding issues.
+>
+> Valid:
+> ```
+> r[impl auth.token.validation]
+> r[verify user-profile.update_email]
+> r[depends crypto_v2.algorithm]
+> r[impl api.v1.users]
+> ```
+>
+> Invalid:
+> ```
+> r[impl auth..token]           // empty segment
+> r[verify user.profile!update] // exclamation mark not allowed
+> r[depends .crypto.algorithm]  // leading dot
+> r[impl api.users.]            // trailing dot
+> r[verify user profile.update] // space not allowed
+> r[impl auth.🔐.token]         // emoji not allowed
+> r[verify café.menu]           // accented characters not allowed
+> ```
 
 ### Supported Verbs
 
@@ -262,6 +248,46 @@ References to requirement IDs not present in the manifest MUST be reported as in
 
 r[ref.verb.unknown]
 When an unrecognized verb is encountered, tracey MUST emit a warning but SHOULD still extract the requirement reference.
+
+## Markdown Processing
+
+### HTML Output
+
+> r[markdown.html.div]
+> When transforming markdown, each requirement marker MUST be replaced with a `<div>` element with class `requirement`.
+>
+> Input:
+> ```markdown
+> r[auth.token.validation]
+> ```
+>
+> Output:
+> ```html
+> <div class="requirement" id="r-auth.token.validation">
+>   <a href="#r-auth.token.validation">auth.<wbr>token.<wbr>validation</a>
+> </div>
+> ```
+
+> r[markdown.html.anchor]
+> The generated div MUST have an `id` attribute in the format `r-{req.id}` for linking.
+>
+> ```html
+> <div class="requirement" id="r-api.response.format">
+> ```
+
+> r[markdown.html.link]
+> The generated div MUST contain a link (`<a>`) pointing to its own anchor.
+>
+> ```html
+> <a href="#r-user.login.flow">user.<wbr>login.<wbr>flow</a>
+> ```
+
+> r[markdown.html.wbr]
+> Dots in the displayed requirement ID SHOULD be followed by `<wbr>` elements to allow line breaking.
+>
+> ```html
+> database.<wbr>connection.<wbr>pool
+> ```
 
 ## Configuration
 

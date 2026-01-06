@@ -271,7 +271,16 @@ function SearchModal({ onClose, onSelect }: SearchModalProps) {
 // [impl dashboard.header.nav-preserve-spec]
 // [impl dashboard.header.search]
 // [impl dashboard.header.logo]
-function Header({ view, spec, impl, config, onViewChange, onSpecChange, onImplChange, onOpenSearch }: HeaderProps) {
+function Header({
+  view,
+  spec,
+  impl,
+  config,
+  onViewChange,
+  onSpecChange,
+  onImplChange,
+  onOpenSearch,
+}: HeaderProps) {
   const handleNavClick = (e: Event, newView: ViewType) => {
     e.preventDefault();
     onViewChange(newView);
@@ -280,7 +289,7 @@ function Header({ view, spec, impl, config, onViewChange, onSpecChange, onImplCh
   const specBase = spec && impl ? `/${encodeURIComponent(spec)}/${encodeURIComponent(impl)}` : "";
 
   // Get available implementations for current spec
-  const currentSpecInfo = config.specs?.find(s => s.name === spec);
+  const currentSpecInfo = config.specs?.find((s) => s.name === spec);
   const implementations = currentSpecInfo?.implementations || [];
 
   // [impl dashboard.spec.switcher]
@@ -295,18 +304,16 @@ function Header({ view, spec, impl, config, onViewChange, onSpecChange, onImplCh
             value=${spec || ""}
             onChange=${(e: Event) => onSpecChange((e.target as HTMLSelectElement).value)}
           >
-            ${config.specs?.map(s => html`
-              <option key=${s.name} value=${s.name}>${s.name}</option>
-            `)}
+            ${config.specs?.map(
+              (s) => html` <option key=${s.name} value=${s.name}>${s.name}</option> `,
+            )}
           </select>
           <select
             class="header-select impl-select"
             value=${impl || ""}
             onChange=${(e: Event) => onImplChange((e.target as HTMLSelectElement).value)}
           >
-            ${implementations.map(i => html`
-              <option key=${i} value=${i}>${i}</option>
-            `)}
+            ${implementations.map((i) => html` <option key=${i} value=${i}>${i}</option> `)}
           </select>
         </div>
 
@@ -370,14 +377,46 @@ interface CoverageArcProps {
   color: string;
   title?: string;
   size?: number;
+  hideNumber?: boolean;
 }
 
-function CoverageArc({ count, total, color, title, size = 20 }: CoverageArcProps) {
+function CoverageArc({
+  count,
+  total,
+  color,
+  title,
+  size = 20,
+  hideNumber = false,
+}: CoverageArcProps) {
   const pct = total > 0 ? count / total : 0;
+  const isComplete = total > 0 && count === total;
   const radius = (size - 4) / 2;
   const circumference = 2 * Math.PI * radius;
   const strokeDasharray = `${pct * circumference} ${circumference}`;
   const center = size / 2;
+
+  // Show checkmark when 100% coverage
+  if (isComplete) {
+    return html`
+      <svg
+        class="coverage-arc coverage-arc--complete"
+        width=${size}
+        height=${size}
+        viewBox="0 0 ${size} ${size}"
+        title=${title}
+      >
+        <circle cx=${center} cy=${center} r=${radius} fill=${color} opacity="0.15" />
+        <path
+          d="M${center - 4} ${center} l2.5 2.5 l5 -5"
+          fill="none"
+          stroke=${color}
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+    `;
+  }
 
   return html`
     <svg
@@ -406,16 +445,19 @@ function CoverageArc({ count, total, color, title, size = 20 }: CoverageArcProps
         stroke-linecap="round"
         transform="rotate(-90 ${center} ${center})"
       />
-      <text
-        x=${center}
-        y=${center}
-        text-anchor="middle"
-        dominant-baseline="central"
-        font-size="7"
-        fill="var(--fg-muted)"
-      >
-        ${count}
-      </text>
+      ${!hideNumber &&
+      html`
+        <text
+          x=${center}
+          y=${center}
+          text-anchor="middle"
+          dominant-baseline="central"
+          font-size="7"
+          fill="var(--fg-muted)"
+        >
+          ${count}
+        </text>
+      `}
     </svg>
   `;
 }
@@ -569,7 +611,7 @@ function App() {
   const handleSpecChange = useCallback(
     (newSpec: string) => {
       // When changing spec, reset to first implementation of new spec
-      const newSpecInfo = config.specs?.find(s => s.name === newSpec);
+      const newSpecInfo = config.specs?.find((s) => s.name === newSpec);
       const newImpl = newSpecInfo?.implementations?.[0] || currentImpl;
       route(buildUrl(newSpec, newImpl, currentView as any));
     },
@@ -593,7 +635,9 @@ function App() {
       if (result.kind === "rule") {
         route(buildUrl(currentSpec, currentImpl, "spec", { rule: result.id }));
       } else {
-        route(buildUrl(currentSpec, currentImpl, "sources", { file: result.id, line: result.line }));
+        route(
+          buildUrl(currentSpec, currentImpl, "sources", { file: result.id, line: result.line }),
+        );
       }
     },
     [route, currentSpec, currentImpl],
@@ -662,7 +706,7 @@ function App() {
               // Legacy URL without impl - redirect with default impl
               const { params } = useRoute();
               useEffect(() => {
-                const specInfo = config.specs?.find(s => s.name === params.spec);
+                const specInfo = config.specs?.find((s) => s.name === params.spec);
                 const impl = specInfo?.implementations?.[0] || defaultImpl;
                 route(`/${params.spec}/${impl}/spec`, true);
               }, [params.spec]);
@@ -693,9 +737,10 @@ function SpecViewRoute() {
   const { config, forward } = data;
   const spec = params.spec;
   const impl = params.impl;
-  // Heading comes from URL hash (e.g., /spec#heading-name)
-  const heading = window.location.hash ? window.location.hash.slice(1) : null;
-  const rule = query.rule || null;
+  // Hash can be a heading (e.g., #my-heading) or a requirement (e.g., #r--my.rule)
+  const hash = window.location.hash ? window.location.hash.slice(1) : null;
+  const rule = hash?.startsWith("r--") ? hash.slice(3) : null;
+  const heading = hash && !hash.startsWith("r--") ? hash : null;
 
   const [scrollPosition, setScrollPosition] = useState(0);
 

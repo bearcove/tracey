@@ -401,7 +401,7 @@ impl RuleHandler for TraceyRuleHandler {
             // Rule ID badge (always present) - includes source location for editor navigation
             // r[impl dashboard.links.rule-links]
             badges_html.push_str(&format!(
-                r#"<a class="req-badge req-id" href="/{}/{}/spec?rule={}" data-rule="{}" data-source-file="{}" data-source-line="{}" title="{}">{}</a>"#,
+                r#"<a class="req-badge req-id" href="/{}/{}/spec#r--{}" data-rule="{}" data-source-file="{}" data-source-line="{}" title="{}">{}</a>"#,
                 self.spec_name, self.impl_name, rule.id, rule.id, source_file, rule.line, rule.id, display_id
             ));
 
