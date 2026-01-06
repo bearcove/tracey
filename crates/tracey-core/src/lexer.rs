@@ -84,6 +84,8 @@ impl std::fmt::Display for RefVerb {
 /// r[impl ref.span.file]
 #[derive(Debug, Clone, Facet)]
 pub struct RuleReference {
+    /// The prefix identifying which spec this reference belongs to
+    pub prefix: String,
     /// The relationship type (impl, verify, depends, etc.)
     pub verb: RefVerb,
     /// The rule ID (e.g., "channel.id.allocation")
@@ -234,19 +236,36 @@ fn extract_references_from_text(
 
     while let Some((start_idx, ch)) = chars.next() {
         // r[impl ref.syntax.brackets]
-        // r[impl ref.syntax.r-prefix]
-        if ch == 'r' {
-            // Require 'r[' prefix for source code annotations
+        // r[impl ref.prefix.matching]
+        // Match any valid prefix (alphanumeric) followed by '['
+        if ch.is_ascii_lowercase() || ch.is_ascii_digit() {
+            let prefix_start = start_idx;
+            let mut prefix = String::new();
+            prefix.push(ch);
+
+            // Continue reading prefix (can be multi-char like "h2")
+            while let Some(&(_, next_ch)) = chars.peek() {
+                if next_ch == '[' {
+                    break; // Found the bracket
+                } else if next_ch.is_ascii_lowercase() || next_ch.is_ascii_digit() {
+                    prefix.push(next_ch);
+                    chars.next();
+                } else {
+                    break; // Not a valid prefix character
+                }
+            }
+
+            // Check if we have '[' after the prefix
             if let Some(&(_bracket_idx, next_ch)) = chars.peek() {
                 if next_ch != '[' {
-                    continue; // Not an annotation, just the letter 'r'
+                    continue; // Not an annotation
                 }
                 chars.next(); // consume '['
             } else {
                 continue;
             }
 
-            let bracket_start = text_offset + start_idx;
+            let bracket_start = text_offset + prefix_start;
 
             // Try to parse: r[verb rule.id] or r[rule.id]
             let mut first_word = String::new();
@@ -327,8 +346,9 @@ fn extract_references_from_text(
 
                         // Validate rule ID
                         if found_dot && !rule_id.ends_with('.') && !rule_id.is_empty() {
-                            let span = SourceSpan::new(bracket_start, final_idx - start_idx + 1);
+                            let span = SourceSpan::new(bracket_start, final_idx - prefix_start + 1);
                             rules.references.push(RuleReference {
+                                prefix: prefix.clone(),
                                 verb,
                                 rule_id,
                                 file: path.to_path_buf(),
@@ -348,8 +368,9 @@ fn extract_references_from_text(
 
                     // Validate: must contain dot, not end with dot
                     if first_word.contains('.') && !first_word.ends_with('.') {
-                        let span = SourceSpan::new(bracket_start, end_idx - start_idx + 1);
+                        let span = SourceSpan::new(bracket_start, end_idx - prefix_start + 1);
                         rules.references.push(RuleReference {
+                            prefix: prefix.clone(),
                             verb: RefVerb::Impl, // default to impl
                             rule_id: first_word,
                             file: path.to_path_buf(),
@@ -376,6 +397,7 @@ mod tests {
 
         let rules = Rules::extract_from_content(Path::new("test.rs"), content);
         assert_eq!(rules.len(), 1);
+        assert_eq!(rules.references[0].prefix, "r");
         assert_eq!(rules.references[0].rule_id, "channel.id.allocation");
         assert_eq!(rules.references[0].verb, RefVerb::Impl);
     }
@@ -488,6 +510,23 @@ mod tests {
         let content = "// r[impl foo.bar]";
         let rules = Rules::extract_from_content(Path::new("test.rs"), content);
         assert_eq!(rules.len(), 1);
+        assert_eq!(rules.references[0].prefix, "r");
         assert_eq!(rules.references[0].span.offset, 3); // after "// ", points to 'r'
+    }
+
+    #[test]
+    fn test_multi_char_prefix() {
+        let content = r#"
+            // h2[impl stream.priority]
+            // m[verify message.format]
+            fn test() {}
+        "#;
+
+        let rules = Rules::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(rules.len(), 2);
+        assert_eq!(rules.references[0].prefix, "h2");
+        assert_eq!(rules.references[0].rule_id, "stream.priority");
+        assert_eq!(rules.references[1].prefix, "m");
+        assert_eq!(rules.references[1].rule_id, "message.format");
     }
 }

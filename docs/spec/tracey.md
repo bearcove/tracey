@@ -270,6 +270,34 @@ When a reference uses a prefix that does not match any configured spec, tracey M
 r[ref.prefix.matching]
 When extracting references from source code, tracey MUST match the prefix against configured specs to determine which spec's requirement namespace to query.
 
+## Cross-Workspace Implementation References
+
+r[ref.cross-workspace.paths]
+Implementation references MAY be located in different crates or workspaces outside the primary project structure.
+
+> r[ref.cross-workspace.path-resolution]
+> When resolving file paths for implementation references, tracey MUST resolve relative paths from the workspace root (the directory where tracey is invoked or where the configuration file is located).
+>
+> Example: If bearmark is at `../bearmark` relative to the tracey workspace, implementation files in bearmark would be referenced as `../bearmark/src/reqs.rs`.
+
+> r[ref.cross-workspace.missing-paths]
+> When an implementation file path does not exist on the filesystem, tracey MUST continue functioning but MUST emit warnings indicating the missing path.
+
+> r[ref.cross-workspace.cli-warnings]
+> Missing implementation file paths MUST be reported in CLI output when running commands like `tracey status`, `tracey_uncovered`, or other tools that access implementation data.
+>
+> Example warning format:
+> ```
+> Warning: Implementation file not found: ../bearmark/src/reqs.rs
+>   Referenced by spec 'tracey' implementation 'rust'
+> ```
+
+> r[ref.cross-workspace.dashboard-warnings]
+> Missing implementation file paths MUST be displayed as warnings in the dashboard UI, with visual indicators (warning badges, error states) on affected requirements or source file listings.
+
+> r[ref.cross-workspace.graceful-degradation]
+> When implementation files are missing, tracey MUST still display available data (requirement definitions, other implementations) and MUST NOT crash or fail to start.
+
 ## Markdown Processing
 
 ### HTML Output
@@ -779,3 +807,140 @@ The dashboard MUST provide a search interface for finding requirements by keywor
 
 r[dashboard.query.file-reqs]
 The dashboard MUST show all requirements referenced by a specific file when viewing file details.
+
+## Dashboard In-Browser Editing
+
+The dashboard provides inline editing of requirements directly in the browser, enabling rapid iteration on specification documents without leaving the review interface.
+
+### Byte Range Tracking
+
+r[dashboard.editing.byte-range.req-span]
+Each requirement definition MUST track its byte range in the source markdown file, storing both the start offset and end offset (inclusive of the requirement marker line and all content lines).
+
+r[dashboard.editing.byte-range.marker-and-content]
+The byte range MUST include the requirement marker line (`r[req.id]`) plus all following content lines until a blank line, another requirement, or a heading is encountered.
+
+r[dashboard.editing.byte-range.attribute]
+The requirement's HTML container MUST include a `data-br="start-end"` attribute containing the byte range, enabling the editor to locate and update the exact markdown source.
+
+Example:
+```html
+<div class="req-container" data-br="1234-1456">
+  <!-- requirement content -->
+</div>
+```
+
+### Edit Badge and Activation
+
+r[dashboard.editing.badge.display]
+Each requirement MUST display an "Edit" badge in its header, styled as a low-emphasis button with a pencil icon to indicate editability without demanding attention.
+
+r[dashboard.editing.badge.appearance]
+The Edit badge MUST use muted colors (gray) by default and accent colors on hover, and MUST be larger and more prominent than reference badges to make editing discoverable.
+
+r[dashboard.editing.activation.click]
+Clicking the Edit badge MUST activate inline editing mode for that requirement, replacing the rendered requirement with the inline editor.
+
+### Inline Editor Interface
+
+r[dashboard.editing.inline.split-view]
+The inline editor MUST display a split-pane view with source markdown on the left and live preview on the right, enabling users to see rendering changes in real-time.
+
+r[dashboard.editing.inline.vim-mode]
+The editor MUST support vim keybindings via CodeMirror's vim extension, with a visible "VIM MODE" indicator in the editor header.
+
+r[dashboard.editing.inline.codemirror]
+The editor MUST use CodeMirror 6 with markdown language support, providing syntax highlighting, line wrapping, and proper monospace font rendering.
+
+r[dashboard.editing.inline.header]
+The editor header MUST display: an "Edit Requirement" label, vim mode indicator, and the source file path for context.
+
+r[dashboard.editing.inline.dimensions]
+The editor MUST have a minimum height of 300px and maximum height of 600px to accommodate short requirements while preventing excessive vertical space usage.
+
+### Live Preview
+
+r[dashboard.editing.preview.server-side]
+Markdown preview MUST be rendered server-side using the same bearmark renderer as the dashboard, ensuring preview consistency with the final rendered output.
+
+r[dashboard.editing.preview.debounce]
+Preview updates MUST be debounced with a 300ms delay to avoid excessive server requests while typing.
+
+r[dashboard.editing.preview.endpoint]
+The server MUST provide a `POST /api/preview-markdown` endpoint accepting `{content: string}` and returning `{html: string}` with the rendered markdown.
+
+### Byte Range Operations
+
+r[dashboard.editing.api.fetch-range]
+The server MUST provide a `GET /api/file-range?path=X&start=N&end=M` endpoint that returns the exact bytes from the specified range as UTF-8 text.
+
+r[dashboard.editing.api.update-range]
+The server MUST provide a `PATCH /api/file-range` endpoint accepting `{path, start, end, content}` that replaces the specified byte range with new content, adjusting file offsets accordingly.
+
+r[dashboard.editing.api.range-validation]
+The byte range endpoints MUST validate that `start < end` and `end <= file_length`, returning appropriate error codes for invalid ranges.
+
+r[dashboard.editing.api.utf8-validation]
+The fetch-range endpoint MUST validate that the extracted bytes form valid UTF-8 text, returning an error if the range splits a multi-byte character.
+
+### Save and Cancel Workflow
+
+r[dashboard.editing.save.patch-file]
+Clicking Save MUST send a PATCH request with the new content, update the file, and close the inline editor on success.
+
+r[dashboard.editing.save.error-handling]
+Save errors MUST be displayed inline in the editor footer without closing the editor, allowing the user to retry or cancel.
+
+r[dashboard.editing.cancel.discard]
+Clicking Cancel MUST discard all changes and close the inline editor without modifying the file.
+
+r[dashboard.editing.cancel.escape]
+Pressing Escape MUST cancel editing and close the inline editor (when not in vim insert mode).
+
+### File Watching and Reload
+
+r[dashboard.editing.reload.auto-detect]
+After a successful save, the file watcher MUST detect the change and trigger a dashboard rebuild automatically.
+
+r[dashboard.editing.reload.live-update]
+The dashboard MUST poll `/api/version` to detect rebuilds and reload the page content when a new version is available, preserving scroll position.
+
+r[dashboard.editing.reload.smooth]
+The reload MUST be visually smooth, with no jarring page transitions or loss of context (scroll position maintained).
+
+### Keyboard Navigation
+
+r[dashboard.editing.keyboard.navigation]
+The specification view MUST support keyboard navigation between requirements using `j` (next) and `k` (previous) keys.
+
+> r[dashboard.editing.keyboard.next-req]
+> Pressing `j` MUST scroll to and focus the next requirement in the document, wrapping to the first requirement when at the end.
+
+> r[dashboard.editing.keyboard.prev-req]
+> Pressing `k` MUST scroll to and focus the previous requirement in the document, wrapping to the last requirement when at the start.
+
+> r[dashboard.editing.keyboard.open-editor]
+> Pressing `e` MUST open the inline editor for the currently focused requirement.
+
+> r[dashboard.editing.keyboard.visual-focus]
+> The currently focused requirement MUST have a visual indicator (highlight, border, or similar) to show which requirement is active for keyboard operations.
+
+> r[dashboard.editing.keyboard.scope]
+> Keyboard shortcuts MUST only be active when not typing in an input field, textarea, or editor to avoid conflicts with normal text entry.
+
+### Future: Add Requirement
+
+r[dashboard.editing.add.button status=draft]
+The dashboard SHOULD provide an "Add Requirement" button that inserts a new requirement template at appropriate locations (end of sections, after existing requirements).
+
+r[dashboard.editing.add.template status=draft]
+The template MUST be pre-filled as a blockquote with `r[|]` where `|` represents the cursor position, ready for the user to type the requirement ID.
+
+Example template:
+```markdown
+> r[|]
+>
+```
+
+r[dashboard.editing.add.cursor-position status=draft]
+The cursor MUST be positioned inside the brackets after `r[` to enable immediate typing of the requirement ID, followed by tab to move to the content line.

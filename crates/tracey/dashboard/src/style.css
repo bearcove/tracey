@@ -709,7 +709,7 @@ a.annotation-badge:hover {
 }
 
 .rule-refs {
-    font-size: 0.8rem;
+    font-size: 0.95rem;
 }
 
 .rule-ref {
@@ -1054,10 +1054,21 @@ a.rule-marker:hover {
     border-color: color-mix(in srgb, var(--red) 50%, var(--border));
 }
 
-.req-badges {
+.req-badges-left {
     position: absolute;
     top: -0.7rem;
     left: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: var(--bg);
+    padding: 0 0.25rem;
+}
+
+.req-badges-right {
+    position: absolute;
+    top: -0.7rem;
+    right: 0.75rem;
     display: flex;
     align-items: center;
     gap: 0.4rem;
@@ -1382,7 +1393,7 @@ a.rule-marker:hover {
     gap: 0.35rem;
     text-decoration: none;
 
-    font-size: 0.8em;
+    font-size: 0.95em;
 }
 .file-path-link:hover .file-path-name {
     text-decoration: underline;

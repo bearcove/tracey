@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { render } from "preact";
 import { EDITORS } from "../config";
 import { useSpec } from "../hooks";
 import { CoverageArc, html, showRefsPopup } from "../main";
 import type { OutlineEntry, SpecViewProps } from "../types";
 import { MarkdownEditor } from "../components/MarkdownEditor";
+import { InlineEditor } from "../components/InlineEditor";
 
 // Tree node for hierarchical outline
 interface OutlineTreeNode {
@@ -181,6 +183,12 @@ export function SpecView({
     byteRange: string;
   } | null>(null);
 
+  // Inline editor state
+  const editingContainerRef = useRef<{
+    element: HTMLElement;
+    originalHTML: string;
+  } | null>(null);
+
   // Use outline from API (already has coverage info)
   const outline = spec?.outline || [];
 
@@ -340,14 +348,47 @@ export function SpecView({
         return;
       }
 
-      // Handle Edit badge clicks - open markdown editor modal
+      // Handle Edit badge clicks - mount inline editor
       const editBadge = target.closest("button.req-badge.req-edit") as HTMLElement | null;
       if (editBadge) {
         e.preventDefault();
         const sourceFile = editBadge.dataset.sourceFile;
         const byteRange = editBadge.dataset.br;
         if (sourceFile && byteRange) {
-          setEditorState({ filePath: sourceFile, byteRange });
+          // Find the req-container
+          const reqContainer = editBadge.closest(".req-container") as HTMLElement | null;
+          if (reqContainer) {
+            // Save original HTML
+            editingContainerRef.current = {
+              element: reqContainer,
+              originalHTML: reqContainer.innerHTML,
+            };
+
+            // Mount InlineEditor
+            render(
+              html`<${InlineEditor}
+                filePath=${sourceFile}
+                byteRange=${byteRange}
+                onSave=${() => {
+                  // Restore container (file watcher will rebuild)
+                  if (editingContainerRef.current) {
+                    editingContainerRef.current.element.innerHTML =
+                      editingContainerRef.current.originalHTML;
+                    editingContainerRef.current = null;
+                  }
+                }}
+                onCancel=${() => {
+                  // Restore original HTML
+                  if (editingContainerRef.current) {
+                    editingContainerRef.current.element.innerHTML =
+                      editingContainerRef.current.originalHTML;
+                    editingContainerRef.current = null;
+                  }
+                }}
+              />`,
+              reqContainer,
+            );
+          }
         }
         return;
       }

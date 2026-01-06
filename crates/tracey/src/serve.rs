@@ -494,24 +494,26 @@ impl ReqHandler for TraceyRuleHandler {
                 }
             }
 
-            // Edit badge - opens markdown editor for this byte range
-            badges_html.push_str(&format!(
+            // Edit badge - separate group on the right
+            let edit_badge_html = format!(
                 r#"<button class="req-badge req-edit" data-br="{}-{}" data-source-file="{}" title="Edit this requirement"><svg class="req-edit-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg> Edit</button>"#,
                 rule.span.offset,
                 rule.span.offset + rule.span.length,
                 source_file
-            ));
+            );
 
             // Render the opening of the req container
             Ok(format!(
                 r#"<div class="req-container req-{status}" id="{anchor}" data-br="{br_start}-{br_end}">
-<div class="req-badges">{badges}</div>
+<div class="req-badges-left">{badges}</div>
+<div class="req-badges-right">{edit_badge}</div>
 <div class="req-content">"#,
                 status = status,
                 anchor = rule.anchor_id,
                 br_start = rule.span.offset,
                 br_end = rule.span.offset + rule.span.length,
                 badges = badges_html,
+                edit_badge = edit_badge_html,
             ))
         })
     }
@@ -559,7 +561,7 @@ fn get_git_status(project_root: &Path) -> HashMap<String, GitStatus> {
 
         // Git status --porcelain format: "XY filename"
         // X = index status, Y = working tree status
-        let index_status = line.chars().nth(0).unwrap_or(' ');
+        let index_status = line.chars().next().unwrap_or(' ');
         let worktree_status = line.chars().nth(1).unwrap_or(' ');
         let filename = line[3..].trim().to_string();
 
@@ -1569,7 +1571,7 @@ async fn api_update_file_range(
 
             // Write back to file
             if std::fs::write(&full_path, &new_content).is_ok() {
-                let new_end = req.start + req.content.as_bytes().len();
+                let new_end = req.start + req.content.len();
                 return Json(ApiFileRange {
                     content: req.content,
                     start: req.start,
