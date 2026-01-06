@@ -1,11 +1,19 @@
-//! Source providers for rule extraction
+//! Source providers for requirement extraction
 
-use crate::lexer::{Rules, extract_from_content};
+use crate::lexer::{Reqs, extract_from_content};
 use eyre::Result;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
-/// File extensions that tracey knows how to scan for rule references.
+/// r[impl ref.cross-workspace.missing-paths]
+/// Result of extracting requirements, including any warnings about missing files
+#[derive(Debug, Default)]
+pub struct ExtractionResult {
+    pub reqs: Reqs,
+    pub warnings: Vec<String>,
+}
+
+/// File extensions that tracey knows how to scan for requirement references.
 /// These all use `//` and `/* */` comment syntax.
 pub const SUPPORTED_EXTENSIONS: &[&str] = &[
     "rs",     // Rust
@@ -39,10 +47,10 @@ pub fn is_supported_extension(ext: &OsStr) -> bool {
         .unwrap_or(false)
 }
 
-/// Trait for providing source files to extract rules from
+/// Trait for providing source files to extract requirements from
 pub trait Sources {
-    /// Extract rules from all sources
-    fn extract(self) -> Result<Rules>;
+    /// Extract requirements from all sources
+    fn extract(self) -> Result<ExtractionResult>;
 }
 
 /// Sources from an explicit list of file paths
@@ -56,35 +64,41 @@ impl PathSources {
 }
 
 impl Sources for PathSources {
-    fn extract(self) -> Result<Rules> {
+    fn extract(self) -> Result<ExtractionResult> {
         #[cfg(feature = "parallel")]
         {
             use rayon::prelude::*;
             use std::sync::Mutex;
 
-            let rules_mutex = Mutex::new(Rules::new());
+            let reqs_mutex = Mutex::new(Reqs::new());
 
             self.0.par_iter().try_for_each(|path| -> Result<()> {
                 let content = std::fs::read_to_string(path)?;
-                let mut file_rules = Rules::new();
-                extract_from_content(path, &content, &mut file_rules);
+                let mut file_reqs = Reqs::new();
+                extract_from_content(path, &content, &mut file_reqs);
 
-                let mut guard = rules_mutex.lock().unwrap();
-                guard.extend(file_rules);
+                let mut guard = reqs_mutex.lock().unwrap();
+                guard.extend(file_reqs);
                 Ok(())
             })?;
 
-            Ok(rules_mutex.into_inner().unwrap())
+            Ok(ExtractionResult {
+                reqs: reqs_mutex.into_inner().unwrap(),
+                warnings: Vec::new(),
+            })
         }
 
         #[cfg(not(feature = "parallel"))]
         {
-            let mut rules = Rules::new();
+            let mut reqs = Reqs::new();
             for path in self.0 {
                 let content = std::fs::read_to_string(&path)?;
-                extract_from_content(&path, &content, &mut rules);
+                extract_from_content(&path, &content, &mut reqs);
             }
-            Ok(rules)
+            Ok(ExtractionResult {
+                reqs,
+                warnings: Vec::new(),
+            })
         }
     }
 }
@@ -112,12 +126,15 @@ impl Default for MemorySources {
 }
 
 impl Sources for MemorySources {
-    fn extract(self) -> Result<Rules> {
-        let mut rules = Rules::new();
+    fn extract(self) -> Result<ExtractionResult> {
+        let mut reqs = Reqs::new();
         for (path, content) in self.0 {
-            extract_from_content(&path, &content, &mut rules);
+            extract_from_content(&path, &content, &mut reqs);
         }
-        Ok(rules)
+        Ok(ExtractionResult {
+            reqs,
+            warnings: Vec::new(),
+        })
     }
 }
 
@@ -155,64 +172,114 @@ impl WalkSources {
 
 #[cfg(feature = "walk")]
 impl Sources for WalkSources {
-    fn extract(self) -> Result<Rules> {
+    fn extract(self) -> Result<ExtractionResult> {
         use ignore::WalkBuilder;
         use std::sync::Mutex;
 
-        let rules = Mutex::new(Rules::new());
+        let reqs = Mutex::new(Reqs::new());
+        let warnings = Mutex::new(Vec::new());
 
-        // Build the walker
-        // r[impl walk.gitignore]
-        let walker = WalkBuilder::new(&self.root)
-            .follow_links(true)
-            .hidden(false) // Don't skip hidden files (but .git is in .gitignore)
-            .git_ignore(true)
-            .git_global(true)
-            .git_exclude(true)
-            .build_parallel();
+        // r[impl ref.cross-workspace.paths]
+        // Separate include patterns into local and cross-workspace
+        let (local_includes, cross_workspace_includes): (Vec<_>, Vec<_>) =
+            self.include.iter().partition(|p| !p.starts_with("../"));
 
-        // Process files in parallel using ignore's parallel walker
-        walker.run(|| {
-            Box::new(|entry| {
-                let entry = match entry {
-                    Ok(e) => e,
-                    Err(_) => return ignore::WalkState::Continue,
-                };
+        // Helper to walk a directory with patterns
+        let walk_with_patterns = |root: &Path,
+                                  include_patterns: &[String],
+                                  exclude_patterns: &[String]| {
+            // Build the walker
+            // r[impl walk.gitignore]
+            let walker = WalkBuilder::new(root)
+                .follow_links(true)
+                .hidden(false) // Don't skip hidden files (but .git is in .gitignore)
+                .git_ignore(true)
+                .git_global(true)
+                .git_exclude(true)
+                .build_parallel();
 
-                let path = entry.path();
+            // Process files in parallel using ignore's parallel walker
+            walker.run(|| {
+                let reqs_ref = &reqs;
+                let include_patterns = include_patterns.to_vec();
+                let exclude_patterns = exclude_patterns.to_vec();
+                let root = root.to_path_buf();
 
-                // Only supported file extensions
-                if path
-                    .extension()
-                    .is_none_or(|ext| !is_supported_extension(ext))
-                {
-                    return ignore::WalkState::Continue;
-                }
+                Box::new(move |entry| {
+                    let entry = match entry {
+                        Ok(e) => e,
+                        Err(_) => return ignore::WalkState::Continue,
+                    };
 
-                // Check include patterns
-                if !self.include.is_empty() && !is_included(path, &self.root, &self.include) {
-                    return ignore::WalkState::Continue;
-                }
+                    let path = entry.path();
 
-                // Check exclude patterns
-                if is_excluded(path, &self.root, &self.exclude) {
-                    return ignore::WalkState::Continue;
-                }
+                    // Only supported file extensions
+                    if path
+                        .extension()
+                        .is_none_or(|ext| !is_supported_extension(ext))
+                    {
+                        return ignore::WalkState::Continue;
+                    }
 
-                // Read and extract
-                if let Ok(content) = std::fs::read_to_string(path) {
-                    let mut file_rules = Rules::new();
-                    extract_from_content(path, &content, &mut file_rules);
+                    // Check include patterns
+                    if !include_patterns.is_empty() && !is_included(path, &root, &include_patterns)
+                    {
+                        return ignore::WalkState::Continue;
+                    }
 
-                    let mut guard = rules.lock().unwrap();
-                    guard.extend(file_rules);
-                }
+                    // Check exclude patterns
+                    if is_excluded(path, &root, &exclude_patterns) {
+                        return ignore::WalkState::Continue;
+                    }
 
-                ignore::WalkState::Continue
-            })
-        });
+                    // Read and extract
+                    if let Ok(content) = std::fs::read_to_string(path) {
+                        let mut file_reqs = Reqs::new();
+                        extract_from_content(path, &content, &mut file_reqs);
 
-        Ok(rules.into_inner().unwrap())
+                        let mut guard = reqs_ref.lock().unwrap();
+                        guard.extend(file_reqs);
+                    }
+
+                    ignore::WalkState::Continue
+                })
+            });
+        };
+
+        // Walk local patterns with the project root
+        if !local_includes.is_empty() || self.include.is_empty() {
+            let patterns: Vec<String> = local_includes.iter().map(|s| s.to_string()).collect();
+            walk_with_patterns(&self.root, &patterns, &self.exclude);
+        }
+
+        // r[impl ref.cross-workspace.path-resolution]
+        // Walk cross-workspace patterns
+        for pattern in cross_workspace_includes {
+            // Extract the base path from the pattern (e.g., "../dodeca" from "../dodeca/**/*.rs")
+            let base_path = extract_cross_workspace_base(pattern);
+            let resolved_path = self.root.join(&base_path);
+
+            // r[impl ref.cross-workspace.missing-paths]
+            // Check if the path exists
+            if !resolved_path.exists() {
+                let warning = format!(
+                    "Warning: Cross-workspace path not found: {}\n  Pattern: {}",
+                    base_path, pattern
+                );
+                warnings.lock().unwrap().push(warning);
+                continue;
+            }
+
+            // Create a single-pattern include for this cross-workspace walk
+            // We need to adjust the pattern to be relative to the resolved path
+            let adjusted_pattern = adjust_pattern_for_root(pattern, &base_path);
+            walk_with_patterns(&resolved_path, &[adjusted_pattern], &self.exclude);
+        }
+
+        Ok(ExtractionResult {
+            reqs: reqs.into_inner().unwrap(),
+            warnings: warnings.into_inner().unwrap(),
+        })
     }
 }
 
@@ -309,56 +376,85 @@ fn matches_glob(path: &str, pattern: &str) -> bool {
     true
 }
 
+/// r[impl ref.cross-workspace.path-resolution]
+/// Extract the base directory from a cross-workspace pattern
+/// e.g., "../dodeca/crates/bearmark/**/*.rs" -> "../dodeca/crates/bearmark"
+#[cfg(feature = "walk")]
+fn extract_cross_workspace_base(pattern: &str) -> String {
+    // Find the first occurrence of "**" or "*"
+    if let Some(wildcard_pos) = pattern.find("**").or_else(|| pattern.find('*')) {
+        // Get everything before the wildcard, then trim trailing slash
+        let base = &pattern[..wildcard_pos];
+        base.trim_end_matches('/').to_string()
+    } else {
+        // No wildcards, use the pattern as-is
+        pattern.to_string()
+    }
+}
+
+/// Adjust a cross-workspace pattern to be relative to its resolved base
+/// e.g., "../dodeca/crates/bearmark/**/*.rs" with base "../dodeca/crates/bearmark" -> "**/*.rs"
+#[cfg(feature = "walk")]
+fn adjust_pattern_for_root(pattern: &str, base: &str) -> String {
+    if let Some(suffix) = pattern.strip_prefix(base) {
+        suffix.trim_start_matches('/').to_string()
+    } else {
+        pattern.to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_memory_sources() {
-        let rules = Rules::extract(
+        let result = Reqs::extract(
             MemorySources::new()
-                .add("foo.rs", "// r[impl test.rule]")
-                .add("bar.rs", "// r[verify other.rule]"),
+                .add("foo.rs", "// r[impl test.req]")
+                .add("bar.rs", "// r[verify other.req]"),
         )
         .unwrap();
 
-        assert_eq!(rules.len(), 2);
+        assert_eq!(result.reqs.len(), 2);
+        assert!(result.warnings.is_empty());
     }
 
     #[test]
     fn test_memory_sources_swift() {
-        let rules = Rules::extract(
+        let result = Reqs::extract(
             MemorySources::new()
-                .add("Foo.swift", "// r[impl swift.rule.one]")
-                .add("Bar.swift", "/* r[verify swift.rule.two] */"),
+                .add("Foo.swift", "// r[impl swift.req.one]")
+                .add("Bar.swift", "/* r[verify swift.req.two] */"),
         )
         .unwrap();
 
-        assert_eq!(rules.len(), 2);
-        assert_eq!(rules.references[0].rule_id, "swift.rule.one");
-        assert_eq!(rules.references[1].rule_id, "swift.rule.two");
+        assert_eq!(result.reqs.len(), 2);
+        assert_eq!(result.reqs.references[0].req_id, "swift.req.one");
+        assert_eq!(result.reqs.references[1].req_id, "swift.req.two");
+        assert!(result.warnings.is_empty());
     }
 
     #[test]
     fn test_memory_sources_typescript() {
-        let rules = Rules::extract(
+        let result = Reqs::extract(
             MemorySources::new()
-                .add("app.ts", "// r[impl ts.rule.one]")
-                .add("component.tsx", "// r[verify ts.rule.two]")
-                .add("utils.js", "/* r[impl js.rule] */"),
+                .add("app.ts", "// r[impl ts.req.one]")
+                .add("component.tsx", "// r[verify ts.req.two]")
+                .add("utils.js", "/* r[impl js.req] */"),
         )
         .unwrap();
 
-        assert_eq!(rules.len(), 3);
-        assert_eq!(rules.references[0].rule_id, "ts.rule.one");
-        assert_eq!(rules.references[1].rule_id, "ts.rule.two");
-        assert_eq!(rules.references[2].rule_id, "js.rule");
+        assert_eq!(result.reqs.len(), 3);
+        assert_eq!(result.reqs.references[0].req_id, "ts.req.one");
+        assert_eq!(result.reqs.references[1].req_id, "ts.req.two");
+        assert_eq!(result.reqs.references[2].req_id, "js.req");
     }
 
     #[test]
     fn test_memory_sources_jsdoc_comments() {
         // JSDoc-style comments (/** */) should work too
-        let rules = Rules::extract(MemorySources::new().add(
+        let result = Reqs::extract(MemorySources::new().add(
             "api.ts",
             r#"
                     /**
@@ -369,14 +465,15 @@ mod tests {
                 "#,
         ))
         .unwrap();
+        let reqs = result.reqs;
 
-        assert_eq!(rules.len(), 1);
-        assert_eq!(rules.references[0].rule_id, "auth.login");
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs.references[0].req_id, "auth.login");
     }
 
     #[test]
     fn test_memory_sources_mixed_languages() {
-        let rules = Rules::extract(
+        let result = Reqs::extract(
             MemorySources::new()
                 .add("lib.rs", "// r[impl core.rust]")
                 .add("App.swift", "// r[impl core.swift]")
@@ -384,7 +481,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(rules.len(), 3);
+        assert_eq!(result.reqs.len(), 3);
     }
 
     #[test]

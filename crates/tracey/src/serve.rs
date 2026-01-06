@@ -40,7 +40,7 @@ use std::time::Duration;
 use tokio::sync::watch;
 use tower_http::cors::{Any, CorsLayer};
 use tracey_core::code_units::CodeUnit;
-use tracey_core::{RefVerb, ReqDefinition, Rules};
+use tracey_core::{RefVerb, ReqDefinition, Reqs};
 use tracing::{debug, error, info, warn};
 
 // Markdown rendering
@@ -263,6 +263,7 @@ impl ReqHandler for TraceyRuleHandler {
             let mut badges_html = String::new();
 
             // r[impl dashboard.editing.copy.button]
+            // r[impl dashboard.links.req-links]
             // Segmented badge group: copy button + requirement ID
             badges_html.push_str(&format!(
                 r#"<div class="req-badge-group"><button class="req-badge req-copy req-segment-left" data-req-id="{}" title="Copy requirement ID"><svg class="req-copy-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button><a class="req-badge req-id req-segment-right" href="/{}/{}/spec#r--{}" data-rule="{}" data-source-file="{}" data-source-line="{}" title="{}">{}</a></div>"#,
@@ -531,12 +532,23 @@ pub async fn build_dashboard_data(
                 .map(|exc| exc.pattern.clone())
                 .collect();
 
-            // Extract rule references from this impl's source files
-            let rules = Rules::extract(
+            // r[impl ref.cross-workspace.paths]
+            // Extract requirement references from this impl's source files
+            let extraction_result = Reqs::extract(
                 WalkSources::new(project_root)
                     .include(include.clone())
                     .exclude(exclude.clone()),
             )?;
+
+            // r[impl ref.cross-workspace.cli-warnings]
+            // Print warnings for missing cross-workspace paths
+            for warning in &extraction_result.warnings {
+                if !quiet {
+                    eprintln!("{}", warning.yellow());
+                }
+            }
+
+            let reqs = extraction_result.reqs;
 
             // Build forward data for this impl
             let mut api_rules = Vec::new();
@@ -545,8 +557,8 @@ pub async fn build_dashboard_data(
                 let mut verify_refs = Vec::new();
                 let mut depends_refs = Vec::new();
 
-                for r in &rules.references {
-                    if r.rule_id == rule_def.id {
+                for r in &reqs.references {
+                    if r.req_id == rule_def.id {
                         let relative = r.file.strip_prefix(project_root).unwrap_or(&r.file);
                         let code_ref = ApiCodeRef {
                             file: relative.display().to_string(),

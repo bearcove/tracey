@@ -362,6 +362,7 @@ export function SourcesView({
       <div class="sidebar">
         ${contextRule
           ? html`
+              ${/* r[impl dashboard.sources.req-context] */ null}
               <div class="rule-context">
                 <div class="rule-context-header">
                   <span class="rule-context-id">${contextRule.id}</span>

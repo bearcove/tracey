@@ -1,6 +1,6 @@
 //! Coverage analysis and reporting
 
-use crate::lexer::{RefVerb, RuleReference, Rules};
+use crate::lexer::{RefVerb, ReqReference, Reqs};
 use facet::Facet;
 use std::collections::{HashMap, HashSet};
 
@@ -20,13 +20,13 @@ pub struct CoverageReport {
     pub uncovered_rules: HashSet<String>,
 
     /// References to rules that don't exist in the spec
-    pub invalid_references: Vec<RuleReference>,
+    pub invalid_references: Vec<ReqReference>,
 
     /// All valid references, grouped by rule ID
-    pub references_by_rule: HashMap<String, Vec<RuleReference>>,
+    pub references_by_rule: HashMap<String, Vec<ReqReference>>,
 
     /// References grouped by verb type, then by rule ID
-    pub references_by_verb: HashMap<RefVerb, HashMap<String, Vec<RuleReference>>>,
+    pub references_by_verb: HashMap<RefVerb, HashMap<String, Vec<ReqReference>>>,
 }
 
 impl CoverageReport {
@@ -38,20 +38,20 @@ impl CoverageReport {
     pub fn compute(
         spec_name: impl Into<String>,
         known_rule_ids: &HashSet<String>,
-        rules: &Rules,
+        reqs: &Reqs,
     ) -> Self {
         let spec_name = spec_name.into();
         let mut covered_rules = HashSet::new();
         let mut invalid_references = Vec::new();
-        let mut references_by_rule: HashMap<String, Vec<RuleReference>> = HashMap::new();
-        let mut references_by_verb: HashMap<RefVerb, HashMap<String, Vec<RuleReference>>> =
+        let mut references_by_rule: HashMap<String, Vec<ReqReference>> = HashMap::new();
+        let mut references_by_verb: HashMap<RefVerb, HashMap<String, Vec<ReqReference>>> =
             HashMap::new();
 
-        for reference in &rules.references {
-            if known_rule_ids.contains(&reference.rule_id) {
-                covered_rules.insert(reference.rule_id.clone());
+        for reference in &reqs.references {
+            if known_rule_ids.contains(&reference.req_id) {
+                covered_rules.insert(reference.req_id.clone());
                 references_by_rule
-                    .entry(reference.rule_id.clone())
+                    .entry(reference.req_id.clone())
                     .or_default()
                     .push(reference.clone());
 
@@ -59,7 +59,7 @@ impl CoverageReport {
                 references_by_verb
                     .entry(reference.verb)
                     .or_default()
-                    .entry(reference.rule_id.clone())
+                    .entry(reference.req_id.clone())
                     .or_default()
                     .push(reference.clone());
             } else {

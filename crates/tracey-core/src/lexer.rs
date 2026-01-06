@@ -3,7 +3,7 @@
 //! This module implements parsing of rule references from Rust source code.
 //! It scans comments for patterns like `r[verb rule.id]`.
 
-use crate::sources::Sources;
+use crate::sources::{ExtractionResult, Sources};
 use eyre::Result;
 use facet::Facet;
 use std::path::{Path, PathBuf};
@@ -79,17 +79,17 @@ impl std::fmt::Display for RefVerb {
     }
 }
 
-/// A reference to a rule found in source code
+/// A reference to a requirement found in source code
 ///
 /// r[impl ref.span.file]
 #[derive(Debug, Clone, Facet)]
-pub struct RuleReference {
+pub struct ReqReference {
     /// The prefix identifying which spec this reference belongs to
     pub prefix: String,
     /// The relationship type (impl, verify, depends, etc.)
     pub verb: RefVerb,
-    /// The rule ID (e.g., "channel.id.allocation")
-    pub rule_id: String,
+    /// The requirement ID (e.g., "channel.id.allocation")
+    pub req_id: String,
     /// File where the reference was found
     pub file: PathBuf,
     /// Line number (1-indexed)
@@ -123,17 +123,17 @@ pub enum WarningKind {
     MalformedReference,
 }
 
-/// Collection of rule references extracted from source files
+/// Collection of requirement references extracted from source files
 #[derive(Debug, Clone, Default, Facet)]
-pub struct Rules {
-    /// Valid rule references
-    pub references: Vec<RuleReference>,
+pub struct Reqs {
+    /// Valid requirement references
+    pub references: Vec<ReqReference>,
     /// Warnings encountered during parsing
     pub warnings: Vec<ParseWarning>,
 }
 
-impl Rules {
-    /// Create an empty Rules collection
+impl Reqs {
+    /// Create an empty Reqs collection
     pub fn new() -> Self {
         Self::default()
     }
@@ -148,27 +148,27 @@ impl Rules {
         self.references.is_empty()
     }
 
-    /// Extract rules from any source
-    pub fn extract(sources: impl Sources) -> Result<Self> {
+    /// Extract requirements from any source
+    pub fn extract(sources: impl Sources) -> Result<ExtractionResult> {
         sources.extract()
     }
 
-    /// Extract rules from raw content (no I/O)
+    /// Extract requirements from raw content (no I/O)
     pub fn extract_from_content(path: &Path, content: &str) -> Self {
-        let mut rules = Rules::new();
-        extract_from_content(path, content, &mut rules);
-        rules
+        let mut reqs = Reqs::new();
+        extract_from_content(path, content, &mut reqs);
+        reqs
     }
 
-    /// Merge another Rules into this one
-    pub fn extend(&mut self, other: Rules) {
+    /// Merge another Reqs into this one
+    pub fn extend(&mut self, other: Reqs) {
         self.references.extend(other.references);
         self.warnings.extend(other.warnings);
     }
 }
 
-/// Extract rule references from source content into the Rules collection
-pub(crate) fn extract_from_content(path: &Path, content: &str, rules: &mut Rules) {
+/// Extract requirement references from source content into the Reqs collection
+pub(crate) fn extract_from_content(path: &Path, content: &str, reqs: &mut Reqs) {
     // Track line starts for computing line numbers from byte offsets
     let line_starts: Vec<usize> = std::iter::once(0)
         .chain(content.match_indices('\n').map(|(i, _)| i + 1))
@@ -192,7 +192,7 @@ pub(crate) fn extract_from_content(path: &Path, content: &str, rules: &mut Rules
         if let Some(comment_pos) = line.find("//") {
             let comment = &line[comment_pos..];
             let comment_start = line_start + comment_pos;
-            extract_references_from_text(path, comment, comment_start, line_num, rules);
+            extract_references_from_text(path, comment, comment_start, line_num, reqs);
         }
     }
 
@@ -208,7 +208,7 @@ pub(crate) fn extract_from_content(path: &Path, content: &str, rules: &mut Rules
         if in_block_comment {
             if i + 1 < bytes.len() && bytes[i] == b'*' && bytes[i + 1] == b'/' {
                 let block_content = &content[block_start..i];
-                extract_references_from_text(path, block_content, block_start, block_line, rules);
+                extract_references_from_text(path, block_content, block_start, block_line, reqs);
                 in_block_comment = false;
                 i += 2;
                 continue;
@@ -230,7 +230,7 @@ fn extract_references_from_text(
     text: &str,
     text_offset: usize,
     base_line: usize,
-    rules: &mut Rules,
+    reqs: &mut Reqs,
 ) {
     let mut chars = text.char_indices().peekable();
 
@@ -312,13 +312,13 @@ fn extract_references_from_text(
                         chars.next(); // consume space
 
                         // Now read the rule ID
-                        let mut rule_id = String::new();
+                        let mut req_id = String::new();
                         let mut found_dot = false;
 
                         // First char of rule ID must be lowercase letter
                         if let Some(&(_, c)) = chars.peek() {
                             if c.is_ascii_lowercase() {
-                                rule_id.push(c);
+                                req_id.push(c);
                                 chars.next();
                             } else {
                                 continue; // invalid, skip
@@ -333,11 +333,11 @@ fn extract_references_from_text(
                                 chars.next();
                                 break;
                             } else if c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' {
-                                rule_id.push(c);
+                                req_id.push(c);
                                 chars.next();
                             } else if c == '.' {
                                 found_dot = true;
-                                rule_id.push(c);
+                                req_id.push(c);
                                 chars.next();
                             } else {
                                 break; // invalid char
@@ -345,12 +345,12 @@ fn extract_references_from_text(
                         }
 
                         // Validate rule ID
-                        if found_dot && !rule_id.ends_with('.') && !rule_id.is_empty() {
+                        if found_dot && !req_id.ends_with('.') && !req_id.is_empty() {
                             let span = SourceSpan::new(bracket_start, final_idx - prefix_start + 1);
-                            rules.references.push(RuleReference {
+                            reqs.references.push(ReqReference {
                                 prefix: prefix.clone(),
                                 verb,
-                                rule_id,
+                                req_id,
                                 file: path.to_path_buf(),
                                 line: base_line,
                                 span,
@@ -369,10 +369,10 @@ fn extract_references_from_text(
                     // Validate: must contain dot, not end with dot
                     if first_word.contains('.') && !first_word.ends_with('.') {
                         let span = SourceSpan::new(bracket_start, end_idx - prefix_start + 1);
-                        rules.references.push(RuleReference {
+                        reqs.references.push(ReqReference {
                             prefix: prefix.clone(),
                             verb: RefVerb::Impl, // default to impl
-                            rule_id: first_word,
+                            req_id: first_word,
                             file: path.to_path_buf(),
                             line: base_line,
                             span,
@@ -395,11 +395,11 @@ mod tests {
             fn allocate_id() {}
         "#;
 
-        let rules = Rules::extract_from_content(Path::new("test.rs"), content);
-        assert_eq!(rules.len(), 1);
-        assert_eq!(rules.references[0].prefix, "r");
-        assert_eq!(rules.references[0].rule_id, "channel.id.allocation");
-        assert_eq!(rules.references[0].verb, RefVerb::Impl);
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs.references[0].prefix, "r");
+        assert_eq!(reqs.references[0].req_id, "channel.id.allocation");
+        assert_eq!(reqs.references[0].verb, RefVerb::Impl);
     }
 
     #[test]
@@ -422,23 +422,23 @@ mod tests {
             // This is where we define the format
         "#;
 
-        let rules = Rules::extract_from_content(Path::new("test.rs"), content);
-        assert_eq!(rules.len(), 5);
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 5);
 
-        assert_eq!(rules.references[0].verb, RefVerb::Impl);
-        assert_eq!(rules.references[0].rule_id, "channel.id.allocation");
+        assert_eq!(reqs.references[0].verb, RefVerb::Impl);
+        assert_eq!(reqs.references[0].req_id, "channel.id.allocation");
 
-        assert_eq!(rules.references[1].verb, RefVerb::Verify);
-        assert_eq!(rules.references[1].rule_id, "channel.id.parity");
+        assert_eq!(reqs.references[1].verb, RefVerb::Verify);
+        assert_eq!(reqs.references[1].req_id, "channel.id.parity");
 
-        assert_eq!(rules.references[2].verb, RefVerb::Depends);
-        assert_eq!(rules.references[2].rule_id, "channel.framing");
+        assert_eq!(reqs.references[2].verb, RefVerb::Depends);
+        assert_eq!(reqs.references[2].req_id, "channel.framing");
 
-        assert_eq!(rules.references[3].verb, RefVerb::Related);
-        assert_eq!(rules.references[3].rule_id, "channel.errors");
+        assert_eq!(reqs.references[3].verb, RefVerb::Related);
+        assert_eq!(reqs.references[3].req_id, "channel.errors");
 
-        assert_eq!(rules.references[4].verb, RefVerb::Define);
-        assert_eq!(rules.references[4].rule_id, "channel.id.format");
+        assert_eq!(reqs.references[4].verb, RefVerb::Define);
+        assert_eq!(reqs.references[4].req_id, "channel.id.format");
     }
 
     #[test]
@@ -448,10 +448,10 @@ mod tests {
             fn next_channel_id() {}
         "#;
 
-        let rules = Rules::extract_from_content(Path::new("test.rs"), content);
-        assert_eq!(rules.len(), 2);
-        assert_eq!(rules.references[0].rule_id, "channel.id.parity");
-        assert_eq!(rules.references[1].rule_id, "channel.id.no-reuse");
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 2);
+        assert_eq!(reqs.references[0].req_id, "channel.id.parity");
+        assert_eq!(reqs.references[1].req_id, "channel.id.no-reuse");
     }
 
     #[test]
@@ -461,12 +461,12 @@ mod tests {
             fn foo() {}
         "#;
 
-        let rules = Rules::extract_from_content(Path::new("test.rs"), content);
-        assert_eq!(rules.len(), 2);
-        assert_eq!(rules.references[0].rule_id, "channel.id.one");
-        assert_eq!(rules.references[0].verb, RefVerb::Impl);
-        assert_eq!(rules.references[1].rule_id, "channel.id.two");
-        assert_eq!(rules.references[1].verb, RefVerb::Verify);
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 2);
+        assert_eq!(reqs.references[0].req_id, "channel.id.one");
+        assert_eq!(reqs.references[0].verb, RefVerb::Impl);
+        assert_eq!(reqs.references[1].req_id, "channel.id.two");
+        assert_eq!(reqs.references[1].verb, RefVerb::Verify);
     }
 
     #[test]
@@ -477,8 +477,8 @@ mod tests {
             fn foo() {}
         "#;
 
-        let rules = Rules::extract_from_content(Path::new("test.rs"), content);
-        assert_eq!(rules.len(), 0);
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 0);
     }
 
     #[test]
@@ -491,9 +491,9 @@ mod tests {
             fn foo() {}
         "#;
 
-        let rules = Rules::extract_from_content(Path::new("test.rs"), content);
-        assert_eq!(rules.len(), 0);
-        assert_eq!(rules.warnings.len(), 0); // No warnings for unknown verbs
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 0);
+        assert_eq!(reqs.warnings.len(), 0); // No warnings for unknown verbs
     }
 
     #[test]
@@ -508,10 +508,10 @@ mod tests {
     #[test]
     fn test_span_tracking() {
         let content = "// r[impl foo.bar]";
-        let rules = Rules::extract_from_content(Path::new("test.rs"), content);
-        assert_eq!(rules.len(), 1);
-        assert_eq!(rules.references[0].prefix, "r");
-        assert_eq!(rules.references[0].span.offset, 3); // after "// ", points to 'r'
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs.references[0].prefix, "r");
+        assert_eq!(reqs.references[0].span.offset, 3); // after "// ", points to 'r'
     }
 
     #[test]
@@ -522,12 +522,12 @@ mod tests {
             fn test() {}
         "#;
 
-        let rules = Rules::extract_from_content(Path::new("test.rs"), content);
-        assert_eq!(rules.len(), 2);
-        assert_eq!(rules.references[0].prefix, "h2");
-        assert_eq!(rules.references[0].rule_id, "stream.priority");
-        assert_eq!(rules.references[1].prefix, "m");
-        assert_eq!(rules.references[1].rule_id, "message.format");
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 2);
+        assert_eq!(reqs.references[0].prefix, "h2");
+        assert_eq!(reqs.references[0].req_id, "stream.priority");
+        assert_eq!(reqs.references[1].prefix, "m");
+        assert_eq!(reqs.references[1].req_id, "message.format");
     }
 
     #[test]
@@ -539,10 +539,10 @@ mod tests {
             `;
         "#;
 
-        let rules = Rules::extract_from_content(Path::new("test.tsx"), content);
-        assert_eq!(rules.len(), 1);
-        assert_eq!(rules.references[0].prefix, "r");
-        assert_eq!(rules.references[0].verb, RefVerb::Impl);
-        assert_eq!(rules.references[0].rule_id, "dashboard.header.search");
+        let reqs = Reqs::extract_from_content(Path::new("test.tsx"), content);
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs.references[0].prefix, "r");
+        assert_eq!(reqs.references[0].verb, RefVerb::Impl);
+        assert_eq!(reqs.references[0].req_id, "dashboard.header.search");
     }
 }

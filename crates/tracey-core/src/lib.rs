@@ -83,15 +83,15 @@
 //! Use [`MemorySources`] when you don't want to hit the filesystem:
 //!
 //! ```
-//! use tracey_core::{Rules, MemorySources, Sources};
+//! use tracey_core::{Reqs, MemorySources, Sources};
 //!
-//! let rules = Rules::extract(
+//! let result = Reqs::extract(
 //!     MemorySources::new()
 //!         .add("foo.rs", "// r[impl test.req]")
 //!         .add("bar.rs", "// r[verify other.req]")
 //! ).unwrap();
 //!
-//! assert_eq!(rules.len(), 2);
+//! assert_eq!(result.reqs.len(), 2);
 //! ```
 
 mod coverage;
@@ -103,9 +103,10 @@ mod spec;
 pub mod code_units;
 
 pub use coverage::CoverageReport;
-pub use lexer::{ParseWarning, RefVerb, RuleReference, Rules, SourceSpan, WarningKind};
+pub use lexer::{ParseWarning, RefVerb, ReqReference, Reqs, SourceSpan, WarningKind};
 pub use sources::{
-    MemorySources, PathSources, SUPPORTED_EXTENSIONS, Sources, is_supported_extension,
+    ExtractionResult, MemorySources, PathSources, SUPPORTED_EXTENSIONS, Sources,
+    is_supported_extension,
 };
 pub use spec::ReqDefinition;
 
