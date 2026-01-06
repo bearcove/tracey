@@ -371,6 +371,25 @@ Both HTTP and MCP modes MUST use the same underlying coverage computation and st
 r[server.state.version]
 The server MUST maintain a version identifier that changes when any source data changes.
 
+## Validation
+
+Tracey validates the integrity and quality of rule definitions and references.
+
+r[validation.broken-refs]
+The system MUST detect and report references to non-existent rule IDs in implementation and verification comments.
+
+r[validation.naming]
+The system MUST validate that rule IDs follow the configured naming convention (e.g., section.subsection.name format).
+
+r[validation.circular-deps]
+The system MUST detect circular dependencies if rules reference each other, preventing infinite loops in dependency resolution.
+
+r[validation.orphaned]
+The system MUST identify rules that are defined in specs but never referenced in implementation or verification comments.
+
+r[validation.duplicates]
+The system MUST detect duplicate rule IDs across all spec files.
+
 ## MCP Server
 
 The MCP server exposes tracey functionality as tools for AI assistants.
@@ -486,22 +505,7 @@ Responses MUST include hints showing how to query for more specific results.
 r[mcp.discovery.pagination]
 Large result sets SHOULD be paginated with hints showing how to retrieve more results.
 
-### Validation
-
-r[validation.broken-refs]
-The system MUST detect and report references to non-existent rule IDs in implementation and verification comments.
-
-r[validation.naming]
-The system MUST validate that rule IDs follow the configured naming convention (e.g., section.subsection.name format).
-
-r[validation.circular-deps]
-The system MUST detect circular dependencies if rules reference each other, preventing infinite loops in dependency resolution.
-
-r[validation.orphaned]
-The system MUST identify rules that are defined in specs but never referenced in implementation or verification comments.
-
-r[validation.duplicates]
-The system MUST detect duplicate rule IDs across all spec files.
+### Validation Tools
 
 r[mcp.validation.check]
 The `tracey_validate` tool MUST run all validation checks and return a report of issues found (broken refs, naming violations, circular deps, orphaned rules, duplicates).
@@ -512,7 +516,7 @@ The dashboard MUST display validation errors prominently, with links to the prob
 r[dashboard.validation.continuous]
 The dashboard SHOULD run validation continuously and update the UI when new issues are detected.
 
-### Smart Queries
+### Query Tools
 
 r[mcp.query.search]
 The `tracey_search` tool MUST support keyword search across rule text and IDs, returning matching rules with their definitions and references.
