@@ -44,7 +44,7 @@ use tracey_core::{RefVerb, ReqDefinition, Reqs};
 use tracing::{debug, error, info, warn};
 
 // Markdown rendering
-use bearmark::{
+use marq::{
     AasvgHandler, ArboriumHandler, PikruHandler, RenderOptions, ReqHandler, parse_frontmatter,
     render,
 };
@@ -246,7 +246,7 @@ impl ReqHandler for TraceyRuleHandler {
     fn start<'a>(
         &'a self,
         rule: &'a ReqDefinition,
-    ) -> Pin<Box<dyn Future<Output = bearmark::Result<String>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = marq::Result<String>> + Send + 'a>> {
         Box::pin(async move {
             let coverage = self.coverage.get(&rule.id);
             let status = coverage.map(|c| c.status).unwrap_or("uncovered");
@@ -365,7 +365,7 @@ impl ReqHandler for TraceyRuleHandler {
     fn end<'a>(
         &'a self,
         _rule: &'a ReqDefinition,
-    ) -> Pin<Box<dyn Future<Output = bearmark::Result<String>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = marq::Result<String>> + Send + 'a>> {
         Box::pin(async move {
             // Close the rule container
             Ok("</div>\n</div>".to_string())
@@ -767,7 +767,7 @@ async fn load_spec_content(
     // Shared source file tracker for rule handler
     let current_source_file = Arc::new(Mutex::new(String::new()));
 
-    // Set up bearmark handlers for consistent rendering with coverage-aware rule rendering
+    // Set up marq handlers for consistent rendering with coverage-aware rule rendering
     // TODO: Add real git status checking
     let git_status = HashMap::new();
     let rule_handler = TraceyRuleHandler::new(
@@ -876,10 +876,10 @@ async fn load_spec_content(
 /// Build an outline with coverage info from document elements.
 /// Returns a flat list of outline entries with both direct and aggregated coverage.
 fn build_outline(
-    elements: &[bearmark::DocElement],
+    elements: &[marq::DocElement],
     coverage: &BTreeMap<String, RuleCoverage>,
 ) -> Vec<OutlineEntry> {
-    use bearmark::DocElement;
+    use marq::DocElement;
 
     // First pass: collect headings with their direct rule coverage
     let mut entries: Vec<OutlineEntry> = Vec::new();
@@ -1551,9 +1551,9 @@ async fn api_update_file_range(
 /// POST /api/preview-markdown
 /// Render markdown to HTML for live preview
 async fn api_preview_markdown(Json(req): Json<ApiPreviewMarkdown>) -> impl IntoResponse {
-    // Use bearmark to render the markdown (same as dashboard)
-    let options = bearmark::RenderOptions::default();
-    match bearmark::render(&req.content, &options).await {
+    // Use marq to render the markdown (same as dashboard)
+    let options = marq::RenderOptions::default();
+    match marq::render(&req.content, &options).await {
         Ok(result) => Json(ApiPreviewResponse { html: result.html }).into_response(),
         Err(e) => (
             StatusCode::BAD_REQUEST,

@@ -18,8 +18,8 @@ use owo_colors::OwoColorize;
 use std::path::PathBuf;
 use tracey_core::ReqDefinition;
 
-// Re-export from bearmark for rule extraction
-use bearmark::{RenderOptions, render};
+// Re-export from marq for rule extraction
+use marq::{RenderOptions, render};
 
 /// CLI arguments
 #[derive(Debug, facet::Facet)]
@@ -157,7 +157,7 @@ pub(crate) async fn load_rules_from_glob(
         let content = std::fs::read_to_string(path)
             .wrap_err_with(|| format!("Failed to read {}", path.display()))?;
 
-        // bearmark implements markdown rule extraction:
+        // marq implements markdown rule extraction:
         // r[impl markdown.syntax.marker] - r[rule.id] syntax
         // r[impl markdown.syntax.standalone] - rule on its own line
         // r[impl markdown.syntax.inline-ignored] - inline markers ignored
@@ -177,7 +177,7 @@ pub(crate) async fn load_rules_from_glob(
             }
 
             // Check for duplicates
-            // r[impl markdown.duplicates.same-file] - caught when bearmark returns duplicate reqs from single file
+            // r[impl markdown.duplicates.same-file] - caught when marq returns duplicate reqs from single file
             // r[impl markdown.duplicates.cross-file] - caught via seen_ids persisting across files
             for req in &doc.reqs {
                 if seen_ids.contains(&req.id) {

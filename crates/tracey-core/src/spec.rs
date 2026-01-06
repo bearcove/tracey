@@ -1,3 +1,3 @@
-//! Req definitions re-exported from bearmark
+//! Req definitions re-exported from marq
 
-pub use bearmark::ReqDefinition;
+pub use marq::ReqDefinition;

@@ -41,7 +41,6 @@ rayon = "1"
 owo-colors = "4"
 
 # Tree-sitter parsing (for reverse traceability)
-# Note: async_tiny was removed - now using axum
 arborium = { version = "2", features = [
     "lang-rust", "lang-c", "lang-cpp", "lang-go", "lang-zig",
     "lang-javascript", "lang-typescript", "lang-tsx",
@@ -70,7 +69,7 @@ notify-debouncer-mini = "0.7"
 tantivy = "0.22"
 
 # Markdown processing (with syntax highlighting and diagram handlers)
-bearmark = { path = "../dodeca/crates/bearmark", features = ["highlight", "aasvg", "pikru"] }
+marq = { git = "https://github.com/bearcove/marq", features = ["highlight", "aasvg", "pikru"] }
 
 # The profile that 'dist' will build with
 [profile.dist]

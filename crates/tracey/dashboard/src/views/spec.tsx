@@ -236,7 +236,6 @@ export function SpecView({
   selectedImpl,
   selectedRule,
   selectedHeading,
-  onSelectSpec,
   onSelectRule,
   onSelectFile,
   scrollPosition,
@@ -486,9 +485,7 @@ export function SpecView({
             .then((data: FileContent) => {
               console.log("Setting preview modal");
               // Find the code unit containing this line
-              const unit = data.units.find(
-                (u) => line >= u.startLine && line <= u.endLine
-              );
+              const unit = data.units.find((u) => line >= u.startLine && line <= u.endLine);
               const lineEnd = unit ? unit.endLine : line;
               setPreviewModal({ fileData: data, line, lineEnd, type });
             })
@@ -531,7 +528,7 @@ export function SpecView({
 
           // Find the req-container
           const reqContainer = editBadge.closest(".req-container") as HTMLElement | null;
-          if (reqContainer && reqContainer.parentElement) {
+          if (reqContainer?.parentElement) {
             // Save original element and its position
             const placeholder = document.createComment("editor-placeholder");
             reqContainer.parentElement.insertBefore(placeholder, reqContainer);

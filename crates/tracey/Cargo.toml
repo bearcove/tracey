@@ -47,7 +47,7 @@ owo-colors = { workspace = true }
 ignore = { workspace = true }
 
 # Markdown rendering with syntax highlighting and diagrams
-bearmark = { workspace = true }
+marq = { workspace = true }
 
 # Syntax highlighting for source files
 arborium = { workspace = true }
