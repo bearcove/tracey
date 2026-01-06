@@ -656,17 +656,28 @@ Both `tracey serve` (HTTP) and `tracey mcp` (MCP) share a common headless server
 
 ### File Watching
 
-r[server.watch.sources]
-The server MUST watch source files for changes and update coverage data automatically.
+> r[server.watch.patterns-from-config]
+> The file watcher MUST derive which files to watch from the configuration's `include` patterns (both spec includes and impl includes), rather than hardcoding watched directories. For example, if the config contains:
+>
+> ```kdl
+> include "crates/**/*.rs"
+> include "crates/tracey/dashboard/src/**/*.tsx"
+> include "docs/spec/**/*.md"
+> ```
+>
+> Then changes to `crates/foo/bar.rs`, `crates/tracey/dashboard/src/main.tsx`, and `docs/spec/tracey.md` should all trigger rebuilds.
 
-r[server.watch.specs]
-The server MUST watch specification markdown files for changes and update requirement data automatically.
+r[server.watch.respect-gitignore]
+The file watcher MUST respect `.gitignore` rules, not triggering rebuilds for ignored files even if they match include patterns.
 
-r[server.watch.config]
-The server MUST watch its configuration file for changes and reload configuration automatically.
+r[server.watch.respect-excludes]
+The file watcher MUST respect `exclude` patterns from the configuration, not triggering rebuilds for files matching exclude patterns even if they match include patterns.
+
+r[server.watch.config-file]
+The file watcher MUST watch the configuration file itself (`.config/tracey/config.kdl`) for changes, triggering a rebuild when configuration changes.
 
 r[server.watch.debounce]
-File change events SHOULD be debounced to avoid excessive recomputation during rapid edits.
+File change events MUST be debounced (default: 200ms) to avoid excessive recomputation during rapid edits.
 
 ### State Management
 

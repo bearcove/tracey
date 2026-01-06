@@ -2191,6 +2191,7 @@ async fn run_server(
         let watch_root = watch_project_root.clone();
         let watch_root_for_closure = watch_root.clone();
 
+        // r[impl server.watch.patterns-from-config]
         // Collect all include patterns from config (specs + impls)
         let mut include_patterns: Vec<String> = Vec::new();
         let mut exclude_patterns: Vec<String> = Vec::new();
@@ -2209,27 +2210,14 @@ async fn run_server(
                 }
             }
         }
+        // r[impl server.watch.config-file]
         // Also watch the config file itself
         include_patterns.push(".config/tracey/config.kdl".to_string());
 
+        // r[impl server.watch.debounce]
         let mut debouncer = match new_debouncer(
             Duration::from_millis(200),
             move |res: Result<Vec<notify_debouncer_mini::DebouncedEvent>, notify::Error>| {
-                // Always ignore these directories (build artifacts, dependencies, VCS)
-                let always_ignored = ["node_modules", "target", ".git", ".vite"];
-
-                let is_always_ignored = |path: &Path| {
-                    for component in path.components() {
-                        if let std::path::Component::Normal(name) = component
-                            && let Some(name_str) = name.to_str()
-                            && always_ignored.contains(&name_str)
-                        {
-                            return true;
-                        }
-                    }
-                    false
-                };
-
                 // Check if path matches any include pattern (relative to watch root)
                 let matches_include = |path: &Path| {
                     let relative = path
@@ -2246,6 +2234,7 @@ async fn run_server(
                     false
                 };
 
+                // r[impl server.watch.respect-excludes]
                 // Check if path matches any exclude pattern
                 let matches_exclude = |path: &Path| {
                     let relative = path
@@ -2262,9 +2251,7 @@ async fn run_server(
                     false
                 };
 
-                let should_trigger = |path: &Path| {
-                    !is_always_ignored(path) && matches_include(path) && !matches_exclude(path)
-                };
+                let should_trigger = |path: &Path| matches_include(path) && !matches_exclude(path);
 
                 match res {
                     Ok(events) => {

@@ -1125,6 +1125,10 @@ a.rule-marker:hover {
     background: color-mix(in srgb, var(--green) 15%, transparent);
     color: var(--green);
     border: 1px solid color-mix(in srgb, var(--green) 30%, transparent);
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.25rem;
 }
 
 .req-badge.req-test {
