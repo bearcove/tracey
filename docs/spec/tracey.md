@@ -17,13 +17,13 @@ Tracey extracts rule references from source code comments in any programming lan
 ### Basic Syntax
 
 r[ref.syntax.brackets]
-A rule reference MUST be enclosed in square brackets within a comment.
+A rule reference MUST be written as `r[verb rule.id]` within a comment, where the `r` prefix identifies it as a tracey rule reference.
 
 r[ref.syntax.rule-id]
 A rule ID MUST consist of one or more segments separated by dots. Each segment MUST contain only alphanumeric characters, hyphens, or underscores.
 
 r[ref.syntax.verb]
-A rule reference MAY include a verb prefix before the rule ID, separated by a space.
+A rule reference MAY include a verb prefix before the rule ID, separated by a space. If no verb is provided, `impl` is assumed.
 
 ### Supported Verbs
 
@@ -31,9 +31,9 @@ Source code references use verbs to indicate the relationship between code and r
 
 > r[ref.verb.impl]
 > Tracey MUST interpret the `impl` verb as indicating that the code implements the referenced rule.
-> 
+>
 > ```rust
-> // [impl auth.token.validation]
+> // r[impl auth.token.validation]
 > fn validate_token(token: &str) -> bool {
 >     // etc.
 > }
@@ -44,7 +44,7 @@ Source code references use verbs to indicate the relationship between code and r
 >
 > ```typescript
 > test('token validation', () => {
->     // [verify auth.token.validation]
+>     // r[verify auth.token.validation]
 >     expect(validateToken('abc')).toBe(true);
 > });
 > ```
@@ -53,7 +53,7 @@ Source code references use verbs to indicate the relationship between code and r
 > Tracey MUST interpret the `depends` verb as indicating a strict dependency — the code must be rechecked if the referenced rule changes.
 >
 > ```python
-> # [depends auth.crypto.algorithm]
+> # r[depends auth.crypto.algorithm]
 > # This code must be reviewed if the crypto algorithm changes
 > def hash_password(password: str) -> str:
 >     return bcrypt.hashpw(password.encode(), bcrypt.gensalt())
@@ -63,7 +63,7 @@ Source code references use verbs to indicate the relationship between code and r
 > Tracey MUST interpret the `related` verb as indicating a loose connection, shown when reviewing related code.
 >
 > ```swift
-> // [related user.session.timeout]
+> // r[related user.session.timeout]
 > // Session cleanup is related to timeout rules
 > func cleanupExpiredSessions() {
 >     sessions.removeAll { $0.isExpired }
@@ -74,7 +74,7 @@ Source code references use verbs to indicate the relationship between code and r
 > When no verb is provided, the reference SHOULD be treated as an `impl` reference.
 >
 > ```go
-> // [auth.token.validation] - no verb, defaults to 'impl'
+> // r[auth.token.validation] - no verb, defaults to 'impl'
 > func ValidateToken(token string) bool {
 >     return len(token) > 0
 > }
@@ -104,7 +104,7 @@ Each extracted rule reference MUST include the path to the source file.
 
 ## Rule Definitions in Markdown
 
-Tracey extracts rule definitions from markdown specification documents. Unlike source code which uses verbs like `[impl rule.id]`, markdown uses `r[rule.id]` to define rules.
+Tracey extracts rule definitions from markdown specification documents. Unlike source code which uses verbs like `r[impl rule.id]`, markdown uses `r[rule.id]` to define rules.
 
 ### Markdown Rule Syntax
 
