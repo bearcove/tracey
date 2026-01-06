@@ -19,6 +19,21 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 use crate::serve::DashboardData;
 
+// Semantic token types for requirement references
+// r[impl lsp.semantic-tokens.prefix]
+// r[impl lsp.semantic-tokens.verb]
+// r[impl lsp.semantic-tokens.req-id]
+const SEMANTIC_TOKEN_TYPES: &[SemanticTokenType] = &[
+    SemanticTokenType::NAMESPACE, // 0: prefix (e.g., "r")
+    SemanticTokenType::KEYWORD,   // 1: verb (impl, verify, depends, related)
+    SemanticTokenType::VARIABLE,  // 2: requirement ID
+];
+
+const SEMANTIC_TOKEN_MODIFIERS: &[SemanticTokenModifier] = &[
+    SemanticTokenModifier::DEFINITION, // 0: for definitions in spec files
+    SemanticTokenModifier::DECLARATION, // 1: for valid references
+];
+
 /// Run the LSP server over stdio
 /// r[impl cli.lsp]
 pub async fn run(root: Option<PathBuf>, config_path: Option<PathBuf>) -> Result<()> {
@@ -72,6 +87,39 @@ struct Backend {
     documents: std::sync::RwLock<HashMap<String, String>>,
 }
 
+/// Simple Levenshtein distance for string similarity
+fn strsim_distance(a: &str, b: &str) -> usize {
+    let a_chars: Vec<char> = a.chars().collect();
+    let b_chars: Vec<char> = b.chars().collect();
+    let m = a_chars.len();
+    let n = b_chars.len();
+
+    if m == 0 {
+        return n;
+    }
+    if n == 0 {
+        return m;
+    }
+
+    let mut prev = (0..=n).collect::<Vec<_>>();
+    let mut curr = vec![0; n + 1];
+
+    for i in 1..=m {
+        curr[0] = i;
+        for j in 1..=n {
+            let cost = if a_chars[i - 1] == b_chars[j - 1] {
+                0
+            } else {
+                1
+            };
+            curr[j] = (prev[j] + 1).min(curr[j - 1] + 1).min(prev[j - 1] + cost);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+
+    prev[n]
+}
+
 /// Result of finding a requirement at a position
 struct ReqAtPosition {
     /// The requirement ID (e.g., "config.path.default")
@@ -80,6 +128,107 @@ struct ReqAtPosition {
     full_range: Range,
     /// Range of just the requirement ID (e.g., "config.path.default")
     id_range: Range,
+}
+
+/// A requirement reference found in markdown
+struct MarkdownRef {
+    req_id: String,
+    byte_offset: usize,
+    byte_length: usize,
+    is_definition: bool,
+}
+
+/// Extract requirement references from markdown content
+/// Markdown uses patterns like `r[rule.id]` for definitions
+fn extract_markdown_refs(content: &str, prefixes: &[String]) -> Vec<MarkdownRef> {
+    let mut refs = Vec::new();
+    let mut chars = content.char_indices().peekable();
+
+    while let Some((start_idx, ch)) = chars.next() {
+        // Look for prefix characters (lowercase or digit)
+        if !ch.is_ascii_lowercase() && !ch.is_ascii_digit() {
+            continue;
+        }
+
+        let prefix_start = start_idx;
+        let mut prefix = String::new();
+        prefix.push(ch);
+
+        // Continue reading prefix (can be multi-char like "h2")
+        while let Some(&(_, next_ch)) = chars.peek() {
+            if next_ch == '[' {
+                break;
+            } else if next_ch.is_ascii_lowercase() || next_ch.is_ascii_digit() {
+                prefix.push(next_ch);
+                chars.next();
+            } else {
+                break;
+            }
+        }
+
+        // Check if this prefix is known
+        if !prefixes.contains(&prefix) {
+            continue;
+        }
+
+        // Check for '[' after prefix
+        if let Some(&(_, '[')) = chars.peek() {
+            chars.next(); // consume '['
+        } else {
+            continue;
+        }
+
+        // Parse content inside brackets: could be "rule.id" or "verb rule.id"
+        let mut inner = String::new();
+        let mut found_close = false;
+
+        for (_, c) in chars.by_ref() {
+            if c == ']' {
+                found_close = true;
+                break;
+            }
+            inner.push(c);
+        }
+
+        if !found_close || inner.is_empty() {
+            continue;
+        }
+
+        // Parse the inner content
+        let inner = inner.trim();
+        let (is_definition, req_id) = if let Some(space_pos) = inner.find(' ') {
+            // Has a verb: "impl rule.id" or "verify rule.id"
+            let verb = &inner[..space_pos];
+            let id = inner[space_pos + 1..].trim();
+            let is_def = verb == "define";
+            (is_def, id.to_string())
+        } else {
+            // No verb - this is a definition in markdown
+            (true, inner.to_string())
+        };
+
+        // Validate the req_id (must contain a dot and be valid identifier chars)
+        if !req_id.contains('.') {
+            continue;
+        }
+        if !req_id
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '-')
+        {
+            continue;
+        }
+
+        let byte_length = prefix.len() + 1 + inner.len() + 1; // prefix + '[' + inner + ']'
+
+        refs.push(MarkdownRef {
+            req_id,
+            byte_offset: prefix_start,
+            byte_length,
+            is_definition,
+        });
+    }
+
+    refs
 }
 
 impl Backend {
@@ -101,6 +250,12 @@ impl Backend {
         self.data_rx.borrow().clone()
     }
 
+    /// Get all valid prefixes from configuration
+    fn get_prefixes(&self) -> Vec<String> {
+        let data = self.data();
+        data.config.specs.iter().map(|s| s.prefix.clone()).collect()
+    }
+
     /// Get all requirement IDs with their descriptions from current data
     fn get_requirements(&self) -> Vec<(String, String, String)> {
         let data = self.data();
@@ -115,6 +270,136 @@ impl Backend {
         }
 
         reqs
+    }
+
+    /// Compute diagnostics for a document
+    /// r[impl lsp.diagnostics.broken-refs]
+    /// r[impl lsp.diagnostics.unknown-prefix]
+    /// r[impl lsp.diagnostics.unknown-verb]
+    fn compute_diagnostics(&self, _uri: &Url, content: &str) -> Vec<Diagnostic> {
+        use tracey_core::{RefVerb, Reqs, WarningKind};
+
+        let mut diagnostics = Vec::new();
+        let prefixes = self.get_prefixes();
+
+        // Build line starts for byte offset to line/column conversion
+        let line_starts: Vec<usize> = std::iter::once(0)
+            .chain(content.match_indices('\n').map(|(i, _)| i + 1))
+            .collect();
+
+        // Helper to convert byte offset to (line, column)
+        let offset_to_position = |offset: usize| -> Position {
+            let line = match line_starts.binary_search(&offset) {
+                Ok(line) => line,
+                Err(line) => line.saturating_sub(1),
+            };
+            let line_start = line_starts.get(line).copied().unwrap_or(0);
+            let column = offset.saturating_sub(line_start);
+            Position {
+                line: line as u32,
+                character: column as u32,
+            }
+        };
+
+        // Extract references from the content
+        let reqs = Reqs::extract_from_content(std::path::Path::new(""), content);
+
+        // Check each reference
+        for reference in &reqs.references {
+            // r[impl lsp.diagnostics.unknown-prefix]
+            if !prefixes.contains(&reference.prefix) {
+                let start = offset_to_position(reference.span.offset);
+                let end = offset_to_position(reference.span.offset + reference.span.length);
+                diagnostics.push(Diagnostic {
+                    range: Range { start, end },
+                    severity: Some(DiagnosticSeverity::ERROR),
+                    code: Some(NumberOrString::String("unknown-prefix".to_string())),
+                    source: Some("tracey".to_string()),
+                    message: format!(
+                        "Unknown prefix '{}'. Available prefixes: {}",
+                        reference.prefix,
+                        prefixes.join(", ")
+                    ),
+                    ..Default::default()
+                });
+                continue;
+            }
+
+            // r[impl lsp.diagnostics.broken-refs]
+            // Only check impl/verify/depends refs, not definitions
+            if !matches!(reference.verb, RefVerb::Define)
+                && self.find_requirement(&reference.req_id).is_none()
+            {
+                let start = offset_to_position(reference.span.offset);
+                let end = offset_to_position(reference.span.offset + reference.span.length);
+
+                // Find similar requirement IDs for suggestions
+                let similar = self.find_similar_requirements(&reference.req_id, 3);
+                let suggestion = if !similar.is_empty() {
+                    format!(". Did you mean '{}'?", similar.join("', '"))
+                } else {
+                    String::new()
+                };
+
+                diagnostics.push(Diagnostic {
+                    range: Range { start, end },
+                    severity: Some(DiagnosticSeverity::ERROR),
+                    code: Some(NumberOrString::String("broken-ref".to_string())),
+                    source: Some("tracey".to_string()),
+                    message: format!("Unknown requirement '{}'{}", reference.req_id, suggestion),
+                    ..Default::default()
+                });
+            }
+        }
+
+        // r[impl lsp.diagnostics.unknown-verb]
+        for warning in &reqs.warnings {
+            if let WarningKind::UnknownVerb(verb) = &warning.kind {
+                let start = offset_to_position(warning.span.offset);
+                let end = offset_to_position(warning.span.offset + warning.span.length);
+                diagnostics.push(Diagnostic {
+                    range: Range { start, end },
+                    severity: Some(DiagnosticSeverity::WARNING),
+                    code: Some(NumberOrString::String("unknown-verb".to_string())),
+                    source: Some("tracey".to_string()),
+                    message: format!(
+                        "Unknown verb '{}'. Valid verbs: impl, verify, depends, related",
+                        verb
+                    ),
+                    ..Default::default()
+                });
+            }
+        }
+
+        diagnostics
+    }
+
+    /// Find requirement IDs similar to the given ID (for suggestions)
+    fn find_similar_requirements(&self, query: &str, limit: usize) -> Vec<String> {
+        let reqs = self.get_requirements();
+        let mut scored: Vec<(String, usize)> = reqs
+            .iter()
+            .filter_map(|(id, _, _)| {
+                let distance = strsim_distance(query, id);
+                // Only suggest if reasonably similar (distance < 5)
+                if distance < 5 {
+                    Some((id.clone(), distance))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        scored.sort_by_key(|(_, d)| *d);
+        scored.into_iter().take(limit).map(|(id, _)| id).collect()
+    }
+
+    /// Publish diagnostics for a document
+    /// r[impl lsp.diagnostics.on-change]
+    async fn publish_diagnostics(&self, uri: Url, content: &str) {
+        let diagnostics = self.compute_diagnostics(&uri, content);
+        self.client
+            .publish_diagnostics(uri, diagnostics, None)
+            .await;
     }
 
     /// Find requirement by ID
@@ -253,17 +538,6 @@ impl Backend {
 
         None
     }
-
-    /// Get configured prefixes from data
-    #[allow(dead_code)]
-    fn get_prefixes(&self) -> Vec<(String, String)> {
-        let data = self.data();
-        data.config
-            .specs
-            .iter()
-            .map(|s| (s.prefix.clone(), s.name.clone()))
-            .collect()
-    }
 }
 
 struct RequirementInfo {
@@ -313,6 +587,33 @@ impl LanguageServer for Backend {
                     prepare_provider: Some(true),
                     work_done_progress_options: Default::default(),
                 })),
+                // r[impl lsp.semantic-tokens.prefix]
+                // r[impl lsp.semantic-tokens.verb]
+                // r[impl lsp.semantic-tokens.req-id]
+                semantic_tokens_provider: Some(
+                    SemanticTokensServerCapabilities::SemanticTokensOptions(
+                        SemanticTokensOptions {
+                            legend: SemanticTokensLegend {
+                                token_types: SEMANTIC_TOKEN_TYPES.to_vec(),
+                                token_modifiers: SEMANTIC_TOKEN_MODIFIERS.to_vec(),
+                            },
+                            full: Some(SemanticTokensFullOptions::Bool(true)),
+                            range: None,
+                            ..Default::default()
+                        },
+                    ),
+                ),
+                // r[impl lsp.actions.create-requirement]
+                // r[impl lsp.actions.open-dashboard]
+                code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
+                // r[impl lsp.inlay.coverage-status]
+                // r[impl lsp.inlay.impl-count]
+                inlay_hint_provider: Some(OneOf::Left(true)),
+                // r[impl lsp.codelens.coverage]
+                // r[impl lsp.codelens.run-test]
+                code_lens_provider: Some(CodeLensOptions {
+                    resolve_provider: Some(false),
+                }),
                 // Sync full document content
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
                     TextDocumentSyncKind::FULL,
@@ -330,28 +631,50 @@ impl LanguageServer for Backend {
         Ok(())
     }
 
+    // r[impl lsp.diagnostics.on-change]
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        let uri = params.text_document.uri.to_string();
-        let content = params.text_document.text;
+        let uri = params.text_document.uri.clone();
+        let content = params.text_document.text.clone();
         if let Ok(mut docs) = self.documents.write() {
-            docs.insert(uri, content);
+            docs.insert(uri.to_string(), content.clone());
+        }
+        // Publish diagnostics for the opened document
+        self.publish_diagnostics(uri, &content).await;
+    }
+
+    // r[impl lsp.diagnostics.on-change]
+    async fn did_change(&self, params: DidChangeTextDocumentParams) {
+        let uri = params.text_document.uri.clone();
+        if let Some(change) = params.content_changes.into_iter().next() {
+            let content = change.text.clone();
+            if let Ok(mut docs) = self.documents.write() {
+                docs.insert(uri.to_string(), content.clone());
+            }
+            // Publish diagnostics for the changed document
+            self.publish_diagnostics(uri, &content).await;
         }
     }
 
-    async fn did_change(&self, params: DidChangeTextDocumentParams) {
-        let uri = params.text_document.uri.to_string();
-        if let Some(change) = params.content_changes.into_iter().next()
-            && let Ok(mut docs) = self.documents.write()
-        {
-            docs.insert(uri, change.text);
+    // r[impl lsp.diagnostics.on-save]
+    async fn did_save(&self, params: DidSaveTextDocumentParams) {
+        let uri = params.text_document.uri.clone();
+        // Re-compute diagnostics on save for accurate results
+        let content = {
+            let docs = self.documents.read();
+            docs.ok().and_then(|d| d.get(uri.as_str()).cloned())
+        };
+        if let Some(content) = content {
+            self.publish_diagnostics(uri, &content).await;
         }
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
-        let uri = params.text_document.uri.to_string();
+        let uri = params.text_document.uri.clone();
         if let Ok(mut docs) = self.documents.write() {
-            docs.remove(&uri);
+            docs.remove(uri.as_str());
         }
+        // Clear diagnostics when file is closed
+        self.client.publish_diagnostics(uri, vec![], None).await;
     }
 
     // r[impl lsp.completions.req-id]
@@ -941,6 +1264,504 @@ impl LanguageServer for Backend {
                 document_changes: None,
                 change_annotations: None,
             }))
+        }
+    }
+
+    // r[impl lsp.semantic-tokens.prefix]
+    // r[impl lsp.semantic-tokens.verb]
+    // r[impl lsp.semantic-tokens.req-id]
+    async fn semantic_tokens_full(
+        &self,
+        params: SemanticTokensParams,
+    ) -> LspResult<Option<SemanticTokensResult>> {
+        use tracey_core::{RefVerb, Reqs};
+
+        let uri = &params.text_document.uri;
+
+        let content = {
+            let docs = self.documents.read();
+            docs.ok().and_then(|d| d.get(uri.as_str()).cloned())
+        };
+
+        let Some(content) = content else {
+            return Ok(None);
+        };
+
+        let prefixes = self.get_prefixes();
+        let reqs = Reqs::extract_from_content(std::path::Path::new(""), &content);
+
+        // Build line starts for byte offset to line/column conversion
+        let line_starts: Vec<usize> = std::iter::once(0)
+            .chain(content.match_indices('\n').map(|(i, _)| i + 1))
+            .collect();
+
+        let offset_to_line_col = |offset: usize| -> (u32, u32) {
+            let line = match line_starts.binary_search(&offset) {
+                Ok(line) => line,
+                Err(line) => line.saturating_sub(1),
+            };
+            let line_start = line_starts.get(line).copied().unwrap_or(0);
+            let column = offset.saturating_sub(line_start);
+            (line as u32, column as u32)
+        };
+
+        // Collect tokens for each reference, sorted by position
+        let mut token_data: Vec<(u32, u32, u32, u32, u32)> = Vec::new(); // (line, col, len, type, modifiers)
+
+        for reference in &reqs.references {
+            // Only process known prefixes
+            if !prefixes.contains(&reference.prefix) {
+                continue;
+            }
+
+            let (line, start_col) = offset_to_line_col(reference.span.offset);
+
+            // Token for the entire reference: prefix[verb req_id] or prefix[req_id]
+            // We'll highlight the whole thing as a requirement ID
+            let is_definition = matches!(reference.verb, RefVerb::Define);
+            let modifier_bits = if is_definition { 1 } else { 2 }; // DEFINITION or DECLARATION
+
+            // Token type 2 = requirement ID (VARIABLE)
+            token_data.push((
+                line,
+                start_col,
+                reference.span.length as u32,
+                2,
+                modifier_bits,
+            ));
+        }
+
+        // Sort by line, then column
+        token_data.sort_by_key(|(line, col, _, _, _)| (*line, *col));
+
+        // Convert to delta encoding
+        let mut tokens = Vec::new();
+        let mut prev_line = 0u32;
+        let mut prev_col = 0u32;
+
+        for (line, col, len, token_type, modifiers) in token_data {
+            let delta_line = line - prev_line;
+            let delta_col = if delta_line == 0 { col - prev_col } else { col };
+
+            tokens.push(SemanticToken {
+                delta_line,
+                delta_start: delta_col,
+                length: len,
+                token_type,
+                token_modifiers_bitset: modifiers,
+            });
+
+            prev_line = line;
+            prev_col = col;
+        }
+
+        Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
+            result_id: None,
+            data: tokens,
+        })))
+    }
+
+    // r[impl lsp.actions.create-requirement]
+    // r[impl lsp.actions.open-dashboard]
+    async fn code_action(&self, params: CodeActionParams) -> LspResult<Option<CodeActionResponse>> {
+        let uri = &params.text_document.uri;
+        let position = params.range.start;
+
+        let Some(req) = self.find_req_at_position(uri, position) else {
+            return Ok(None);
+        };
+
+        let mut actions = Vec::new();
+
+        // Check if requirement exists
+        let req_exists = self.find_requirement(&req.id).is_some();
+
+        if !req_exists {
+            // r[impl lsp.actions.create-requirement]
+            // Offer to create the requirement in the spec file
+            actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                title: format!("Create requirement '{}'", req.id),
+                kind: Some(CodeActionKind::QUICKFIX),
+                diagnostics: None,
+                edit: None, // We'll use a command instead for complex logic
+                command: Some(Command {
+                    title: format!("Create requirement '{}'", req.id),
+                    command: "tracey.createRequirement".to_string(),
+                    arguments: Some(vec![serde_json::Value::String(req.id.clone())]),
+                }),
+                is_preferred: Some(true),
+                disabled: None,
+                data: None,
+            }));
+        }
+
+        // r[impl lsp.actions.open-dashboard]
+        // Always offer to open in dashboard
+        actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+            title: format!("Open '{}' in dashboard", req.id),
+            kind: Some(CodeActionKind::SOURCE),
+            diagnostics: None,
+            edit: None,
+            command: Some(Command {
+                title: format!("Open '{}' in dashboard", req.id),
+                command: "tracey.openInDashboard".to_string(),
+                arguments: Some(vec![serde_json::Value::String(req.id.clone())]),
+            }),
+            is_preferred: None,
+            disabled: None,
+            data: None,
+        }));
+
+        if actions.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(actions))
+        }
+    }
+
+    // r[impl lsp.inlay.coverage-status]
+    // r[impl lsp.inlay.impl-count]
+    async fn inlay_hint(&self, params: InlayHintParams) -> LspResult<Option<Vec<InlayHint>>> {
+        use tracey_core::{RefVerb, Reqs};
+
+        let uri = &params.text_document.uri;
+        let is_markdown = uri.path().ends_with(".md");
+
+        let content = {
+            let docs = match self.documents.read() {
+                Ok(d) => d,
+                Err(_) => return Ok(None),
+            };
+            docs.get(uri.as_str()).cloned()
+        };
+
+        let Some(content) = content else {
+            return Ok(None);
+        };
+
+        let prefixes = self.get_prefixes();
+
+        // For markdown files, extract requirements directly from text
+        // (Reqs::extract_from_content only works for source files with // comments)
+        let markdown_refs = if is_markdown {
+            extract_markdown_refs(&content, &prefixes)
+        } else {
+            Vec::new()
+        };
+
+        let reqs = Reqs::extract_from_content(std::path::Path::new(""), &content);
+
+        // Build line starts for byte offset to line/column conversion
+        let line_starts: Vec<usize> = std::iter::once(0)
+            .chain(content.match_indices('\n').map(|(i, _)| i + 1))
+            .collect();
+
+        let offset_to_position = |offset: usize| -> Position {
+            let line = match line_starts.binary_search(&offset) {
+                Ok(line) => line,
+                Err(line) => line.saturating_sub(1),
+            };
+            let line_start = line_starts.get(line).copied().unwrap_or(0);
+            let column = offset.saturating_sub(line_start);
+            Position {
+                line: line as u32,
+                character: column as u32,
+            }
+        };
+
+        let mut hints = Vec::new();
+
+        // Process markdown refs for markdown files
+        for md_ref in &markdown_refs {
+            // Position after the reference
+            let end_offset = md_ref.byte_offset + md_ref.byte_length;
+            let position = offset_to_position(end_offset);
+
+            // Check if position is within requested range
+            if position.line < params.range.start.line || position.line > params.range.end.line {
+                continue;
+            }
+
+            // Look up the requirement
+            let label = if let Some(req_info) = self.find_requirement(&md_ref.req_id) {
+                let impl_count = req_info.impl_refs.len();
+                let verify_count = req_info.verify_refs.len();
+
+                if md_ref.is_definition {
+                    // r[impl lsp.inlay.impl-count]
+                    if impl_count == 0 && verify_count == 0 {
+                        " ← uncovered".to_string()
+                    } else {
+                        format!(
+                            " ← {} impl{}, {} test{}",
+                            impl_count,
+                            if impl_count == 1 { "" } else { "s" },
+                            verify_count,
+                            if verify_count == 1 { "" } else { "s" }
+                        )
+                    }
+                } else {
+                    // r[impl lsp.inlay.coverage-status]
+                    if verify_count > 0 {
+                        " ✓".to_string()
+                    } else if impl_count > 0 {
+                        " ⚠".to_string()
+                    } else {
+                        " ✗".to_string()
+                    }
+                }
+            } else if md_ref.is_definition {
+                " ← (unknown)".to_string()
+            } else {
+                " ?".to_string()
+            };
+
+            hints.push(InlayHint {
+                position,
+                label: InlayHintLabel::String(label),
+                kind: None,
+                text_edits: None,
+                tooltip: None,
+                padding_left: Some(false),
+                padding_right: Some(true),
+                data: None,
+            });
+        }
+
+        // Process source file refs (non-markdown)
+        for reference in &reqs.references {
+            // Only process known prefixes
+            if !prefixes.contains(&reference.prefix) {
+                continue;
+            }
+
+            // Position after the reference
+            let end_offset = reference.span.offset + reference.span.length;
+            let position = offset_to_position(end_offset);
+
+            // Check if position is within requested range
+            if position.line < params.range.start.line || position.line > params.range.end.line {
+                continue;
+            }
+
+            // Look up the requirement
+            let label = if let Some(req_info) = self.find_requirement(&reference.req_id) {
+                let impl_count = req_info.impl_refs.len();
+                let verify_count = req_info.verify_refs.len();
+
+                match reference.verb {
+                    // r[impl lsp.inlay.impl-count]
+                    // Show implementation counts on definitions
+                    RefVerb::Define => {
+                        if impl_count == 0 && verify_count == 0 {
+                            " ← uncovered".to_string()
+                        } else {
+                            format!(
+                                " ← {} impl{}, {} test{}",
+                                impl_count,
+                                if impl_count == 1 { "" } else { "s" },
+                                verify_count,
+                                if verify_count == 1 { "" } else { "s" }
+                            )
+                        }
+                    }
+                    // r[impl lsp.inlay.coverage-status]
+                    // Show coverage status icons on references
+                    _ => {
+                        if verify_count > 0 {
+                            " ✓".to_string() // Has tests
+                        } else if impl_count > 0 {
+                            " ⚠".to_string() // Implemented but not tested
+                        } else {
+                            " ✗".to_string() // Not implemented
+                        }
+                    }
+                }
+            } else {
+                // Unknown requirement
+                match reference.verb {
+                    RefVerb::Define => " ← (unknown)".to_string(),
+                    _ => " ?".to_string(),
+                }
+            };
+
+            hints.push(InlayHint {
+                position,
+                label: InlayHintLabel::String(label),
+                kind: None,
+                text_edits: None,
+                tooltip: None,
+                padding_left: Some(false),
+                padding_right: Some(true),
+                data: None,
+            });
+        }
+
+        if hints.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(hints))
+        }
+    }
+
+    // r[impl lsp.codelens.coverage]
+    // r[impl lsp.codelens.run-test]
+    async fn code_lens(&self, params: CodeLensParams) -> LspResult<Option<Vec<CodeLens>>> {
+        use tracey_core::{RefVerb, Reqs};
+
+        let uri = &params.text_document.uri;
+        let is_markdown = uri.path().ends_with(".md");
+
+        let content = {
+            let docs = match self.documents.read() {
+                Ok(d) => d,
+                Err(_) => return Ok(None),
+            };
+            docs.get(uri.as_str()).cloned()
+        };
+
+        let Some(content) = content else {
+            return Ok(None);
+        };
+
+        let prefixes = self.get_prefixes();
+
+        // For markdown files, extract requirements directly from text
+        let markdown_refs = if is_markdown {
+            extract_markdown_refs(&content, &prefixes)
+        } else {
+            Vec::new()
+        };
+
+        let reqs = Reqs::extract_from_content(std::path::Path::new(""), &content);
+
+        // Build line starts for byte offset to line/column conversion
+        let line_starts: Vec<usize> = std::iter::once(0)
+            .chain(content.match_indices('\n').map(|(i, _)| i + 1))
+            .collect();
+
+        let offset_to_position = |offset: usize| -> Position {
+            let line = match line_starts.binary_search(&offset) {
+                Ok(line) => line,
+                Err(line) => line.saturating_sub(1),
+            };
+            let line_start = line_starts.get(line).copied().unwrap_or(0);
+            let column = offset.saturating_sub(line_start);
+            Position {
+                line: line as u32,
+                character: column as u32,
+            }
+        };
+
+        let mut lenses = Vec::new();
+
+        // Process markdown refs for markdown files
+        for md_ref in &markdown_refs {
+            if !md_ref.is_definition {
+                continue; // Code lens only on definitions in markdown
+            }
+
+            let start_pos = offset_to_position(md_ref.byte_offset);
+            let end_pos = offset_to_position(md_ref.byte_offset + md_ref.byte_length);
+            let range = Range {
+                start: start_pos,
+                end: end_pos,
+            };
+
+            // r[impl lsp.codelens.coverage]
+            if let Some(req_info) = self.find_requirement(&md_ref.req_id) {
+                let impl_count = req_info.impl_refs.len();
+                let verify_count = req_info.verify_refs.len();
+
+                let title = format!(
+                    "{} impl{}, {} test{}",
+                    impl_count,
+                    if impl_count == 1 { "" } else { "s" },
+                    verify_count,
+                    if verify_count == 1 { "" } else { "s" }
+                );
+
+                // r[impl lsp.codelens.clickable]
+                lenses.push(CodeLens {
+                    range,
+                    command: Some(Command {
+                        title,
+                        command: "tracey.showReferences".to_string(),
+                        arguments: Some(vec![serde_json::Value::String(md_ref.req_id.clone())]),
+                    }),
+                    data: None,
+                });
+            }
+        }
+
+        // Process source file refs (non-markdown)
+        for reference in &reqs.references {
+            // Only process known prefixes
+            if !prefixes.contains(&reference.prefix) {
+                continue;
+            }
+
+            let start_pos = offset_to_position(reference.span.offset);
+            let end_pos = offset_to_position(reference.span.offset + reference.span.length);
+            let range = Range {
+                start: start_pos,
+                end: end_pos,
+            };
+
+            match reference.verb {
+                // r[impl lsp.codelens.coverage]
+                // Show coverage counts on requirement definitions
+                RefVerb::Define => {
+                    if let Some(req_info) = self.find_requirement(&reference.req_id) {
+                        let impl_count = req_info.impl_refs.len();
+                        let verify_count = req_info.verify_refs.len();
+
+                        let title = format!(
+                            "{} impl{}, {} test{}",
+                            impl_count,
+                            if impl_count == 1 { "" } else { "s" },
+                            verify_count,
+                            if verify_count == 1 { "" } else { "s" }
+                        );
+
+                        // r[impl lsp.codelens.clickable]
+                        lenses.push(CodeLens {
+                            range,
+                            command: Some(Command {
+                                title,
+                                command: "tracey.showReferences".to_string(),
+                                arguments: Some(vec![serde_json::Value::String(
+                                    reference.req_id.clone(),
+                                )]),
+                            }),
+                            data: None,
+                        });
+                    }
+                }
+                // r[impl lsp.codelens.run-test]
+                // Offer to run test from verify refs
+                RefVerb::Verify => {
+                    lenses.push(CodeLens {
+                        range,
+                        command: Some(Command {
+                            title: "▶ Run test".to_string(),
+                            command: "tracey.runTest".to_string(),
+                            arguments: Some(vec![
+                                serde_json::Value::String(uri.to_string()),
+                                serde_json::Value::Number((reference.line as i64).into()),
+                            ]),
+                        }),
+                        data: None,
+                    });
+                }
+                _ => {}
+            }
+        }
+
+        if lenses.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(lenses))
         }
     }
 }
