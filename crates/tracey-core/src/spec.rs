@@ -1,3 +1,3 @@
-//! Rule definitions re-exported from bearmark
+//! Req definitions re-exported from bearmark
 
-pub use bearmark::RuleDefinition;
+pub use bearmark::ReqDefinition;

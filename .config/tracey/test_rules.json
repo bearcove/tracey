@@ -1,7 +1,7 @@
 {
-  "rules": {
-    "test.rule.one": {"url": "#one"},
-    "test.rule.two": {"url": "#two"},
-    "test.rule.three": {"url": "#three"}
+  "reqs": {
+    "test.req.one": { "url": "#one" },
+    "test.req.two": { "url": "#two" },
+    "test.req.three": { "url": "#three" }
   }
 }

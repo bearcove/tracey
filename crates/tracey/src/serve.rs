@@ -39,12 +39,12 @@ use std::time::Duration;
 use tokio::sync::watch;
 use tower_http::cors::{Any, CorsLayer};
 use tracey_core::code_units::CodeUnit;
-use tracey_core::{RefVerb, RuleDefinition, Rules};
+use tracey_core::{RefVerb, ReqDefinition, Rules};
 use tracing::{debug, error, info, warn};
 
 // Markdown rendering
 use bearmark::{
-    AasvgHandler, ArboriumHandler, PikruHandler, RenderOptions, RuleHandler, parse_frontmatter,
+    AasvgHandler, ArboriumHandler, PikruHandler, RenderOptions, ReqHandler, parse_frontmatter,
     render,
 };
 use std::future::Future;
@@ -378,10 +378,10 @@ fn devicon_class(path: &str) -> Option<&'static str> {
 // r[impl markdown.html.anchor] - div has id="r-{rule.id}"
 // r[impl markdown.html.link] - rule-badge links to the rule
 // r[impl markdown.html.wbr] - dots followed by <wbr> for line breaking
-impl RuleHandler for TraceyRuleHandler {
+impl ReqHandler for TraceyRuleHandler {
     fn start<'a>(
         &'a self,
-        rule: &'a RuleDefinition,
+        rule: &'a ReqDefinition,
     ) -> Pin<Box<dyn Future<Output = bearmark::Result<String>> + Send + 'a>> {
         Box::pin(async move {
             let coverage = self.coverage.get(&rule.id);
@@ -486,7 +486,7 @@ impl RuleHandler for TraceyRuleHandler {
 
     fn end<'a>(
         &'a self,
-        _rule: &'a RuleDefinition,
+        _rule: &'a ReqDefinition,
     ) -> Pin<Box<dyn Future<Output = bearmark::Result<String>> + Send + 'a>> {
         Box::pin(async move {
             // Close the rule container
@@ -527,7 +527,11 @@ pub async fn build_dashboard_data(
 
     for spec_config in &config.specs {
         let spec_name = &spec_config.name.value;
-        let glob_pattern = &spec_config.rules_glob.pattern;
+        let include_patterns: Vec<&str> = spec_config
+            .include
+            .iter()
+            .map(|i| i.pattern.as_str())
+            .collect();
 
         // Validate that spec has at least one implementation
         if spec_config.impls.is_empty() {
@@ -536,7 +540,8 @@ pub async fn build_dashboard_data(
                 Add at least one impl block to your config:\n\n\
                 spec {{\n    \
                     name \"{}\"\n    \
-                    rules_glob \"{}\"\n\n    \
+                    prefix \"{}\"\n    \
+                    include \"docs/spec/**/*.md\"\n\n    \
                     impl {{\n        \
                         name \"main\"\n        \
                         include \"src/**/*.rs\"\n    \
@@ -544,13 +549,13 @@ pub async fn build_dashboard_data(
                 }}",
                 spec_name,
                 spec_name,
-                glob_pattern
+                spec_config.prefix.value
             ));
         }
 
         api_config.specs.push(ApiSpecInfo {
             name: spec_name.clone(),
-            source: Some(glob_pattern.clone()),
+            source: Some(include_patterns.join(", ")),
             implementations: spec_config
                 .impls
                 .iter()
@@ -558,12 +563,16 @@ pub async fn build_dashboard_data(
                 .collect(),
         });
 
-        // Extract rules directly from markdown files (shared across impls)
+        // Extract requirements directly from markdown files (shared across impls)
         if !quiet {
-            eprintln!("   {} rules from {}", "Extracting".green(), glob_pattern);
+            eprintln!(
+                "   {} requirements from {:?}",
+                "Extracting".green(),
+                include_patterns
+            );
         }
         let extracted_rules =
-            crate::load_rules_from_glob(project_root, glob_pattern, quiet).await?;
+            crate::load_rules_from_globs(project_root, &include_patterns, quiet).await?;
 
         // Build data for each implementation
         for impl_config in &spec_config.impls {
@@ -670,7 +679,7 @@ pub async fn build_dashboard_data(
             let mut impl_specs_content: BTreeMap<String, ApiSpecData> = BTreeMap::new();
             load_spec_content(
                 project_root,
-                glob_pattern,
+                &include_patterns,
                 spec_name,
                 impl_name,
                 &coverage,
@@ -734,7 +743,7 @@ pub async fn build_dashboard_data(
             for (path, units) in &impl_code_units {
                 let relative = path.strip_prefix(project_root).unwrap_or(path);
                 let file_total = units.len();
-                let file_covered = units.iter().filter(|u| !u.rule_refs.is_empty()).count();
+                let file_covered = units.iter().filter(|u| !u.req_refs.is_empty()).count();
 
                 total_units += file_total;
                 covered_units += file_covered;
@@ -804,7 +813,7 @@ fn simple_hash(s: &str) -> u64 {
 
 async fn load_spec_content(
     root: &Path,
-    pattern: &str,
+    patterns: &[&str],
     spec_name: &str,
     impl_name: &str,
     coverage: &BTreeMap<String, RuleCoverage>,
@@ -827,7 +836,7 @@ async fn load_spec_content(
         .with_default_handler(ArboriumHandler::new())
         .with_handler(&["aasvg"], AasvgHandler::new())
         .with_handler(&["pikchr"], PikruHandler::new())
-        .with_rule_handler(rule_handler);
+        .with_req_handler(rule_handler);
 
     // Collect all matching files with their content and weight
     let mut files: Vec<(String, String, i32)> = Vec::new(); // (relative_path, content, weight)
@@ -848,7 +857,9 @@ async fn load_spec_content(
         let relative = path.strip_prefix(root).unwrap_or(path);
         let relative_str = relative.to_string_lossy().to_string();
 
-        if !glob_match(&relative_str, pattern) {
+        // Check if path matches any of the patterns
+        let matches_any = patterns.iter().any(|p| glob_match(&relative_str, p));
+        if !matches_any {
             continue;
         }
 
@@ -940,7 +951,7 @@ fn build_outline(
                 });
                 current_heading_idx = Some(entries.len() - 1);
             }
-            DocElement::Rule(r) => {
+            DocElement::Req(r) => {
                 if let Some(idx) = current_heading_idx {
                     let cov = coverage.get(&r.id);
                     let has_impl = cov.is_some_and(|c| !c.impl_refs.is_empty());
@@ -1336,7 +1347,7 @@ async fn api_file(
                 name: u.name.clone(),
                 start_line: u.start_line,
                 end_line: u.end_line,
-                rule_refs: u.rule_refs.clone(),
+                rule_refs: u.req_refs.clone(),
             })
             .collect();
 

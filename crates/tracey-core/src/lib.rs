@@ -1,7 +1,7 @@
 //! tracey-core - Core library for spec coverage analysis
 //!
 //! This crate provides the building blocks for:
-//! - Extracting rule references from source code (Rust, Swift, TypeScript, and more)
+//! - Extracting requirement references from source code (Rust, Swift, TypeScript, and more)
 //! - Computing coverage statistics
 //!
 //! # Features
@@ -9,11 +9,11 @@
 //! - `walk` - Enable [`WalkSources`] for gitignore-aware directory walking (brings in `ignore`)
 //! - `parallel` - Enable parallel extraction (brings in `rayon`)
 //!
-//! For markdown rule extraction, use the `bearmark` crate directly.
+//! For markdown requirement extraction, use the `bearmark` crate directly.
 //!
-//! # Extracting Rule References from Source Code
+//! # Extracting Requirement References from Source Code
 //!
-//! tracey recognizes rule references in comments using `//` or `/* */` syntax.
+//! tracey recognizes requirement references in comments using `//` or `/* */` syntax.
 //! This works with Rust, Swift, TypeScript, JavaScript, Go, C/C++, and many other languages.
 //!
 //! See [`SUPPORTED_EXTENSIONS`] for the full list of supported file types.
@@ -21,7 +21,7 @@
 //! ```text
 //! // r[impl channel.id.parity] - implementation reference
 //! // r[verify error.handling] - test/verification reference
-//! // [rule.id] - basic reference (legacy syntax)
+//! // [req.id] - basic reference (legacy syntax)
 //! ```
 //!
 //! Extract references using [`Rules::extract`]:
@@ -29,26 +29,26 @@
 //! ```ignore
 //! use tracey_core::{Rules, WalkSources};
 //!
-//! // Scan Rust files for rule references
+//! // Scan Rust files for requirement references
 //! let rules = Rules::extract(
 //!     WalkSources::new(".")
 //!         .include(["**/*.rs"])
 //!         .exclude(["target/**"])
 //! )?;
 //!
-//! println!("Found {} rule references", rules.len());
+//! println!("Found {} requirement references", rules.len());
 //! ```
 //!
-//! # Extracting Rules from Markdown
+//! # Extracting Requirements from Markdown
 //!
-//! Rules are defined in markdown using the `r[rule.id]` syntax:
+//! Requirements are defined in markdown using the `r[req.id]` syntax:
 //!
 //! ```markdown
 //! r[channel.id.allocation]
 //! Channel IDs MUST be allocated sequentially starting from 0.
 //! ```
 //!
-//! Rules can also include metadata attributes:
+//! Requirements can also include metadata attributes:
 //!
 //! ```markdown
 //! r[channel.id.allocation status=stable level=must since=1.0]
@@ -61,7 +61,7 @@
 //! This behavior is deprecated and will be removed.
 //! ```
 //!
-//! Extract rules using bearmark's render function:
+//! Extract requirements using bearmark's render function:
 //!
 //! ```ignore
 //! use bearmark::{render, RenderOptions};
@@ -69,13 +69,13 @@
 //! let markdown = r#"
 //! # My Spec
 //!
-//! r[my.rule.id] This rule defines important behavior.
+//! r[my.req.id] This requirement defines important behavior.
 //! "#;
 //!
-//! // Render markdown to extract rules with HTML content
+//! // Render markdown to extract requirements with HTML content
 //! let doc = render(markdown, &RenderOptions::default()).await.unwrap();
 //! assert_eq!(doc.rules.len(), 1);
-//! assert_eq!(doc.rules[0].id, "my.rule.id");
+//! assert_eq!(doc.rules[0].id, "my.req.id");
 //! ```
 //!
 //! # In-Memory Sources (for testing/WASM)
@@ -87,8 +87,8 @@
 //!
 //! let rules = Rules::extract(
 //!     MemorySources::new()
-//!         .add("foo.rs", "// r[impl test.rule]")
-//!         .add("bar.rs", "// r[verify other.rule]")
+//!         .add("foo.rs", "// r[impl test.req]")
+//!         .add("bar.rs", "// r[verify other.req]")
 //! ).unwrap();
 //!
 //! assert_eq!(rules.len(), 2);
@@ -107,7 +107,7 @@ pub use lexer::{ParseWarning, RefVerb, RuleReference, Rules, SourceSpan, Warning
 pub use sources::{
     MemorySources, PathSources, SUPPORTED_EXTENSIONS, Sources, is_supported_extension,
 };
-pub use spec::RuleDefinition;
+pub use spec::ReqDefinition;
 
 #[cfg(feature = "walk")]
 pub use sources::WalkSources;

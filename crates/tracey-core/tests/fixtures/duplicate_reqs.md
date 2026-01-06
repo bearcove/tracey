@@ -1,9 +1,9 @@
-# Document with Duplicate Rules
+# Document with Duplicate Requirements
 
-r[duplicate.rule]
+r[duplicate.req]
 First definition.
 
 Some content in between.
 
-r[duplicate.rule]
+r[duplicate.req]
 Second definition - this should cause an error.

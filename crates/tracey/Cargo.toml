@@ -42,7 +42,7 @@ facet-error = { workspace = true }
 # Pretty output
 owo-colors = { workspace = true }
 
-# File walking (for rules_glob)
+# File walking (for include patterns)
 ignore = { workspace = true }
 
 # Markdown rendering with syntax highlighting and diagrams

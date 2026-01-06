@@ -1,6 +1,7 @@
 spec {
     name "tracey"
-    rules_glob "docs/spec/**/*.md"
+    prefix "r"
+    include "docs/spec/**/*.md"
 
     impl {
         name "main"

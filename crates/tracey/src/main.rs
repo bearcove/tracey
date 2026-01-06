@@ -16,7 +16,7 @@ use eyre::{Result, WrapErr};
 use facet_args as args;
 use owo_colors::OwoColorize;
 use std::path::PathBuf;
-use tracey_core::RuleDefinition;
+use tracey_core::ReqDefinition;
 
 // Re-export from bearmark for rule extraction
 use bearmark::{RenderOptions, render};
@@ -117,16 +117,16 @@ Run 'tracey <COMMAND> --help' for more information on a command."#,
 }
 
 /// Load rules from markdown files matching a glob pattern.
-/// Returns a Vec of (RuleDefinition, source_file) tuples.
+/// Returns a Vec of (ReqDefinition, source_file) tuples.
 pub(crate) async fn load_rules_from_glob(
     root: &std::path::Path,
     pattern: &str,
     quiet: bool,
-) -> Result<Vec<(RuleDefinition, String)>> {
+) -> Result<Vec<(ReqDefinition, String)>> {
     use ignore::WalkBuilder;
     use std::collections::HashSet;
 
-    let mut rules: Vec<(RuleDefinition, String)> = Vec::new();
+    let mut rules: Vec<(ReqDefinition, String)> = Vec::new();
     let mut seen_ids: HashSet<String> = HashSet::new();
 
     // Walk the directory tree
@@ -166,38 +166,69 @@ pub(crate) async fn load_rules_from_glob(
             .await
             .map_err(|e| eyre::eyre!("Failed to process {}: {}", path.display(), e))?;
 
-        if !doc.rules.is_empty() {
+        if !doc.reqs.is_empty() {
             if !quiet {
                 eprintln!(
-                    "   {} {} rules from {}",
+                    "   {} {} requirements from {}",
                     "Found".green(),
-                    doc.rules.len(),
+                    doc.reqs.len(),
                     relative_str
                 );
             }
 
             // Check for duplicates
-            // r[impl markdown.duplicates.same-file] - caught when bearmark returns duplicate rules from single file
+            // r[impl markdown.duplicates.same-file] - caught when bearmark returns duplicate reqs from single file
             // r[impl markdown.duplicates.cross-file] - caught via seen_ids persisting across files
-            for rule in &doc.rules {
-                if seen_ids.contains(&rule.id) {
+            for req in &doc.reqs {
+                if seen_ids.contains(&req.id) {
                     eyre::bail!(
-                        "Duplicate rule '{}' found in {}",
-                        rule.id.red(),
+                        "Duplicate requirement '{}' found in {}",
+                        req.id.red(),
                         relative_str
                     );
                 }
-                seen_ids.insert(rule.id.clone());
+                seen_ids.insert(req.id.clone());
             }
 
-            // Add rules with their source file
-            for rule in doc.rules {
-                rules.push((rule, relative_str.clone()));
+            // Add requirements with their source file
+            for req in doc.reqs {
+                rules.push((req, relative_str.clone()));
             }
         }
     }
 
     Ok(rules)
+}
+
+/// Load rules from multiple glob patterns
+pub(crate) async fn load_rules_from_globs(
+    root: &std::path::Path,
+    patterns: &[&str],
+    quiet: bool,
+) -> Result<Vec<(ReqDefinition, String)>> {
+    use std::collections::HashSet;
+
+    let mut all_rules: Vec<(ReqDefinition, String)> = Vec::new();
+    let mut seen_ids: HashSet<String> = HashSet::new();
+
+    for pattern in patterns {
+        let rules = load_rules_from_glob(root, pattern, quiet).await?;
+
+        // Check for duplicates across patterns
+        for (rule, source) in rules {
+            if seen_ids.contains(&rule.id) {
+                eyre::bail!(
+                    "Duplicate requirement '{}' found in {}",
+                    rule.id.red(),
+                    source
+                );
+            }
+            seen_ids.insert(rule.id.clone());
+            all_rules.push((rule, source));
+        }
+    }
+
+    Ok(all_rules)
 }
 
 /// Simple glob pattern matching
@@ -266,7 +297,12 @@ pub(crate) fn load_config(path: &PathBuf) -> Result<Config> {
              Create a config file with your spec configuration:\n\n\
              spec {{\n    \
                  name \"my-spec\"\n    \
-                 rules_glob \"docs/**/*.md\"\n\
+                 prefix \"r\"\n    \
+                 include \"docs/**/*.md\"\n\n    \
+                 impl {{\n        \
+                     name \"main\"\n        \
+                     include \"src/**/*.rs\"\n    \
+                 }}\n\
              }}",
             path.display()
         );

@@ -41,12 +41,12 @@ This section specifies the annotation language: how to define requirements in ma
 
 ## Requirement Definitions in Markdown
 
-Requirements are defined in markdown specification documents using the syntax `r[REQ]` where REQ is a requirement ID.
+Requirements are defined in markdown specification documents using the syntax `PREFIX[REQ]` where PREFIX is the spec's configured prefix and REQ is a requirement ID.
 
 ### Markdown Requirement Syntax
 
 > r[markdown.syntax.marker]
-> A requirement definition MUST be written as `r[REQ]` in one of two contexts: as a standalone paragraph starting at column 0, or inside a blockquote. The VERB is implicitly "define" in markdown (unlike source code which uses explicit verbs like `r[impl REQ]`).
+> A requirement definition MUST be written as `PREFIX[REQ]` in one of two contexts: as a standalone paragraph starting at column 0, or inside a blockquote. The PREFIX identifies which spec this requirement belongs to (configured via `prefix` in the spec configuration). The VERB is implicitly "define" in markdown (unlike source code which uses explicit verbs like `r[impl REQ]`).
 >
 > Valid (standalone):
 > ```markdown
@@ -95,28 +95,38 @@ Requirements are defined in markdown specification documents using the syntax `r
 > ```
 
 > r[markdown.duplicates.cross-file]
-> If the same requirement ID appears in multiple markdown files, an error MUST be reported when merging manifests.
+> If the same requirement ID appears in multiple markdown files within the same spec, an error MUST be reported when merging manifests. Requirement IDs only need to be unique within a single spec; different specs may use the same requirement ID since they have different prefixes.
 >
-> Invalid:
+> Invalid (same spec):
 > ```markdown
-> # spec1.md
+> # docs/spec/auth.md (tracey spec, prefix "r")
 > r[api.format]
 > API responses must use JSON.
 >
-> # spec2.md
+> # docs/spec/api.md (tracey spec, prefix "r")
 > r[api.format]
-> Error - this requirement ID is already defined in spec1.md!
+> Error - this requirement ID is already defined in auth.md within the same spec!
+> ```
+>
+> Valid (different specs):
+> ```markdown
+> # docs/tracey/spec.md (tracey spec, prefix "r")
+> r[api.format]
+> API responses must use JSON.
+>
+> # vendor/messaging-spec/spec.md (messaging spec, prefix "m")
+> m[api.format]
+> OK - different spec, different prefix, no conflict.
 > ```
 
 ## Requirement References in Source Code
 
-Requirement references are extracted from source code comments using the syntax `r[VERB REQ]`.
+Requirement references are extracted from source code comments using the syntax `PREFIX[VERB REQ]` where PREFIX matches a configured spec's prefix.
 
 ### Basic Syntax
 
 r[ref.syntax.brackets]
-A requirement reference MUST be written as `r[VERB REQ]` within a comment, where
-`r` identifies it as a tracey annotation.
+A requirement reference MUST be written as `PREFIX[VERB REQ]` within a comment, where PREFIX identifies which spec is being referenced (matching the `prefix` field in the spec configuration).
 
 > r[ref.syntax.verb]
 > VERB indicates the relationship type (impl, verify, depends, related).
@@ -127,24 +137,29 @@ A requirement reference MUST be written as `r[VERB REQ]` within a comment, where
 > REQ is a requirement ID consisting of dot-separated segments.
 >
 > Each segment MUST contain only ASCII letters (a-z, A-Z), digits (0-9), hyphens, or underscores. This restriction ensures requirement IDs work cleanly in URLs without encoding issues.
+
+> r[ref.syntax.surrounding-text]
+> The annotation MAY be surrounded by other text within the comment. Any characters (including punctuation) after the closing `]` are ignored by the parser.
 >
 > Valid:
-> ```
-> r[impl auth.token.validation]
-> r[verify user-profile.update_email]
-> r[depends crypto_v2.algorithm]
-> r[impl api.v1.users]
+> ```rust
+> // r[impl auth.token.validation]       // tracey spec (prefix "r")
+> // r[verify user-profile.update_email] // tracey spec
+> // m[depends crypto_v2.algorithm]      // messaging spec (prefix "m")
+> // h2[impl api.v1.users]               // http2 spec (prefix "h2")
+> // r[message.hello.timing]: send Hello immediately
+> // See r[auth.requirements] for details.
 > ```
 >
 > Invalid:
-> ```
-> r[impl auth..token]           // empty segment
-> r[verify user.profile!update] // exclamation mark not allowed
-> r[depends .crypto.algorithm]  // leading dot
-> r[impl api.users.]            // trailing dot
-> r[verify user profile.update] // space not allowed
-> r[impl auth.🔐.token]         // emoji not allowed
-> r[verify café.menu]           // accented characters not allowed
+> ```rust
+> // r[impl auth..token]           // empty segment
+> // r[verify user.profile!update] // exclamation mark not allowed
+> // r[depends .crypto.algorithm]  // leading dot
+> // r[impl api.users.]            // trailing dot
+> // r[verify user profile.update] // space not allowed
+> // r[impl auth.🔐.token]         // emoji not allowed
+> // r[verify café.menu]           // accented characters not allowed
 > ```
 
 ### Supported Verbs
@@ -249,6 +264,12 @@ References to requirement IDs not present in the manifest MUST be reported as in
 r[ref.verb.unknown]
 When an unrecognized verb is encountered, tracey MUST emit a warning but SHOULD still extract the requirement reference.
 
+r[ref.prefix.unknown]
+When a reference uses a prefix that does not match any configured spec, tracey MUST report an error indicating the unknown prefix and list the available spec prefixes.
+
+r[ref.prefix.matching]
+When extracting references from source code, tracey MUST match the prefix against configured specs to determine which spec's requirement namespace to query.
+
 ## Markdown Processing
 
 ### HTML Output
@@ -302,13 +323,26 @@ The default configuration path MUST be `.config/tracey/config.kdl` relative to t
 >
 > ```kdl
 > spec {
->     name "spec-name"
->     reqs_glob "docs/spec/**/*.md"
+>     name "tracey"
+>     prefix "r"
+>     include "docs/spec/**/*.md"
 >
 >     impl {
->         lang "rust"
+>         name "rust"
 >         include "crates/**/*.rs"
 >         exclude "target/**"
+>     }
+> }
+>
+> spec {
+>     name "messaging-protocol"
+>     prefix "m"
+>     include "vendor/messaging-spec/**/*.md"
+>     source_url "https://github.com/example/messaging-spec"
+>
+>     impl {
+>         name "rust"
+>         include "crates/**/*.rs"
 >     }
 > }
 > ```
@@ -316,8 +350,14 @@ The default configuration path MUST be `.config/tracey/config.kdl` relative to t
 r[config.spec.name]
 Each spec configuration MUST have a `name` child node with the spec name as its argument.
 
-r[config.spec.reqs-glob]
-Each spec configuration MUST have a `reqs_glob` child node specifying a glob pattern for markdown files containing requirement definitions.
+r[config.spec.prefix]
+Each spec configuration MUST have a `prefix` child node specifying the single-character or multi-character prefix used to identify this spec in markdown and source code annotations.
+
+r[config.spec.include]
+Each spec configuration MUST have one or more `include` child nodes specifying glob patterns for markdown files containing requirement definitions.
+
+r[config.spec.source-url]
+Each spec configuration MAY have a `source_url` child node providing the canonical URL for the specification (e.g., a GitHub repository). This URL is used for attribution in the dashboard and documentation.
 
 r[config.impl.name]
 Each impl configuration MUST have a `name` child node identifying the implementation (e.g., "main", "core").
@@ -327,6 +367,40 @@ Each impl configuration MAY have one or more `include` child nodes specifying gl
 
 r[config.impl.exclude]
 Each impl configuration MAY have one or more `exclude` child nodes specifying glob patterns for source files to exclude.
+
+### Multiple Specs and Remote Specs
+
+r[config.multi-spec.prefix-namespace]
+When multiple specs are configured, the prefix serves as the namespace to disambiguate which spec a requirement belongs to.
+
+r[config.multi-spec.unique-within-spec]
+Requirement IDs MUST be unique within a single spec, but MAY be duplicated across different specs (since they use different prefixes).
+
+r[config.remote-spec.local-files]
+Remote specifications MUST be obtained as local files before tracey can process them. Users can use git submodules, manual downloads, or any other method to obtain spec files locally.
+
+> r[config.remote-spec.workflow]
+> The recommended workflow for implementing a remote specification is:
+>
+> 1. Obtain the spec files locally (e.g., via git submodule or download)
+> 2. Configure the spec with `include` pointing to the local files
+> 3. Set `source_url` to the canonical spec location for attribution
+> 4. Use the spec's configured prefix in source code annotations
+>
+> Example:
+> ```kdl
+> spec {
+>     name "http2"
+>     prefix "h2"
+>     include "vendor/http2-spec/docs/**/*.md"
+>     source_url "https://github.com/http2/spec"
+>
+>     impl {
+>         name "rust"
+>         include "crates/http2/**/*.rs"
+>     }
+> }
+> ```
 
 ## File Walking
 
@@ -343,22 +417,22 @@ Tracey provides a web-based dashboard for browsing specifications, viewing cover
 ### URL Scheme
 
 r[dashboard.url.structure]
-Dashboard URLs MUST follow the structure `/:specName/:impl/:view` where `specName` is the name of a configured spec and `impl` is an implementation name.
+Dashboard URLs MUST follow the structure `/{specName}/{impl}/{view}` where `{specName}` is the name of a configured spec and `{impl}` is an implementation name.
 
 r[dashboard.url.spec-view]
-The specification view MUST be accessible at `/:specName/:impl/spec` with optional heading hash fragment `/:specName/:impl/spec#:headingSlug`.
+The specification view MUST be accessible at `/{specName}/{impl}/spec` with optional heading hash fragment `/{specName}/{impl}/spec#{headingSlug}`.
 
 r[dashboard.url.coverage-view]
-The coverage view MUST be accessible at `/:specName/:impl/coverage` with optional query parameters `?filter=impl|verify` and `?level=must|should|may`.
+The coverage view MUST be accessible at `/{specName}/{impl}/coverage` with optional query parameters `?filter=impl|verify` and `?level=must|should|may`.
 
 r[dashboard.url.sources-view]
-The sources view MUST be accessible at `/:specName/:impl/sources` with optional file and line parameters `/:specName/:impl/sources/:filePath::lineNumber`.
+The sources view MUST be accessible at `/{specName}/{impl}/sources` with optional file and line parameters `/{specName}/{impl}/sources/{filePath}:{lineNumber}`.
 
 r[dashboard.url.context]
-Source URLs MAY include a `?context=:reqId` query parameter to show requirement context in the sidebar.
+Source URLs MAY include a `?context={reqId}` query parameter to show requirement context in the sidebar.
 
 r[dashboard.url.root-redirect]
-Navigating to `/` MUST redirect to `/:defaultSpec/:defaultImpl/spec` where `defaultSpec` is the first configured spec and `defaultImpl` is its first implementation.
+Navigating to `/` MUST redirect to `/{defaultSpec}/{defaultImpl}/spec` where `{defaultSpec}` is the first configured spec and `{defaultImpl}` is its first implementation.
 
 r[dashboard.url.invalid-spec]
 Navigating to an invalid spec name SHOULD redirect to the first valid spec or display an error.
@@ -369,16 +443,16 @@ r[dashboard.api.config]
 The `/api/config` endpoint MUST return the project configuration including `projectRoot` and `specs` array.
 
 r[dashboard.api.spec]
-The `/api/spec?spec=:specName&impl=:impl` endpoint MUST return the rendered HTML and outline for the named spec and implementation.
+The `/api/spec?spec={specName}&impl={impl}` endpoint MUST return the rendered HTML and outline for the named spec and implementation.
 
 r[dashboard.api.forward]
-The `/api/forward?spec=:specName&impl=:impl` endpoint MUST return the forward mapping (requirements to file references) for the specified implementation.
+The `/api/forward?spec={specName}&impl={impl}` endpoint MUST return the forward mapping (requirements to file references) for the specified implementation.
 
 r[dashboard.api.reverse]
-The `/api/reverse?spec=:specName&impl=:impl` endpoint MUST return the reverse mapping (files to requirement references) with coverage statistics for the specified implementation.
+The `/api/reverse?spec={specName}&impl={impl}` endpoint MUST return the reverse mapping (files to requirement references) with coverage statistics for the specified implementation.
 
 r[dashboard.api.file]
-The `/api/file?spec=:specName&impl=:impl&path=:filePath` endpoint MUST return the file content, syntax-highlighted HTML, and code unit annotations.
+The `/api/file?spec={specName}&impl={impl}&path={filePath}` endpoint MUST return the file content, syntax-highlighted HTML, and code unit annotations.
 
 r[dashboard.api.version]
 The `/api/version` endpoint MUST return a version string that changes when any source data changes.
@@ -392,16 +466,16 @@ r[dashboard.links.spec-aware]
 All links generated in rendered markdown MUST include the spec name and implementation as the first two path segments.
 
 r[dashboard.links.req-links]
-Requirement ID badges MUST link to `/:specName/:impl/spec?req=:reqId` to navigate to the requirement in the specification.
+Requirement ID badges MUST link to `/{specName}/{impl}/spec?req={reqId}` to navigate to the requirement in the specification.
 
 r[dashboard.links.impl-refs]
-Implementation reference badges MUST link to `/:specName/:impl/sources/:filePath::line?context=:reqId`.
+Implementation reference badges MUST link to `/{specName}/{impl}/sources/{filePath}:{line}?context={reqId}`.
 
 r[dashboard.links.verify-refs]
-Verification/test reference badges MUST link to `/:specName/:impl/sources/:filePath::line?context=:reqId`.
+Verification/test reference badges MUST link to `/{specName}/{impl}/sources/{filePath}:{line}?context={reqId}`.
 
 r[dashboard.links.heading-links]
-Heading links in the outline MUST link to `/:specName/:impl/spec#:headingSlug`.
+Heading links in the outline MUST link to `/{specName}/{impl}/spec#{headingSlug}`.
 
 ### Specification View
 
@@ -415,7 +489,7 @@ r[dashboard.spec.content]
 The specification view MUST display the rendered markdown content with requirement containers.
 
 r[dashboard.spec.req-highlight]
-When navigating to a requirement via URL parameter `?req=:reqId`, the requirement container MUST be highlighted and scrolled into view.
+When navigating to a requirement via URL parameter `?req={reqId}`, the requirement container MUST be highlighted and scrolled into view.
 
 r[dashboard.spec.heading-scroll]
 When navigating to a heading via URL path, the heading MUST be scrolled into view.
@@ -467,7 +541,7 @@ r[dashboard.sources.line-highlight]
 When navigating to a specific line, that line MUST be highlighted and scrolled into view.
 
 r[dashboard.sources.req-context]
-When a `?context=:reqId` parameter is present, the sidebar MUST display the requirement details and all its references.
+When a `?context={reqId}` parameter is present, the sidebar MUST display the requirement details and all its references.
 
 r[dashboard.sources.editor-open]
 Clicking a line number SHOULD open the file at that line in the configured editor.

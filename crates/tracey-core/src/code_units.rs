@@ -6,7 +6,7 @@
 //!
 //! # What is reverse traceability?
 //!
-//! While forward traceability asks "what % of spec rules have implementations?",
+//! While forward traceability asks "what % of spec requirements have implementations?",
 //! reverse traceability asks "what % of code is linked to spec requirements?"
 //!
 //! This helps identify:
@@ -34,8 +34,8 @@ pub struct CodeUnit {
     pub start_byte: usize,
     /// Byte offset where the code unit ends
     pub end_byte: usize,
-    /// Rule IDs referenced in comments associated with this code unit
-    pub rule_refs: Vec<String>,
+    /// Requirement IDs referenced in comments associated with this code unit
+    pub req_refs: Vec<String>,
 }
 
 /// The kind of code unit
@@ -110,17 +110,14 @@ impl CodeUnits {
         self.units.is_empty()
     }
 
-    /// Count of code units with at least one rule reference
+    /// Count of code units with at least one requirement reference
     pub fn covered_count(&self) -> usize {
-        self.units
-            .iter()
-            .filter(|u| !u.rule_refs.is_empty())
-            .count()
+        self.units.iter().filter(|u| !u.req_refs.is_empty()).count()
     }
 
-    /// Count of code units without any rule references
+    /// Count of code units without any requirement references
     pub fn uncovered_count(&self) -> usize {
-        self.units.iter().filter(|u| u.rule_refs.is_empty()).count()
+        self.units.iter().filter(|u| u.req_refs.is_empty()).count()
     }
 
     /// Reverse coverage percentage (0.0 to 100.0)
@@ -133,12 +130,12 @@ impl CodeUnits {
 
     /// Get all uncovered code units
     pub fn uncovered(&self) -> impl Iterator<Item = &CodeUnit> {
-        self.units.iter().filter(|u| u.rule_refs.is_empty())
+        self.units.iter().filter(|u| u.req_refs.is_empty())
     }
 
     /// Get all covered code units
     pub fn covered(&self) -> impl Iterator<Item = &CodeUnit> {
-        self.units.iter().filter(|u| !u.rule_refs.is_empty())
+        self.units.iter().filter(|u| !u.req_refs.is_empty())
     }
 
     /// Merge another CodeUnits into this one
@@ -198,8 +195,8 @@ fn node_to_code_unit(path: &Path, source: &str, node: Node) -> Option<CodeUnit> 
     // Get the name if available
     let name = get_node_name(source, node);
 
-    // Find associated comments and extract rule references
-    let rule_refs = extract_rule_refs_from_comments(source, node);
+    // Find associated comments and extract requirement references
+    let req_refs = extract_req_refs_from_comments(source, node);
 
     Some(CodeUnit {
         kind,
@@ -209,7 +206,7 @@ fn node_to_code_unit(path: &Path, source: &str, node: Node) -> Option<CodeUnit> 
         end_line: node.end_position().row + 1,
         start_byte: node.start_byte(),
         end_byte: node.end_byte(),
-        rule_refs,
+        req_refs,
     })
 }
 
@@ -235,7 +232,7 @@ fn get_node_name(source: &str, node: Node) -> Option<String> {
     name_node.map(|n| source[n.byte_range()].to_string())
 }
 
-fn extract_rule_refs_from_comments(source: &str, node: Node) -> Vec<String> {
+fn extract_req_refs_from_comments(source: &str, node: Node) -> Vec<String> {
     let mut refs = Vec::new();
 
     // Look for comments that precede this node
@@ -292,7 +289,7 @@ fn collect_inner_comment_refs(source: &str, node: Node, refs: &mut Vec<String>) 
             "doc_comment" => {
                 // The actual content of a doc comment
                 let text = &source[child.byte_range()];
-                for cap in find_rule_refs(text) {
+                for cap in find_req_refs(text) {
                     if !refs.contains(&cap) {
                         refs.push(cap);
                     }
@@ -323,24 +320,24 @@ fn extract_refs_from_comment_text(source: &str, node: Node, refs: &mut Vec<Strin
     let text = &source[node.byte_range()];
 
     // Reuse the same pattern matching from the lexer
-    // Look for [verb rule.id] or [rule.id] patterns
-    for cap in find_rule_refs(text) {
+    // Look for [verb req.id] or [req.id] patterns
+    for cap in find_req_refs(text) {
         if !refs.contains(&cap) {
             refs.push(cap);
         }
     }
 }
 
-/// Extract rule IDs from comment text
-fn find_rule_refs(text: &str) -> Vec<String> {
+/// Extract requirement IDs from comment text
+fn find_req_refs(text: &str) -> Vec<String> {
     let mut refs = Vec::new();
     let mut chars = text.char_indices().peekable();
 
     while let Some((_, ch)) = chars.next() {
         if ch == '[' {
-            // Try to parse a rule reference
-            if let Some(rule_id) = try_parse_rule_ref(&mut chars) {
-                refs.push(rule_id);
+            // Try to parse a requirement reference
+            if let Some(req_id) = try_parse_req_ref(&mut chars) {
+                refs.push(req_id);
             }
         }
     }
@@ -348,7 +345,7 @@ fn find_rule_refs(text: &str) -> Vec<String> {
     refs
 }
 
-fn try_parse_rule_ref(
+fn try_parse_req_ref(
     chars: &mut std::iter::Peekable<impl Iterator<Item = (usize, char)>>,
 ) -> Option<String> {
     // First char must be lowercase letter
@@ -376,19 +373,19 @@ fn try_parse_rule_ref(
     // Check what follows
     match chars.peek().map(|(_, c)| *c) {
         Some(' ') => {
-            // Might be [verb rule.id]
+            // Might be [verb req.id]
             let verbs = ["impl", "verify", "define", "depends", "related"];
             if verbs.contains(&first_word.as_str()) {
                 chars.next(); // consume space
 
-                // Read the rule ID
-                let mut rule_id = String::new();
+                // Read the requirement ID
+                let mut req_id = String::new();
                 let mut has_dot = false;
 
                 // First char must be lowercase
                 if let Some(&(_, c)) = chars.peek() {
                     if c.is_ascii_lowercase() {
-                        rule_id.push(c);
+                        req_id.push(c);
                         chars.next();
                     } else {
                         return None;
@@ -400,26 +397,26 @@ fn try_parse_rule_ref(
                         chars.next();
                         break;
                     } else if c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' {
-                        rule_id.push(c);
+                        req_id.push(c);
                         chars.next();
                     } else if c == '.' {
                         has_dot = true;
-                        rule_id.push(c);
+                        req_id.push(c);
                         chars.next();
                     } else {
                         return None;
                     }
                 }
 
-                if has_dot && !rule_id.ends_with('.') && !rule_id.is_empty() {
-                    return Some(rule_id);
+                if has_dot && !req_id.ends_with('.') && !req_id.is_empty() {
+                    return Some(req_id);
                 }
             }
             None
         }
         Some(']') => {
             chars.next(); // consume ]
-            // [rule.id] format - must contain dot
+            // [req.id] format - must contain dot
             if first_word.contains('.') && !first_word.ends_with('.') {
                 Some(first_word)
             } else {
@@ -468,7 +465,7 @@ fn do_thing() {}
 "#;
         let units = extract_rust(Path::new("test.rs"), source);
         assert_eq!(units.len(), 1);
-        assert_eq!(units.units[0].rule_refs, vec!["foo.bar"]);
+        assert_eq!(units.units[0].req_refs, vec!["foo.bar"]);
     }
 
     #[test]
@@ -480,7 +477,7 @@ fn test_parity() {}
 "#;
         let units = extract_rust(Path::new("test.rs"), source);
         assert_eq!(units.len(), 1);
-        assert_eq!(units.units[0].rule_refs, vec!["channel.id.parity"]);
+        assert_eq!(units.units[0].req_refs, vec!["channel.id.parity"]);
     }
 
     #[test]
@@ -499,29 +496,29 @@ fn uncovered() {}
     }
 
     #[test]
-    fn test_find_rule_refs() {
-        assert_eq!(find_rule_refs("// r[impl foo.bar]"), vec!["foo.bar"]);
-        assert_eq!(find_rule_refs("// [foo.bar]"), vec!["foo.bar"]);
+    fn test_find_req_refs() {
+        assert_eq!(find_req_refs("// r[impl foo.bar]"), vec!["foo.bar"]);
+        assert_eq!(find_req_refs("// [foo.bar]"), vec!["foo.bar"]);
         assert_eq!(
-            find_rule_refs("// r[impl a.b] and r[verify c.d]"),
+            find_req_refs("// r[impl a.b] and r[verify c.d]"),
             vec!["a.b", "c.d"]
         );
-        assert!(find_rule_refs("// no refs here").is_empty());
-        assert!(find_rule_refs("// [invalid]").is_empty()); // no dot
+        assert!(find_req_refs("// no refs here").is_empty());
+        assert!(find_req_refs("// [invalid]").is_empty()); // no dot
     }
 
     #[test]
     fn test_multiple_refs_same_unit() {
         let source = r#"
-// r[impl rule.one]
-// r[verify rule.two]
+// r[impl req.one]
+// r[verify req.two]
 fn multi_ref() {}
 "#;
         let units = extract_rust(Path::new("test.rs"), source);
         assert_eq!(units.len(), 1);
         // Should capture both refs
-        assert!(units.units[0].rule_refs.contains(&"rule.one".to_string()));
-        assert!(units.units[0].rule_refs.contains(&"rule.two".to_string()));
+        assert!(units.units[0].req_refs.contains(&"req.one".to_string()));
+        assert!(units.units[0].req_refs.contains(&"req.two".to_string()));
     }
 
     #[test]
@@ -533,7 +530,7 @@ fn documented() {}
 "#;
         let units = extract_rust(Path::new("test.rs"), source);
         assert_eq!(units.len(), 1);
-        assert_eq!(units.units[0].rule_refs, vec!["doc.ref"]);
+        assert_eq!(units.units[0].req_refs, vec!["doc.ref"]);
     }
 
     #[test]
@@ -548,7 +545,7 @@ impl Foo {
         // Should find both the impl and the method
         let impl_unit = units.units.iter().find(|u| u.kind == CodeUnitKind::Impl);
         assert!(impl_unit.is_some());
-        assert_eq!(impl_unit.unwrap().rule_refs, vec!["my.impl"]);
+        assert_eq!(impl_unit.unwrap().req_refs, vec!["my.impl"]);
     }
 
     #[test]

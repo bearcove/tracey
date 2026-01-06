@@ -24,11 +24,16 @@ pub struct SpecConfig {
     #[facet(kdl::child)]
     pub name: Name,
 
-    /// Glob pattern for markdown spec files to extract rules from
-    /// e.g., "docs/spec/**/*.md"
-    /// r[impl config.spec.rules-glob]
+    /// Prefix used to identify this spec in annotations (e.g., "r" for r[req.id])
+    /// r[impl config.spec.prefix]
     #[facet(kdl::child)]
-    pub rules_glob: RulesGlob,
+    pub prefix: Prefix,
+
+    /// Glob patterns for markdown spec files containing requirement definitions
+    /// e.g., "docs/spec/**/*.md"
+    /// r[impl config.spec.include]
+    #[facet(kdl::children, default)]
+    pub include: Vec<Include>,
 
     /// Implementations of this spec (by language)
     /// Each impl block specifies which source files to scan
@@ -63,9 +68,9 @@ pub struct Name {
 }
 
 #[derive(Debug, Clone, Facet)]
-pub struct RulesGlob {
+pub struct Prefix {
     #[facet(kdl::argument)]
-    pub pattern: String,
+    pub value: String,
 }
 
 #[derive(Debug, Clone, Facet)]

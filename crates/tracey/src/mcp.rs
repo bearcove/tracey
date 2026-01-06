@@ -382,8 +382,15 @@ impl TraceyHandler {
         out.push_str(&format!("Config file: {}\n\n", self.config_path.display()));
 
         for spec in &config.specs {
-            out.push_str(&format!("## Spec: {}\n", spec.name.value));
-            out.push_str(&format!("Rules: `{}`\n\n", spec.rules_glob.pattern));
+            out.push_str(&format!(
+                "## Spec: {} (prefix: `{}`)\n",
+                spec.name.value, spec.prefix.value
+            ));
+            out.push_str("**Requirement files:**\n");
+            for include in &spec.include {
+                out.push_str(&format!("- `{}`\n", include.pattern));
+            }
+            out.push('\n');
 
             for impl_ in &spec.impls {
                 out.push_str(&format!("### Implementation: {}\n", impl_.name.value));

@@ -338,7 +338,7 @@ impl<'a> QueryEngine<'a> {
                             name: u.name.clone(),
                             start_line: u.start_line,
                             end_line: u.end_line,
-                            is_covered: !u.rule_refs.is_empty(),
+                            is_covered: !u.req_refs.is_empty(),
                         })
                         .collect();
 

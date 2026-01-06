@@ -102,16 +102,7 @@ function OutlineTree({
             : ""}"
         >
           <div class="toc-row">
-            <a
-              href=${`/${specName}/${impl}/spec#${h.slug}`}
-              class="toc-link"
-              onClick=${(e: Event) => {
-                e.preventDefault();
-                onSelectHeading(h.slug);
-              }}
-            >
-              ${h.title}
-            </a>
+            <a href=${`/${specName}/${impl}/spec#${h.slug}`} class="toc-link"> ${h.title} </a>
             ${showCoverage &&
             html`
               <span class="toc-badges" aria-label="coverage">
