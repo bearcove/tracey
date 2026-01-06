@@ -529,4 +529,20 @@ mod tests {
         assert_eq!(rules.references[1].prefix, "m");
         assert_eq!(rules.references[1].rule_id, "message.format");
     }
+
+    #[test]
+    fn test_jsx_block_comments() {
+        let content = r#"
+            return html`
+              ${/* r[impl dashboard.header.search] */ null}
+              <input type="text" />
+            `;
+        "#;
+
+        let rules = Rules::extract_from_content(Path::new("test.tsx"), content);
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules.references[0].prefix, "r");
+        assert_eq!(rules.references[0].verb, RefVerb::Impl);
+        assert_eq!(rules.references[0].rule_id, "dashboard.header.search");
+    }
 }

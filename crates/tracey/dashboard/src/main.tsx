@@ -317,6 +317,9 @@ function Header({
           </select>
         </div>
 
+        ${/* r[impl dashboard.header.nav-tabs] */ null}
+        ${/* r[impl dashboard.header.nav-active] */ null}
+        ${/* r[impl dashboard.header.nav-preserve-spec] */ null}
         <nav class="nav">
           <a
             href="${specBase}/spec"
@@ -348,6 +351,7 @@ function Header({
           class="search-box"
           style="margin-left: auto; margin-right: 1rem; display: flex; align-items: center;"
         >
+          ${/* r[impl dashboard.header.search] */ null}
           <input
             type="text"
             class="search-input"
@@ -362,6 +366,7 @@ function Header({
           />
         </div>
 
+        ${/* r[impl dashboard.header.logo] */ null}
         <a href="https://github.com/bearcove/tracey" class="logo" target="_blank" rel="noopener"
           >tracey</a
         >

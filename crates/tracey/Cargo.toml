@@ -14,7 +14,7 @@ default-run = "tracey"
 [package.metadata.cargo-shear]
 # Used by #[facet(derive(Error, facet_miette::Diagnostic))] in errors.rs
 # Used by MCP tool macros in mcp.rs
-ignored = ["facet-error", "serde_json"]
+ignored = ["facet-error", "serde_json", "url"]
 
 [package.metadata]
 
@@ -77,16 +77,16 @@ blake3 = "1.5"
 
 # Full-text search (optional)
 tantivy = { workspace = true, optional = true }
-tempfile = { version = "3", optional = true }
 
 # MCP server
 rust-mcp-sdk = { version = "0.8", features = ["server", "macros"] }
 async-trait = "0.1"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.148"
+url = { version = "*", features = ["serde"] }
 
 [features]
 default = ["search"]
-search = ["dep:tantivy", "dep:tempfile"]
+search = ["dep:tantivy"]
 
 [dev-dependencies]

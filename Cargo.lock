@@ -4005,7 +4005,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tantivy",
- "tempfile",
  "tokio",
  "tokio-tungstenite",
  "tower-http",
@@ -4013,6 +4012,7 @@ dependencies = [
  "tracey-core",
  "tracing",
  "tracing-subscriber",
+ "url",
  "urlencoding",
 ]
 
