@@ -1,116 +1,52 @@
 # Tracey Specification
 
-This document has two parts:
+## Introduction
 
-- **Language** - How to write rule references in code and markdown
-- **Tooling** - How the tracey tool, server, and integrations work
+Tracey maintains traceability between specifications and code. Specs, implementations, and tests drift apart—code changes without updating specs, specs describe unimplemented features, tests cover different scenarios than requirements specify.
+
+Tracey uses lightweight annotations to link specification requirements with implementing code, tests, and dependencies. This enables:
+
+- Verifying multiple implementations (different languages, platforms) match the same spec
+- Finding which requirements lack implementation or tests
+- Seeing which requirement justifies each piece of code
+- Analyzing impact when requirements or code changes
+
+This document has two parts: **Language** (annotation syntax) and **Tooling** (tracey implementation).
+
+## Nomenclature
+
+To avoid confusion, we define these terms precisely and use them consistently:
+
+**Specification** (or **spec**)
+A set of requirements, typically written as a human-readable document.
+
+**Requirement** (or **req**)
+A single, positive (MUST, not MUST NOT) property of the system that is both implementable and testable. Each requirement should describe one specific behavior or constraint.
+
+**Implementation**
+Code that fulfills a requirement's behavior or constraint.
+
+**Test**
+Code that verifies an implementation correctly fulfills a requirement, typically containing assertions run by a test harness.
+
+**Important distinctions:**
+- A **spec** is a document containing requirements. **Tests** are executable code. Don't use "spec" to mean "test file" (as some test frameworks do).
+- Other projects may use "rule" to mean requirement. We don't use that term—use "requirement" or "req" instead.
 
 ---
 
 # Language
 
-This section specifies the syntax for annotating code and documentation with rule references.
+This section specifies the annotation language: how to define requirements in markdown specifications and reference them in source code.
 
-## Rule References in Source Code
+## Requirement Definitions in Markdown
 
-Tracey extracts rule references from source code comments in any programming language.
+Requirements are defined in markdown specification documents. Unlike source code which uses verbs like `r[impl req.id]`, markdown uses `r[req.id]` to define requirements.
 
-### Basic Syntax
-
-r[ref.syntax.brackets]
-A rule reference MUST be written as `r[verb rule.id]` within a comment, where the `r` prefix identifies it as a tracey rule reference.
-
-r[ref.syntax.rule-id]
-A rule ID MUST consist of one or more segments separated by dots. Each segment MUST contain only alphanumeric characters, hyphens, or underscores.
-
-r[ref.syntax.verb]
-A rule reference MAY include a verb prefix before the rule ID, separated by a space. If no verb is provided, `impl` is assumed.
-
-### Supported Verbs
-
-Source code references use verbs to indicate the relationship between code and rules:
-
-> r[ref.verb.impl]
-> Tracey MUST interpret the `impl` verb as indicating that the code implements the referenced rule.
->
-> ```rust
-> // r[impl auth.token.validation]
-> fn validate_token(token: &str) -> bool {
->     // etc.
-> }
-> ```
-
-> r[ref.verb.verify]
-> Tracey MUST interpret the `verify` verb as indicating that the code tests or verifies the referenced rule.
->
-> ```typescript
-> test('token validation', () => {
->     // r[verify auth.token.validation]
->     expect(validateToken('abc')).toBe(true);
-> });
-> ```
-
-> r[ref.verb.depends]
-> Tracey MUST interpret the `depends` verb as indicating a strict dependency — the code must be rechecked if the referenced rule changes.
->
-> ```python
-> # r[depends auth.crypto.algorithm]
-> # This code must be reviewed if the crypto algorithm changes
-> def hash_password(password: str) -> str:
->     return bcrypt.hashpw(password.encode(), bcrypt.gensalt())
-> ```
-
-> r[ref.verb.related]
-> Tracey MUST interpret the `related` verb as indicating a loose connection, shown when reviewing related code.
->
-> ```swift
-> // r[related user.session.timeout]
-> // Session cleanup is related to timeout rules
-> func cleanupExpiredSessions() {
->     sessions.removeAll { $0.isExpired }
-> }
-> ```
-
-> r[ref.verb.default]
-> When no verb is provided, the reference SHOULD be treated as an `impl` reference.
->
-> ```go
-> // r[auth.token.validation] - no verb, defaults to 'impl'
-> func ValidateToken(token string) bool {
->     return len(token) > 0
-> }
-> ```
-
-### Comment Types
-
-r[ref.comments.line]
-Rule references MUST be recognized in line comments (`//`, `#`, etc. depending on language).
-
-r[ref.comments.block]
-Rule references MUST be recognized in block comments (`/* */`, `""" """`, etc. depending on language).
-
-r[ref.comments.doc]
-Rule references MUST be recognized in documentation comments (`///`, `//!`, `/** */`, etc. depending on language).
-
-### Source Location Tracking
-
-r[ref.span.offset]
-Each extracted rule reference MUST include the byte offset of its location in the source file.
-
-r[ref.span.length]
-Each extracted rule reference MUST include the byte length of the reference.
-
-r[ref.span.file]
-Each extracted rule reference MUST include the path to the source file.
-
-## Rule Definitions in Markdown
-
-Tracey extracts rule definitions from markdown specification documents. Unlike source code which uses verbs like `r[impl rule.id]`, markdown uses `r[rule.id]` to define rules.
-
-### Markdown Rule Syntax
+### Markdown Requirement Syntax
 
 > r[markdown.syntax.marker]
-> A rule definition MUST be written as `r[rule.id]` in one of two contexts: as a standalone paragraph starting at column 0, or inside a blockquote. This implicitly uses the "define" verb.
+> A requirement definition MUST be written as `r[req.id]` in one of two contexts: as a standalone paragraph starting at column 0, or inside a blockquote. This implicitly uses the "define" verb.
 >
 > Valid (standalone):
 > ```markdown
@@ -129,9 +65,9 @@ Tracey extracts rule definitions from markdown specification documents. Unlike s
 > ```
 
 > r[markdown.syntax.inline-ignored]
-> Rule markers that appear inline within other text MUST be treated as regular text, not rule definitions.
+> Requirement markers that appear inline within other text MUST be treated as regular text, not requirement definitions.
 >
-> Valid (defines rule):
+> Valid (defines requirement):
 > ```markdown
 > r[database.connection]
 > When connecting to the database...
@@ -145,7 +81,7 @@ Tracey extracts rule definitions from markdown specification documents. Unlike s
 ### Duplicate Detection
 
 > r[markdown.duplicates.same-file]
-> If the same rule ID appears multiple times in a single markdown file, tracey MUST report an error.
+> If the same requirement ID appears multiple times in a single markdown file, an error MUST be reported.
 >
 > Invalid:
 > ```markdown
@@ -155,11 +91,11 @@ Tracey extracts rule definitions from markdown specification documents. Unlike s
 > Later in the same file...
 >
 > r[auth.validation]
-> This causes an error - duplicate rule ID!
+> This causes an error - duplicate requirement ID!
 > ```
 
 > r[markdown.duplicates.cross-file]
-> If the same rule ID appears in multiple markdown files, tracey MUST report an error when merging manifests.
+> If the same requirement ID appears in multiple markdown files, an error MUST be reported when merging manifests.
 >
 > Invalid:
 > ```markdown
@@ -169,13 +105,13 @@ Tracey extracts rule definitions from markdown specification documents. Unlike s
 >
 > # spec2.md
 > r[api.format]
-> Error - this rule ID is already defined in spec1.md!
+> Error - this requirement ID is already defined in spec1.md!
 > ```
 
 ### HTML Output
 
 > r[markdown.html.div]
-> When transforming markdown, each rule marker MUST be replaced with a `<div>` element with class `rule`.
+> When transforming markdown, each requirement marker MUST be replaced with a `<div>` element with class `requirement`.
 >
 > Input:
 > ```markdown
@@ -184,16 +120,16 @@ Tracey extracts rule definitions from markdown specification documents. Unlike s
 >
 > Output:
 > ```html
-> <div class="rule" id="r-auth.token.validation">
+> <div class="requirement" id="r-auth.token.validation">
 >   <a href="#r-auth.token.validation">auth.<wbr>token.<wbr>validation</a>
 > </div>
 > ```
 
 > r[markdown.html.anchor]
-> The generated div MUST have an `id` attribute in the format `r-{rule.id}` for linking.
+> The generated div MUST have an `id` attribute in the format `r-{req.id}` for linking.
 >
 > ```html
-> <div class="rule" id="r-api.response.format">
+> <div class="requirement" id="r-api.response.format">
 > ```
 
 > r[markdown.html.link]
@@ -204,11 +140,103 @@ Tracey extracts rule definitions from markdown specification documents. Unlike s
 > ```
 
 > r[markdown.html.wbr]
-> Dots in the displayed rule ID SHOULD be followed by `<wbr>` elements to allow line breaking.
+> Dots in the displayed requirement ID SHOULD be followed by `<wbr>` elements to allow line breaking.
 >
 > ```html
 > database.<wbr>connection.<wbr>pool
 > ```
+
+## Requirement References in Source Code
+
+Requirement references are extracted from source code comments in any programming language.
+
+### Basic Syntax
+
+r[ref.syntax.brackets]
+A requirement reference MUST be written as `r[verb req.id]` within a comment, where the `r` prefix identifies it as a tracey requirement reference.
+
+r[ref.syntax.req-id]
+A requirement ID MUST consist of one or more segments separated by dots. Each segment MUST contain only alphanumeric characters, hyphens, or underscores.
+
+r[ref.syntax.verb]
+A requirement reference MAY include a verb prefix before the requirement ID, separated by a space. If no verb is provided, `impl` is assumed.
+
+### Supported Verbs
+
+Source code references use verbs to indicate the relationship between code and requirements:
+
+> r[ref.verb.impl]
+> The `impl` verb MUST be interpreted as indicating that the code implements the referenced requirement.
+>
+> ```rust
+> // r[impl auth.token.validation]
+> fn validate_token(token: &str) -> bool {
+>     // etc.
+> }
+> ```
+
+> r[ref.verb.verify]
+> The `verify` verb MUST be interpreted as indicating that the code tests or verifies the referenced requirement.
+>
+> ```typescript
+> test('token validation', () => {
+>     // r[verify auth.token.validation]
+>     expect(validateToken('abc')).toBe(true);
+> });
+> ```
+
+> r[ref.verb.depends]
+> The `depends` verb MUST be interpreted as indicating a strict dependency — the code must be rechecked if the referenced requirement changes.
+>
+> ```python
+> # r[depends auth.crypto.algorithm]
+> # This code must be reviewed if the crypto algorithm changes
+> def hash_password(password: str) -> str:
+>     return bcrypt.hashpw(password.encode(), bcrypt.gensalt())
+> ```
+
+> r[ref.verb.related]
+> The `related` verb MUST be interpreted as indicating a loose connection, shown when reviewing related code.
+>
+> ```swift
+> // r[related user.session.timeout]
+> // Session cleanup is related to timeout requirements
+> func cleanupExpiredSessions() {
+>     sessions.removeAll { $0.isExpired }
+> }
+> ```
+
+> r[ref.verb.default]
+> When no verb is provided, the reference SHOULD be treated as an `impl` reference.
+>
+> ```go
+> // r[auth.token.validation] - no verb, defaults to 'impl'
+> func ValidateToken(token string) bool {
+>     return len(token) > 0
+> }
+> ```
+
+### Comment Types
+
+r[ref.comments.line]
+Requirement references MUST be recognized in line comments (`//`, `#`, etc. depending on language).
+
+r[ref.comments.block]
+Requirement references MUST be recognized in block comments (`/* */`, `""" """`, etc. depending on language).
+
+r[ref.comments.doc]
+Requirement references MUST be recognized in documentation comments (`///`, `//!`, `/** */`, etc. depending on language).
+
+### Source Location Tracking
+
+r[ref.span.offset]
+Each extracted requirement reference MUST include the byte offset of its location in the source file.
+
+r[ref.span.length]
+Each extracted requirement reference MUST include the byte length of the reference.
+
+r[ref.span.file]
+Each extracted requirement reference MUST include the path to the source file.
 
 ---
 
@@ -219,21 +247,21 @@ This section specifies how the tracey tool processes annotations, computes cover
 ## Coverage Computation
 
 r[coverage.compute.percentage]
-Coverage percentage MUST be calculated as (covered rules / total rules) * 100.
+Coverage percentage MUST be calculated as (covered requirements / total requirements) * 100.
 
 r[coverage.compute.covered]
-Tracey MUST consider a rule covered if at least one reference to it exists in the scanned source files.
+Tracey MUST consider a requirement covered if at least one reference to it exists in the scanned source files.
 
 r[coverage.compute.uncovered]
-Rules in the manifest with no references MUST be reported as uncovered.
+Requirements in the manifest with no references MUST be reported as uncovered.
 
 r[coverage.compute.invalid]
-References to rule IDs not present in the manifest MUST be reported as invalid.
+References to requirement IDs not present in the manifest MUST be reported as invalid.
 
 ## Reference Extraction
 
 r[ref.verb.unknown]
-When an unrecognized verb is encountered, tracey MUST emit a warning but SHOULD still extract the rule reference.
+When an unrecognized verb is encountered, tracey MUST emit a warning but SHOULD still extract the requirement reference.
 
 ## Configuration
 
@@ -249,7 +277,7 @@ The default configuration path MUST be `.config/tracey/config.kdl` relative to t
 > ```kdl
 > spec {
 >     name "spec-name"
->     rules_glob "docs/spec/**/*.md"
+>     reqs_glob "docs/spec/**/*.md"
 >
 >     impl {
 >         lang "rust"
@@ -262,8 +290,8 @@ The default configuration path MUST be `.config/tracey/config.kdl` relative to t
 r[config.spec.name]
 Each spec configuration MUST have a `name` child node with the spec name as its argument.
 
-r[config.spec.rules-glob]
-Each spec configuration MUST have a `rules_glob` child node specifying a glob pattern for markdown files containing rule definitions.
+r[config.spec.reqs-glob]
+Each spec configuration MUST have a `reqs_glob` child node specifying a glob pattern for markdown files containing requirement definitions.
 
 r[config.impl.name]
 Each impl configuration MUST have a `name` child node identifying the implementation (e.g., "main", "core").
@@ -277,7 +305,7 @@ Each impl configuration MAY have one or more `exclude` child nodes specifying gl
 ## File Walking
 
 r[walk.gitignore]
-File walking MUST respect `.gitignore` rules.
+File walking MUST respect `.gitignore` files.
 
 r[walk.default-include]
 When no include patterns are specified, tracey MUST default to `**/*.rs`.
@@ -301,7 +329,7 @@ r[dashboard.url.sources-view]
 The sources view MUST be accessible at `/:specName/:impl/sources` with optional file and line parameters `/:specName/:impl/sources/:filePath::lineNumber`.
 
 r[dashboard.url.context]
-Source URLs MAY include a `?context=:ruleId` query parameter to show rule context in the sidebar.
+Source URLs MAY include a `?context=:reqId` query parameter to show requirement context in the sidebar.
 
 r[dashboard.url.root-redirect]
 Navigating to `/` MUST redirect to `/:defaultSpec/:defaultImpl/spec` where `defaultSpec` is the first configured spec and `defaultImpl` is its first implementation.
@@ -318,10 +346,10 @@ r[dashboard.api.spec]
 The `/api/spec?spec=:specName&impl=:impl` endpoint MUST return the rendered HTML and outline for the named spec and implementation.
 
 r[dashboard.api.forward]
-The `/api/forward?spec=:specName&impl=:impl` endpoint MUST return the forward mapping (rules to file references) for the specified implementation.
+The `/api/forward?spec=:specName&impl=:impl` endpoint MUST return the forward mapping (requirements to file references) for the specified implementation.
 
 r[dashboard.api.reverse]
-The `/api/reverse?spec=:specName&impl=:impl` endpoint MUST return the reverse mapping (files to rule references) with coverage statistics for the specified implementation.
+The `/api/reverse?spec=:specName&impl=:impl` endpoint MUST return the reverse mapping (files to requirement references) with coverage statistics for the specified implementation.
 
 r[dashboard.api.file]
 The `/api/file?spec=:specName&impl=:impl&path=:filePath` endpoint MUST return the file content, syntax-highlighted HTML, and code unit annotations.
@@ -337,14 +365,14 @@ The dashboard SHOULD poll `/api/version` and refetch data when the version chang
 r[dashboard.links.spec-aware]
 All links generated in rendered markdown MUST include the spec name and implementation as the first two path segments.
 
-r[dashboard.links.rule-links]
-Rule ID badges MUST link to `/:specName/:impl/spec?rule=:ruleId` to navigate to the rule in the specification.
+r[dashboard.links.req-links]
+Requirement ID badges MUST link to `/:specName/:impl/spec?req=:reqId` to navigate to the requirement in the specification.
 
 r[dashboard.links.impl-refs]
-Implementation reference badges MUST link to `/:specName/:impl/sources/:filePath::line?context=:ruleId`.
+Implementation reference badges MUST link to `/:specName/:impl/sources/:filePath::line?context=:reqId`.
 
 r[dashboard.links.verify-refs]
-Verification/test reference badges MUST link to `/:specName/:impl/sources/:filePath::line?context=:ruleId`.
+Verification/test reference badges MUST link to `/:specName/:impl/sources/:filePath::line?context=:reqId`.
 
 r[dashboard.links.heading-links]
 Heading links in the outline MUST link to `/:specName/:impl/spec#:headingSlug`.
@@ -355,13 +383,13 @@ r[dashboard.spec.outline]
 The specification view MUST display a collapsible outline tree of headings in a sidebar.
 
 r[dashboard.spec.outline-coverage]
-Each outline heading SHOULD display a coverage indicator showing the ratio of covered rules within that section.
+Each outline heading SHOULD display a coverage indicator showing the ratio of covered requirements within that section.
 
 r[dashboard.spec.content]
-The specification view MUST display the rendered markdown content with rule containers.
+The specification view MUST display the rendered markdown content with requirement containers.
 
-r[dashboard.spec.rule-highlight]
-When navigating to a rule via URL parameter `?rule=:ruleId`, the rule container MUST be highlighted and scrolled into view.
+r[dashboard.spec.req-highlight]
+When navigating to a requirement via URL parameter `?req=:reqId`, the requirement container MUST be highlighted and scrolled into view.
 
 r[dashboard.spec.heading-scroll]
 When navigating to a heading via URL path, the heading MUST be scrolled into view.
@@ -375,7 +403,7 @@ When only one spec or implementation is configured, the switcher MUST still be v
 ### Coverage View
 
 r[dashboard.coverage.table]
-The coverage view MUST display a table of all rules with their coverage status.
+The coverage view MUST display a table of all requirements with their coverage status.
 
 r[dashboard.coverage.filter-type]
 The coverage view MUST support filtering by reference type (impl, verify, or all).
@@ -384,10 +412,10 @@ r[dashboard.coverage.filter-level]
 The coverage view MUST support filtering by RFC 2119 level (MUST, SHOULD, MAY, or all).
 
 r[dashboard.coverage.stats]
-The coverage view MUST display summary statistics including total rules, covered count, and coverage percentage.
+The coverage view MUST display summary statistics including total requirements, covered count, and coverage percentage.
 
-r[dashboard.coverage.rule-links]
-Each rule in the coverage table MUST link to the rule in the specification view.
+r[dashboard.coverage.req-links]
+Each requirement in the coverage table MUST link to the requirement in the specification view.
 
 r[dashboard.coverage.ref-links]
 Each reference in the coverage table MUST link to the source location.
@@ -407,13 +435,13 @@ r[dashboard.sources.line-numbers]
 The code view MUST display line numbers.
 
 r[dashboard.sources.line-annotations]
-Lines containing rule references MUST be annotated with indicators showing which rules are referenced.
+Lines containing requirement references MUST be annotated with indicators showing which requirements are referenced.
 
 r[dashboard.sources.line-highlight]
 When navigating to a specific line, that line MUST be highlighted and scrolled into view.
 
-r[dashboard.sources.rule-context]
-When a `?context=:ruleId` parameter is present, the sidebar MUST display the rule details and all its references.
+r[dashboard.sources.req-context]
+When a `?context=:reqId` parameter is present, the sidebar MUST display the requirement details and all its references.
 
 r[dashboard.sources.editor-open]
 Clicking a line number SHOULD open the file at that line in the configured editor.
@@ -423,14 +451,14 @@ Clicking a line number SHOULD open the file at that line in the configured edito
 r[dashboard.search.modal]
 The search modal MUST be openable via keyboard shortcut (Cmd+K on Mac, Ctrl+K elsewhere).
 
-r[dashboard.search.rules]
-Search MUST support finding rules by ID or text content.
+r[dashboard.search.reqs]
+Search MUST support finding requirements by ID or text content.
 
 r[dashboard.search.files]
 Search MUST support finding files by path.
 
 r[dashboard.search.navigation]
-Selecting a search result MUST navigate to the appropriate view (spec for rules, sources for files).
+Selecting a search result MUST navigate to the appropriate view (spec for requirements, sources for files).
 
 ### Header
 
@@ -474,7 +502,7 @@ r[server.watch.sources]
 The server MUST watch source files for changes and update coverage data automatically.
 
 r[server.watch.specs]
-The server MUST watch specification markdown files for changes and update rule data automatically.
+The server MUST watch specification markdown files for changes and update requirement data automatically.
 
 r[server.watch.config]
 The server MUST watch its configuration file for changes and reload configuration automatically.
@@ -492,22 +520,22 @@ The server MUST maintain a version identifier that changes when any source data 
 
 ## Validation
 
-Tracey validates the integrity and quality of rule definitions and references.
+Tracey validates the integrity and quality of requirement definitions and references.
 
 r[validation.broken-refs]
-The system MUST detect and report references to non-existent rule IDs in implementation and verification comments.
+The system MUST detect and report references to non-existent requirement IDs in implementation and verification comments.
 
 r[validation.naming]
-The system MUST validate that rule IDs follow the configured naming convention (e.g., section.subsection.name format).
+The system MUST validate that requirement IDs follow the configured naming convention (e.g., section.subsection.name format).
 
 r[validation.circular-deps]
-The system MUST detect circular dependencies if rules reference each other, preventing infinite loops in dependency resolution.
+The system MUST detect circular dependencies if requirements reference each other, preventing infinite loops in dependency resolution.
 
 r[validation.orphaned]
-The system MUST identify rules that are defined in specs but never referenced in implementation or verification comments.
+The system MUST identify requirements that are defined in specs but never referenced in implementation or verification comments.
 
 r[validation.duplicates]
-The system MUST detect duplicate rule IDs across all spec files.
+The system MUST detect duplicate requirement IDs across all spec files.
 
 ## MCP Server
 
@@ -533,8 +561,8 @@ Every MCP tool response MUST include a delta section showing changes since the l
 >
 > ```
 > Since last query:
->   ✓ rule.id.one → src/file.rs:42
->   ✓ rule.id.two → src/other.rs:67
+>   ✓ req.id.one → src/file.rs:42
+>   ✓ req.id.two → src/other.rs:67
 > ```
 >
 > If no changes occurred, display: `(no changes since last query)`
@@ -565,13 +593,13 @@ r[mcp.tool.status]
 The `tracey_status` tool MUST return a coverage overview and list available query commands.
 
 r[mcp.tool.uncovered]
-The `tracey_uncovered` tool MUST return rules without `impl` references, grouped by markdown section.
+The `tracey_uncovered` tool MUST return requirements without `impl` references, grouped by markdown section.
 
 r[mcp.tool.uncovered-section]
 The `tracey_uncovered` tool MUST support a `--section` parameter to filter to a specific section.
 
 r[mcp.tool.untested]
-The `tracey_untested` tool MUST return rules without `verify` references, grouped by markdown section.
+The `tracey_untested` tool MUST return requirements without `verify` references, grouped by markdown section.
 
 r[mcp.tool.untested-section]
 The `tracey_untested` tool MUST support a `--section` parameter to filter to a specific section.
@@ -596,8 +624,8 @@ The `tracey_unmapped` tool MUST accept an optional path parameter to zoom into a
 r[mcp.tool.unmapped-file]
 When zoomed into a specific file, `tracey_unmapped` MUST list individual unmapped code units with line numbers.
 
-r[mcp.tool.rule]
-The `tracey_rule` tool MUST return the full text of a rule and all references to it.
+r[mcp.tool.req]
+The `tracey_req` tool MUST return the full text of a requirement and all references to it.
 
 ### Configuration Tools
 
@@ -627,7 +655,7 @@ Large result sets SHOULD be paginated with hints showing how to retrieve more re
 ### Validation Tools
 
 r[mcp.validation.check]
-The `tracey_validate` tool MUST run all validation checks and return a report of issues found (broken refs, naming violations, circular deps, orphaned rules, duplicates).
+The `tracey_validate` tool MUST run all validation checks and return a report of issues found (broken refs, naming violations, circular deps, orphaned requirements, duplicates).
 
 r[dashboard.validation.display]
 The dashboard MUST display validation errors prominently, with links to the problematic locations.
@@ -638,16 +666,16 @@ The dashboard SHOULD run validation continuously and update the UI when new issu
 ### Query Tools
 
 r[mcp.query.search]
-The `tracey_search` tool MUST support keyword search across rule text and IDs, returning matching rules with their definitions and references.
+The `tracey_search` tool MUST support keyword search across requirement text and IDs, returning matching requirements with their definitions and references.
 
-r[mcp.query.file-rules]
-The `tracey_file_rules` tool MUST return all rules referenced in a specific source file, grouped by reference type (impl/verify).
+r[mcp.query.file-reqs]
+The `tracey_file_reqs` tool MUST return all requirements referenced in a specific source file, grouped by reference type (impl/verify).
 
 r[mcp.query.priority]
-The `tracey_priority` tool MUST suggest which uncovered rules to implement next, prioritizing by section completeness and rule dependencies.
+The `tracey_priority` tool MUST suggest which uncovered requirements to implement next, prioritizing by section completeness and requirement dependencies.
 
 r[dashboard.query.search]
-The dashboard MUST provide a search interface for finding rules by keyword in their text or ID.
+The dashboard MUST provide a search interface for finding requirements by keyword in their text or ID.
 
-r[dashboard.query.file-rules]
-The dashboard MUST show all rules referenced by a specific file when viewing file details.
+r[dashboard.query.file-reqs]
+The dashboard MUST show all requirements referenced by a specific file when viewing file details.

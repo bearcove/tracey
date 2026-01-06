@@ -23,6 +23,10 @@
 
     --max-width: 1600px;
 
+    /* Fonts */
+    --font-sans: "Recursive", system-ui, -apple-system, sans-serif;
+    --font-mono: "Recursive", monospace;
+
     /* Arborium syntax highlighting colors (combined light/dark) */
     --arb-at: light-dark(var(--arb-at-light), var(--arb-at-dark));
     --arb-co: light-dark(var(--arb-co-light), var(--arb-co-dark));
@@ -60,11 +64,7 @@
 }
 
 body {
-    font-family:
-        "Public Sans",
-        system-ui,
-        -apple-system,
-        sans-serif;
+    font-family: var(--font-sans);
     background: var(--bg-outer);
     color: var(--fg);
     line-height: 1.5;
@@ -260,7 +260,7 @@ body {
 .stat-value {
     font-size: 1.25rem;
     font-weight: 600;
-    font-family: "IBM Plex Mono", monospace;
+    font-family: var(--font-mono);
 }
 
 .stat-value.good {
@@ -455,7 +455,7 @@ body {
     padding: 0.5rem 1rem;
     border-bottom: 1px solid var(--border);
     background: var(--bg-secondary);
-    font-family: "IBM Plex Mono", monospace;
+    font-family: var(--font-mono);
     font-size: 0.85rem;
 }
 
@@ -496,7 +496,7 @@ body {
 
 /* Code view */
 .code-view {
-    font-family: "IBM Plex Mono", monospace;
+    font-family: var(--font-mono);
     font-size: 0.75rem;
     line-height: 1.6;
 }
@@ -682,7 +682,7 @@ a.annotation-badge:hover {
 }
 
 .rule-id {
-    font-family: "IBM Plex Mono", monospace;
+    font-family: var(--font-mono);
     font-size: 0.85rem;
     font-weight: 500;
     color: var(--accent);
@@ -695,7 +695,7 @@ a.annotation-badge:hover {
 }
 
 .rule-text code {
-    font-family: "IBM Plex Mono", monospace;
+    font-family: var(--font-mono);
     font-size: 90%;
     background: var(--hover);
     padding: 0.1rem 0.3rem;
@@ -703,7 +703,7 @@ a.annotation-badge:hover {
 }
 
 .rule-refs {
-    font-family: "IBM Plex Mono", monospace;
+    font-family: var(--font-mono);
     font-size: 0.8rem;
 }
 
@@ -763,8 +763,10 @@ a.annotation-badge:hover {
 /* Markdown content */
 .markdown {
     padding: 0.75rem 2rem 1.5rem 2rem;
-    font-size: 0.9rem;
-    line-height: 1.7;
+    font-size: 1rem;
+    line-height: 1.6;
+    max-width: 800px;
+    hyphens: auto;
 }
 
 .markdown h1,
@@ -772,7 +774,6 @@ a.annotation-badge:hover {
 .markdown h3,
 .markdown h4 {
     margin: 1.5rem 0 0.75rem;
-    font-weight: 600;
     color: var(--fg);
     cursor: pointer;
 }
@@ -786,20 +787,26 @@ a.annotation-badge:hover {
 
 .markdown h1 {
     font-size: 1.5rem;
+    font-weight: 900;
 }
 .markdown h2 {
     font-size: 1.25rem;
+    font-weight: 850;
 }
 .markdown h3 {
     font-size: 1.1rem;
+    font-weight: 800;
+}
+.markdown h4 {
+    font-weight: 750;
 }
 
 .markdown p {
-    margin: 0.75rem 0;
+    margin: 1rem 0;
 }
 
 .markdown code {
-    font-family: "IBM Plex Mono", monospace;
+    font-family: var(--font-mono);
     background: var(--hover);
     padding: 0.15rem 0.35rem;
     border-radius: 4px;
@@ -900,7 +907,7 @@ kw-optional {
     width: fit-content;
     background: var(--accent-dim);
     color: var(--accent);
-    font-family: "IBM Plex Mono", monospace;
+    font-family: var(--font-mono);
     font-size: 0.75rem;
     padding: 0.1rem 0.35rem;
     border-radius: 3px;
@@ -954,8 +961,9 @@ a.rule-marker:hover {
     position: relative;
     border: 1px solid var(--border);
     border-radius: 6px;
-    margin: 1rem 0 1.5rem 0;
-    padding: 1rem 1rem 0.5rem 1rem;
+    margin: 1rem 0 0.75rem 0;
+    padding: 1.25rem 1rem 0.5rem 1rem;
+    font-size: 90%;
 }
 
 .rule-block-covered {
@@ -1033,7 +1041,7 @@ a.rule-marker:hover {
 }
 
 .rule-badge {
-    font-family: "IBM Plex Mono", monospace;
+    font-family: var(--font-mono);
     font-size: 0.75rem;
     padding: 0.15rem 0.5rem;
     border-radius: 4px;
@@ -1099,7 +1107,7 @@ a.rule-marker:hover {
 }
 
 .spec-ref {
-    font-family: "IBM Plex Mono", monospace;
+    font-family: var(--font-mono);
     text-decoration: none;
     padding: 0.15rem 0.4rem;
     border-radius: 3px;
@@ -1156,7 +1164,7 @@ a.rule-marker:hover {
     padding: 0.5rem 0.75rem;
     cursor: pointer;
     transition: background 0.15s;
-    font-family: "IBM Plex Mono", monospace;
+    font-family: var(--font-mono);
     font-size: 0.85rem;
 }
 
@@ -1327,7 +1335,7 @@ a.rule-marker:hover {
     align-items: center;
     gap: 0.35rem;
     text-decoration: none;
-    font-family: "IBM Plex Mono", monospace;
+    font-family: var(--font-mono);
     font-size: 0.8em;
 }
 .file-path-link:hover .file-path-name {
@@ -1399,51 +1407,7 @@ a.rule-marker:hover {
 
 /* Outline tree */
 .outline-tree {
-    padding: 0.5rem;
-}
-
-.outline-item-row {
-    display: flex;
-    align-items: center;
-    gap: 0;
-}
-
-.outline-toggle {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.25rem;
-    height: 1.25rem;
-    padding: 0;
-    margin-left: 0.2rem;
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    color: var(--fg-dim);
-    border-radius: 0.25rem;
-    flex-shrink: 0;
-    transition: all 0.15s;
-}
-
-.outline-toggle:hover {
-    background: var(--hover);
-    color: var(--fg);
-}
-
-.outline-toggle svg {
-    width: 0.875rem;
-    height: 0.875rem;
-    transition: transform 0.15s;
-}
-
-.outline-toggle:not(.collapsed) svg {
-    transform: rotate(90deg);
-}
-
-.outline-toggle-spacer {
-    width: 1.25rem;
-    margin-left: 0.2rem;
-    flex-shrink: 0;
+    padding: 0.75rem;
 }
 
 /* Paragraph edit button (pencil icon on hover) */
@@ -1554,18 +1518,9 @@ a.rule-marker:hover {
 }
 
 .outline-children {
-    /* Position vertical guide under where parent text starts */
-    /* Toggle margin (0.2rem) + toggle width (1.25rem) + item padding (0.35rem) = 1.8rem */
-    margin-left: 1.8rem;
-    padding-left: 0;
+    margin-left: 0.75rem;
+    padding-left: 0.5rem;
     border-left: 2px solid var(--border);
-}
-
-/* Pull nested toggles left so they overlap with the guide */
-.outline-children .outline-toggle,
-.outline-children .outline-toggle-spacer {
-    margin-left: -0.625rem; /* Half the toggle width, centers toggle on guide */
-    background: color-mix(in srgb, var(--bg-sidebar) 50%, transparent); /* Partially erase the guide */
 }
 
 .outline-children.has-active {
@@ -1583,7 +1538,7 @@ a.rule-marker:hover {
     padding: 0.5rem 1rem;
     border-bottom: 1px solid var(--border);
     cursor: pointer;
-    font-family: "IBM Plex Mono", monospace;
+    font-family: var(--font-mono);
     font-size: 0.8rem;
 }
 
@@ -1656,7 +1611,7 @@ a.rule-marker:hover {
 }
 
 .rule-context-id {
-    font-family: "IBM Plex Mono", monospace;
+    font-family: var(--font-mono);
     font-size: 0.85rem;
     font-weight: 500;
     color: var(--accent);
@@ -1702,7 +1657,7 @@ a.rule-marker:hover {
     gap: 0.5rem;
     padding: 0.35rem 0.5rem;
     border-radius: 4px;
-    font-family: "IBM Plex Mono", monospace;
+    font-family: var(--font-mono);
     font-size: 0.8rem;
     cursor: pointer;
     text-decoration: none;
@@ -1821,14 +1776,14 @@ a.rule-marker:hover {
 }
 
 .search-modal-result-id {
-    font-family: "IBM Plex Mono", monospace;
+    font-family: var(--font-mono);
     font-size: 0.85rem;
     color: var(--accent);
 }
 
 .search-modal-result-line {
     color: var(--green);
-    font-family: "IBM Plex Mono", monospace;
+    font-family: var(--font-mono);
     font-size: 0.85rem;
 }
 
@@ -1860,12 +1815,12 @@ a.rule-marker:hover {
     border: 1px solid var(--border);
     border-radius: 3px;
     padding: 0.1rem 0.35rem;
-    font-family: "IBM Plex Mono", monospace;
+    font-family: var(--font-mono);
     font-size: 0.7rem;
 }
 
 .search-modal-result-code {
-    font-family: "IBM Plex Mono", monospace;
+    font-family: var(--font-mono);
     font-size: 0.75rem;
     line-height: 1.6;
     margin: 0;
