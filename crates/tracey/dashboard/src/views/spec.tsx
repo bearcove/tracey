@@ -3,6 +3,7 @@ import { EDITORS } from "../config";
 import { useSpec } from "../hooks";
 import { CoverageArc, html, showRefsPopup } from "../main";
 import type { OutlineEntry, SpecViewProps } from "../types";
+import { MarkdownEditor } from "../components/MarkdownEditor";
 
 // Tree node for hierarchical outline
 interface OutlineTreeNode {
@@ -174,6 +175,12 @@ export function SpecView({
   const initialScrollPosition = useRef(scrollPosition);
   const lastScrolledHeading = useRef<string | null>(null);
 
+  // Markdown editor modal state
+  const [editorState, setEditorState] = useState<{
+    filePath: string;
+    byteRange: string;
+  } | null>(null);
+
   // Use outline from API (already has coverage info)
   const outline = spec?.outline || [];
 
@@ -330,6 +337,18 @@ export function SpecView({
         e.preventDefault();
         const ruleId = ruleMarker.dataset.rule;
         if (ruleId) onSelectRule(ruleId);
+        return;
+      }
+
+      // Handle Edit badge clicks - open markdown editor modal
+      const editBadge = target.closest("button.req-badge.req-edit") as HTMLElement | null;
+      if (editBadge) {
+        e.preventDefault();
+        const sourceFile = editBadge.dataset.sourceFile;
+        const byteRange = editBadge.dataset.br;
+        if (sourceFile && byteRange) {
+          setEditorState({ filePath: sourceFile, byteRange });
+        }
         return;
       }
 
@@ -499,6 +518,14 @@ export function SpecView({
           />
         </div>
       </div>
+      ${
+        editorState &&
+        html`<${MarkdownEditor}
+          filePath=${editorState.filePath}
+          byteRange=${editorState.byteRange}
+          onClose=${() => setEditorState(null)}
+        />`
+      }
     </div>
   `;
 }

@@ -3972,6 +3972,7 @@ dependencies = [
  "tracey-core",
  "tracing",
  "tracing-subscriber",
+ "url",
  "urlencoding",
 ]
 

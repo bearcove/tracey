@@ -243,8 +243,28 @@ impl TraceyHandler {
         let mut out = self.format_header();
         out.push_str("# Tracey Status\n\n");
 
+        // Show configured specs with prefixes
+        out.push_str("## Configured Specs\n\n");
+        for spec_info in &data.config.specs {
+            out.push_str(&format!(
+                "- **{}** (prefix: `{}`)\n",
+                spec_info.name, spec_info.prefix
+            ));
+            out.push_str(&format!(
+                "  - Implementations: {}\n",
+                spec_info.implementations.join(", ")
+            ));
+            out.push_str(&format!(
+                "  - When annotating code, use: `{}[impl rule.id]` or `{}[verify rule.id]`\n\n",
+                spec_info.prefix, spec_info.prefix
+            ));
+        }
+
+        out.push_str("---\n\n");
+        out.push_str("## Coverage by Implementation\n\n");
+
         for (spec, impl_name, stats) in &status {
-            out.push_str(&format!("## {}/{}\n", spec, impl_name));
+            out.push_str(&format!("### {}/{}\n", spec, impl_name));
             out.push_str(&format!(
                 "- Implementation coverage: {:.0}% ({}/{} rules)\n",
                 stats.impl_percent, stats.impl_covered, stats.total_rules

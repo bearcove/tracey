@@ -21,7 +21,7 @@ use axum::{
     extract::{FromRequestParts, Query, State, WebSocketUpgrade, ws},
     http::{Method, Request, StatusCode, header},
     response::{Html, IntoResponse, Response},
-    routing::get,
+    routing::{get, patch, post},
 };
 use eyre::{Result, WrapErr};
 use facet::Facet;
@@ -32,6 +32,7 @@ use hyper_util::rt::TokioExecutor;
 use notify_debouncer_mini::{new_debouncer, notify::RecursiveMode};
 use owo_colors::OwoColorize;
 use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -59,21 +60,38 @@ use crate::vite::ViteServer;
 // JSON API Types
 // ============================================================================
 
+/// Git status for a file
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Facet)]
+#[facet(rename_all = "lowercase")]
+#[repr(u8)]
+pub enum GitStatus {
+    /// File has uncommitted changes
+    Dirty,
+    /// File has staged changes
+    Staged,
+    /// File is clean (no changes)
+    Clean,
+    /// Not in a git repo or error checking
+    Unknown,
+}
+
 /// Project configuration info
 #[derive(Debug, Clone, Facet)]
 pub struct ApiConfig {
-    project_root: String,
-    specs: Vec<ApiSpecInfo>,
+    pub project_root: String,
+    pub specs: Vec<ApiSpecInfo>,
 }
 
 #[derive(Debug, Clone, Facet)]
-struct ApiSpecInfo {
-    name: String,
+pub struct ApiSpecInfo {
+    pub name: String,
+    /// Prefix used in annotations (e.g., "r" for r[req.id])
+    pub prefix: String,
     /// Path to spec file(s) if local
     #[facet(default)]
-    source: Option<String>,
+    pub source: Option<String>,
     /// Available implementations for this spec
-    implementations: Vec<String>,
+    pub implementations: Vec<String>,
 }
 
 /// Forward traceability: rules with their code references
@@ -293,6 +311,8 @@ struct TraceyRuleHandler {
     impl_name: String,
     /// Project root for absolute paths
     project_root: PathBuf,
+    /// Git status for files
+    git_status: HashMap<String, GitStatus>,
 }
 
 impl TraceyRuleHandler {
@@ -302,6 +322,7 @@ impl TraceyRuleHandler {
         spec_name: String,
         impl_name: String,
         project_root: PathBuf,
+        git_status: HashMap<String, GitStatus>,
     ) -> Self {
         Self {
             coverage,
@@ -309,6 +330,7 @@ impl TraceyRuleHandler {
             spec_name,
             impl_name,
             project_root,
+            git_status,
         }
     }
 }
@@ -472,13 +494,23 @@ impl ReqHandler for TraceyRuleHandler {
                 }
             }
 
+            // Edit badge - opens markdown editor for this byte range
+            badges_html.push_str(&format!(
+                r#"<button class="req-badge req-edit" data-br="{}-{}" data-source-file="{}" title="Edit this requirement"><svg class="req-edit-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg> Edit</button>"#,
+                rule.span.offset,
+                rule.span.offset + rule.span.length,
+                source_file
+            ));
+
             // Render the opening of the req container
             Ok(format!(
-                r#"<div class="req-container req-{status}" id="{anchor}">
+                r#"<div class="req-container req-{status}" id="{anchor}" data-br="{br_start}-{br_end}">
 <div class="req-badges">{badges}</div>
 <div class="req-content">"#,
                 status = status,
                 anchor = rule.anchor_id,
+                br_start = rule.span.offset,
+                br_end = rule.span.offset + rule.span.length,
                 badges = badges_html,
             ))
         })
@@ -493,6 +525,59 @@ impl ReqHandler for TraceyRuleHandler {
             Ok("</div>\n</div>".to_string())
         })
     }
+}
+
+// ============================================================================
+// Git Status
+// ============================================================================
+
+/// Get git status for all files in the repository
+/// Returns a map of file path -> GitStatus
+fn get_git_status(project_root: &Path) -> HashMap<String, GitStatus> {
+    let mut status_map = HashMap::new();
+
+    // Run git status --porcelain to get file statuses
+    let output = match std::process::Command::new("git")
+        .arg("status")
+        .arg("--porcelain")
+        .current_dir(project_root)
+        .output()
+    {
+        Ok(output) => output,
+        Err(_) => return status_map, // Not a git repo or git not available
+    };
+
+    if !output.status.success() {
+        return status_map;
+    }
+
+    let status_text = String::from_utf8_lossy(&output.stdout);
+    for line in status_text.lines() {
+        if line.len() < 4 {
+            continue;
+        }
+
+        // Git status --porcelain format: "XY filename"
+        // X = index status, Y = working tree status
+        let index_status = line.chars().nth(0).unwrap_or(' ');
+        let worktree_status = line.chars().nth(1).unwrap_or(' ');
+        let filename = line[3..].trim().to_string();
+
+        let status = if worktree_status != ' ' && worktree_status != '?' {
+            // Working tree has changes (dirty)
+            GitStatus::Dirty
+        } else if index_status != ' ' && index_status != '?' {
+            // Changes staged in index
+            GitStatus::Staged
+        } else {
+            // Clean or unknown
+            GitStatus::Clean
+        };
+
+        status_map.insert(filename, status);
+    }
+
+    status_map
 }
 
 // ============================================================================
@@ -555,6 +640,7 @@ pub async fn build_dashboard_data(
 
         api_config.specs.push(ApiSpecInfo {
             name: spec_name.clone(),
+            prefix: spec_config.prefix.value.clone(),
             source: Some(include_patterns.join(", ")),
             implementations: spec_config
                 .impls
@@ -825,12 +911,15 @@ async fn load_spec_content(
     let current_source_file = Arc::new(Mutex::new(String::new()));
 
     // Set up bearmark handlers for consistent rendering with coverage-aware rule rendering
+    // TODO: Add real git status checking
+    let git_status = HashMap::new();
     let rule_handler = TraceyRuleHandler::new(
         coverage.clone(),
         Arc::clone(&current_source_file),
         spec_name.to_string(),
         impl_name.to_string(),
         root.to_path_buf(),
+        git_status,
     );
     let opts = RenderOptions::new()
         .with_default_handler(ArboriumHandler::new())
@@ -1366,6 +1455,169 @@ async fn api_file(
             .body(Body::from(r#"{"error":"File not found"}"#))
             .unwrap()
             .into_response()
+    }
+}
+
+/// Response for file range queries
+#[derive(Debug, Clone, Facet)]
+struct ApiFileRange {
+    content: String,
+    start: usize,
+    end: usize,
+}
+
+/// Error response
+#[derive(Debug, Clone, Facet)]
+struct ApiError {
+    error: String,
+}
+
+/// GET /api/file-range?path=<path>&start=<byte-start>&end=<byte-end>
+/// Fetch a byte range from a file
+async fn api_file_range(
+    State(state): State<AppState>,
+    Query(params): Query<Vec<(String, String)>>,
+) -> impl IntoResponse {
+    let path = params
+        .iter()
+        .find(|(k, _)| k == "path")
+        .map(|(_, v)| v.clone())
+        .unwrap_or_default();
+
+    let start: usize = params
+        .iter()
+        .find(|(k, _)| k == "start")
+        .and_then(|(_, v)| v.parse().ok())
+        .unwrap_or(0);
+
+    let end: usize = params
+        .iter()
+        .find(|(k, _)| k == "end")
+        .and_then(|(_, v)| v.parse().ok())
+        .unwrap_or(0);
+
+    let file_path = urlencoding::decode(&path).unwrap_or_default();
+    let full_path = state.project_root.join(file_path.as_ref());
+
+    if let Ok(content) = std::fs::read(&full_path) {
+        if end > start && end <= content.len() {
+            let range_bytes = &content[start..end];
+            if let Ok(text) = String::from_utf8(range_bytes.to_vec()) {
+                return Json(ApiFileRange {
+                    content: text,
+                    start,
+                    end,
+                })
+                .into_response();
+            }
+        }
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ApiError {
+                error: "Invalid byte range or non-UTF8 content".to_string(),
+            }),
+        )
+            .into_response()
+    } else {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ApiError {
+                error: "File not found".to_string(),
+            }),
+        )
+            .into_response()
+    }
+}
+
+/// Request body for updating a file range
+#[derive(Debug, Clone, Facet)]
+struct ApiUpdateFileRange {
+    path: String,
+    start: usize,
+    end: usize,
+    content: String,
+}
+
+/// Request body for previewing markdown
+#[derive(Debug, Clone, Facet)]
+struct ApiPreviewMarkdown {
+    content: String,
+}
+
+/// Response for markdown preview
+#[derive(Debug, Clone, Facet)]
+struct ApiPreviewResponse {
+    html: String,
+}
+
+/// PATCH /api/file-range
+/// Update a byte range in a file
+async fn api_update_file_range(
+    State(state): State<AppState>,
+    Json(req): Json<ApiUpdateFileRange>,
+) -> impl IntoResponse {
+    let file_path = urlencoding::decode(&req.path).unwrap_or_default();
+    let full_path = state.project_root.join(file_path.as_ref());
+
+    if let Ok(original_content) = std::fs::read(&full_path) {
+        if req.end > req.start && req.end <= original_content.len() {
+            // Build new content: before + new content + after
+            let mut new_content = Vec::new();
+            new_content.extend_from_slice(&original_content[..req.start]);
+            new_content.extend_from_slice(req.content.as_bytes());
+            new_content.extend_from_slice(&original_content[req.end..]);
+
+            // Write back to file
+            if std::fs::write(&full_path, &new_content).is_ok() {
+                let new_end = req.start + req.content.as_bytes().len();
+                return Json(ApiFileRange {
+                    content: req.content,
+                    start: req.start,
+                    end: new_end,
+                })
+                .into_response();
+            } else {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ApiError {
+                        error: "Failed to write file".to_string(),
+                    }),
+                )
+                    .into_response();
+            }
+        }
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ApiError {
+                error: "Invalid byte range".to_string(),
+            }),
+        )
+            .into_response()
+    } else {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ApiError {
+                error: "File not found".to_string(),
+            }),
+        )
+            .into_response()
+    }
+}
+
+/// POST /api/preview-markdown
+/// Render markdown to HTML for live preview
+async fn api_preview_markdown(Json(req): Json<ApiPreviewMarkdown>) -> impl IntoResponse {
+    // Use bearmark to render the markdown (same as dashboard)
+    let options = bearmark::RenderOptions::default();
+    match bearmark::render(&req.content, &options).await {
+        Ok(result) => Json(ApiPreviewResponse { html: result.html }).into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(ApiError {
+                error: format!("Failed to render markdown: {}", e),
+            }),
+        )
+            .into_response(),
     }
 }
 
@@ -2041,6 +2293,9 @@ async fn run_server(
         .route("/api/version", get(api_version))
         .route("/api/delta", get(api_delta))
         .route("/api/file", get(api_file))
+        .route("/api/file-range", get(api_file_range))
+        .route("/api/file-range", patch(api_update_file_range))
+        .route("/api/preview-markdown", post(api_preview_markdown))
         .route("/api/spec", get(api_spec))
         .route("/api/search", get(api_search));
 

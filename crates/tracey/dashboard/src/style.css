@@ -1110,6 +1110,29 @@ a.rule-marker:hover {
     border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
+.req-badge.req-edit {
+    background: color-mix(in srgb, var(--fg-dim) 8%, transparent);
+    color: var(--fg-muted);
+    border: 1px solid color-mix(in srgb, var(--fg-dim) 20%, transparent);
+    cursor: pointer;
+    font-family: inherit;
+    padding: 0.2rem 0.6rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    transition: all 0.15s;
+}
+
+.req-badge.req-edit:hover {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.req-edit-icon {
+    flex-shrink: 0;
+}
+
 .req-content {
     margin-top: 0.25rem;
 }
@@ -1908,4 +1931,331 @@ a.rule-marker:hover {
 
 .search-modal-result.selected {
     background: var(--accent-dim);
+}
+
+/* Markdown Editor Modal */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    padding: 2rem;
+}
+
+.modal-content {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    width: 900px;
+    max-width: 100%;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.modal-content.editor-modal {
+    width: 1200px;
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.modal-header h3 {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--fg);
+}
+
+.modal-vim-indicator {
+    font-size: 0.7rem;
+    padding: 0.2rem 0.5rem;
+    background: var(--green-dim);
+    color: var(--green);
+    border-radius: 3px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    margin-left: auto;
+    margin-right: 0.5rem;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    color: var(--fg-muted);
+    cursor: pointer;
+    padding: 0;
+    width: 2rem;
+    height: 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: all 0.15s;
+}
+
+.modal-close:hover {
+    background: var(--hover);
+    color: var(--fg);
+}
+
+.modal-body {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: 400px;
+}
+
+.modal-loading,
+.modal-error {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--fg-muted);
+    font-size: 0.9rem;
+}
+
+.modal-error {
+    color: var(--red);
+}
+
+.markdown-editor-wrapper {
+    flex: 1;
+    background: var(--bg);
+    overflow: hidden;
+}
+
+.markdown-editor-wrapper .cm-editor {
+    height: 100%;
+}
+
+.modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.5rem;
+    border-top: 1px solid var(--border);
+    gap: 1rem;
+}
+
+.modal-info {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.8rem;
+    color: var(--fg-muted);
+    flex: 1;
+    min-width: 0;
+}
+
+.modal-info code {
+    background: var(--bg);
+    padding: 0.2rem 0.4rem;
+    border-radius: 3px;
+    font-size: 0.75rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.modal-range {
+    color: var(--fg-dim);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+}
+
+.modal-actions {
+    display: flex;
+    gap: 0.75rem;
+}
+
+.modal-btn {
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    font-family: inherit;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.modal-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.modal-btn-cancel {
+    background: var(--bg);
+    color: var(--fg);
+}
+
+.modal-btn-cancel:hover:not(:disabled) {
+    background: var(--hover);
+}
+
+.modal-btn-save {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+}
+
+.modal-btn-save:hover:not(:disabled) {
+    filter: brightness(1.1);
+}
+
+/* Inline Editor */
+.inline-editor {
+    border: 2px solid var(--accent);
+    border-radius: 6px;
+    background: var(--bg-secondary);
+    margin: 1rem 0;
+    overflow: hidden;
+}
+
+.inline-editor-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--accent-dim);
+    border-bottom: 1px solid var(--border);
+    font-size: 0.8rem;
+}
+
+.inline-editor-label {
+    font-weight: 600;
+    color: var(--accent);
+}
+
+.inline-editor-vim {
+    font-size: 0.65rem;
+    padding: 0.15rem 0.4rem;
+    background: var(--green-dim);
+    color: var(--green);
+    border-radius: 3px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+}
+
+.inline-editor-path {
+    color: var(--fg-dim);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    margin-left: auto;
+}
+
+.inline-editor-content {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    min-height: 300px;
+    max-height: 600px;
+}
+
+.inline-editor-pane {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.inline-editor-pane + .inline-editor-pane {
+    border-left: 1px solid var(--border);
+}
+
+.inline-editor-pane-header {
+    padding: 0.4rem 0.75rem;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--fg-muted);
+}
+
+.inline-editor-code {
+    flex: 1;
+    overflow: auto;
+    background: var(--bg);
+}
+
+.inline-editor-code .cm-editor {
+    height: 100%;
+}
+
+.inline-editor-preview {
+    flex: 1;
+    overflow: auto;
+    padding: 0.75rem;
+    background: var(--bg);
+}
+
+.inline-editor-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    padding: 0.75rem;
+    border-top: 1px solid var(--border);
+    background: var(--bg-secondary);
+}
+
+.inline-editor-btn {
+    padding: 0.4rem 0.75rem;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    font-family: inherit;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.inline-editor-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.inline-editor-cancel {
+    background: var(--bg);
+    color: var(--fg);
+}
+
+.inline-editor-cancel:hover:not(:disabled) {
+    background: var(--hover);
+}
+
+.inline-editor-save {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+}
+
+.inline-editor-save:hover:not(:disabled) {
+    filter: brightness(1.1);
+}
+
+.inline-editor-loading,
+.inline-editor-error {
+    padding: 1rem;
+    text-align: center;
+    color: var(--fg-muted);
+    font-size: 0.85rem;
+}
+
+.inline-editor-error {
+    color: var(--red);
 }
