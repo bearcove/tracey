@@ -4,7 +4,7 @@
 
 Tracey maintains traceability between specifications and code. Specs, implementations, and tests drift apart—code changes without updating specs, specs describe unimplemented features, tests cover different scenarios than requirements specify.
 
-Tracey uses lightweight annotations to link specification requirements with implementing code, tests, and dependencies. This enables:
+Tracey uses lightweight annotations in markdown and source code comments to link specification requirements with implementing code, tests, and dependencies. This enables:
 
 - Verifying multiple implementations (different languages, platforms) match the same spec
 - Finding which requirements lack implementation or tests

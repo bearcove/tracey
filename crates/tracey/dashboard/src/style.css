@@ -67,7 +67,17 @@ body {
     font-family: var(--font-sans);
     background: var(--bg-outer);
     color: var(--fg);
-    line-height: 1.5;
+    line-height: 1.55;
+}
+
+/* Monospace text using Recursive's MONO axis */
+.mono,
+code,
+pre {
+    font-family: var(--font-mono);
+    font-variation-settings:
+        "MONO" 1,
+        "CASL" 0;
 }
 
 #app {
@@ -260,7 +270,6 @@ body {
 .stat-value {
     font-size: 1.25rem;
     font-weight: 600;
-    font-family: var(--font-mono);
 }
 
 .stat-value.good {
@@ -455,7 +464,7 @@ body {
     padding: 0.5rem 1rem;
     border-bottom: 1px solid var(--border);
     background: var(--bg-secondary);
-    font-family: var(--font-mono);
+
     font-size: 0.85rem;
 }
 
@@ -496,7 +505,6 @@ body {
 
 /* Code view */
 .code-view {
-    font-family: var(--font-mono);
     font-size: 0.75rem;
     line-height: 1.6;
 }
@@ -682,7 +690,6 @@ a.annotation-badge:hover {
 }
 
 .rule-id {
-    font-family: var(--font-mono);
     font-size: 0.85rem;
     font-weight: 500;
     color: var(--accent);
@@ -695,7 +702,6 @@ a.annotation-badge:hover {
 }
 
 .rule-text code {
-    font-family: var(--font-mono);
     font-size: 90%;
     background: var(--hover);
     padding: 0.1rem 0.3rem;
@@ -703,7 +709,6 @@ a.annotation-badge:hover {
 }
 
 .rule-refs {
-    font-family: var(--font-mono);
     font-size: 0.8rem;
 }
 
@@ -806,7 +811,6 @@ a.annotation-badge:hover {
 }
 
 .markdown code {
-    font-family: var(--font-mono);
     background: var(--hover);
     padding: 0.15rem 0.35rem;
     border-radius: 4px;
@@ -907,7 +911,7 @@ kw-optional {
     width: fit-content;
     background: var(--accent-dim);
     color: var(--accent);
-    font-family: var(--font-mono);
+
     font-size: 0.75rem;
     padding: 0.1rem 0.35rem;
     border-radius: 3px;
@@ -1008,28 +1012,29 @@ a.rule-marker:hover {
     margin-bottom: 0;
 }
 
-/* Rule container - fieldset-like design with badges piercing the top border */
-.rule-container {
+/* Req container - fieldset-like design with badges piercing the top border */
+.req-container {
     position: relative;
     border: 1px solid var(--border);
     border-radius: 6px;
     margin: 1.5rem 0;
-    padding: 1rem 1rem 0.75rem 1rem;
+    padding: 1.25rem 1rem 1rem 1rem;
+    font-size: 90%;
 }
 
-.rule-container.rule-covered {
+.req-container.req-covered {
     border-color: color-mix(in srgb, var(--green) 50%, var(--border));
 }
 
-.rule-container.rule-partial {
+.req-container.req-partial {
     border-color: color-mix(in srgb, var(--yellow) 50%, var(--border));
 }
 
-.rule-container.rule-uncovered {
+.req-container.req-uncovered {
     border-color: color-mix(in srgb, var(--red) 50%, var(--border));
 }
 
-.rule-badges {
+.req-badges {
     position: absolute;
     top: -0.7rem;
     left: 0.75rem;
@@ -1040,8 +1045,7 @@ a.rule-marker:hover {
     padding: 0 0.25rem;
 }
 
-.rule-badge {
-    font-family: var(--font-mono);
+.req-badge {
     font-size: 0.75rem;
     padding: 0.15rem 0.5rem;
     border-radius: 4px;
@@ -1050,52 +1054,52 @@ a.rule-marker:hover {
     transition: filter 0.15s;
 }
 
-.rule-badge:hover {
+.req-badge:hover {
     filter: brightness(1.15);
 }
 
-.rule-badge.rule-id {
+.req-badge.req-id {
     background: var(--accent-dim);
     color: var(--accent);
 }
 
-.rule-covered .rule-badge.rule-id {
+.req-covered .req-badge.req-id {
     background: var(--green-dim);
     color: var(--green);
 }
 
-.rule-partial .rule-badge.rule-id {
+.req-partial .req-badge.req-id {
     background: var(--yellow-dim);
     color: var(--yellow);
 }
 
-.rule-uncovered .rule-badge.rule-id {
+.req-uncovered .req-badge.req-id {
     background: var(--red-dim);
     color: var(--red);
 }
 
-.rule-badge.rule-impl {
+.req-badge.req-impl {
     background: color-mix(in srgb, var(--green) 15%, transparent);
     color: var(--green);
     border: 1px solid color-mix(in srgb, var(--green) 30%, transparent);
 }
 
-.rule-badge.rule-test {
+.req-badge.req-test {
     background: color-mix(in srgb, var(--accent) 15%, transparent);
     color: var(--accent);
     border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
-.rule-content {
+.req-content {
     margin-top: 0.25rem;
 }
 
-.rule-content p {
-    margin: 0;
+.req-content p {
+    margin: 0.5rem 0;
 }
 
-.rule-content p + p {
-    margin-top: 0.5rem;
+.req-content > *:last-child {
+    margin-bottom: 0;
 }
 
 .spec-refs {
@@ -1107,7 +1111,6 @@ a.rule-marker:hover {
 }
 
 .spec-ref {
-    font-family: var(--font-mono);
     text-decoration: none;
     padding: 0.15rem 0.4rem;
     border-radius: 3px;
@@ -1164,7 +1167,7 @@ a.rule-marker:hover {
     padding: 0.5rem 0.75rem;
     cursor: pointer;
     transition: background 0.15s;
-    font-family: var(--font-mono);
+
     font-size: 0.85rem;
 }
 
@@ -1335,7 +1338,7 @@ a.rule-marker:hover {
     align-items: center;
     gap: 0.35rem;
     text-decoration: none;
-    font-family: var(--font-mono);
+
     font-size: 0.8em;
 }
 .file-path-link:hover .file-path-name {
@@ -1538,7 +1541,7 @@ a.rule-marker:hover {
     padding: 0.5rem 1rem;
     border-bottom: 1px solid var(--border);
     cursor: pointer;
-    font-family: var(--font-mono);
+
     font-size: 0.8rem;
 }
 
@@ -1611,7 +1614,6 @@ a.rule-marker:hover {
 }
 
 .rule-context-id {
-    font-family: var(--font-mono);
     font-size: 0.85rem;
     font-weight: 500;
     color: var(--accent);
@@ -1657,7 +1659,7 @@ a.rule-marker:hover {
     gap: 0.5rem;
     padding: 0.35rem 0.5rem;
     border-radius: 4px;
-    font-family: var(--font-mono);
+
     font-size: 0.8rem;
     cursor: pointer;
     text-decoration: none;
@@ -1776,14 +1778,13 @@ a.rule-marker:hover {
 }
 
 .search-modal-result-id {
-    font-family: var(--font-mono);
     font-size: 0.85rem;
     color: var(--accent);
 }
 
 .search-modal-result-line {
     color: var(--green);
-    font-family: var(--font-mono);
+
     font-size: 0.85rem;
 }
 
@@ -1815,12 +1816,11 @@ a.rule-marker:hover {
     border: 1px solid var(--border);
     border-radius: 3px;
     padding: 0.1rem 0.35rem;
-    font-family: var(--font-mono);
+
     font-size: 0.7rem;
 }
 
 .search-modal-result-code {
-    font-family: var(--font-mono);
     font-size: 0.75rem;
     line-height: 1.6;
     margin: 0;

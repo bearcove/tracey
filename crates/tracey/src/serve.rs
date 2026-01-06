@@ -401,7 +401,7 @@ impl RuleHandler for TraceyRuleHandler {
             // Rule ID badge (always present) - includes source location for editor navigation
             // r[impl dashboard.links.rule-links]
             badges_html.push_str(&format!(
-                r#"<a class="rule-badge rule-id" href="/{}/{}/spec?rule={}" data-rule="{}" data-source-file="{}" data-source-line="{}" title="{}">{}</a>"#,
+                r#"<a class="req-badge req-id" href="/{}/{}/spec?rule={}" data-rule="{}" data-source-file="{}" data-source-line="{}" title="{}">{}</a>"#,
                 self.spec_name, self.impl_name, rule.id, rule.id, source_file, rule.line, rule.id, display_id
             ));
 
@@ -434,7 +434,7 @@ impl RuleHandler for TraceyRuleHandler {
                     let all_refs_json = format!("[{}]", all_refs_json).replace('"', "&quot;");
                     // r[impl dashboard.links.impl-refs]
                     badges_html.push_str(&format!(
-                        r#"<a class="rule-badge rule-impl" href="/{}/{}/sources/{}:{}" data-file="{}" data-line="{}" data-all-refs="{}" title="Implementation: {}:{}">{icon}{}:{}{}</a>"#,
+                        r#"<a class="req-badge req-impl" href="/{}/{}/sources/{}:{}" data-file="{}" data-line="{}" data-all-refs="{}" title="Implementation: {}:{}">{icon}{}:{}{}</a>"#,
                         self.spec_name, self.impl_name, r.file, r.line, r.file, r.line, all_refs_json, r.file, r.line, filename, r.line, count_suffix
                     ));
                 }
@@ -466,17 +466,17 @@ impl RuleHandler for TraceyRuleHandler {
                         .join(",");
                     let all_refs_json = format!("[{}]", all_refs_json).replace('"', "&quot;");
                     badges_html.push_str(&format!(
-                        r#"<a class="rule-badge rule-test" href="/{}/{}/sources/{}:{}" data-file="{}" data-line="{}" data-all-refs="{}" title="Test: {}:{}">{icon}{}:{}{}</a>"#,
+                        r#"<a class="req-badge req-test" href="/{}/{}/sources/{}:{}" data-file="{}" data-line="{}" data-all-refs="{}" title="Test: {}:{}">{icon}{}:{}{}</a>"#,
                         self.spec_name, self.impl_name, r.file, r.line, r.file, r.line, all_refs_json, r.file, r.line, filename, r.line, count_suffix
                     ));
                 }
             }
 
-            // Render the opening of the rule container
+            // Render the opening of the req container
             Ok(format!(
-                r#"<div class="rule-container rule-{status}" id="{anchor}">
-<div class="rule-badges">{badges}</div>
-<div class="rule-content">"#,
+                r#"<div class="req-container req-{status}" id="{anchor}">
+<div class="req-badges">{badges}</div>
+<div class="req-content">"#,
                 status = status,
                 anchor = rule.anchor_id,
                 badges = badges_html,
