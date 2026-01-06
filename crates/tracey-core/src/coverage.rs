@@ -32,9 +32,9 @@ pub struct CoverageReport {
 impl CoverageReport {
     /// Compute coverage from rules and a set of known rule IDs
     ///
-    /// [impl coverage.compute.covered]
-    /// [impl coverage.compute.uncovered]
-    /// [impl coverage.compute.invalid]
+    /// r[impl coverage.compute.covered]
+    /// r[impl coverage.compute.uncovered]
+    /// r[impl coverage.compute.invalid]
     pub fn compute(
         spec_name: impl Into<String>,
         known_rule_ids: &HashSet<String>,
@@ -83,7 +83,7 @@ impl CoverageReport {
 
     /// Coverage percentage (0.0 - 100.0)
     ///
-    /// [impl coverage.compute.percentage]
+    /// r[impl coverage.compute.percentage]
     pub fn coverage_percent(&self) -> f64 {
         if self.total_rules == 0 {
             return 100.0;

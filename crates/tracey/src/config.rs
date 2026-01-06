@@ -1,7 +1,7 @@
 //! Configuration schema for tracey
 //!
-//! [impl config.format.kdl]
-//! [impl config.schema]
+//! r[impl config.format.kdl]
+//! r[impl config.schema]
 //!
 //! Config lives at `.config/tracey/config.kdl` relative to the project root.
 
@@ -20,13 +20,13 @@ pub struct Config {
 #[derive(Debug, Clone, Facet)]
 pub struct SpecConfig {
     /// Name of the spec (for display purposes)
-    /// [impl config.spec.name]
+    /// r[impl config.spec.name]
     #[facet(kdl::child)]
     pub name: Name,
 
     /// Glob pattern for markdown spec files to extract rules from
     /// e.g., "docs/spec/**/*.md"
-    /// [impl config.spec.rules-glob]
+    /// r[impl config.spec.rules-glob]
     #[facet(kdl::child)]
     pub rules_glob: RulesGlob,
 
@@ -41,17 +41,17 @@ pub struct SpecConfig {
 #[derive(Debug, Clone, Facet)]
 pub struct Impl {
     /// Name of this implementation (e.g., "main", "core", "frontend")
-    /// [impl config.impl.name]
+    /// r[impl config.impl.name]
     #[facet(kdl::child)]
     pub name: ImplName,
 
     /// Glob patterns for source files to scan
-    /// [impl config.impl.include]
+    /// r[impl config.impl.include]
     #[facet(kdl::children, default)]
     pub include: Vec<Include>,
 
     /// Glob patterns to exclude
-    /// [impl config.impl.exclude]
+    /// r[impl config.impl.exclude]
     #[facet(kdl::children, default)]
     pub exclude: Vec<Exclude>,
 }

@@ -1,7 +1,7 @@
 //! Rust lexer for extracting rule references from comments
 //!
 //! This module implements parsing of rule references from Rust source code.
-//! It scans comments for patterns like `[verb rule.id]` or `[rule.id]`.
+//! It scans comments for patterns like `r[verb rule.id]`.
 
 use crate::sources::Sources;
 use eyre::Result;
@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 
 /// Byte span in source code
 ///
-/// [impl ref.span.offset]
-/// [impl ref.span.length]
+/// r[impl ref.span.offset]
+/// r[impl ref.span.length]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Facet)]
 pub struct SourceSpan {
     /// Byte offset from start of file
@@ -28,11 +28,11 @@ impl SourceSpan {
 
 /// The relationship type between code and a spec rule
 ///
-/// [impl ref.verb.define]
-/// [impl ref.verb.impl]
-/// [impl ref.verb.verify]
-/// [impl ref.verb.depends]
-/// [impl ref.verb.related]
+/// r[impl ref.verb.define]
+/// r[impl ref.verb.impl]
+/// r[impl ref.verb.verify]
+/// r[impl ref.verb.depends]
+/// r[impl ref.verb.related]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Facet)]
 #[repr(u8)]
 pub enum RefVerb {
@@ -81,7 +81,7 @@ impl std::fmt::Display for RefVerb {
 
 /// A reference to a rule found in source code
 ///
-/// [impl ref.span.file]
+/// r[impl ref.span.file]
 #[derive(Debug, Clone, Facet)]
 pub struct RuleReference {
     /// The relationship type (impl, verify, depends, etc.)
@@ -111,7 +111,7 @@ pub struct ParseWarning {
 
 /// Types of parse warnings
 ///
-/// [impl ref.verb.unknown]
+/// r[impl ref.verb.unknown]
 #[derive(Debug, Clone, Facet)]
 #[repr(u8)]
 pub enum WarningKind {
@@ -185,8 +185,8 @@ pub(crate) fn extract_from_content(path: &Path, content: &str, rules: &mut Rules
         let line_start = line_starts.get(line_idx).copied().unwrap_or(0);
 
         // Check for line comments (// or ///)
-        // [impl ref.comments.line]
-        // [impl ref.comments.doc]
+        // r[impl ref.comments.line]
+        // r[impl ref.comments.doc]
         if let Some(comment_pos) = line.find("//") {
             let comment = &line[comment_pos..];
             let comment_start = line_start + comment_pos;
@@ -195,7 +195,7 @@ pub(crate) fn extract_from_content(path: &Path, content: &str, rules: &mut Rules
     }
 
     // Handle block comments /* */
-    // [impl ref.comments.block]
+    // r[impl ref.comments.block]
     let mut in_block_comment = false;
     let mut block_start = 0;
     let mut block_line = 0;
@@ -233,11 +233,22 @@ fn extract_references_from_text(
     let mut chars = text.char_indices().peekable();
 
     while let Some((start_idx, ch)) = chars.next() {
-        // [impl ref.syntax.brackets]
-        if ch == '[' {
+        // r[impl ref.syntax.brackets]
+        // r[impl ref.syntax.r-prefix]
+        if ch == 'r' {
+            // Require 'r[' prefix for source code annotations
+            if let Some(&(_bracket_idx, next_ch)) = chars.peek() {
+                if next_ch != '[' {
+                    continue; // Not an annotation, just the letter 'r'
+                }
+                chars.next(); // consume '['
+            } else {
+                continue;
+            }
+
             let bracket_start = text_offset + start_idx;
 
-            // Try to parse: [verb rule.id] or [rule.id]
+            // Try to parse: r[verb rule.id] or r[rule.id]
             let mut first_word = String::new();
             let mut valid = true;
 
@@ -255,7 +266,7 @@ fn extract_references_from_text(
 
             if valid {
                 // Read the first word (could be verb or start of rule ID)
-                // [impl ref.syntax.rule-id]
+                // r[impl ref.syntax.rule-id]
                 while let Some(&(_, c)) = chars.peek() {
                     if c == ']' || c == ' ' {
                         break;
@@ -276,8 +287,8 @@ fn extract_references_from_text(
             // Check what follows
             if let Some(&(end_idx, next_char)) = chars.peek() {
                 if next_char == ' ' {
-                    // Space after first word - might be [verb rule.id]
-                    // [impl ref.syntax.verb]
+                    // Space after first word - might be r[verb rule.id]
+                    // r[impl ref.syntax.verb]
                     if let Some(verb) = RefVerb::parse(&first_word) {
                         chars.next(); // consume space
 
@@ -331,8 +342,8 @@ fn extract_references_from_text(
                         // This avoids false positives on things like [payload bytes]
                     }
                 } else if next_char == ']' {
-                    // Immediate close - this is [rule.id] format (legacy)
-                    // [impl ref.verb.default]
+                    // Immediate close - this is r[rule.id] format (defaults to impl)
+                    // r[impl ref.verb.default]
                     chars.next(); // consume ]
 
                     // Validate: must contain dot, not end with dot
@@ -359,7 +370,7 @@ mod tests {
     #[test]
     fn test_extract_simple_reference_legacy() {
         let content = r#"
-            // See [channel.id.allocation] for details
+            // See r[channel.id.allocation] for details
             fn allocate_id() {}
         "#;
 
@@ -372,20 +383,20 @@ mod tests {
     #[test]
     fn test_extract_with_explicit_verb() {
         let content = r#"
-            // [impl channel.id.allocation]
+            // r[impl channel.id.allocation]
             fn allocate_id() {}
 
-            // [verify channel.id.parity]
+            // r[verify channel.id.parity]
             #[test]
             fn test_parity() {}
 
-            // [depends channel.framing]
+            // r[depends channel.framing]
             fn needs_framing() {}
 
-            // [related channel.errors]
+            // r[related channel.errors]
             fn handle_errors() {}
 
-            // [define channel.id.format]
+            // r[define channel.id.format]
             // This is where we define the format
         "#;
 
@@ -411,7 +422,7 @@ mod tests {
     #[test]
     fn test_extract_multiple_references() {
         let content = r#"
-            /// Implements [channel.id.parity] and [channel.id.no-reuse]
+            /// Implements r[channel.id.parity] and r[channel.id.no-reuse]
             fn next_channel_id() {}
         "#;
 
@@ -424,7 +435,7 @@ mod tests {
     #[test]
     fn test_mixed_syntax() {
         let content = r#"
-            // Legacy: [channel.id.one] and explicit: [verify channel.id.two]
+            // Short form: r[channel.id.one] and explicit: r[verify channel.id.two]
             fn foo() {}
         "#;
 
@@ -474,9 +485,9 @@ mod tests {
 
     #[test]
     fn test_span_tracking() {
-        let content = "// [impl foo.bar]";
+        let content = "// r[impl foo.bar]";
         let rules = Rules::extract_from_content(Path::new("test.rs"), content);
         assert_eq!(rules.len(), 1);
-        assert_eq!(rules.references[0].span.offset, 3); // after "// "
+        assert_eq!(rules.references[0].span.offset, 3); // after "// ", points to 'r'
     }
 }

@@ -19,8 +19,8 @@
 //! See [`SUPPORTED_EXTENSIONS`] for the full list of supported file types.
 //!
 //! ```text
-//! // [impl channel.id.parity] - implementation reference
-//! // [verify error.handling] - test/verification reference
+//! // r[impl channel.id.parity] - implementation reference
+//! // r[verify error.handling] - test/verification reference
 //! // [rule.id] - basic reference (legacy syntax)
 //! ```
 //!
@@ -87,8 +87,8 @@
 //!
 //! let rules = Rules::extract(
 //!     MemorySources::new()
-//!         .add("foo.rs", "// [impl test.rule]")
-//!         .add("bar.rs", "// [verify other.rule]")
+//!         .add("foo.rs", "// r[impl test.rule]")
+//!         .add("bar.rs", "// r[verify other.rule]")
 //! ).unwrap();
 //!
 //! assert_eq!(rules.len(), 2);

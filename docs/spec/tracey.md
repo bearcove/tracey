@@ -1,12 +1,13 @@
 # Tracey Specification
 
 This document has two parts:
-- **Part 1: Annotation Language** - How to write rule references in code and markdown
-- **Part 2: Tool Specification** - How the tracey tool, server, and integrations work
+
+- **Language** - How to write rule references in code and markdown
+- **Tooling** - How the tracey tool, server, and integrations work
 
 ---
 
-# Part 1: Annotation Language
+# Language
 
 This section specifies the syntax for annotating code and documentation with rule references.
 
@@ -211,7 +212,7 @@ Tracey extracts rule definitions from markdown specification documents. Unlike s
 
 ---
 
-# Part 2: Tool Specification
+# Tooling
 
 This section specifies how the tracey tool processes annotations, computes coverage, and exposes results.
 

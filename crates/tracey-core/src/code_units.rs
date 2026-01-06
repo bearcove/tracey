@@ -463,7 +463,7 @@ struct Foo {
     #[test]
     fn test_extract_with_comment_ref() {
         let source = r#"
-// [impl foo.bar]
+// r[impl foo.bar]
 fn do_thing() {}
 "#;
         let units = extract_rust(Path::new("test.rs"), source);
@@ -474,7 +474,7 @@ fn do_thing() {}
     #[test]
     fn test_extract_with_verb_ref() {
         let source = r#"
-// [verify channel.id.parity]
+// r[verify channel.id.parity]
 #[test]
 fn test_parity() {}
 "#;
@@ -486,7 +486,7 @@ fn test_parity() {}
     #[test]
     fn test_coverage_calculation() {
         let source = r#"
-// [impl foo.bar]
+// r[impl foo.bar]
 fn covered() {}
 
 fn uncovered() {}
@@ -500,10 +500,10 @@ fn uncovered() {}
 
     #[test]
     fn test_find_rule_refs() {
-        assert_eq!(find_rule_refs("// [impl foo.bar]"), vec!["foo.bar"]);
+        assert_eq!(find_rule_refs("// r[impl foo.bar]"), vec!["foo.bar"]);
         assert_eq!(find_rule_refs("// [foo.bar]"), vec!["foo.bar"]);
         assert_eq!(
-            find_rule_refs("// [impl a.b] and [verify c.d]"),
+            find_rule_refs("// r[impl a.b] and r[verify c.d]"),
             vec!["a.b", "c.d"]
         );
         assert!(find_rule_refs("// no refs here").is_empty());
@@ -513,8 +513,8 @@ fn uncovered() {}
     #[test]
     fn test_multiple_refs_same_unit() {
         let source = r#"
-// [impl rule.one]
-// [verify rule.two]
+// r[impl rule.one]
+// r[verify rule.two]
 fn multi_ref() {}
 "#;
         let units = extract_rust(Path::new("test.rs"), source);
@@ -528,7 +528,7 @@ fn multi_ref() {}
     fn test_doc_comment_refs() {
         let source = r#"
 /// Documentation for the function
-/// [impl doc.ref]
+/// r[impl doc.ref]
 fn documented() {}
 "#;
         let units = extract_rust(Path::new("test.rs"), source);
@@ -539,7 +539,7 @@ fn documented() {}
     #[test]
     fn test_impl_block() {
         let source = r#"
-// [impl my.impl]
+// r[impl my.impl]
 impl Foo {
     fn method(&self) {}
 }

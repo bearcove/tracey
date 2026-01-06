@@ -72,7 +72,7 @@ fn main() -> Result<()> {
     let args: Args = args::from_std_args().expect("failed to parse arguments");
 
     match args.command {
-        // [impl cli.serve]
+        // r[impl cli.serve]
         Some(Command::Serve {
             root,
             config,
@@ -80,12 +80,12 @@ fn main() -> Result<()> {
             open,
             dev,
         }) => serve::run(root, config, port.unwrap_or(3000), open, dev),
-        // [impl cli.mcp]
+        // r[impl cli.mcp]
         Some(Command::Mcp { root, config }) => {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(mcp::run(root, config))
         }
-        // [impl cli.no-args]
+        // r[impl cli.no-args]
         None => {
             print_help();
             Ok(())
@@ -158,10 +158,10 @@ pub(crate) async fn load_rules_from_glob(
             .wrap_err_with(|| format!("Failed to read {}", path.display()))?;
 
         // bearmark implements markdown rule extraction:
-        // [impl markdown.syntax.marker] - r[rule.id] syntax
-        // [impl markdown.syntax.standalone] - rule on its own line
-        // [impl markdown.syntax.inline-ignored] - inline markers ignored
-        // [impl markdown.syntax.blockquote] - > r[rule.id] for multi-paragraph rules
+        // r[impl markdown.syntax.marker] - r[rule.id] syntax
+        // r[impl markdown.syntax.standalone] - rule on its own line
+        // r[impl markdown.syntax.inline-ignored] - inline markers ignored
+        // r[impl markdown.syntax.blockquote] - > r[rule.id] for multi-paragraph rules
         let doc = render(&content, &RenderOptions::default())
             .await
             .map_err(|e| eyre::eyre!("Failed to process {}: {}", path.display(), e))?;
@@ -177,8 +177,8 @@ pub(crate) async fn load_rules_from_glob(
             }
 
             // Check for duplicates
-            // [impl markdown.duplicates.same-file] - caught when bearmark returns duplicate rules from single file
-            // [impl markdown.duplicates.cross-file] - caught via seen_ids persisting across files
+            // r[impl markdown.duplicates.same-file] - caught when bearmark returns duplicate rules from single file
+            // r[impl markdown.duplicates.cross-file] - caught via seen_ids persisting across files
             for rule in &doc.rules {
                 if seen_ids.contains(&rule.id) {
                     eyre::bail!(

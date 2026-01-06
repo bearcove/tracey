@@ -173,10 +173,10 @@ impl TraceyHandler {
     }
 
     /// Parse spec/impl from string like "my-spec/rust" or just "my-spec"
-    // [impl mcp.select.single]
-    // [impl mcp.select.spec-only]
-    // [impl mcp.select.full]
-    // [impl mcp.select.ambiguous]
+    // r[impl mcp.select.single]
+    // r[impl mcp.select.spec-only]
+    // r[impl mcp.select.full]
+    // r[impl mcp.select.ambiguous]
     fn parse_spec_impl(
         &self,
         spec_impl: Option<&str>,
@@ -188,7 +188,7 @@ impl TraceyHandler {
             return Err("No specs configured".to_string());
         }
 
-        // [impl mcp.select.single] - If only one spec/impl, use it by default
+        // r[impl mcp.select.single] - If only one spec/impl, use it by default
         if keys.len() == 1 && spec_impl.is_none() {
             let key = keys[0];
             return Ok((key.0.clone(), key.1.clone()));
@@ -196,11 +196,11 @@ impl TraceyHandler {
 
         match spec_impl {
             Some(s) => {
-                // [impl mcp.select.full] - Parse spec/impl format
+                // r[impl mcp.select.full] - Parse spec/impl format
                 if let Some((spec, impl_name)) = s.split_once('/') {
                     Ok((spec.to_string(), impl_name.to_string()))
                 } else {
-                    // [impl mcp.select.spec-only] - Just spec name - find the first impl
+                    // r[impl mcp.select.spec-only] - Just spec name - find the first impl
                     for key in &keys {
                         if key.0 == s {
                             return Ok((key.0.clone(), key.1.clone()));
@@ -209,7 +209,7 @@ impl TraceyHandler {
                     Err(format!("Spec '{}' not found. Available: {:?}", s, keys))
                 }
             }
-            // [impl mcp.select.ambiguous] - Multiple specs, require explicit selection
+            // r[impl mcp.select.ambiguous] - Multiple specs, require explicit selection
             None => {
                 let available: Vec<String> =
                     keys.iter().map(|k| format!("{}/{}", k.0, k.1)).collect();
@@ -233,8 +233,8 @@ impl TraceyHandler {
         header
     }
 
-    // [impl mcp.tool.status]
-    // [impl mcp.response.hints]
+    // r[impl mcp.tool.status]
+    // r[impl mcp.response.hints]
     fn handle_status(&self) -> String {
         let data = self.get_data();
         let engine = QueryEngine::new(&data);
@@ -269,8 +269,8 @@ impl TraceyHandler {
         out
     }
 
-    // [impl mcp.tool.uncovered]
-    // [impl mcp.tool.uncovered-section]
+    // r[impl mcp.tool.uncovered]
+    // r[impl mcp.tool.uncovered-section]
     fn handle_uncovered(&self, spec_impl: Option<&str>, section: Option<&str>) -> String {
         let mut out = self.format_header();
 
@@ -294,8 +294,8 @@ impl TraceyHandler {
         out
     }
 
-    // [impl mcp.tool.untested]
-    // [impl mcp.tool.untested-section]
+    // r[impl mcp.tool.untested]
+    // r[impl mcp.tool.untested-section]
     fn handle_untested(&self, spec_impl: Option<&str>, section: Option<&str>) -> String {
         let mut out = self.format_header();
 
@@ -319,10 +319,10 @@ impl TraceyHandler {
         out
     }
 
-    // [impl mcp.tool.unmapped]
-    // [impl mcp.tool.unmapped-zoom]
-    // [impl mcp.tool.unmapped-tree]
-    // [impl mcp.tool.unmapped-file]
+    // r[impl mcp.tool.unmapped]
+    // r[impl mcp.tool.unmapped-zoom]
+    // r[impl mcp.tool.unmapped-tree]
+    // r[impl mcp.tool.unmapped-file]
     fn handle_unmapped(&self, spec_impl: Option<&str>, path: Option<&str>) -> String {
         let mut out = self.format_header();
 
@@ -346,7 +346,7 @@ impl TraceyHandler {
         out
     }
 
-    // [impl mcp.tool.rule]
+    // r[impl mcp.tool.rule]
     fn handle_rule(&self, rule_id: &str) -> String {
         let mut out = self.format_header();
 
@@ -365,7 +365,7 @@ impl TraceyHandler {
         out
     }
 
-    // [impl mcp.config.list]
+    // r[impl mcp.config.list]
     fn handle_config(&self) -> String {
         let mut out = self.format_header();
 
@@ -413,7 +413,7 @@ impl TraceyHandler {
         out
     }
 
-    // [impl mcp.config.exclude]
+    // r[impl mcp.config.exclude]
     fn handle_config_exclude(&self, spec_impl: Option<&str>, pattern: &str) -> String {
         let mut out = self.format_header();
 
@@ -456,7 +456,7 @@ impl TraceyHandler {
             return out;
         }
 
-        // [impl mcp.config.persist] - Save config back to file
+        // r[impl mcp.config.persist] - Save config back to file
         if let Err(e) = self.save_config(&config) {
             out.push_str(&format!("Error saving config: {}", e));
             return out;
@@ -471,7 +471,7 @@ impl TraceyHandler {
         out
     }
 
-    // [impl mcp.config.include]
+    // r[impl mcp.config.include]
     fn handle_config_include(&self, spec_impl: Option<&str>, pattern: &str) -> String {
         let mut out = self.format_header();
 
@@ -514,7 +514,7 @@ impl TraceyHandler {
             return out;
         }
 
-        // [impl mcp.config.persist] - Save config back to file
+        // r[impl mcp.config.persist] - Save config back to file
         if let Err(e) = self.save_config(&config) {
             out.push_str(&format!("Error saving config: {}", e));
             return out;
@@ -529,7 +529,7 @@ impl TraceyHandler {
         out
     }
 
-    // [impl mcp.config.persist]
+    // r[impl mcp.config.persist]
     fn save_config(&self, config: &crate::config::Config) -> Result<()> {
         use std::io::Write;
 
@@ -635,22 +635,22 @@ pub async fn run(root: Option<PathBuf>, config_path: Option<PathBuf>) -> Result<
     // Build initial dashboard data
     let initial_data: DashboardData = build_dashboard_data(&project_root, &config, 1, true).await?;
 
-    // [impl server.state.shared] - Create watch channel for data updates
+    // r[impl server.state.shared] - Create watch channel for data updates
     let (data_tx, data_rx) = watch::channel(Arc::new(initial_data));
 
     // Create channel for file watcher debouncing
     let (debounce_tx, mut debounce_rx) = mpsc::channel::<()>(1);
 
-    // [impl server.watch.sources]
-    // [impl server.watch.specs]
-    // [impl server.watch.config]
-    // [impl server.watch.debounce] - Start file watcher
+    // r[impl server.watch.sources]
+    // r[impl server.watch.specs]
+    // r[impl server.watch.config]
+    // r[impl server.watch.debounce] - Start file watcher
     let watch_root = project_root.clone();
     let rt = tokio::runtime::Handle::current();
     std::thread::spawn(move || {
         let tx = debounce_tx;
 
-        // [impl server.watch.debounce] - 200ms debounce
+        // r[impl server.watch.debounce] - 200ms debounce
         let mut debouncer = match new_debouncer(
             Duration::from_millis(200),
             move |res: std::result::Result<
@@ -693,12 +693,12 @@ pub async fn run(root: Option<PathBuf>, config_path: Option<PathBuf>) -> Result<
     let rebuild_config_path = config_path.clone();
     let rebuild_tx = data_tx;
     let rebuild_rx = data_rx.clone();
-    // [impl server.state.version]
+    // r[impl server.state.version]
     let version = Arc::new(AtomicU64::new(1));
 
     tokio::spawn(async move {
         while debounce_rx.recv().await.is_some() {
-            // [impl server.watch.config] - Reload config on changes
+            // r[impl server.watch.config] - Reload config on changes
             let config = match crate::load_config(&rebuild_config_path) {
                 Ok(c) => c,
                 Err(_) => continue,
@@ -710,7 +710,7 @@ pub async fn run(root: Option<PathBuf>, config_path: Option<PathBuf>) -> Result<
                 build_dashboard_data(&rebuild_project_root, &config, 0, true).await
                 && data.content_hash != old_data.content_hash
             {
-                // [impl server.state.version] - Increment version on data changes
+                // r[impl server.state.version] - Increment version on data changes
                 let new_version = version.fetch_add(1, Ordering::SeqCst) + 1;
                 data.version = new_version;
                 data.delta = crate::server::Delta::compute(&old_data, &data);

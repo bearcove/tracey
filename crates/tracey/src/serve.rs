@@ -374,10 +374,10 @@ fn devicon_class(path: &str) -> Option<&'static str> {
     }
 }
 
-// [impl markdown.html.div] - rule wrapped in <div class="rule-container">
-// [impl markdown.html.anchor] - div has id="r-{rule.id}"
-// [impl markdown.html.link] - rule-badge links to the rule
-// [impl markdown.html.wbr] - dots followed by <wbr> for line breaking
+// r[impl markdown.html.div] - rule wrapped in <div class="rule-container">
+// r[impl markdown.html.anchor] - div has id="r-{rule.id}"
+// r[impl markdown.html.link] - rule-badge links to the rule
+// r[impl markdown.html.wbr] - dots followed by <wbr> for line breaking
 impl RuleHandler for TraceyRuleHandler {
     fn start<'a>(
         &'a self,
@@ -387,7 +387,7 @@ impl RuleHandler for TraceyRuleHandler {
             let coverage = self.coverage.get(&rule.id);
             let status = coverage.map(|c| c.status).unwrap_or("uncovered");
 
-            // [impl markdown.html.wbr] - insert <wbr> after dots for better line breaking
+            // r[impl markdown.html.wbr] - insert <wbr> after dots for better line breaking
             let display_id = rule.id.replace('.', ".<wbr>");
 
             // Get current source file for this rule (make it absolute)
@@ -399,7 +399,7 @@ impl RuleHandler for TraceyRuleHandler {
             let mut badges_html = String::new();
 
             // Rule ID badge (always present) - includes source location for editor navigation
-            // [impl dashboard.links.rule-links]
+            // r[impl dashboard.links.rule-links]
             badges_html.push_str(&format!(
                 r#"<a class="rule-badge rule-id" href="/{}/{}/spec?rule={}" data-rule="{}" data-source-file="{}" data-source-line="{}" title="{}">{}</a>"#,
                 self.spec_name, self.impl_name, rule.id, rule.id, source_file, rule.line, rule.id, display_id
@@ -432,14 +432,14 @@ impl RuleHandler for TraceyRuleHandler {
                         .collect::<Vec<_>>()
                         .join(",");
                     let all_refs_json = format!("[{}]", all_refs_json).replace('"', "&quot;");
-                    // [impl dashboard.links.impl-refs]
+                    // r[impl dashboard.links.impl-refs]
                     badges_html.push_str(&format!(
                         r#"<a class="rule-badge rule-impl" href="/{}/{}/sources/{}:{}" data-file="{}" data-line="{}" data-all-refs="{}" title="Implementation: {}:{}">{icon}{}:{}{}</a>"#,
                         self.spec_name, self.impl_name, r.file, r.line, r.file, r.line, all_refs_json, r.file, r.line, filename, r.line, count_suffix
                     ));
                 }
 
-                // [impl dashboard.links.verify-refs]
+                // r[impl dashboard.links.verify-refs]
                 if !cov.verify_refs.is_empty() {
                     let r = &cov.verify_refs[0];
                     let filename = r.file.rsplit('/').next().unwrap_or(&r.file);
@@ -575,7 +575,7 @@ pub async fn build_dashboard_data(
             }
 
             // Get include/exclude patterns for this impl
-            // [impl walk.default-include] - default to **/*.rs when no include patterns
+            // r[impl walk.default-include] - default to **/*.rs when no include patterns
             let include: Vec<String> = if impl_config.include.is_empty() {
                 vec!["**/*.rs".to_string()]
             } else {
@@ -1848,7 +1848,7 @@ async fn run_server(
             .wrap_err("Failed to canonicalize project root")?,
         None => crate::find_project_root()?,
     };
-    // [impl config.path.default]
+    // r[impl config.path.default]
     let config_path = config_path.unwrap_or_else(|| project_root.join(".config/tracey/config.kdl"));
     let config = crate::load_config(&config_path)?;
 
@@ -2017,12 +2017,12 @@ async fn run_server(
     };
 
     // Build router
-    // [impl dashboard.api.config]
-    // [impl dashboard.api.forward]
-    // [impl dashboard.api.reverse]
-    // [impl dashboard.api.version]
-    // [impl dashboard.api.file]
-    // [impl dashboard.api.spec]
+    // r[impl dashboard.api.config]
+    // r[impl dashboard.api.forward]
+    // r[impl dashboard.api.reverse]
+    // r[impl dashboard.api.version]
+    // r[impl dashboard.api.file]
+    // r[impl dashboard.api.spec]
     let mut app = Router::new()
         .route("/api/config", get(api_config))
         .route("/api/forward", get(api_forward))

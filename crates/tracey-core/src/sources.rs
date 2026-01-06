@@ -162,7 +162,7 @@ impl Sources for WalkSources {
         let rules = Mutex::new(Rules::new());
 
         // Build the walker
-        // [impl walk.gitignore]
+        // r[impl walk.gitignore]
         let walker = WalkBuilder::new(&self.root)
             .follow_links(true)
             .hidden(false) // Don't skip hidden files (but .git is in .gitignore)
@@ -317,8 +317,8 @@ mod tests {
     fn test_memory_sources() {
         let rules = Rules::extract(
             MemorySources::new()
-                .add("foo.rs", "// [impl test.rule]")
-                .add("bar.rs", "// [verify other.rule]"),
+                .add("foo.rs", "// r[impl test.rule]")
+                .add("bar.rs", "// r[verify other.rule]"),
         )
         .unwrap();
 
@@ -329,8 +329,8 @@ mod tests {
     fn test_memory_sources_swift() {
         let rules = Rules::extract(
             MemorySources::new()
-                .add("Foo.swift", "// [impl swift.rule.one]")
-                .add("Bar.swift", "/* [verify swift.rule.two] */"),
+                .add("Foo.swift", "// r[impl swift.rule.one]")
+                .add("Bar.swift", "/* r[verify swift.rule.two] */"),
         )
         .unwrap();
 
@@ -343,9 +343,9 @@ mod tests {
     fn test_memory_sources_typescript() {
         let rules = Rules::extract(
             MemorySources::new()
-                .add("app.ts", "// [impl ts.rule.one]")
-                .add("component.tsx", "// [verify ts.rule.two]")
-                .add("utils.js", "/* [impl js.rule] */"),
+                .add("app.ts", "// r[impl ts.rule.one]")
+                .add("component.tsx", "// r[verify ts.rule.two]")
+                .add("utils.js", "/* r[impl js.rule] */"),
         )
         .unwrap();
 
@@ -363,7 +363,7 @@ mod tests {
             r#"
                     /**
                      * Handles user authentication.
-                     * [impl auth.login]
+                     * r[impl auth.login]
                      */
                     function login() {}
                 "#,
@@ -378,9 +378,9 @@ mod tests {
     fn test_memory_sources_mixed_languages() {
         let rules = Rules::extract(
             MemorySources::new()
-                .add("lib.rs", "// [impl core.rust]")
-                .add("App.swift", "// [impl core.swift]")
-                .add("index.ts", "// [impl core.typescript]"),
+                .add("lib.rs", "// r[impl core.rust]")
+                .add("App.swift", "// r[impl core.swift]")
+                .add("index.ts", "// r[impl core.typescript]"),
         )
         .unwrap();
 

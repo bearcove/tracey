@@ -231,7 +231,7 @@ impl<'a> QueryEngine<'a> {
     }
 
     /// Get uncovered rules (no impl refs) for a spec/impl
-    // [impl mcp.discovery.pagination] - Section filtering provides pagination
+    // r[impl mcp.discovery.pagination] - Section filtering provides pagination
     pub fn uncovered(
         &self,
         spec: &str,
@@ -269,7 +269,7 @@ impl<'a> QueryEngine<'a> {
     }
 
     /// Get untested rules (have impl but no verify refs) for a spec/impl
-    // [impl mcp.discovery.pagination] - Section filtering provides pagination
+    // r[impl mcp.discovery.pagination] - Section filtering provides pagination
     pub fn untested(
         &self,
         spec: &str,
@@ -598,8 +598,8 @@ fn insert_into_tree(
 // ============================================================================
 
 /// Format status header for MCP responses
-// [impl mcp.response.header]
-// [impl mcp.response.header-format]
+// r[impl mcp.response.header]
+// r[impl mcp.response.header-format]
 pub fn format_status_header(data: &DashboardData, delta: &Delta) -> String {
     let status_parts: Vec<String> = data
         .forward_by_impl
@@ -629,8 +629,8 @@ pub fn format_status_header(data: &DashboardData, delta: &Delta) -> String {
 }
 
 /// Format delta section for MCP responses
-// [impl mcp.response.delta]
-// [impl mcp.response.delta-format]
+// r[impl mcp.response.delta]
+// r[impl mcp.response.delta-format]
 pub fn format_delta_section(delta: &Delta) -> String {
     if delta.is_empty() {
         return "(no changes since last query)\n".to_string();
@@ -658,7 +658,7 @@ pub fn format_delta_section(delta: &Delta) -> String {
 
 impl UncoveredResult {
     /// Format as text for MCP response
-    // [impl mcp.response.text]
+    // r[impl mcp.response.text]
     pub fn format_text(&self) -> String {
         let mut out = String::new();
         out.push_str(&format!(
@@ -675,7 +675,7 @@ impl UncoveredResult {
             return out;
         }
 
-        // [impl mcp.discovery.overview-first] - Show sections with counts
+        // r[impl mcp.discovery.overview-first] - Show sections with counts
         for (section, rules) in &self.by_section {
             out.push_str(&format!("## {} ({} uncovered)\n", section, rules.len()));
             for rule in rules {
@@ -684,7 +684,7 @@ impl UncoveredResult {
             out.push('\n');
         }
 
-        // [impl mcp.discovery.drill-down] - Provide hints for drilling down
+        // r[impl mcp.discovery.drill-down] - Provide hints for drilling down
         out.push_str("---\n→ tracey_rule <id> to see rule details\n");
 
         out
@@ -693,7 +693,7 @@ impl UncoveredResult {
 
 impl UntestedResult {
     /// Format as text for MCP response
-    // [impl mcp.response.text]
+    // r[impl mcp.response.text]
     pub fn format_text(&self) -> String {
         let mut out = String::new();
         out.push_str(&format!(
@@ -710,7 +710,7 @@ impl UntestedResult {
             return out;
         }
 
-        // [impl mcp.discovery.overview-first] - Show sections with counts
+        // r[impl mcp.discovery.overview-first] - Show sections with counts
         for (section, rules) in &self.by_section {
             out.push_str(&format!("## {} ({} untested)\n", section, rules.len()));
             for rule in rules {
@@ -724,7 +724,7 @@ impl UntestedResult {
             out.push('\n');
         }
 
-        // [impl mcp.discovery.drill-down] - Provide hints for drilling down
+        // r[impl mcp.discovery.drill-down] - Provide hints for drilling down
         out.push_str("---\n→ tracey_rule <id> to see where rule is implemented\n");
 
         out
@@ -733,7 +733,7 @@ impl UntestedResult {
 
 impl UnmappedResult {
     /// Format output for MCP response (either tree or file details)
-    // [impl mcp.response.text]
+    // r[impl mcp.response.text]
     pub fn format_output(&self) -> String {
         // If we have file details, format them
         if let Some(ref details) = self.file_details {
@@ -756,7 +756,7 @@ impl UnmappedResult {
             "# Code Traceability for {}/{}\n\n",
             self.spec, self.impl_name
         ));
-        // [impl mcp.discovery.overview-first] - Show overall stats first
+        // r[impl mcp.discovery.overview-first] - Show overall stats first
         out.push_str(&format!(
             "Overall: {:.0}% ({}/{} code units mapped to requirements)\n\n",
             overall_percent, self.covered_units, self.total_units
@@ -766,7 +766,7 @@ impl UnmappedResult {
             format_tree_node(node, "", i == self.tree.len() - 1, &mut out);
         }
 
-        // [impl mcp.discovery.drill-down] - Provide hints for drilling down
+        // r[impl mcp.discovery.drill-down] - Provide hints for drilling down
         out.push_str("\n---\n→ tracey_unmapped <path> to zoom into a directory\n");
 
         out
@@ -856,7 +856,7 @@ fn coverage_bar(percent: f64) -> String {
 
 impl RuleInfo {
     /// Format as text for MCP response
-    // [impl mcp.response.text]
+    // r[impl mcp.response.text]
     pub fn format_text(&self) -> String {
         let mut out = String::new();
         out.push_str(&format!("# Rule: {}\n\n", self.id));
