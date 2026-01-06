@@ -10,14 +10,14 @@ This document has two parts:
 
 This section specifies the syntax for annotating code and documentation with rule references.
 
-## Rule References in Rust Code
+## Rule References in Source Code
 
-Tracey extracts rule references from Rust source code comments.
+Tracey extracts rule references from source code comments in any programming language.
 
 ### Basic Syntax
 
 r[ref.syntax.brackets]
-A rule reference MUST be enclosed in square brackets within a Rust comment.
+A rule reference MUST be enclosed in square brackets within a comment.
 
 r[ref.syntax.rule-id]
 A rule ID MUST consist of one or more segments separated by dots. Each segment MUST contain only alphanumeric characters, hyphens, or underscores.
@@ -48,16 +48,74 @@ When no verb is provided, the reference SHOULD be treated as an `impl` reference
 r[ref.verb.unknown]
 When an unrecognized verb is encountered, tracey MUST emit a warning but SHOULD still extract the rule reference.
 
+### Language Examples
+
+**Rust:**
+```rust
+// [impl auth.token.validation]
+fn validate_token(token: &str) -> bool {
+    // [verify auth.token.expiry]
+    check_expiry(token)
+}
+
+/* [impl user.permissions.check] */
+```
+
+**TypeScript:**
+```typescript
+// [impl auth.token.validation]
+function validateToken(token: string): boolean {
+    // [verify auth.token.expiry]
+    return checkExpiry(token);
+}
+
+/* [impl user.permissions.check] */
+```
+
+**Swift:**
+```swift
+// [impl auth.token.validation]
+func validateToken(_ token: String) -> Bool {
+    // [verify auth.token.expiry]
+    return checkExpiry(token)
+}
+
+/* [impl user.permissions.check] */
+```
+
+**Python:**
+```python
+# [impl auth.token.validation]
+def validate_token(token: str) -> bool:
+    # [verify auth.token.expiry]
+    return check_expiry(token)
+
+"""
+[impl user.permissions.check]
+"""
+```
+
+**Go:**
+```go
+// [impl auth.token.validation]
+func ValidateToken(token string) bool {
+    // [verify auth.token.expiry]
+    return CheckExpiry(token)
+}
+
+/* [impl user.permissions.check] */
+```
+
 ### Comment Types
 
 r[ref.comments.line]
-Rule references MUST be recognized in line comments (`//`).
+Rule references MUST be recognized in line comments (`//`, `#`, etc. depending on language).
 
 r[ref.comments.block]
-Rule references MUST be recognized in block comments (`/* */`).
+Rule references MUST be recognized in block comments (`/* */`, `""" """`, etc. depending on language).
 
 r[ref.comments.doc]
-Rule references MUST be recognized in doc comments (`///` and `//!`).
+Rule references MUST be recognized in documentation comments (`///`, `//!`, `/** */`, etc. depending on language).
 
 ### Source Location Tracking
 
