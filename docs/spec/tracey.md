@@ -108,39 +108,106 @@ Tracey extracts rule definitions from markdown specification documents. Unlike s
 
 ### Markdown Rule Syntax
 
-r[markdown.syntax.marker]
-A rule definition MUST be written as `r[rule.id]` on its own line in the markdown. This implicitly uses the "define" verb.
+> r[markdown.syntax.marker]
+> A rule definition MUST be written as `r[rule.id]` in one of two contexts: as a standalone paragraph starting at column 0, or inside a blockquote. This implicitly uses the "define" verb.
+>
+> Valid (standalone):
+> ```markdown
+> r[auth.token.validation]
+> The system must validate tokens before granting access.
+> ```
+>
+> Valid (in blockquote for multi-paragraph content):
+> ```markdown
+> > r[api.error.format]
+> > API errors must follow this format:
+> >
+> > ```json
+> > {"error": "message", "code": 400}
+> > ```
+> ```
 
-r[markdown.syntax.standalone]
-The rule marker MUST appear on its own line (possibly with leading/trailing whitespace).
-
-r[markdown.syntax.inline-ignored]
-Rule markers that appear inline within other text MUST be treated as regular text, not rule definitions.
-
-r[markdown.syntax.blockquote]
-A rule definition MAY be written inside a blockquote (`> r[rule.id]`) to allow multi-paragraph content including code blocks.
+> r[markdown.syntax.inline-ignored]
+> Rule markers that appear inline within other text MUST be treated as regular text, not rule definitions.
+>
+> Valid (defines rule):
+> ```markdown
+> r[database.connection]
+> When connecting to the database...
+> ```
+>
+> Invalid (treated as text, not a definition):
+> ```markdown
+> When implementing r[database.connection] you should...
+> ```
 
 ### Duplicate Detection
 
-r[markdown.duplicates.same-file]
-If the same rule ID appears multiple times in a single markdown file, tracey MUST report an error.
+> r[markdown.duplicates.same-file]
+> If the same rule ID appears multiple times in a single markdown file, tracey MUST report an error.
+>
+> Invalid:
+> ```markdown
+> r[auth.validation]
+> Users must authenticate.
+>
+> Later in the same file...
+>
+> r[auth.validation]
+> This causes an error - duplicate rule ID!
+> ```
 
-r[markdown.duplicates.cross-file]
-If the same rule ID appears in multiple markdown files, tracey MUST report an error when merging manifests.
+> r[markdown.duplicates.cross-file]
+> If the same rule ID appears in multiple markdown files, tracey MUST report an error when merging manifests.
+>
+> Invalid:
+> ```markdown
+> # spec1.md
+> r[api.format]
+> API responses must use JSON.
+>
+> # spec2.md
+> r[api.format]
+> Error - this rule ID is already defined in spec1.md!
+> ```
 
 ### HTML Output
 
-r[markdown.html.div]
-When transforming markdown, each rule marker MUST be replaced with a `<div>` element with class `rule`.
+> r[markdown.html.div]
+> When transforming markdown, each rule marker MUST be replaced with a `<div>` element with class `rule`.
+>
+> Input:
+> ```markdown
+> r[auth.token.validation]
+> ```
+>
+> Output:
+> ```html
+> <div class="rule" id="r-auth.token.validation">
+>   <a href="#r-auth.token.validation">auth.<wbr>token.<wbr>validation</a>
+> </div>
+> ```
 
-r[markdown.html.anchor]
-The generated div MUST have an `id` attribute in the format `r-{rule.id}` for linking.
+> r[markdown.html.anchor]
+> The generated div MUST have an `id` attribute in the format `r-{rule.id}` for linking.
+>
+> ```html
+> <div class="rule" id="r-api.response.format">
+> ```
 
-r[markdown.html.link]
-The generated div MUST contain a link (`<a>`) pointing to its own anchor.
+> r[markdown.html.link]
+> The generated div MUST contain a link (`<a>`) pointing to its own anchor.
+>
+> ```html
+> <a href="#r-user.login.flow">user.<wbr>login.<wbr>flow</a>
+> ```
 
-r[markdown.html.wbr]
-Dots in the displayed rule ID SHOULD be followed by `<wbr>` elements to allow line breaking.
+> r[markdown.html.wbr]
+> Dots in the displayed rule ID SHOULD be followed by `<wbr>` elements to allow line breaking.
+>
+> ```html
+> database.<wbr>connection.<wbr>pool
+> ```
 
 ---
 
