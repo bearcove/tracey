@@ -1,0 +1,11 @@
+id = "tracey"
+name = "Tracey"
+description = "Requirement traceability for specs and code"
+version = "0.0.1"
+schema_version = 1
+authors = ["Amos Wenger <amos@bearcove.eu>"]
+repository = "https://github.com/bearcove/tracey"
+
+[language_servers.tracey-lsp]
+name = "Tracey LSP"
+languages = ["Rust", "TypeScript", "TSX", "JavaScript", "Python", "Go", "Markdown"]

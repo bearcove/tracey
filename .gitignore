@@ -3,3 +3,5 @@ node_modules
 **/dist
 .playwright-mcp/
 .handoffs/
+tracey-zed/target/
+tracey-zed/extension.wasm

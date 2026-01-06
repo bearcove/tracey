@@ -1,0 +1,12 @@
+[package]
+name = "tracey-zed"
+version = "0.0.1"
+edition = "2021"
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+zed_extension_api = "0.5"
