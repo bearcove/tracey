@@ -39,17 +39,46 @@ Source code references use verbs to indicate the relationship between code and r
 > }
 > ```
 
-r[ref.verb.verify]
-Tracey MUST interpret the `verify` verb as indicating that the code tests or verifies the referenced rule.
+> r[ref.verb.verify]
+> Tracey MUST interpret the `verify` verb as indicating that the code tests or verifies the referenced rule.
+>
+> ```typescript
+> test('token validation', () => {
+>     // [verify auth.token.validation]
+>     expect(validateToken('abc')).toBe(true);
+> });
+> ```
 
-r[ref.verb.depends]
-Tracey MUST interpret the `depends` verb as indicating a strict dependency — the code must be rechecked if the referenced rule changes.
+> r[ref.verb.depends]
+> Tracey MUST interpret the `depends` verb as indicating a strict dependency — the code must be rechecked if the referenced rule changes.
+>
+> ```python
+> # [depends auth.crypto.algorithm]
+> # This code must be reviewed if the crypto algorithm changes
+> def hash_password(password: str) -> str:
+>     return bcrypt.hashpw(password.encode(), bcrypt.gensalt())
+> ```
 
-r[ref.verb.related]
-Tracey MUST interpret the `related` verb as indicating a loose connection, shown when reviewing related code.
+> r[ref.verb.related]
+> Tracey MUST interpret the `related` verb as indicating a loose connection, shown when reviewing related code.
+>
+> ```swift
+> // [related user.session.timeout]
+> // Session cleanup is related to timeout rules
+> func cleanupExpiredSessions() {
+>     sessions.removeAll { $0.isExpired }
+> }
+> ```
 
-r[ref.verb.default]
-When no verb is provided, the reference SHOULD be treated as an `impl` reference.
+> r[ref.verb.default]
+> When no verb is provided, the reference SHOULD be treated as an `impl` reference.
+>
+> ```go
+> // [auth.token.validation] - no verb, defaults to 'impl'
+> func ValidateToken(token string) bool {
+>     return len(token) > 0
+> }
+> ```
 
 **Language Examples:**
 
