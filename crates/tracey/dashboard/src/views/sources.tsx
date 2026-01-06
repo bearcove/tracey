@@ -167,14 +167,16 @@ function FileTreeFile({ file, selected, onClick }: FileTreeFileProps) {
 // [impl dashboard.sources.line-highlight]
 // [impl dashboard.sources.editor-open]
 // Code view component
-interface CodeViewProps {
+export interface CodeViewProps {
   file: FileContent;
   config: { projectRoot?: string };
   selectedLine: number | null;
+  selectedLineEnd?: number | null;
+  selectedType?: "impl" | "verify";
   onSelectRule: (ruleId: string) => void;
 }
 
-function CodeView({ file, config, selectedLine, onSelectRule }: CodeViewProps) {
+export function CodeView({ file, config, selectedLine, selectedLineEnd, selectedType, onSelectRule }: CodeViewProps) {
   const codeRef = useRef<HTMLDivElement>(null);
   const lines = useMemo(() => splitHighlightedHtml(file.html), [file.html]);
 
@@ -218,6 +220,9 @@ function CodeView({ file, config, selectedLine, onSelectRule }: CodeViewProps) {
   const handleEditorOpen = useCallback(
     (lineNum: number) => {
       const fullPath = config.projectRoot ? `${config.projectRoot}/${file.path}` : file.path;
+      console.log("Opening in editor - projectRoot:", config.projectRoot);
+      console.log("Opening in editor - file.path:", file.path);
+      console.log("Opening in editor - fullPath:", fullPath);
       window.location.href = EDITORS.zed.urlTemplate(fullPath, lineNum);
     },
     [config.projectRoot, file.path],
@@ -231,12 +236,17 @@ function CodeView({ file, config, selectedLine, onSelectRule }: CodeViewProps) {
             const lineNum = idx + 1;
             const meta = lineMetadata[lineNum];
             const hasRules = meta?.rules.length > 0;
-            const isSelected = selectedLine === lineNum;
+            const isSelected = selectedLine !== null &&
+              lineNum >= selectedLine &&
+              lineNum <= (selectedLineEnd ?? selectedLine);
+            const selectedClass = isSelected
+              ? selectedType === "verify" ? "selected-verify" : "selected-impl"
+              : "";
 
             return html`
               <tr
                 key=${lineNum}
-                class="code-line ${isSelected ? "selected" : ""} ${hasRules ? "has-rules" : ""}"
+                class="code-line ${selectedClass} ${hasRules ? "has-rules" : ""}"
                 data-line=${lineNum}
               >
                 <td class="line-number" onClick=${() => handleEditorOpen(lineNum)}>${lineNum}</td>

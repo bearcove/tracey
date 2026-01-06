@@ -1,0 +1,21 @@
+[package]
+name = "tracey-codegen"
+version = "1.0.0"
+description = "Code generator for tracey TypeScript types"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
+[[bin]]
+name = "tracey-codegen"
+path = "src/main.rs"
+
+[dependencies]
+facet-typescript = { git = "https://github.com/facet-rs/facet", branch = "main" }
+tracey-api = { path = "../tracey-api" }

@@ -485,8 +485,11 @@ The `/api/file?spec={specName}&impl={impl}&path={filePath}` endpoint MUST return
 r[dashboard.api.version]
 The `/api/version` endpoint MUST return a version string that changes when any source data changes.
 
-r[dashboard.api.version-polling]
-The dashboard SHOULD poll `/api/version` and refetch data when the version changes.
+r[dashboard.api.websocket]
+The server MUST provide a WebSocket endpoint that notifies connected clients when source data changes, sending the new version identifier.
+
+r[dashboard.api.websocket-reconnect]
+The dashboard MUST automatically reconnect to the WebSocket if the connection is lost, with exponential backoff.
 
 ### Link Generation
 
@@ -587,6 +590,15 @@ Search MUST support finding files by path.
 
 r[dashboard.search.navigation]
 Selecting a search result MUST navigate to the appropriate view (spec for requirements, sources for files).
+
+r[dashboard.search.prioritize-spec]
+Search results MUST prioritize requirements from the specification over source code matches, displaying spec requirements before source file results in the results list.
+
+r[dashboard.search.render-requirements]
+Requirement search results MUST be rendered as styled HTML using the same markdown renderer as the specification view, not as plain text, preserving formatting and visual hierarchy.
+
+r[dashboard.search.requirement-styling]
+Rendered requirement search results MUST include proper styling for requirement IDs, nested requirements, code blocks, and other markdown elements to maintain visual consistency with the specification view.
 
 ### Header
 
@@ -841,13 +853,41 @@ The Edit badge MUST use muted colors (gray) by default and accent colors on hove
 r[dashboard.editing.activation.click]
 Clicking the Edit badge MUST activate inline editing mode for that requirement, replacing the rendered requirement with the inline editor.
 
+### Copy Requirement ID
+
+r[dashboard.editing.copy.button]
+Each requirement MUST display a "Copy" button or icon in its header that copies the requirement ID to the clipboard when clicked.
+
+r[dashboard.editing.copy.format]
+The copy button MUST copy only the requirement ID (e.g., `dashboard.editing.copy.button`) without any prefix or brackets, ready for use in implementation references.
+
+r[dashboard.editing.copy.feedback]
+After copying, the button MUST provide visual feedback (e.g., brief color change, checkmark icon, or "Copied!" tooltip) to confirm the action succeeded.
+
+### Implementation Preview Modal
+
+r[dashboard.impl-preview.modal]
+When viewing the specification tab and clicking on an implementation reference badge, the dashboard MUST open a modal showing the source code without navigating away from the spec tab.
+
+r[dashboard.impl-preview.scroll-highlight]
+The implementation preview modal MUST automatically scroll to the referenced line number and highlight it for easy identification.
+
+r[dashboard.impl-preview.open-in-sources]
+The modal MUST include an "Open in sources" button that navigates to the full sources view when clicked, allowing users to see more context or make edits.
+
+r[dashboard.impl-preview.stay-in-spec]
+Clicking an implementation reference badge MUST NOT automatically switch to the sources tab - it MUST show the preview modal while keeping the user in the specification view.
+
+r[dashboard.impl-preview.rationale]
+The preview modal allows quick inspection of implementation code without losing context in the specification, reducing cognitive load when reviewing how requirements are implemented.
+
 ### Inline Editor Interface
 
-r[dashboard.editing.inline.split-view]
-The inline editor MUST display a split-pane view with source markdown on the left and live preview on the right, enabling users to see rendering changes in real-time.
+r[dashboard.editing.inline.fullwidth]
+The inline editor MUST display as a full-width editor showing only the markdown source, replacing the entire requirement block during editing.
 
 r[dashboard.editing.inline.vim-mode]
-The editor MUST support vim keybindings via CodeMirror's vim extension, with a visible "VIM MODE" indicator in the editor header.
+The editor MUST support vim keybindings via CodeMirror's vim extension, with a visible "VIM" indicator in the editor header.
 
 r[dashboard.editing.inline.codemirror]
 The editor MUST use CodeMirror 6 with markdown language support, providing syntax highlighting, line wrapping, and proper monospace font rendering.
@@ -858,30 +898,45 @@ The editor header MUST display: an "Edit Requirement" label, vim mode indicator,
 r[dashboard.editing.inline.dimensions]
 The editor MUST have a minimum height of 300px and maximum height of 600px to accommodate short requirements while preventing excessive vertical space usage.
 
-### Live Preview
+### Git Safety
 
-r[dashboard.editing.preview.server-side]
-Markdown preview MUST be rendered server-side using the same bearmark renderer as the dashboard, ensuring preview consistency with the final rendered output.
+r[dashboard.editing.git.check-required]
+The dashboard MUST check if a file is in a git repository before allowing inline editing, refusing to edit files that are not tracked by git.
 
-r[dashboard.editing.preview.debounce]
-Preview updates MUST be debounced with a 300ms delay to avoid excessive server requests while typing.
+r[dashboard.editing.git.api]
+The server MUST provide a `GET /api/check-git?path=X` endpoint that returns `{in_git: boolean}` indicating whether the specified file is within a git repository.
 
-r[dashboard.editing.preview.endpoint]
-The server MUST provide a `POST /api/preview-markdown` endpoint accepting `{content: string}` and returning `{html: string}` with the rendered markdown.
+r[dashboard.editing.git.error-message]
+When a user attempts to edit a file not in a git repository, the dashboard MUST display a clear error message: "This file is not in a git repository. Tracey requires git for safe editing."
+
+r[dashboard.editing.git.rationale]
+Git requirement provides a safety net for inline editing: users can review changes with `git diff`, revert mistakes with `git checkout`, and maintain edit history without additional undo/redo implementation.
 
 ### Byte Range Operations
 
 r[dashboard.editing.api.fetch-range]
-The server MUST provide a `GET /api/file-range?path=X&start=N&end=M` endpoint that returns the exact bytes from the specified range as UTF-8 text.
+The server MUST provide a `GET /api/file-range?path=X&start=N&end=M` endpoint that returns the exact bytes from the specified range as UTF-8 text, along with a BLAKE3 hash of the entire file.
+
+r[dashboard.editing.api.fetch-range-response]
+The fetch-range endpoint MUST return `{content: string, start: number, end: number, file_hash: string}` where `file_hash` is the hexadecimal BLAKE3 hash of the entire file contents.
 
 r[dashboard.editing.api.update-range]
-The server MUST provide a `PATCH /api/file-range` endpoint accepting `{path, start, end, content}` that replaces the specified byte range with new content, adjusting file offsets accordingly.
+The server MUST provide a `PATCH /api/file-range` endpoint accepting `{path, start, end, content, file_hash}` that replaces the specified byte range with new content only if the file hash matches.
+
+r[dashboard.editing.api.update-range-response]
+The update-range endpoint MUST return `{content: string, start: number, end: number, file_hash: string}` on success, where `file_hash` is the BLAKE3 hash of the file after the update.
+
+r[dashboard.editing.api.hash-conflict]
+If the provided `file_hash` does not match the current file's BLAKE3 hash, the server MUST return HTTP 409 Conflict with an error message indicating the file has changed since it was loaded.
 
 r[dashboard.editing.api.range-validation]
 The byte range endpoints MUST validate that `start < end` and `end <= file_length`, returning appropriate error codes for invalid ranges.
 
 r[dashboard.editing.api.utf8-validation]
 The fetch-range endpoint MUST validate that the extracted bytes form valid UTF-8 text, returning an error if the range splits a multi-byte character.
+
+r[dashboard.editing.hash.rationale]
+Hash-based conflict detection prevents race conditions where the file changes between loading the editor and saving, ensuring users don't accidentally overwrite concurrent modifications.
 
 ### Save and Cancel Workflow
 
@@ -903,7 +958,7 @@ r[dashboard.editing.reload.auto-detect]
 After a successful save, the file watcher MUST detect the change and trigger a dashboard rebuild automatically.
 
 r[dashboard.editing.reload.live-update]
-The dashboard MUST poll `/api/version` to detect rebuilds and reload the page content when a new version is available, preserving scroll position.
+The dashboard MUST connect to the WebSocket endpoint to receive notifications of rebuilds and reload the page content when a new version is available, preserving scroll position.
 
 r[dashboard.editing.reload.smooth]
 The reload MUST be visually smooth, with no jarring page transitions or loss of context (scroll position maintained).

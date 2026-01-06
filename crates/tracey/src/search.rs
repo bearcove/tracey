@@ -107,6 +107,9 @@ mod tantivy_impl {
             let line_field = schema_builder.add_u64_field("line", INDEXED | STORED);
             // "content" field: the searchable text content with stemming
             let content_field = schema_builder.add_text_field("content", text_options);
+            // r[impl dashboard.search.render-requirements]
+            // "html_content" field: original HTML for rules (for rendering)
+            let html_content_field = schema_builder.add_text_field("html_content", STRING | STORED);
             let schema = schema_builder.build();
 
             // Create index in RAM (small enough for most projects)
@@ -152,15 +155,17 @@ mod tantivy_impl {
 
             // Index rules
             for rule in rules {
-                // Index the rule ID and HTML content (stripped of tags)
+                // Index the rule ID and HTML content (stripped of tags for search)
                 let text = strip_html_tags(&rule.html);
                 let searchable_content = format!("{} {}", rule.id, text);
 
+                // r[impl dashboard.search.render-requirements]
                 index_writer.add_document(doc!(
                     kind_field => "rule",
                     id_field => rule.id.clone(),
                     line_field => 0u64,
                     content_field => searchable_content,
+                    html_content_field => rule.html.clone(),
                 ))?;
             }
 
@@ -218,8 +223,9 @@ mod tantivy_impl {
             let id_field = self.schema.get_field("id").unwrap();
             let line_field = self.schema.get_field("line").unwrap();
             let content_field = self.schema.get_field("content").unwrap();
+            let html_content_field = self.schema.get_field("html_content").unwrap();
 
-            top_docs
+            let mut results: Vec<SearchResult> = top_docs
                 .into_iter()
                 .filter_map(|(score, doc_address)| {
                     let doc: tantivy::TantivyDocument = searcher.doc(doc_address).ok()?;
@@ -234,15 +240,25 @@ mod tantivy_impl {
                     let line = doc.get_first(line_field)?.as_u64()? as usize;
                     let content = doc.get_first(content_field)?.as_str()?.to_string();
 
-                    // Generate highlighted snippet with <mark> tags
-                    let highlighted = snippet_generator
-                        .as_ref()
-                        .map(|sg| {
-                            let mut snippet = sg.snippet(&content);
-                            snippet.set_snippet_prefix_postfix("<mark>", "</mark>");
-                            snippet.to_html()
-                        })
-                        .unwrap_or_else(|| html_escape(&content));
+                    // For rules, use stored HTML content for rendering
+                    // r[impl dashboard.search.render-requirements]
+                    // r[impl dashboard.search.requirement-styling]
+                    let highlighted = if kind == ResultKind::Rule {
+                        doc.get_first(html_content_field)
+                            .and_then(|v| v.as_str())
+                            .unwrap_or(&content)
+                            .to_string()
+                    } else {
+                        // For source code, generate highlighted snippet with <mark> tags
+                        snippet_generator
+                            .as_ref()
+                            .map(|sg| {
+                                let mut snippet = sg.snippet(&content);
+                                snippet.set_snippet_prefix_postfix("<mark>", "</mark>");
+                                snippet.to_html()
+                            })
+                            .unwrap_or_else(|| html_escape(&content))
+                    };
 
                     Some(SearchResult {
                         kind,
@@ -253,7 +269,20 @@ mod tantivy_impl {
                         score,
                     })
                 })
-                .collect()
+                .collect();
+
+            // r[impl dashboard.search.prioritize-spec]
+            // Sort results: rules first (by score), then source files (by score)
+            results.sort_by(|a, b| match (a.kind, b.kind) {
+                (ResultKind::Rule, ResultKind::Source) => std::cmp::Ordering::Less,
+                (ResultKind::Source, ResultKind::Rule) => std::cmp::Ordering::Greater,
+                _ => b
+                    .score
+                    .partial_cmp(&a.score)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+            });
+
+            results
         }
     }
 }
@@ -360,7 +389,8 @@ impl SearchIndex for SimpleIndex {
     fn search(&self, query: &str, limit: usize) -> Vec<SearchResult> {
         let query_lower = query.to_lowercase();
 
-        self.entries
+        let mut results: Vec<SearchResult> = self
+            .entries
             .iter()
             .filter(|e| e.content.to_lowercase().contains(&query_lower))
             .take(limit)
@@ -376,7 +406,17 @@ impl SearchIndex for SimpleIndex {
                     score: 1.0,
                 }
             })
-            .collect()
+            .collect();
+
+        // r[impl dashboard.search.prioritize-spec]
+        // Sort results: rules first, then source files
+        results.sort_by(|a, b| match (a.kind, b.kind) {
+            (ResultKind::Rule, ResultKind::Source) => std::cmp::Ordering::Less,
+            (ResultKind::Source, ResultKind::Rule) => std::cmp::Ordering::Greater,
+            _ => std::cmp::Ordering::Equal,
+        });
+
+        results
     }
 
     fn is_available(&self) -> bool {

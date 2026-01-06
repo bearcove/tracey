@@ -1,0 +1,16 @@
+[package]
+name = "tracey-api"
+version = "1.0.0"
+description = "API types for tracey dashboard"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
+[dependencies]
+facet = { workspace = true }

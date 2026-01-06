@@ -1,3 +1,9 @@
+// r[impl dashboard.editing.inline.fullwidth]
+// r[impl dashboard.editing.inline.vim-mode]
+// r[impl dashboard.editing.inline.codemirror]
+// r[impl dashboard.editing.inline.header]
+// r[impl dashboard.editing.save.patch-file]
+// r[impl dashboard.editing.cancel.discard]
 import { useEffect, useRef, useState } from "preact/hooks";
 import { html } from "../main";
 import { EditorView } from "@codemirror/view";
@@ -15,6 +21,7 @@ interface InlineEditorProps {
 
 export function InlineEditor({ filePath, byteRange, onSave, onCancel }: InlineEditorProps) {
   const [content, setContent] = useState("");
+  const [fileHash, setFileHash] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,6 +45,7 @@ export function InlineEditor({ filePath, byteRange, onSave, onCancel }: InlineEd
         }
         const data = await response.json();
         setContent(data.content);
+        setFileHash(data.file_hash);
         setLoading(false);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load");
@@ -117,6 +125,7 @@ export function InlineEditor({ filePath, byteRange, onSave, onCancel }: InlineEd
     setSaving(true);
     setError(null);
     try {
+      // r[impl dashboard.editing.api.hash-conflict]
       const response = await fetch("/api/file-range", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -125,11 +134,18 @@ export function InlineEditor({ filePath, byteRange, onSave, onCancel }: InlineEd
           start,
           end,
           content: newContent,
+          file_hash: fileHash,
         }),
       });
       if (!response.ok) {
+        if (response.status === 409) {
+          throw new Error("File has changed since it was loaded. Please reload and try again.");
+        }
         throw new Error("Failed to save");
       }
+      const data = await response.json();
+      // Update hash for potential future saves
+      setFileHash(data.file_hash);
       onSave();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save");

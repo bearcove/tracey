@@ -60,170 +60,12 @@ use crate::vite::ViteServer;
 // JSON API Types
 // ============================================================================
 
-/// Git status for a file
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Facet)]
-#[facet(rename_all = "lowercase")]
-#[repr(u8)]
-pub enum GitStatus {
-    /// File has uncommitted changes
-    Dirty,
-    /// File has staged changes
-    Staged,
-    /// File is clean (no changes)
-    Clean,
-    /// Not in a git repo or error checking
-    Unknown,
-}
-
-/// Project configuration info
-#[derive(Debug, Clone, Facet)]
-pub struct ApiConfig {
-    pub project_root: String,
-    pub specs: Vec<ApiSpecInfo>,
-}
-
-#[derive(Debug, Clone, Facet)]
-pub struct ApiSpecInfo {
-    pub name: String,
-    /// Prefix used in annotations (e.g., "r" for r[req.id])
-    pub prefix: String,
-    /// Path to spec file(s) if local
-    #[facet(default)]
-    pub source: Option<String>,
-    /// Available implementations for this spec
-    pub implementations: Vec<String>,
-}
-
-/// Forward traceability: rules with their code references
-#[derive(Debug, Clone, Facet)]
-pub struct ApiForwardData {
-    specs: Vec<ApiSpecForward>,
-}
-
-#[derive(Debug, Clone, Facet)]
-pub struct ApiSpecForward {
-    pub name: String,
-    pub rules: Vec<ApiRule>,
-}
-
-#[derive(Debug, Clone, Facet)]
-#[facet(rename_all = "camelCase")]
-pub struct ApiRule {
-    pub id: String,
-    pub html: String,
-    #[facet(default)]
-    pub status: Option<String>,
-    #[facet(default)]
-    pub level: Option<String>,
-    #[facet(default)]
-    pub source_file: Option<String>,
-    #[facet(default)]
-    pub source_line: Option<usize>,
-    pub impl_refs: Vec<ApiCodeRef>,
-    pub verify_refs: Vec<ApiCodeRef>,
-    pub depends_refs: Vec<ApiCodeRef>,
-}
-
-#[derive(Debug, Clone, Facet)]
-pub struct ApiCodeRef {
-    pub file: String,
-    pub line: usize,
-}
-
-/// Reverse traceability: file tree with coverage info
-#[derive(Debug, Clone, Facet)]
-#[facet(rename_all = "camelCase")]
-pub struct ApiReverseData {
-    /// Total code units across all files
-    pub total_units: usize,
-    /// Code units with at least one rule reference
-    pub covered_units: usize,
-    /// File tree with coverage info
-    pub files: Vec<ApiFileEntry>,
-}
-
-#[derive(Debug, Clone, Facet)]
-#[facet(rename_all = "camelCase")]
-pub struct ApiFileEntry {
-    pub path: String,
-    /// Number of code units in this file
-    pub total_units: usize,
-    /// Number of covered code units
-    pub covered_units: usize,
-}
-
-/// Single file with full coverage details
-#[derive(Debug, Clone, Facet)]
-#[facet(rename_all = "camelCase")]
-pub struct ApiFileData {
-    pub path: String,
-    pub content: String,
-    /// Syntax-highlighted HTML content
-    pub html: String,
-    /// Code units in this file with their coverage
-    pub units: Vec<ApiCodeUnit>,
-}
-
-#[derive(Debug, Clone, Facet)]
-#[facet(rename_all = "camelCase")]
-pub struct ApiCodeUnit {
-    pub kind: String,
-    #[facet(default)]
-    pub name: Option<String>,
-    pub start_line: usize,
-    pub end_line: usize,
-    /// Rule references found in this code unit's comments
-    pub rule_refs: Vec<String>,
-}
-
-/// A section of a spec (one source file)
-#[derive(Debug, Clone, Facet)]
-#[facet(rename_all = "camelCase")]
-pub struct SpecSection {
-    /// Source file path
-    pub source_file: String,
-    /// Rendered HTML content
-    pub html: String,
-    /// Weight for ordering (from frontmatter)
-    pub weight: i32,
-}
-
-/// Coverage counts for an outline entry
-#[derive(Debug, Clone, Default, Facet)]
-#[facet(rename_all = "camelCase")]
-pub struct OutlineCoverage {
-    /// Number of rules with implementation refs
-    pub impl_count: usize,
-    /// Number of rules with verification refs
-    pub verify_count: usize,
-    /// Total number of rules
-    pub total: usize,
-}
-
-/// An entry in the spec outline (heading with coverage info)
-#[derive(Debug, Clone, Facet)]
-pub struct OutlineEntry {
-    /// Heading text
-    pub title: String,
-    /// Slug for linking
-    pub slug: String,
-    /// Heading level (1-6)
-    pub level: u8,
-    /// Direct coverage (rules directly under this heading)
-    pub coverage: OutlineCoverage,
-    /// Aggregated coverage (includes all nested rules)
-    pub aggregated: OutlineCoverage,
-}
-
-/// Spec content (may span multiple files)
-#[derive(Debug, Clone, Facet)]
-pub struct ApiSpecData {
-    pub name: String,
-    /// Sections ordered by weight
-    pub sections: Vec<SpecSection>,
-    /// Outline with coverage info
-    pub outline: Vec<OutlineEntry>,
-}
+// Re-export API types from tracey-api crate
+pub use tracey_api::{
+    ApiCodeRef, ApiCodeUnit, ApiConfig, ApiFileData, ApiFileEntry, ApiForwardData, ApiReverseData,
+    ApiRule, ApiSpecData, ApiSpecForward, ApiSpecInfo, GitStatus, OutlineCoverage, OutlineEntry,
+    SpecSection,
+};
 
 /// Search response
 #[derive(Debug, Clone, Facet)]
@@ -420,10 +262,11 @@ impl ReqHandler for TraceyRuleHandler {
             // Build the badges that pierce the top border
             let mut badges_html = String::new();
 
-            // Rule ID badge (always present) - includes source location for editor navigation
-            // r[impl dashboard.links.rule-links]
+            // r[impl dashboard.editing.copy.button]
+            // Segmented badge group: copy button + requirement ID
             badges_html.push_str(&format!(
-                r#"<a class="req-badge req-id" href="/{}/{}/spec#r--{}" data-rule="{}" data-source-file="{}" data-source-line="{}" title="{}">{}</a>"#,
+                r#"<div class="req-badge-group"><button class="req-badge req-copy req-segment-left" data-req-id="{}" title="Copy requirement ID"><svg class="req-copy-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button><a class="req-badge req-id req-segment-right" href="/{}/{}/spec#r--{}" data-rule="{}" data-source-file="{}" data-source-line="{}" title="{}">{}</a></div>"#,
+                rule.id,
                 self.spec_name, self.impl_name, rule.id, rule.id, source_file, rule.line, rule.id, display_id
             ));
 
@@ -1461,11 +1304,13 @@ async fn api_file(
 }
 
 /// Response for file range queries
+// r[impl dashboard.editing.api.fetch-range-response]
 #[derive(Debug, Clone, Facet)]
 struct ApiFileRange {
     content: String,
     start: usize,
     end: usize,
+    file_hash: String,
 }
 
 /// Error response
@@ -1475,12 +1320,14 @@ struct ApiError {
 }
 
 /// Response for git check
+// r[impl dashboard.editing.git.api]
 #[derive(Debug, Clone, Facet)]
 struct ApiGitCheck {
     in_git: bool,
 }
 
 /// Helper function to check if a file is in a git repository
+// r[impl dashboard.editing.git.check-required]
 fn is_file_in_git(file_path: &std::path::Path) -> bool {
     // Check if the file exists
     if !file_path.exists() {
@@ -1505,7 +1352,8 @@ fn is_file_in_git(file_path: &std::path::Path) -> bool {
         .unwrap_or(false)
 }
 
-/// GET /api/check-git?path=<path>
+/// GET `/api/check-git?path=<path>`
+///
 /// Check if a file is in a git repository
 async fn api_check_git(
     State(state): State<AppState>,
@@ -1526,8 +1374,12 @@ async fn api_check_git(
     .into_response()
 }
 
-/// GET /api/file-range?path=<path>&start=<byte-start>&end=<byte-end>
+/// GET `/api/file-range?path=<path>&start=<byte-start>&end=<byte-end>`
+///
 /// Fetch a byte range from a file
+// r[impl dashboard.editing.api.fetch-range]
+// r[impl dashboard.editing.api.range-validation]
+// r[impl dashboard.editing.api.utf8-validation]
 async fn api_file_range(
     State(state): State<AppState>,
     Query(params): Query<Vec<(String, String)>>,
@@ -1557,10 +1409,13 @@ async fn api_file_range(
         if end > start && end <= content.len() {
             let range_bytes = &content[start..end];
             if let Ok(text) = String::from_utf8(range_bytes.to_vec()) {
+                // r[impl dashboard.editing.api.fetch-range-response]
+                let file_hash = blake3::hash(&content).to_hex().to_string();
                 return Json(ApiFileRange {
                     content: text,
                     start,
                     end,
+                    file_hash,
                 })
                 .into_response();
             }
@@ -1584,12 +1439,15 @@ async fn api_file_range(
 }
 
 /// Request body for updating a file range
+// r[impl dashboard.editing.api.update-range]
+// r[impl dashboard.editing.api.hash-conflict]
 #[derive(Debug, Clone, Facet)]
 struct ApiUpdateFileRange {
     path: String,
     start: usize,
     end: usize,
     content: String,
+    file_hash: String,
 }
 
 /// Request body for previewing markdown
@@ -1606,6 +1464,9 @@ struct ApiPreviewResponse {
 
 /// PATCH /api/file-range
 /// Update a byte range in a file
+// r[impl dashboard.editing.api.update-range]
+// r[impl dashboard.editing.api.range-validation]
+// r[impl dashboard.editing.save.patch-file]
 async fn api_update_file_range(
     State(state): State<AppState>,
     Json(req): Json<ApiUpdateFileRange>,
@@ -1614,6 +1475,20 @@ async fn api_update_file_range(
     let full_path = state.project_root.join(file_path.as_ref());
 
     if let Ok(original_content) = std::fs::read(&full_path) {
+        // r[impl dashboard.editing.api.hash-conflict]
+        // Check if file hash matches
+        let current_hash = blake3::hash(&original_content).to_hex().to_string();
+        if current_hash != req.file_hash {
+            return (
+                StatusCode::CONFLICT,
+                Json(ApiError {
+                    error: "File has changed since it was loaded. Please reload and try again."
+                        .to_string(),
+                }),
+            )
+                .into_response();
+        }
+
         if req.end > req.start && req.end <= original_content.len() {
             // Build new content: before + new content + after
             let mut new_content = Vec::new();
@@ -1623,11 +1498,14 @@ async fn api_update_file_range(
 
             // Write back to file
             if std::fs::write(&full_path, &new_content).is_ok() {
+                // r[impl dashboard.editing.api.update-range-response]
                 let new_end = req.start + req.content.len();
+                let new_hash = blake3::hash(&new_content).to_hex().to_string();
                 return Json(ApiFileRange {
                     content: req.content,
                     start: req.start,
                     end: new_end,
+                    file_hash: new_hash,
                 })
                 .into_response();
             } else {
@@ -2347,6 +2225,7 @@ async fn run_server(
         .route("/api/version", get(api_version))
         .route("/api/delta", get(api_delta))
         .route("/api/file", get(api_file))
+        .route("/api/check-git", get(api_check_git))
         .route("/api/file-range", get(api_file_range))
         .route("/api/file-range", patch(api_update_file_range))
         .route("/api/preview-markdown", post(api_preview_markdown))

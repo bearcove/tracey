@@ -280,11 +280,11 @@ impl TraceyHandler {
         }
 
         out.push_str("---\n");
-        out.push_str("Available commands:\n");
-        out.push_str("→ tracey_uncovered - Rules without implementation\n");
-        out.push_str("→ tracey_untested - Rules without verification\n");
-        out.push_str("→ tracey_unmapped - Code without requirements\n");
-        out.push_str("→ tracey_rule <id> - Details about a specific rule\n");
+        out.push_str("Available MCP tools (use these, not CLI commands):\n");
+        out.push_str("→ mcp__tracey__tracey_uncovered - Rules without implementation\n");
+        out.push_str("→ mcp__tracey__tracey_untested - Rules without verification\n");
+        out.push_str("→ mcp__tracey__tracey_unmapped - Code without requirements\n");
+        out.push_str("→ mcp__tracey__tracey_rule - Details about a specific rule\n");
 
         out
     }
@@ -434,8 +434,8 @@ impl TraceyHandler {
         }
 
         out.push_str("---\n");
-        out.push_str("Use tracey_config_include to add include patterns\n");
-        out.push_str("Use tracey_config_exclude to add exclude patterns\n");
+        out.push_str("Use mcp__tracey__tracey_config_include to add include patterns\n");
+        out.push_str("Use mcp__tracey__tracey_config_exclude to add exclude patterns\n");
 
         out
     }
@@ -765,9 +765,12 @@ pub async fn run(root: Option<PathBuf>, config_path: Option<PathBuf>) -> Result<
         },
         protocol_version: LATEST_PROTOCOL_VERSION.into(),
         instructions: Some(
-            "Tracey is a spec coverage tool. Use tracey_status to see coverage overview, \
-             tracey_uncovered to find unimplemented rules, tracey_untested to find untested rules, \
-             tracey_unmapped to find code without requirements, and tracey_rule to get rule details."
+            "Tracey is a spec coverage tool. Use the MCP tools (mcp__tracey__*) not CLI commands: \
+             mcp__tracey__tracey_status for coverage overview, \
+             mcp__tracey__tracey_uncovered for unimplemented rules, \
+             mcp__tracey__tracey_untested for untested rules, \
+             mcp__tracey__tracey_unmapped for code without requirements, \
+             and mcp__tracey__tracey_rule for rule details."
                 .into(),
         ),
         meta: None,

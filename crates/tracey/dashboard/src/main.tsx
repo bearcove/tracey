@@ -693,6 +693,7 @@ function App() {
           <${Route}
             path="/:spec/:impl"
             component=${() => {
+              // r[impl dashboard.url.structure]
               const { params } = useRoute();
               useEffect(() => {
                 route(`/${params.spec}/${params.impl}/spec`, true);
@@ -727,6 +728,7 @@ function App() {
 }
 
 // Route components that extract params and render views
+// r[impl dashboard.url.spec-view]
 function SpecViewRoute() {
   const { params, query } = useRoute();
   const { route } = useLocation();
@@ -783,6 +785,8 @@ function SpecViewRoute() {
   `;
 }
 
+// r[impl dashboard.url.sources-view]
+// r[impl dashboard.url.context]
 function SourcesViewRoute() {
   const { params, query } = useRoute();
   const { route } = useLocation();
@@ -851,6 +855,7 @@ function SourcesViewRoute() {
   `;
 }
 
+// r[impl dashboard.url.coverage-view]
 function CoverageViewRoute() {
   const { params, query } = useRoute();
   const { route } = useLocation();

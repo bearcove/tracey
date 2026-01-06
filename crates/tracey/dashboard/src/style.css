@@ -522,6 +522,18 @@ pre {
     background: var(--yellow-dim);
 }
 
+.code-line.selected {
+    background: var(--accent-dim);
+}
+
+.code-line.selected-impl {
+    background: color-mix(in srgb, var(--green) 15%, transparent);
+}
+
+.code-line.selected-verify {
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
 .line-number {
     width: 4rem;
     padding: 0 0.75rem 0 0.5rem;
@@ -1141,6 +1153,62 @@ a.rule-marker:hover {
 }
 
 .req-edit-icon {
+    flex-shrink: 0;
+}
+
+/* Segmented badge group for copy button + requirement ID */
+.req-badge-group {
+    display: inline-flex;
+    gap: 3px;
+}
+
+.req-badge.req-copy {
+    background: var(--accent-dim);
+    color: var(--accent);
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+    padding: 0.15rem 0.4rem;
+    min-width: 1.8rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+}
+
+.req-covered .req-badge.req-copy {
+    background: var(--green-dim);
+    color: var(--green);
+}
+
+.req-partial .req-badge.req-copy {
+    background: var(--yellow-dim);
+    color: var(--yellow);
+}
+
+.req-uncovered .req-badge.req-copy {
+    background: var(--red-dim);
+    color: var(--red);
+}
+
+.req-badge.req-copy:hover {
+    filter: brightness(1.2);
+}
+
+.req-badge.req-copy.req-copy-success {
+    filter: brightness(1.3);
+}
+
+/* Segmented corners - no gap, truly connected */
+.req-segment-left {
+    border-radius: 4px 0 0 4px;
+}
+
+.req-segment-right {
+    border-radius: 0 4px 4px 0;
+}
+
+.req-copy-icon {
     flex-shrink: 0;
 }
 
@@ -2029,6 +2097,23 @@ a.rule-marker:hover {
     display: flex;
     flex-direction: column;
     min-height: 400px;
+}
+
+/* Implementation Preview Modal */
+.impl-preview-modal .modal-body {
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.impl-preview-modal .code-preview {
+    font-size: 0.85rem;
+    line-height: 1.5;
+    white-space: pre;
+    overflow-x: auto;
+}
+
+.impl-preview-modal .code-preview .highlight-line {
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
 }
 
 .modal-loading,

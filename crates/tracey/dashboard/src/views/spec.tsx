@@ -3,14 +3,88 @@ import { render } from "preact";
 import { EDITORS } from "../config";
 import { useSpec } from "../hooks";
 import { CoverageArc, html, showRefsPopup } from "../main";
-import type { OutlineEntry, SpecViewProps } from "../types";
+import type { OutlineEntry, SpecViewProps, FileContent } from "../types";
 import { MarkdownEditor } from "../components/MarkdownEditor";
 import { InlineEditor } from "../components/InlineEditor";
+import { CodeView } from "./sources";
 
 // Tree node for hierarchical outline
 interface OutlineTreeNode {
   entry: OutlineEntry;
   children: OutlineTreeNode[];
+}
+
+// r[impl dashboard.impl-preview.modal]
+// r[impl dashboard.impl-preview.scroll-highlight]
+// r[impl dashboard.impl-preview.open-in-sources]
+interface ImplementationPreviewModalProps {
+  fileData: FileContent;
+  line: number;
+  lineEnd: number;
+  type: "impl" | "verify";
+  config: { projectRoot?: string };
+  onClose: () => void;
+  onOpenInSources: () => void;
+}
+
+function ImplementationPreviewModal({
+  fileData,
+  line,
+  lineEnd,
+  type,
+  config,
+  onClose,
+  onOpenInSources,
+}: ImplementationPreviewModalProps) {
+  // Prevent background scrolling
+  useEffect(() => {
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, []);
+
+  // Close on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  const filename = fileData.path.split("/").pop() || fileData.path;
+
+  console.log("Preview modal config.projectRoot:", config.projectRoot);
+
+  return html`
+    <div class="modal-overlay" onClick=${onClose}>
+      <div class="modal-content impl-preview-modal" onClick=${(e: Event) => e.stopPropagation()}>
+        <div class="modal-header">
+          <h3>${filename}:${line}</h3>
+          <button class="modal-close" onClick=${onClose} title="Close (Esc)">×</button>
+        </div>
+        <div class="modal-body">
+          <${CodeView}
+            file=${fileData}
+            config=${config}
+            selectedLine=${line}
+            selectedLineEnd=${lineEnd}
+            selectedType=${type}
+            onSelectRule=${() => {}}
+          />
+        </div>
+        <div class="modal-footer">
+          <button class="modal-btn modal-btn-secondary" onClick=${onClose}>Close</button>
+          <button class="modal-btn modal-btn-primary" onClick=${onOpenInSources}>
+            Open in Sources →
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 // Convert flat outline to tree structure
@@ -190,6 +264,15 @@ export function SpecView({
     placeholder?: Comment;
   } | null>(null);
 
+  // r[impl dashboard.impl-preview.modal]
+  // Implementation preview modal state
+  const [previewModal, setPreviewModal] = useState<{
+    fileData: FileContent;
+    line: number;
+    lineEnd: number;
+    type: "impl" | "verify";
+  } | null>(null);
+
   // Use outline from API (already has coverage info)
   const outline = spec?.outline || [];
 
@@ -323,7 +406,7 @@ export function SpecView({
   useEffect(() => {
     if (!contentRef.current) return;
 
-    const handleClick = (e: Event) => {
+    const handleClick = async (e: Event) => {
       const target = e.target as HTMLElement;
 
       // Handle heading clicks (copy URL and scroll)
@@ -349,6 +432,74 @@ export function SpecView({
         return;
       }
 
+      // r[impl dashboard.editing.copy.button]
+      // r[impl dashboard.editing.copy.format]
+      // r[impl dashboard.editing.copy.feedback]
+      // Handle Copy badge clicks - copy requirement ID to clipboard
+      const copyBadge = target.closest("button.req-badge.req-copy") as HTMLElement | null;
+      if (copyBadge) {
+        e.preventDefault();
+        const reqId = copyBadge.dataset.reqId;
+        if (reqId) {
+          navigator.clipboard
+            .writeText(reqId)
+            .then(() => {
+              // Visual feedback: briefly change button appearance
+              const originalText = copyBadge.innerHTML;
+              copyBadge.innerHTML =
+                '<svg class="req-copy-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> Copied!';
+              copyBadge.classList.add("req-copy-success");
+              setTimeout(() => {
+                copyBadge.innerHTML = originalText;
+                copyBadge.classList.remove("req-copy-success");
+              }, 1500);
+            })
+            .catch((err) => {
+              console.error("Failed to copy:", err);
+              alert("Failed to copy requirement ID");
+            });
+        }
+        return;
+      }
+
+      // r[impl dashboard.impl-preview.modal]
+      // r[impl dashboard.impl-preview.stay-in-spec]
+      // Handle impl/test badge clicks - show preview modal instead of navigating
+      const implBadge = target.closest(
+        "a.req-badge.req-impl, a.req-badge.req-test",
+      ) as HTMLAnchorElement | null;
+      if (implBadge) {
+        console.log("Intercepted impl/test badge click:", implBadge);
+        e.preventDefault();
+        e.stopPropagation();
+        const file = implBadge.dataset.file;
+        const line = implBadge.dataset.line ? parseInt(implBadge.dataset.line, 10) : null;
+        const type = implBadge.classList.contains("req-impl") ? "impl" : "verify";
+        console.log("File:", file, "Line:", line, "Type:", type);
+        if (file && line !== null) {
+          // Fetch syntax-highlighted file content
+          const params = new URLSearchParams({ path: file });
+          if (specName) params.append("spec", specName);
+          if (selectedImpl) params.append("impl", selectedImpl);
+          fetch(`/api/file?${params}`)
+            .then((res) => res.json())
+            .then((data: FileContent) => {
+              console.log("Setting preview modal");
+              // Find the code unit containing this line
+              const unit = data.units.find(
+                (u) => line >= u.startLine && line <= u.endLine
+              );
+              const lineEnd = unit ? unit.endLine : line;
+              setPreviewModal({ fileData: data, line, lineEnd, type });
+            })
+            .catch((err) => {
+              console.error("Failed to fetch file:", err);
+              alert("Failed to load file preview");
+            });
+        }
+        return;
+      }
+
       // Handle Edit badge clicks - mount inline editor
       const editBadge = target.closest("button.req-badge.req-edit") as HTMLElement | null;
       if (editBadge) {
@@ -356,6 +507,28 @@ export function SpecView({
         const sourceFile = editBadge.dataset.sourceFile;
         const byteRange = editBadge.dataset.br;
         if (sourceFile && byteRange) {
+          // r[impl dashboard.editing.git.check-required]
+          // Check if file is in git repository
+          try {
+            const gitCheckResponse = await fetch(
+              `/api/check-git?${new URLSearchParams({ path: sourceFile })}`,
+            );
+            if (gitCheckResponse.ok) {
+              const gitData = await gitCheckResponse.json();
+              if (!gitData.in_git) {
+                // r[impl dashboard.editing.git.error-message]
+                alert(
+                  "This file is not in a git repository. Tracey requires git for safe editing.",
+                );
+                return;
+              }
+            }
+          } catch (err) {
+            console.error("Git check failed:", err);
+            alert("Failed to verify git status. Please try again.");
+            return;
+          }
+
           // Find the req-container
           const reqContainer = editBadge.closest(".req-container") as HTMLElement | null;
           if (reqContainer && reqContainer.parentElement) {
@@ -582,14 +755,25 @@ export function SpecView({
           />
         </div>
       </div>
-      ${
-        editorState &&
-        html`<${MarkdownEditor}
-          filePath=${editorState.filePath}
-          byteRange=${editorState.byteRange}
-          onClose=${() => setEditorState(null)}
-        />`
-      }
+      ${editorState &&
+      html`<${MarkdownEditor}
+        filePath=${editorState.filePath}
+        byteRange=${editorState.byteRange}
+        onClose=${() => setEditorState(null)}
+      />`}
+      ${previewModal &&
+      html`<${ImplementationPreviewModal}
+        fileData=${previewModal.fileData}
+        line=${previewModal.line}
+        lineEnd=${previewModal.lineEnd}
+        type=${previewModal.type}
+        config=${config}
+        onClose=${() => setPreviewModal(null)}
+        onOpenInSources=${() => {
+          onSelectFile(previewModal.fileData.path, previewModal.line);
+          setPreviewModal(null);
+        }}
+      />`}
     </div>
   `;
 }

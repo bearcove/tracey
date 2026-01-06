@@ -1,3 +1,25 @@
+// Import auto-generated API types
+import type {
+	ApiCodeUnit,
+	ApiConfig,
+	ApiFileData,
+	ApiForwardData,
+	ApiReverseData,
+	ApiSpecData,
+	OutlineCoverage,
+	OutlineEntry,
+	SpecSection,
+} from "./api-types";
+
+// Re-export with local aliases for backwards compatibility
+export type Config = ApiConfig;
+export type ForwardData = ApiForwardData;
+export type ReverseData = ApiReverseData;
+export type FileContent = ApiFileData;
+export type CodeUnit = ApiCodeUnit;
+export type SpecContent = ApiSpecData;
+export type { OutlineCoverage, OutlineEntry, SpecSection };
+
 // Route types
 export type ViewType = "sources" | "spec" | "coverage";
 
@@ -58,66 +80,10 @@ export interface SpecInfo {
   implementations: string[];
 }
 
-export interface Config {
-  projectRoot?: string;
-  specs?: SpecInfo[];
-}
-
-export interface ForwardData {
-  specs: Spec[];
-}
-
-export interface ReverseData {
-  files: FileInfo[];
-  totalUnits: number;
-  coveredUnits: number;
-}
-
 export interface ApiData {
   config: Config;
   forward: ForwardData;
   reverse: ReverseData;
-}
-
-export interface FileContent {
-  path: string;
-  content: string;
-  /** Server-side syntax highlighted HTML */
-  html: string;
-  units: CodeUnit[];
-}
-
-export interface CodeUnit {
-  kind: string;
-  name: string | null;
-  startLine: number;
-  endLine: number;
-  ruleRefs: string[];
-}
-
-export interface SpecSection {
-  sourceFile: string;
-  html: string;
-}
-
-export interface OutlineCoverage {
-  implCount: number;
-  verifyCount: number;
-  total: number;
-}
-
-export interface OutlineEntry {
-  title: string;
-  slug: string;
-  level: number;
-  coverage: OutlineCoverage;
-  aggregated: OutlineCoverage;
-}
-
-export interface SpecContent {
-  name: string;
-  sections: SpecSection[];
-  outline: OutlineEntry[];
 }
 
 // Search types

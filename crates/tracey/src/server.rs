@@ -685,7 +685,7 @@ impl UncoveredResult {
         }
 
         // r[impl mcp.discovery.drill-down] - Provide hints for drilling down
-        out.push_str("---\n→ tracey_rule <id> to see rule details\n");
+        out.push_str("---\n→ Use mcp__tracey__tracey_rule to see rule details\n");
 
         out
     }
@@ -725,7 +725,7 @@ impl UntestedResult {
         }
 
         // r[impl mcp.discovery.drill-down] - Provide hints for drilling down
-        out.push_str("---\n→ tracey_rule <id> to see where rule is implemented\n");
+        out.push_str("---\n→ Use mcp__tracey__tracey_rule to see where rule is implemented\n");
 
         out
     }
@@ -767,7 +767,7 @@ impl UnmappedResult {
         }
 
         // r[impl mcp.discovery.drill-down] - Provide hints for drilling down
-        out.push_str("\n---\n→ tracey_unmapped <path> to zoom into a directory\n");
+        out.push_str("\n---\n→ Use mcp__tracey__tracey_unmapped to zoom into a directory\n");
 
         out
     }
