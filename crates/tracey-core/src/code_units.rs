@@ -571,6 +571,219 @@ fn find_req_refs(text: &str) -> Vec<String> {
     refs
 }
 
+/// A full requirement reference with all metadata
+#[derive(Debug, Clone)]
+pub struct FullReqRef {
+    /// The prefix identifying which spec (e.g., "r", "h2")
+    pub prefix: String,
+    /// The verb (impl, verify, depends, related, define)
+    pub verb: String,
+    /// The requirement ID
+    pub req_id: String,
+    /// Line number (1-indexed)
+    pub line: usize,
+    /// Byte offset of the reference start
+    pub byte_offset: usize,
+    /// Byte length of the reference
+    pub byte_length: usize,
+}
+
+/// Extract ALL requirement references from a file using tree-sitter
+pub fn extract_refs(path: &Path, source: &str) -> Vec<FullReqRef> {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+
+    let language = match ext {
+        "rs" => arborium_rust::language(),
+        "swift" => arborium_swift::language(),
+        "go" => arborium_go::language(),
+        "java" => arborium_java::language(),
+        "py" => arborium_python::language(),
+        "ts" | "tsx" | "js" | "jsx" | "mts" | "cts" => arborium_typescript::language(),
+        _ => return Vec::new(),
+    };
+
+    let mut parser = Parser::new();
+    parser
+        .set_language(&language.into())
+        .expect("Failed to load grammar");
+
+    let Some(tree) = parser.parse(source, None) else {
+        return Vec::new();
+    };
+
+    let mut refs = Vec::new();
+    extract_refs_recursive(source, tree.root_node(), &mut refs);
+    refs
+}
+
+fn extract_refs_recursive(source: &str, node: Node, refs: &mut Vec<FullReqRef>) {
+    // Check if this is a comment node
+    // Different languages and comment styles:
+    // - Rust: line_comment (//), block_comment (/* */),
+    //         line_outer_doc_comment (///), line_inner_doc_comment (//!),
+    //         block_outer_doc_comment (/** */), block_inner_doc_comment (/*! */)
+    // - Swift/Go/TypeScript: comment
+    // - Python: comment
+    let is_comment = matches!(
+        node.kind(),
+        "line_comment"
+            | "block_comment"
+            | "comment"
+            | "multiline_comment"
+            | "line_outer_doc_comment"
+            | "line_inner_doc_comment"
+            | "block_outer_doc_comment"
+            | "block_inner_doc_comment"
+    );
+
+    if is_comment {
+        let text = &source[node.byte_range()];
+        let line = node.start_position().row + 1;
+        let base_offset = node.start_byte();
+        extract_full_refs_from_text(text, line, base_offset, refs);
+    }
+
+    // Recurse into children
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        extract_refs_recursive(source, child, refs);
+    }
+}
+
+fn extract_full_refs_from_text(
+    text: &str,
+    line: usize,
+    base_offset: usize,
+    refs: &mut Vec<FullReqRef>,
+) {
+    let mut chars = text.char_indices().peekable();
+
+    while let Some((start_idx, ch)) = chars.next() {
+        // Match prefix (lowercase alphanumeric) followed by '['
+        if ch.is_ascii_lowercase() || ch.is_ascii_digit() {
+            let prefix_start = start_idx;
+            let mut prefix = String::new();
+            prefix.push(ch);
+
+            // Continue reading prefix
+            while let Some(&(_, next_ch)) = chars.peek() {
+                if next_ch == '[' {
+                    break;
+                } else if next_ch.is_ascii_lowercase() || next_ch.is_ascii_digit() {
+                    prefix.push(next_ch);
+                    chars.next();
+                } else {
+                    break;
+                }
+            }
+
+            // Check for '['
+            if chars.peek().map(|(_, c)| *c) != Some('[') {
+                continue;
+            }
+            chars.next(); // consume '['
+
+            // Parse: [verb req.id] or [req.id]
+            if let Some((verb, req_id, end_idx)) = try_parse_full_ref(&mut chars) {
+                refs.push(FullReqRef {
+                    prefix,
+                    verb,
+                    req_id,
+                    line,
+                    byte_offset: base_offset + prefix_start,
+                    byte_length: end_idx - prefix_start + 1,
+                });
+            }
+        }
+    }
+}
+
+fn try_parse_full_ref(
+    chars: &mut std::iter::Peekable<impl Iterator<Item = (usize, char)>>,
+) -> Option<(String, String, usize)> {
+    // First char must be lowercase letter
+    let first_char = chars.peek().map(|(_, c)| *c)?;
+    if !first_char.is_ascii_lowercase() {
+        return None;
+    }
+
+    let mut first_word = String::new();
+    first_word.push(first_char);
+    chars.next();
+
+    // Read the first word
+    let mut end_idx = 0;
+    while let Some(&(idx, c)) = chars.peek() {
+        end_idx = idx;
+        if c == ']' || c == ' ' {
+            break;
+        } else if c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.' {
+            first_word.push(c);
+            chars.next();
+        } else {
+            return None;
+        }
+    }
+
+    // Check what follows
+    match chars.peek().map(|(_, c)| *c) {
+        Some(' ') => {
+            // Might be [verb req.id]
+            let verbs = ["impl", "verify", "define", "depends", "related"];
+            if verbs.contains(&first_word.as_str()) {
+                let verb = first_word;
+                chars.next(); // consume space
+
+                // Read the requirement ID
+                let mut req_id = String::new();
+                let mut has_dot = false;
+
+                // First char must be lowercase
+                if let Some(&(_, c)) = chars.peek() {
+                    if c.is_ascii_lowercase() {
+                        req_id.push(c);
+                        chars.next();
+                    } else {
+                        return None;
+                    }
+                }
+
+                while let Some(&(idx, c)) = chars.peek() {
+                    end_idx = idx;
+                    if c == ']' {
+                        chars.next();
+                        break;
+                    } else if c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_' {
+                        req_id.push(c);
+                        chars.next();
+                    } else if c == '.' {
+                        has_dot = true;
+                        req_id.push(c);
+                        chars.next();
+                    } else {
+                        return None;
+                    }
+                }
+
+                if has_dot && !req_id.ends_with('.') && !req_id.is_empty() {
+                    return Some((verb, req_id, end_idx));
+                }
+            }
+            None
+        }
+        Some(']') => {
+            chars.next(); // consume ]
+            // [req.id] format - defaults to impl
+            if first_word.contains('.') && !first_word.ends_with('.') {
+                Some(("impl".to_string(), first_word, end_idx))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
 fn try_parse_req_ref(
     chars: &mut std::iter::Peekable<impl Iterator<Item = (usize, char)>>,
 ) -> Option<String> {
@@ -656,6 +869,30 @@ fn try_parse_req_ref(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_extract_refs_doc_comment() {
+        let source = r#"
+/// Implements r[channel.id.parity] and r[channel.id.no-reuse]
+fn next_channel_id() {}
+"#;
+        let refs = extract_refs(Path::new("test.rs"), source);
+        assert_eq!(refs.len(), 2, "Expected 2 refs, got {:?}", refs);
+        assert_eq!(refs[0].req_id, "channel.id.parity");
+        assert_eq!(refs[1].req_id, "channel.id.no-reuse");
+    }
+
+    #[test]
+    fn test_extract_refs_line_comment() {
+        let source = r#"
+// r[impl foo.bar]
+fn do_thing() {}
+"#;
+        let refs = extract_refs(Path::new("test.rs"), source);
+        assert_eq!(refs.len(), 1, "Expected 1 ref, got {:?}", refs);
+        assert_eq!(refs[0].req_id, "foo.bar");
+        assert_eq!(refs[0].verb, "impl");
+    }
 
     #[test]
     fn test_extract_function() {

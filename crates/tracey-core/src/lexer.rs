@@ -168,7 +168,45 @@ impl Reqs {
 }
 
 /// Extract requirement references from source content into the Reqs collection
+///
+/// When the "reverse" feature is enabled, this uses tree-sitter for proper
+/// comment parsing. Otherwise, falls back to text-based scanning.
 pub(crate) fn extract_from_content(path: &Path, content: &str, reqs: &mut Reqs) {
+    #[cfg(feature = "reverse")]
+    {
+        // Use tree-sitter based extraction
+        // r[impl ref.comments.line]
+        // r[impl ref.comments.doc]
+        // r[impl ref.comments.block]
+        for full_ref in crate::code_units::extract_refs(path, content) {
+            let verb = match full_ref.verb.as_str() {
+                "define" => RefVerb::Define,
+                "impl" => RefVerb::Impl,
+                "verify" => RefVerb::Verify,
+                "depends" => RefVerb::Depends,
+                "related" => RefVerb::Related,
+                _ => continue,
+            };
+            reqs.references.push(ReqReference {
+                prefix: full_ref.prefix,
+                verb,
+                req_id: full_ref.req_id,
+                file: path.to_path_buf(),
+                line: full_ref.line,
+                span: SourceSpan::new(full_ref.byte_offset, full_ref.byte_length),
+            });
+        }
+    }
+
+    #[cfg(not(feature = "reverse"))]
+    {
+        // Fallback: text-based scanning
+        extract_from_content_text_based(path, content, reqs);
+    }
+}
+
+#[cfg(not(feature = "reverse"))]
+fn extract_from_content_text_based(path: &Path, content: &str, reqs: &mut Reqs) {
     // Track line starts for computing line numbers from byte offsets
     let line_starts: Vec<usize> = std::iter::once(0)
         .chain(content.match_indices('\n').map(|(i, _)| i + 1))
@@ -187,8 +225,6 @@ pub(crate) fn extract_from_content(path: &Path, content: &str, reqs: &mut Reqs) 
         let line_start = line_starts.get(line_idx).copied().unwrap_or(0);
 
         // Check for line comments (// or ///)
-        // r[impl ref.comments.line]
-        // r[impl ref.comments.doc]
         if let Some(comment_pos) = line.find("//") {
             let comment = &line[comment_pos..];
             let comment_start = line_start + comment_pos;
@@ -197,7 +233,6 @@ pub(crate) fn extract_from_content(path: &Path, content: &str, reqs: &mut Reqs) 
     }
 
     // Handle block comments /* */
-    // r[impl ref.comments.block]
     let mut in_block_comment = false;
     let mut block_start = 0;
     let mut block_line = 0;
@@ -225,6 +260,7 @@ pub(crate) fn extract_from_content(path: &Path, content: &str, reqs: &mut Reqs) 
 }
 
 /// Extract rule references from a piece of text (comment content)
+#[cfg(not(feature = "reverse"))]
 fn extract_references_from_text(
     path: &Path,
     text: &str,
