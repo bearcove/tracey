@@ -106,6 +106,21 @@ func ValidateToken(token string) bool {
 /* [impl user.permissions.check] */
 ```
 
+**Java:**
+```java
+// [impl auth.token.validation]
+public boolean validateToken(String token) {
+    // [verify auth.token.expiry]
+    return checkExpiry(token);
+}
+
+/* [impl user.permissions.check] */
+
+/**
+ * [impl user.session.management]
+ */
+```
+
 ### Comment Types
 
 r[ref.comments.line]
