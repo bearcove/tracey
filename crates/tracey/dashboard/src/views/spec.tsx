@@ -187,6 +187,7 @@ export function SpecView({
   const editingContainerRef = useRef<{
     element: HTMLElement;
     originalHTML: string;
+    placeholder?: Comment;
   } | null>(null);
 
   // Use outline from API (already has coverage info)
@@ -357,12 +358,24 @@ export function SpecView({
         if (sourceFile && byteRange) {
           // Find the req-container
           const reqContainer = editBadge.closest(".req-container") as HTMLElement | null;
-          if (reqContainer) {
-            // Save original HTML
+          if (reqContainer && reqContainer.parentElement) {
+            // Save original element and its position
+            const placeholder = document.createComment("editor-placeholder");
+            reqContainer.parentElement.insertBefore(placeholder, reqContainer);
+            const originalElement = reqContainer;
+
             editingContainerRef.current = {
-              element: reqContainer,
-              originalHTML: reqContainer.innerHTML,
+              element: originalElement,
+              originalHTML: "", // Not used - we'll restore the whole element
+              placeholder,
             };
+
+            // Remove the original element
+            originalElement.remove();
+
+            // Create container for editor
+            const editorContainer = document.createElement("div");
+            placeholder.parentElement?.insertBefore(editorContainer, placeholder);
 
             // Mount InlineEditor
             render(
@@ -370,23 +383,33 @@ export function SpecView({
                 filePath=${sourceFile}
                 byteRange=${byteRange}
                 onSave=${() => {
-                  // Restore container (file watcher will rebuild)
+                  // Unmount editor and restore original element
                   if (editingContainerRef.current) {
-                    editingContainerRef.current.element.innerHTML =
-                      editingContainerRef.current.originalHTML;
+                    render(null, editorContainer);
+                    editorContainer.remove();
+                    editingContainerRef.current.placeholder.parentElement?.insertBefore(
+                      editingContainerRef.current.element,
+                      editingContainerRef.current.placeholder,
+                    );
+                    editingContainerRef.current.placeholder.remove();
                     editingContainerRef.current = null;
                   }
                 }}
                 onCancel=${() => {
-                  // Restore original HTML
+                  // Unmount editor and restore original element
                   if (editingContainerRef.current) {
-                    editingContainerRef.current.element.innerHTML =
-                      editingContainerRef.current.originalHTML;
+                    render(null, editorContainer);
+                    editorContainer.remove();
+                    editingContainerRef.current.placeholder.parentElement?.insertBefore(
+                      editingContainerRef.current.element,
+                      editingContainerRef.current.placeholder,
+                    );
+                    editingContainerRef.current.placeholder.remove();
                     editingContainerRef.current = null;
                   }
                 }}
               />`,
-              reqContainer,
+              editorContainer,
             );
           }
         }

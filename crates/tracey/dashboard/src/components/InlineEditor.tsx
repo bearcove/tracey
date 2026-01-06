@@ -15,13 +15,11 @@ interface InlineEditorProps {
 
 export function InlineEditor({ filePath, byteRange, onSave, onCancel }: InlineEditorProps) {
   const [content, setContent] = useState("");
-  const [preview, setPreview] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const editorRef = useRef<HTMLDivElement>(null);
   const editorViewRef = useRef<EditorView | null>(null);
-  const debounceTimerRef = useRef<number | null>(null);
 
   const [start, end] = byteRange.split("-").map(Number);
 
@@ -41,8 +39,6 @@ export function InlineEditor({ filePath, byteRange, onSave, onCancel }: InlineEd
         const data = await response.json();
         setContent(data.content);
         setLoading(false);
-        // Initial preview
-        updatePreview(data.content);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load");
         setLoading(false);
@@ -50,23 +46,6 @@ export function InlineEditor({ filePath, byteRange, onSave, onCancel }: InlineEd
     };
     fetchContent();
   }, [filePath, start, end]);
-
-  // Update preview (debounced)
-  const updatePreview = async (text: string) => {
-    try {
-      const response = await fetch("/api/preview-markdown", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: text }),
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setPreview(data.html);
-      }
-    } catch (err) {
-      console.error("Preview error:", err);
-    }
-  };
 
   // Initialize CodeMirror when content loads
   useEffect(() => {
@@ -77,19 +56,6 @@ export function InlineEditor({ filePath, byteRange, onSave, onCancel }: InlineEd
           vim(),
           markdown(),
           history(),
-          EditorView.updateListener.of((update) => {
-            if (update.docChanged) {
-              const newContent = update.state.doc.toString();
-
-              // Debounce preview updates
-              if (debounceTimerRef.current !== null) {
-                clearTimeout(debounceTimerRef.current);
-              }
-              debounceTimerRef.current = window.setTimeout(() => {
-                updatePreview(newContent);
-              }, 300);
-            }
-          }),
           EditorView.lineWrapping,
           EditorView.theme({
             "&": {
@@ -140,9 +106,6 @@ export function InlineEditor({ filePath, byteRange, onSave, onCancel }: InlineEd
       return () => {
         view.destroy();
         editorViewRef.current = null;
-        if (debounceTimerRef.current !== null) {
-          clearTimeout(debounceTimerRef.current);
-        }
       };
     }
   }, [loading, error, content]);
@@ -190,14 +153,7 @@ export function InlineEditor({ filePath, byteRange, onSave, onCancel }: InlineEd
         <span class="inline-editor-path">${filePath}</span>
       </div>
       <div class="inline-editor-content">
-        <div class="inline-editor-pane">
-          <div class="inline-editor-pane-header">Source</div>
-          <div class="inline-editor-code" ref=${editorRef} />
-        </div>
-        <div class="inline-editor-pane">
-          <div class="inline-editor-pane-header">Preview</div>
-          <div class="inline-editor-preview markdown" dangerouslySetInnerHTML=${{ __html: preview }} />
-        </div>
+        <div class="inline-editor-code" ref=${editorRef} />
       </div>
       <div class="inline-editor-footer">
         <button class="inline-editor-btn inline-editor-cancel" onClick=${onCancel} disabled=${saving}>

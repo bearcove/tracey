@@ -1474,6 +1474,58 @@ struct ApiError {
     error: String,
 }
 
+/// Response for git check
+#[derive(Debug, Clone, Facet)]
+struct ApiGitCheck {
+    in_git: bool,
+}
+
+/// Helper function to check if a file is in a git repository
+fn is_file_in_git(file_path: &std::path::Path) -> bool {
+    // Check if the file exists
+    if !file_path.exists() {
+        return false;
+    }
+
+    // Get the directory containing the file
+    let dir = if file_path.is_dir() {
+        file_path
+    } else {
+        file_path.parent().unwrap_or(file_path)
+    };
+
+    // Run `git rev-parse --is-inside-work-tree` in the file's directory
+    std::process::Command::new("git")
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .current_dir(dir)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+/// GET /api/check-git?path=<path>
+/// Check if a file is in a git repository
+async fn api_check_git(
+    State(state): State<AppState>,
+    Query(params): Query<Vec<(String, String)>>,
+) -> impl IntoResponse {
+    let path = params
+        .iter()
+        .find(|(k, _)| k == "path")
+        .map(|(_, v)| v.clone())
+        .unwrap_or_default();
+
+    let file_path = urlencoding::decode(&path).unwrap_or_default();
+    let full_path = state.project_root.join(file_path.as_ref());
+
+    Json(ApiGitCheck {
+        in_git: is_file_in_git(&full_path),
+    })
+    .into_response()
+}
+
 /// GET /api/file-range?path=<path>&start=<byte-start>&end=<byte-end>
 /// Fetch a byte range from a file
 async fn api_file_range(
