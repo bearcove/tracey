@@ -18,6 +18,7 @@ use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 use crate::serve::DashboardData;
+use marq::{RenderOptions, render};
 
 // Semantic token types for requirement references
 // r[impl lsp.semantic-tokens.prefix]
@@ -128,107 +129,6 @@ struct ReqAtPosition {
     full_range: Range,
     /// Range of just the requirement ID (e.g., "config.path.default")
     id_range: Range,
-}
-
-/// A requirement reference found in markdown
-struct MarkdownRef {
-    req_id: String,
-    byte_offset: usize,
-    byte_length: usize,
-    is_definition: bool,
-}
-
-/// Extract requirement references from markdown content
-/// Markdown uses patterns like `r[rule.id]` for definitions
-fn extract_markdown_refs(content: &str, prefixes: &[String]) -> Vec<MarkdownRef> {
-    let mut refs = Vec::new();
-    let mut chars = content.char_indices().peekable();
-
-    while let Some((start_idx, ch)) = chars.next() {
-        // Look for prefix characters (lowercase or digit)
-        if !ch.is_ascii_lowercase() && !ch.is_ascii_digit() {
-            continue;
-        }
-
-        let prefix_start = start_idx;
-        let mut prefix = String::new();
-        prefix.push(ch);
-
-        // Continue reading prefix (can be multi-char like "h2")
-        while let Some(&(_, next_ch)) = chars.peek() {
-            if next_ch == '[' {
-                break;
-            } else if next_ch.is_ascii_lowercase() || next_ch.is_ascii_digit() {
-                prefix.push(next_ch);
-                chars.next();
-            } else {
-                break;
-            }
-        }
-
-        // Check if this prefix is known
-        if !prefixes.contains(&prefix) {
-            continue;
-        }
-
-        // Check for '[' after prefix
-        if let Some(&(_, '[')) = chars.peek() {
-            chars.next(); // consume '['
-        } else {
-            continue;
-        }
-
-        // Parse content inside brackets: could be "rule.id" or "verb rule.id"
-        let mut inner = String::new();
-        let mut found_close = false;
-
-        for (_, c) in chars.by_ref() {
-            if c == ']' {
-                found_close = true;
-                break;
-            }
-            inner.push(c);
-        }
-
-        if !found_close || inner.is_empty() {
-            continue;
-        }
-
-        // Parse the inner content
-        let inner = inner.trim();
-        let (is_definition, req_id) = if let Some(space_pos) = inner.find(' ') {
-            // Has a verb: "impl rule.id" or "verify rule.id"
-            let verb = &inner[..space_pos];
-            let id = inner[space_pos + 1..].trim();
-            let is_def = verb == "define";
-            (is_def, id.to_string())
-        } else {
-            // No verb - this is a definition in markdown
-            (true, inner.to_string())
-        };
-
-        // Validate the req_id (must contain a dot and be valid identifier chars)
-        if !req_id.contains('.') {
-            continue;
-        }
-        if !req_id
-            .chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '-')
-        {
-            continue;
-        }
-
-        let byte_length = prefix.len() + 1 + inner.len() + 1; // prefix + '[' + inner + ']'
-
-        refs.push(MarkdownRef {
-            req_id,
-            byte_offset: prefix_start,
-            byte_length,
-            is_definition,
-        });
-    }
-
-    refs
 }
 
 impl Backend {
@@ -771,32 +671,13 @@ impl LanguageServer for Backend {
                 .replace("</code>", "`");
 
             // r[impl lsp.hover.req-reference-format]
-            let mut content = format!("### {}\n\n{}", info.id, plain_text.trim());
-
-            // Add coverage info
-            if !info.impl_refs.is_empty() || !info.verify_refs.is_empty() {
-                content.push_str("\n\n---\n");
-                if !info.impl_refs.is_empty() {
-                    content.push_str(&format!(
-                        "\n**Implementations:** {}\n",
-                        info.impl_refs.len()
-                    ));
-                    for r in info.impl_refs.iter().take(3) {
-                        content.push_str(&format!("- {}:{}\n", r.file, r.line));
-                    }
-                    if info.impl_refs.len() > 3 {
-                        content.push_str(&format!("- ... and {} more\n", info.impl_refs.len() - 3));
-                    }
-                }
-                if !info.verify_refs.is_empty() {
-                    content.push_str(&format!("\n**Tests:** {}\n", info.verify_refs.len()));
-                    for r in info.verify_refs.iter().take(3) {
-                        content.push_str(&format!("- {}:{}\n", r.file, r.line));
-                    }
-                }
-            }
-
-            content.push_str(&format!("\n\n*Defined in: {}*", info.source_file));
+            // Coverage info (impl/test counts) is shown via inlay hints, so hover just shows the requirement text
+            let content = format!(
+                "### {}\n\n{}\n\n*Defined in: {}*",
+                info.id,
+                plain_text.trim(),
+                info.source_file
+            );
 
             return Ok(Some(Hover {
                 contents: HoverContents::Markup(MarkupContent {
@@ -1427,6 +1308,16 @@ impl LanguageServer for Backend {
         let uri = &params.text_document.uri;
         let is_markdown = uri.path().ends_with(".md");
 
+        self.client
+            .log_message(
+                MessageType::INFO,
+                format!(
+                    "inlay_hint called: uri={}, is_markdown={}",
+                    uri, is_markdown
+                ),
+            )
+            .await;
+
         let content = {
             let docs = match self.documents.read() {
                 Ok(d) => d,
@@ -1436,15 +1327,33 @@ impl LanguageServer for Backend {
         };
 
         let Some(content) = content else {
+            self.client
+                .log_message(MessageType::WARNING, "inlay_hint: no content found")
+                .await;
             return Ok(None);
         };
 
         let prefixes = self.get_prefixes();
 
-        // For markdown files, extract requirements directly from text
-        // (Reqs::extract_from_content only works for source files with // comments)
-        let markdown_refs = if is_markdown {
-            extract_markdown_refs(&content, &prefixes)
+        // For markdown files, use marq to extract requirement definitions
+        let markdown_reqs = if is_markdown {
+            match render(&content, &RenderOptions::default()).await {
+                Ok(doc) => {
+                    self.client
+                        .log_message(
+                            MessageType::INFO,
+                            format!("marq extracted {} reqs", doc.reqs.len()),
+                        )
+                        .await;
+                    doc.reqs
+                }
+                Err(e) => {
+                    self.client
+                        .log_message(MessageType::ERROR, format!("marq extraction error: {}", e))
+                        .await;
+                    Vec::new()
+                }
+            }
         } else {
             Vec::new()
         };
@@ -1471,49 +1380,73 @@ impl LanguageServer for Backend {
 
         let mut hints = Vec::new();
 
-        // Process markdown refs for markdown files
-        for md_ref in &markdown_refs {
-            // Position after the reference
-            let end_offset = md_ref.byte_offset + md_ref.byte_length;
-            let position = offset_to_position(end_offset);
+        self.client
+            .log_message(
+                MessageType::INFO,
+                format!(
+                    "inlay_hint range: lines {}-{}",
+                    params.range.start.line, params.range.end.line
+                ),
+            )
+            .await;
+
+        // Log first few reqs to understand positioning
+        for (i, req_def) in markdown_reqs.iter().take(5).enumerate() {
+            let marker_line_end = content[req_def.span.offset..]
+                .find('\n')
+                .map(|n| req_def.span.offset + n)
+                .unwrap_or(req_def.span.offset + req_def.span.length);
+            let pos = offset_to_position(marker_line_end);
+            self.client
+                .log_message(
+                    MessageType::INFO,
+                    format!(
+                        "req[{}]: id={}, marq_line={}, span.offset={}, span.len={}, calculated_line={}",
+                        i, req_def.id, req_def.line, req_def.span.offset, req_def.span.length, pos.line
+                    ),
+                )
+                .await;
+        }
+
+        // Process markdown requirement definitions
+        let mut in_range_count = 0;
+        let mut in_range_ids: Vec<String> = Vec::new();
+        for req_def in &markdown_reqs {
+            // Position after the requirement marker line (NOT after all content)
+            // span.length includes all content, but we want just the r[req.id] line
+            // Find the end of the first line from span.offset
+            let marker_line_end = content[req_def.span.offset..]
+                .find('\n')
+                .map(|n| req_def.span.offset + n)
+                .unwrap_or(req_def.span.offset + req_def.span.length);
+            let position = offset_to_position(marker_line_end);
 
             // Check if position is within requested range
             if position.line < params.range.start.line || position.line > params.range.end.line {
                 continue;
             }
+            in_range_count += 1;
+            in_range_ids.push(format!("{}@L{}", req_def.id, position.line));
 
-            // Look up the requirement
-            let label = if let Some(req_info) = self.find_requirement(&md_ref.req_id) {
+            // Look up the requirement coverage
+            let label = if let Some(req_info) = self.find_requirement(&req_def.id) {
                 let impl_count = req_info.impl_refs.len();
                 let verify_count = req_info.verify_refs.len();
 
-                if md_ref.is_definition {
-                    // r[impl lsp.inlay.impl-count]
-                    if impl_count == 0 && verify_count == 0 {
-                        " ← uncovered".to_string()
-                    } else {
-                        format!(
-                            " ← {} impl{}, {} test{}",
-                            impl_count,
-                            if impl_count == 1 { "" } else { "s" },
-                            verify_count,
-                            if verify_count == 1 { "" } else { "s" }
-                        )
-                    }
+                // r[impl lsp.inlay.impl-count]
+                if impl_count == 0 && verify_count == 0 {
+                    " ← uncovered".to_string()
                 } else {
-                    // r[impl lsp.inlay.coverage-status]
-                    if verify_count > 0 {
-                        " ✓".to_string()
-                    } else if impl_count > 0 {
-                        " ⚠".to_string()
-                    } else {
-                        " ✗".to_string()
-                    }
+                    format!(
+                        " ← {} impl{}, {} test{}",
+                        impl_count,
+                        if impl_count == 1 { "" } else { "s" },
+                        verify_count,
+                        if verify_count == 1 { "" } else { "s" }
+                    )
                 }
-            } else if md_ref.is_definition {
-                " ← (unknown)".to_string()
             } else {
-                " ?".to_string()
+                " ← (unknown)".to_string()
             };
 
             hints.push(InlayHint {
@@ -1597,6 +1530,18 @@ impl LanguageServer for Backend {
             });
         }
 
+        self.client
+            .log_message(
+                MessageType::INFO,
+                format!(
+                    "inlay_hint: {} reqs in range, returning {} hints: {:?}",
+                    in_range_count,
+                    hints.len(),
+                    in_range_ids
+                ),
+            )
+            .await;
+
         if hints.is_empty() {
             Ok(None)
         } else {
@@ -1626,9 +1571,12 @@ impl LanguageServer for Backend {
 
         let prefixes = self.get_prefixes();
 
-        // For markdown files, extract requirements directly from text
-        let markdown_refs = if is_markdown {
-            extract_markdown_refs(&content, &prefixes)
+        // For markdown files, use marq to extract requirement definitions
+        let markdown_reqs = if is_markdown {
+            match render(&content, &RenderOptions::default()).await {
+                Ok(doc) => doc.reqs,
+                Err(_) => Vec::new(),
+            }
         } else {
             Vec::new()
         };
@@ -1655,21 +1603,22 @@ impl LanguageServer for Backend {
 
         let mut lenses = Vec::new();
 
-        // Process markdown refs for markdown files
-        for md_ref in &markdown_refs {
-            if !md_ref.is_definition {
-                continue; // Code lens only on definitions in markdown
-            }
-
-            let start_pos = offset_to_position(md_ref.byte_offset);
-            let end_pos = offset_to_position(md_ref.byte_offset + md_ref.byte_length);
+        // Process markdown requirement definitions
+        for req_def in &markdown_reqs {
+            // Range should be just the marker line, not the entire content block
+            let start_pos = offset_to_position(req_def.span.offset);
+            let marker_line_end = content[req_def.span.offset..]
+                .find('\n')
+                .map(|n| req_def.span.offset + n)
+                .unwrap_or(req_def.span.offset + req_def.span.length);
+            let end_pos = offset_to_position(marker_line_end);
             let range = Range {
                 start: start_pos,
                 end: end_pos,
             };
 
             // r[impl lsp.codelens.coverage]
-            if let Some(req_info) = self.find_requirement(&md_ref.req_id) {
+            if let Some(req_info) = self.find_requirement(&req_def.id) {
                 let impl_count = req_info.impl_refs.len();
                 let verify_count = req_info.verify_refs.len();
 
@@ -1687,7 +1636,7 @@ impl LanguageServer for Backend {
                     command: Some(Command {
                         title,
                         command: "tracey.showReferences".to_string(),
-                        arguments: Some(vec![serde_json::Value::String(md_ref.req_id.clone())]),
+                        arguments: Some(vec![serde_json::Value::String(req_def.id.clone())]),
                     }),
                     data: None,
                 });
