@@ -27,8 +27,7 @@ A rule reference MAY include a verb prefix before the rule ID, separated by a sp
 
 ### Supported Verbs
 
-r[ref.verb.define]
-Tracey MUST interpret the `define` verb as indicating where a requirement is defined (typically in specs/docs).
+Source code references use verbs to indicate the relationship between code and rules:
 
 r[ref.verb.impl]
 Tracey MUST interpret the `impl` verb as indicating that the code implements the referenced rule.
@@ -145,12 +144,12 @@ Each extracted rule reference MUST include the path to the source file.
 
 ## Rule Definitions in Markdown
 
-Tracey can extract rule definitions from markdown specification documents.
+Tracey extracts rule definitions from markdown specification documents. Unlike source code which uses verbs like `[impl rule.id]`, markdown uses `r[rule.id]` to define rules.
 
 ### Markdown Rule Syntax
 
 r[markdown.syntax.marker]
-A rule definition MUST be written as `r[rule.id]` on its own line in the markdown.
+A rule definition MUST be written as `r[rule.id]` on its own line in the markdown. This implicitly uses the "define" verb.
 
 r[markdown.syntax.standalone]
 The rule marker MUST appear on its own line (possibly with leading/trailing whitespace).
