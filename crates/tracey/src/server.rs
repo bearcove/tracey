@@ -8,8 +8,6 @@
 //! The actual data building happens in `serve.rs`. This module wraps that
 //! data and provides query methods + formatting.
 
-#![allow(dead_code)] // TODO: Remove once wired up
-
 use std::collections::BTreeMap;
 
 use crate::serve::{ApiCodeRef, ApiFileEntry, ApiRule, DashboardData, ImplKey, OutlineEntry};
@@ -566,19 +564,19 @@ fn group_rules_by_section(
     rules: &[&ApiRule],
     _outline: &[OutlineEntry],
 ) -> BTreeMap<String, Vec<RuleRef>> {
-    // For now, just group all under "All Rules"
-    // TODO: Use outline to determine which section each rule belongs to
-    let mut result = BTreeMap::new();
+    let mut result: BTreeMap<String, Vec<RuleRef>> = BTreeMap::new();
 
-    if !rules.is_empty() {
-        let refs: Vec<RuleRef> = rules
-            .iter()
-            .map(|r| RuleRef {
-                id: r.id.clone(),
-                impl_refs: r.impl_refs.clone(),
-            })
-            .collect();
-        result.insert("All Rules".to_string(), refs);
+    for rule in rules {
+        let section = rule
+            .section_title
+            .as_ref()
+            .cloned()
+            .unwrap_or_else(|| "Uncategorized".to_string());
+
+        result.entry(section).or_default().push(RuleRef {
+            id: rule.id.clone(),
+            impl_refs: rule.impl_refs.clone(),
+        });
     }
 
     result

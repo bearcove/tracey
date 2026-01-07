@@ -219,6 +219,14 @@ export interface ApiRule {
   sourceFile?: string;
   sourceLine?: number;
   sourceColumn?: number;
+  /**
+   * Section slug (heading ID) that this rule belongs to
+   */
+  section?: string;
+  /**
+   * Section title (heading text) that this rule belongs to
+   */
+  sectionTitle?: string;
   implRefs: ApiCodeRef[];
   verifyRefs: ApiCodeRef[];
   dependsRefs: ApiCodeRef[];

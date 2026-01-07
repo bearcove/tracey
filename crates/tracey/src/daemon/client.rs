@@ -1,14 +1,13 @@
 //! Client for connecting to the tracey daemon.
 //!
-//! r[impl daemon.lifecycle.auto-start]
-//!
 //! Provides a roam RPC client that connects to the daemon's Unix socket
 //! and calls TraceyDaemon methods.
 
-use eyre::Result;
-use std::path::Path;
+use eyre::{Result, WrapErr};
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::net::UnixStream;
+use tracing::info;
 
 use roam::__private::facet_postcard;
 use roam_stream::{CobsFramed, Hello, Message};
@@ -28,28 +27,91 @@ pub struct DaemonClient {
 impl DaemonClient {
     /// Connect to the daemon for the given workspace.
     ///
-    /// If the daemon is not running, this will return an error asking the user
-    /// to start it manually. In the future, this could auto-spawn the daemon.
+    /// r[impl daemon.lifecycle.auto-start]
+    ///
+    /// If the daemon is not running, this will automatically spawn it
+    /// and wait for it to be ready before connecting.
     pub async fn connect(project_root: &Path) -> Result<Self> {
         let sock = socket_path(project_root);
 
         // Try to connect
-        let stream = match UnixStream::connect(&sock).await {
-            Ok(s) => s,
+        match UnixStream::connect(&sock).await {
+            Ok(stream) => Self::complete_handshake(stream).await,
             Err(_) => {
                 // r[impl daemon.lifecycle.stale-socket]
                 // Connection failed - check if there's a stale socket
                 if sock.exists() {
                     let _ = std::fs::remove_file(&sock);
                 }
-                // TODO: Auto-spawn daemon process here
+
+                // Auto-start the daemon
+                Self::spawn_daemon(project_root).await?;
+
+                // Wait for daemon to be ready and connect
+                Self::wait_and_connect(project_root, &sock).await
+            }
+        }
+    }
+
+    /// Spawn the daemon process in the background.
+    async fn spawn_daemon(project_root: &Path) -> Result<()> {
+        // Find the tracey executable
+        let exe = std::env::current_exe().wrap_err("Failed to get current executable path")?;
+
+        // Determine config path
+        let config_path = project_root.join(".config/tracey/config.kdl");
+
+        info!("Auto-starting daemon for {}", project_root.display());
+
+        // Spawn daemon process detached
+        let mut cmd = std::process::Command::new(&exe);
+        cmd.arg("daemon")
+            .arg(project_root)
+            .arg("--config")
+            .arg(&config_path)
+            // Detach from current process group
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+
+        // On Unix, use setsid to create a new session
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            // Create new process group so daemon survives parent exit
+            cmd.process_group(0);
+        }
+
+        cmd.spawn().wrap_err("Failed to spawn daemon process")?;
+
+        Ok(())
+    }
+
+    /// Wait for the daemon socket to appear and connect.
+    async fn wait_and_connect(project_root: &Path, sock: &PathBuf) -> Result<Self> {
+        // Wait up to 10 seconds for daemon to start
+        let start = std::time::Instant::now();
+        let timeout = Duration::from_secs(10);
+
+        loop {
+            // Try to connect
+            if let Ok(stream) = UnixStream::connect(sock).await {
+                info!("Connected to daemon");
+                return Self::complete_handshake(stream).await;
+            }
+
+            // Check timeout
+            if start.elapsed() > timeout {
                 return Err(eyre::eyre!(
-                    "Daemon not running. Start it with: tracey daemon"
+                    "Daemon failed to start within {} seconds. Check logs at {}/.tracey/daemon.log",
+                    timeout.as_secs(),
+                    project_root.display()
                 ));
             }
-        };
 
-        Self::complete_handshake(stream).await
+            // Wait a bit before retrying
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
     }
 
     /// Complete the handshake on an already-connected stream.

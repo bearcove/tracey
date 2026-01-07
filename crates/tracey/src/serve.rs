@@ -697,6 +697,8 @@ pub async fn build_dashboard_data_with_overlay(
                     source_file: Some(extracted.source_file.clone()),
                     source_line: Some(extracted.def.line),
                     source_column: extracted.column,
+                    section: extracted.section.clone(),
+                    section_title: extracted.section_title.clone(),
                     impl_refs,
                     verify_refs,
                     depends_refs,
@@ -946,9 +948,10 @@ async fn load_spec_content(
     // Shared source file tracker for rule handler
     let current_source_file = Arc::new(Mutex::new(String::new()));
 
+    // Get git status for files in the project
+    let git_status = get_git_status(root);
+
     // Set up marq handlers for consistent rendering with coverage-aware rule rendering
-    // TODO: Add real git status checking
-    let git_status = HashMap::new();
     let rule_handler = TraceyRuleHandler::new(
         coverage.clone(),
         Arc::clone(&current_source_file),

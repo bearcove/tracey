@@ -21,6 +21,10 @@ ignored = ["facet-error", "serde_json", "url"]
 [package.metadata."docs.rs"]
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
+[lib]
+name = "tracey"
+path = "src/lib.rs"
+
 [[bin]]
 name = "tracey"
 path = "src/main.rs"

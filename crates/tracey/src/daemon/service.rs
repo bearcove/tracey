@@ -1093,14 +1093,14 @@ impl TraceyDaemonHandler for TraceyService {
         let mut locations = Vec::new();
 
         // Include declaration (definition) if requested
-        if req.include_declaration {
-            if let (Some(file), Some(line)) = (&rule.source_file, rule.source_line) {
-                locations.push(LspLocation {
-                    path: file.clone(),
-                    line: line.saturating_sub(1) as u32,
-                    character: rule.source_column.unwrap_or(0) as u32,
-                });
-            }
+        if req.include_declaration
+            && let (Some(file), Some(line)) = (&rule.source_file, rule.source_line)
+        {
+            locations.push(LspLocation {
+                path: file.clone(),
+                line: line.saturating_sub(1) as u32,
+                character: rule.source_column.unwrap_or(0) as u32,
+            });
         }
 
         // Add all impl refs
@@ -1339,19 +1339,19 @@ impl TraceyDaemonHandler for TraceyService {
             // Find rules defined in this file
             for ((_, _), forward_data) in &data.forward_by_impl {
                 for rule in &forward_data.rules {
-                    if let Some(source_file) = &rule.source_file {
-                        if source_file == &relative_path {
-                            let line = rule.source_line.unwrap_or(1).saturating_sub(1) as u32;
-                            let col = rule.source_column.unwrap_or(1).saturating_sub(1) as u32;
-                            symbols.push(LspSymbol {
-                                name: rule.id.clone(),
-                                kind: "requirement".to_string(),
-                                start_line: line,
-                                start_char: col,
-                                end_line: line,
-                                end_char: col + rule.id.len() as u32,
-                            });
-                        }
+                    if let Some(source_file) = &rule.source_file
+                        && source_file == &relative_path
+                    {
+                        let line = rule.source_line.unwrap_or(1).saturating_sub(1) as u32;
+                        let col = rule.source_column.unwrap_or(1).saturating_sub(1) as u32;
+                        symbols.push(LspSymbol {
+                            name: rule.id.clone(),
+                            kind: "requirement".to_string(),
+                            start_line: line,
+                            start_char: col,
+                            end_line: line,
+                            end_char: col + rule.id.len() as u32,
+                        });
                     }
                 }
             }
@@ -1842,15 +1842,13 @@ fn line_col_to_offset(content: &str, line: u32, col: u32) -> Option<usize> {
         if current_line == line {
             let line_start = offset;
             // Find the column within this line
-            let mut current_col = 0u32;
-            for (j, ch) in content[line_start..].char_indices() {
+            for (current_col, (j, ch)) in content[line_start..].char_indices().enumerate() {
                 if ch == '\n' {
                     break;
                 }
-                if current_col == col {
+                if current_col as u32 == col {
                     return Some(line_start + j);
                 }
-                current_col += 1;
             }
             // If col is at or past end of line, return end of line
             return Some(i);

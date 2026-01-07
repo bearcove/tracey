@@ -75,6 +75,12 @@ pub struct ApiRule {
     pub source_line: Option<usize>,
     #[facet(default)]
     pub source_column: Option<usize>,
+    /// Section slug (heading ID) that this rule belongs to
+    #[facet(default)]
+    pub section: Option<String>,
+    /// Section title (heading text) that this rule belongs to
+    #[facet(default)]
+    pub section_title: Option<String>,
     pub impl_refs: Vec<ApiCodeRef>,
     pub verify_refs: Vec<ApiCodeRef>,
     pub depends_refs: Vec<ApiCodeRef>,
