@@ -792,6 +792,7 @@ impl TraceyDaemonHandler for TraceyService {
     /// r[impl mcp.validation.check]
     async fn validate(&self, req: ValidateRequest) -> HandlerResult<ValidationResult> {
         let data = self.engine.data().await;
+        let project_root = self.engine.project_root();
 
         let (spec, impl_name) =
             self.resolve_spec_impl(req.spec.as_deref(), req.impl_name.as_deref(), &data.config);
@@ -801,8 +802,32 @@ impl TraceyDaemonHandler for TraceyService {
         // Get all rules for this spec/impl
         if let Some(forward_data) = data.forward_by_impl.get(&(spec.clone(), impl_name.clone())) {
             // Build a map of rule IDs for quick lookup
-            let _rule_ids: std::collections::HashSet<_> =
+            let rule_ids: std::collections::HashSet<_> =
                 forward_data.rules.iter().map(|r| r.id.as_str()).collect();
+
+            // r[impl config.multi-spec.unique-within-spec]
+            // Check for duplicate rule IDs (within this spec)
+            let mut seen_ids: std::collections::HashMap<&str, (&Option<String>, Option<usize>)> =
+                std::collections::HashMap::new();
+            for rule in &forward_data.rules {
+                if let Some((prev_file, prev_line)) = seen_ids.get(rule.id.as_str()) {
+                    errors.push(ValidationError {
+                        code: ValidationErrorCode::DuplicateRequirement,
+                        message: format!(
+                            "Duplicate rule ID '{}' (first defined at {}:{})",
+                            rule.id,
+                            prev_file.as_deref().unwrap_or("?"),
+                            prev_line.unwrap_or(0)
+                        ),
+                        file: rule.source_file.clone(),
+                        line: rule.source_line,
+                        column: rule.source_column,
+                        related_rules: vec![rule.id.clone()],
+                    });
+                } else {
+                    seen_ids.insert(&rule.id, (&rule.source_file, rule.source_line));
+                }
+            }
 
             // Check each rule
             for rule in &forward_data.rules {
@@ -821,12 +846,86 @@ impl TraceyDaemonHandler for TraceyService {
                     });
                 }
 
+                // r[impl config.impl.test_include.verify-only]
+                // Check that impl references are not in test files
+                for impl_ref in &rule.impl_refs {
+                    let ref_path = project_root.join(&impl_ref.file);
+                    if data.test_files.contains(&ref_path) {
+                        errors.push(ValidationError {
+                            code: ValidationErrorCode::ImplInTestFile,
+                            message: format!(
+                                "Test file contains impl annotation for '{}' - test files may only contain verify annotations",
+                                rule.id
+                            ),
+                            file: Some(impl_ref.file.clone()),
+                            line: Some(impl_ref.line),
+                            column: None,
+                            related_rules: vec![rule.id.clone()],
+                        });
+                    }
+                }
+
                 // Check depends references exist
                 for dep_ref in &rule.depends_refs {
                     // Extract rule ID from the file path (this is a simplification)
                     // In a full implementation, we'd track what rule ID each depends ref points to
                     // For now, we just note that depends references exist
                     let _ = dep_ref;
+                }
+            }
+
+            // r[impl ref.prefix.unknown]
+            // Check for references with unknown prefixes
+            // This requires checking the reverse data for any files that have
+            // references to rules not in the rule_ids set
+            if let Some(reverse_data) = data.reverse_by_impl.get(&(spec.clone(), impl_name.clone()))
+            {
+                // Get all prefixes from the config
+                let known_prefixes: std::collections::HashSet<&str> = data
+                    .config
+                    .specs
+                    .iter()
+                    .map(|s| s.prefix.as_str())
+                    .collect();
+
+                // Check files for unknown references
+                for file_entry in &reverse_data.files {
+                    let file_path = project_root.join(&file_entry.path);
+                    if let Ok(content) = std::fs::read_to_string(&file_path) {
+                        let reqs = tracey_core::Reqs::extract_from_content(&file_path, &content);
+                        for reference in &reqs.references {
+                            // Check if prefix is known
+                            if !known_prefixes.contains(reference.prefix.as_str()) {
+                                let available: Vec<_> = known_prefixes.iter().copied().collect();
+                                errors.push(ValidationError {
+                                    code: ValidationErrorCode::UnknownPrefix,
+                                    message: format!(
+                                        "Unknown prefix '{}' - available prefixes: {}",
+                                        reference.prefix,
+                                        available.join(", ")
+                                    ),
+                                    file: Some(file_entry.path.clone()),
+                                    line: Some(reference.line),
+                                    column: None,
+                                    related_rules: vec![],
+                                });
+                            }
+                            // Check if rule ID exists (for known prefixes)
+                            else if !rule_ids.contains(reference.req_id.as_str()) {
+                                errors.push(ValidationError {
+                                    code: ValidationErrorCode::UnknownRequirement,
+                                    message: format!(
+                                        "Reference to unknown rule '{}'",
+                                        reference.req_id
+                                    ),
+                                    file: Some(file_entry.path.clone()),
+                                    line: Some(reference.line),
+                                    column: None,
+                                    related_rules: vec![],
+                                });
+                            }
+                        }
+                    }
                 }
             }
 
@@ -843,10 +942,6 @@ impl TraceyDaemonHandler for TraceyService {
                     related_rules: cycle,
                 });
             }
-
-            // Check for unknown references in impl/verify comments
-            // This would require scanning the source files for references
-            // to non-existent rule IDs, which is already done during parsing
         }
 
         let error_count = errors.len();
@@ -1224,26 +1319,60 @@ impl TraceyDaemonHandler for TraceyService {
     /// Get document symbols (requirement references) in a file
     ///
     /// r[impl lsp.symbols.references]
+    /// r[impl lsp.symbols.requirements]
     async fn lsp_document_symbols(&self, req: LspDocumentRequest) -> HandlerResult<Vec<LspSymbol>> {
         let path = PathBuf::from(&req.path);
-        let reqs = tracey_core::Reqs::extract_from_content(&path, &req.content);
+        let mut symbols = Vec::new();
 
-        Ok(reqs
-            .references
-            .iter()
-            .map(|r| {
+        // For spec files (markdown), return requirement definitions
+        if path.extension().is_some_and(|ext| ext == "md") {
+            let data = self.engine.data().await;
+            let project_root = self.engine.project_root();
+
+            // Get relative path for matching
+            let relative_path = path
+                .strip_prefix(project_root)
+                .ok()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|| req.path.clone());
+
+            // Find rules defined in this file
+            for ((_, _), forward_data) in &data.forward_by_impl {
+                for rule in &forward_data.rules {
+                    if let Some(source_file) = &rule.source_file {
+                        if source_file == &relative_path {
+                            let line = rule.source_line.unwrap_or(1).saturating_sub(1) as u32;
+                            let col = rule.source_column.unwrap_or(1).saturating_sub(1) as u32;
+                            symbols.push(LspSymbol {
+                                name: rule.id.clone(),
+                                kind: "requirement".to_string(),
+                                start_line: line,
+                                start_char: col,
+                                end_line: line,
+                                end_char: col + rule.id.len() as u32,
+                            });
+                        }
+                    }
+                }
+            }
+        } else {
+            // For implementation files, extract references
+            let reqs = tracey_core::Reqs::extract_from_content(&path, &req.content);
+            for r in &reqs.references {
                 let (start_line, start_char, end_line, end_char) =
                     span_to_range(&req.content, r.span.offset, r.span.length);
-                LspSymbol {
+                symbols.push(LspSymbol {
                     name: r.req_id.clone(),
                     kind: format!("{:?}", r.verb).to_lowercase(),
                     start_line,
                     start_char,
                     end_line,
                     end_char,
-                }
-            })
-            .collect())
+                });
+            }
+        }
+
+        Ok(symbols)
     }
 
     /// Search workspace for requirement IDs

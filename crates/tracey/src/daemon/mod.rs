@@ -148,6 +148,7 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
     // Spawn rebuild task that listens for watcher events
     let engine_for_rebuild = Arc::clone(&engine);
     let project_root_for_rebuild = project_root.clone();
+    let config_path_for_rebuild = config_path.clone();
     tokio::spawn(async move {
         // r[impl server.watch.respect-gitignore]
         // Build gitignore matcher for filtering file watcher events
@@ -167,16 +168,83 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
         };
 
         while let Some(changed_files) = watcher_rx.recv().await {
-            // Filter out paths that match gitignore patterns
+            // r[impl config.watch-creation]
+            // Check if the config file was created/modified
+            let config_changed = changed_files.iter().any(|p| p == &config_path_for_rebuild);
+            if config_changed {
+                info!("Config file changed, triggering rebuild");
+                if let Err(e) = engine_for_rebuild.rebuild().await {
+                    error!("Rebuild failed: {}", e);
+                }
+                continue;
+            }
+
+            // r[impl server.watch.patterns-from-config]
+            // Collect all include patterns from config
+            let mut include_patterns: Vec<String> = Vec::new();
+            let mut exclude_patterns: Vec<String> = Vec::new();
+
+            // Get patterns from the raw config file if available
+            if let Ok(config) = crate::load_config(&config_path_for_rebuild) {
+                for spec in &config.specs {
+                    for pattern in &spec.include {
+                        include_patterns.push(pattern.pattern.clone());
+                    }
+                    for impl_ in &spec.impls {
+                        for pattern in &impl_.include {
+                            include_patterns.push(pattern.pattern.clone());
+                        }
+                        // r[impl server.watch.respect-excludes]
+                        for pattern in &impl_.exclude {
+                            exclude_patterns.push(pattern.pattern.clone());
+                        }
+                    }
+                }
+            } else {
+                // If config not available, get patterns from engine data
+                let data = engine_for_rebuild.data().await;
+                for spec in &data.config.specs {
+                    // Add spec include patterns (markdown files)
+                    if let Some(source) = &spec.source {
+                        include_patterns.push(source.clone());
+                    }
+                }
+            }
+
+            // Filter changed files
             let relative_paths: Vec<_> = changed_files
                 .iter()
                 .filter_map(|p| p.strip_prefix(&project_root_for_rebuild).ok())
                 .filter(|p| {
-                    // Keep paths that are NOT ignored
+                    // Keep paths that are NOT ignored by gitignore
                     let full_path = project_root_for_rebuild.join(p);
                     !gitignore
                         .matched_path_or_any_parents(&full_path, full_path.is_dir())
                         .is_ignore()
+                })
+                .filter(|p| {
+                    let path_str = p.to_string_lossy();
+
+                    // r[impl server.watch.respect-excludes]
+                    // Reject paths that match exclude patterns
+                    for pattern in &exclude_patterns {
+                        if crate::serve::glob_match(&path_str, pattern.as_str()) {
+                            return false;
+                        }
+                    }
+
+                    // r[impl server.watch.patterns-from-config]
+                    // Accept paths that match include patterns
+                    // If no include patterns, accept all non-excluded files
+                    if include_patterns.is_empty() {
+                        return true;
+                    }
+                    for pattern in &include_patterns {
+                        if crate::serve::glob_match(&path_str, pattern.as_str()) {
+                            return true;
+                        }
+                    }
+                    false
                 })
                 .collect();
 

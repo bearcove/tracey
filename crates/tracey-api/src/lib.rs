@@ -225,6 +225,8 @@ pub enum ValidationErrorCode {
     DuplicateRequirement,
     /// Unknown prefix in reference
     UnknownPrefix,
+    /// Impl annotation in test file (only verify allowed)
+    ImplInTestFile,
 }
 
 /// Validation results for a spec/implementation pair
