@@ -11,8 +11,8 @@ use std::sync::Arc;
 
 use axum::{
     Router,
-    extract::{Query, State},
-    http::StatusCode,
+    extract::{Path, Query, State},
+    http::{StatusCode, header},
     response::{Html, IntoResponse, Response},
     routing::get,
 };
@@ -63,15 +63,20 @@ pub async fn run(
 
     // Build router
     let app = Router::new()
-        .route("/", get(index_handler))
+        // API routes
         .route("/api/config", get(api_config))
         .route("/api/forward", get(api_forward))
         .route("/api/reverse", get(api_reverse))
         .route("/api/version", get(api_version))
         .route("/api/spec", get(api_spec))
+        .route("/api/file", get(api_file))
         .route("/api/search", get(api_search))
         .route("/api/status", get(api_status))
         .route("/api/validate", get(api_validate))
+        // Static assets
+        .route("/assets/{*path}", get(serve_asset))
+        // SPA fallback - all other routes serve index.html
+        .fallback(spa_fallback)
         .with_state(state)
         .layer(
             CorsLayer::new()
@@ -96,9 +101,33 @@ pub async fn run(
     Ok(())
 }
 
-/// Index page - serve embedded dashboard HTML.
-async fn index_handler() -> Html<&'static str> {
-    Html(include_str!("../../dashboard/dist/index.html"))
+// Embedded dashboard assets
+static INDEX_HTML: &str = include_str!("../../dashboard/dist/index.html");
+static INDEX_CSS: &str = include_str!("../../dashboard/dist/assets/index.css");
+static INDEX_JS: &str = include_str!("../../dashboard/dist/assets/index.js");
+
+/// SPA fallback - serve index.html for all non-API routes.
+async fn spa_fallback() -> Html<&'static str> {
+    Html(INDEX_HTML)
+}
+
+/// Serve static assets from embedded files.
+async fn serve_asset(Path(path): Path<String>) -> Response {
+    match path.as_str() {
+        "index.css" => (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, "text/css")],
+            INDEX_CSS,
+        )
+            .into_response(),
+        "index.js" => (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, "application/javascript")],
+            INDEX_JS,
+        )
+            .into_response(),
+        _ => (StatusCode::NOT_FOUND, "Asset not found").into_response(),
+    }
 }
 
 /// Query parameters for forward/reverse endpoints.
@@ -119,6 +148,15 @@ struct SearchQuery {
 /// Query parameters for spec endpoint.
 #[derive(Debug, Clone, Deserialize)]
 struct SpecQuery {
+    spec: Option<String>,
+    #[serde(rename = "impl")]
+    impl_name: Option<String>,
+}
+
+/// Query parameters for file endpoint.
+#[derive(Debug, Clone, Deserialize)]
+struct FileQuery {
+    path: String,
     spec: Option<String>,
     #[serde(rename = "impl")]
     impl_name: Option<String>,
@@ -213,6 +251,30 @@ async fn api_spec(State(state): State<Arc<AppState>>, Query(query): Query<SpecQu
     match client.spec_content(spec, impl_name).await {
         Ok(Some(data)) => Json(data).into_response(),
         Ok(None) => (StatusCode::NOT_FOUND, "Spec not found").into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
+/// GET /api/file - Get file content with syntax highlighting.
+async fn api_file(State(state): State<Arc<AppState>>, Query(query): Query<FileQuery>) -> Response {
+    let mut client = state.client.lock().await;
+
+    let config = match client.config().await {
+        Ok(c) => c,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    };
+
+    let (spec, impl_name) = resolve_spec_impl(query.spec, query.impl_name, &config);
+
+    let req = tracey_proto::FileRequest {
+        spec,
+        impl_name,
+        path: query.path,
+    };
+
+    match client.file(req).await {
+        Ok(Some(data)) => Json(data).into_response(),
+        Ok(None) => (StatusCode::NOT_FOUND, "File not found").into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
 }

@@ -236,6 +236,12 @@ impl DaemonClient {
         self.call(ids.spec_content, &(spec, impl_name)).await
     }
 
+    /// Get file content with syntax highlighting
+    pub async fn file(&mut self, req: FileRequest) -> Result<Option<ApiFileData>> {
+        let ids = tracey_daemon_method_ids();
+        self.call(ids.file, &(req,)).await
+    }
+
     /// Search rules and files
     pub async fn search(&mut self, query: String, limit: usize) -> Result<Vec<SearchResult>> {
         let ids = tracey_daemon_method_ids();

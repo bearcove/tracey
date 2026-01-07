@@ -194,8 +194,12 @@ fn main() -> Result<()> {
                 .append(true)
                 .open(&log_path)?;
 
-            let filter = tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("tracey=info".parse().unwrap());
+            // Use RUST_LOG from environment, default to info if not set
+            // Crash on invalid RUST_LOG - don't silently fall back
+            let filter = match std::env::var("RUST_LOG") {
+                Ok(_) => tracing_subscriber::EnvFilter::from_default_env(),
+                Err(_) => tracing_subscriber::EnvFilter::new("tracey=info"),
+            };
 
             // Create both console and file layers
             let console_layer = tracing_subscriber::fmt::layer().with_ansi(true);

@@ -2,14 +2,22 @@
 //!
 //! Implements the roam RPC service by delegating to the Engine.
 
-use std::sync::Arc;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use tracey_proto::*;
 
 use super::engine::Engine;
 use crate::server::QueryEngine;
+use roam::Push;
 
-// Include generated code (TraceyDaemonHandler trait, TraceyDaemonDispatcher, method_id module)
-include!(concat!(env!("OUT_DIR"), "/tracey_daemon_generated.rs"));
+// Include generated code (TraceyDaemonHandler trait, TraceyDaemonDispatcher)
+// The generated file has both caller and handler code - we only use handler
+mod generated {
+    #![allow(dead_code)]
+    pub use tracey_proto::*;
+    include!(concat!(env!("OUT_DIR"), "/tracey_daemon_generated.rs"));
+}
+pub use generated::{TraceyDaemonDispatcher, TraceyDaemonHandler};
 
 /// Handler error type (we never fail, so this is just for the trait)
 type HandlerResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -17,9 +25,11 @@ type HandlerResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 /// Service implementation wrapping the Engine.
 pub struct TraceyService {
     engine: Arc<Engine>,
+    /// Syntax highlighter for source files
+    highlighter: Mutex<arborium::Highlighter>,
 }
 
-/// Blanket impl: Arc<TraceyService> delegates to TraceyService
+/// Blanket impl: `Arc<TraceyService>` delegates to `TraceyService`
 impl TraceyDaemonHandler for Arc<TraceyService> {
     async fn status(&self) -> HandlerResult<StatusResponse> {
         (**self).status().await
@@ -107,7 +117,10 @@ impl TraceyDaemonHandler for Arc<TraceyService> {
 impl TraceyService {
     /// Create a new service wrapping the given engine.
     pub fn new(engine: Arc<Engine>) -> Self {
-        Self { engine }
+        Self {
+            engine,
+            highlighter: Mutex::new(arborium::Highlighter::new()),
+        }
     }
 
     // Helper: resolve spec/impl from optional parameters
@@ -137,6 +150,81 @@ impl TraceyService {
         });
 
         (spec_name, impl_name)
+    }
+}
+
+/// Escape HTML special characters.
+fn html_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// Get arborium language name from file extension.
+fn arborium_language(path: &str) -> Option<&'static str> {
+    let ext = path.rsplit('.').next()?;
+    match ext {
+        // Rust
+        "rs" => Some("rust"),
+        // Go
+        "go" => Some("go"),
+        // C/C++
+        "c" | "h" => Some("c"),
+        "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => Some("cpp"),
+        // Web
+        "js" | "mjs" | "cjs" => Some("javascript"),
+        "ts" | "mts" | "cts" => Some("typescript"),
+        "jsx" => Some("javascript"),
+        "tsx" => Some("tsx"),
+        // Python
+        "py" => Some("python"),
+        // Ruby
+        "rb" => Some("ruby"),
+        // Java/JVM
+        "java" => Some("java"),
+        "kt" | "kts" => Some("kotlin"),
+        "scala" => Some("scala"),
+        // Shell
+        "sh" | "bash" | "zsh" => Some("bash"),
+        // Config
+        "json" => Some("json"),
+        "yaml" | "yml" => Some("yaml"),
+        "toml" => Some("toml"),
+        "xml" => Some("xml"),
+        // Web markup
+        "html" | "htm" => Some("html"),
+        "css" => Some("css"),
+        "scss" | "sass" => Some("scss"),
+        // Markdown
+        "md" | "markdown" => Some("markdown"),
+        // SQL
+        "sql" => Some("sql"),
+        // Zig
+        "zig" => Some("zig"),
+        // Swift
+        "swift" => Some("swift"),
+        // Elixir
+        "ex" | "exs" => Some("elixir"),
+        // Haskell
+        "hs" | "lhs" => Some("haskell"),
+        // OCaml
+        "ml" | "mli" => Some("ocaml"),
+        // Lua
+        "lua" => Some("lua"),
+        // PHP
+        "php" => Some("php"),
+        // R
+        "r" | "R" => Some("r"),
+        _ => None,
     }
 }
 
@@ -424,10 +512,74 @@ impl TraceyDaemonHandler for TraceyService {
     }
 
     /// Get file with syntax highlighting
-    async fn file(&self, _req: FileRequest) -> HandlerResult<Option<ApiFileData>> {
-        // TODO: Implement file loading with syntax highlighting
-        // This requires the highlighter from serve.rs
-        Ok(None)
+    async fn file(&self, req: FileRequest) -> HandlerResult<Option<ApiFileData>> {
+        let data = self.engine.data().await;
+        let project_root = self.engine.project_root();
+
+        let impl_key = (req.spec, req.impl_name);
+
+        // Get the code units map for this impl
+        let Some(code_units_by_file) = data.code_units_by_impl.get(&impl_key) else {
+            return Ok(None);
+        };
+
+        // Resolve the file path - it may be relative or absolute
+        let file_path = PathBuf::from(&req.path);
+        let full_path = if file_path.is_absolute() {
+            file_path
+        } else {
+            project_root.join(&file_path)
+        };
+        // Canonicalize to handle cross-workspace paths like ../marq/...
+        let full_path = full_path.canonicalize().unwrap_or(full_path);
+
+        // Look up code units for this file
+        let Some(units) = code_units_by_file.get(&full_path) else {
+            return Ok(None);
+        };
+
+        // Read file content
+        let content = match std::fs::read_to_string(&full_path) {
+            Ok(c) => c,
+            Err(_) => return Ok(None),
+        };
+
+        // Get relative path for display
+        let relative = full_path
+            .strip_prefix(project_root)
+            .unwrap_or(&full_path)
+            .display()
+            .to_string();
+
+        // Syntax highlight the content
+        let html = if let Some(lang) = arborium_language(&relative) {
+            let mut hl = self.highlighter.lock().unwrap();
+            match hl.highlight(lang, &content) {
+                Ok(highlighted) => highlighted,
+                Err(_) => html_escape(&content),
+            }
+        } else {
+            html_escape(&content)
+        };
+
+        // Convert code units to API format
+        let api_units: Vec<ApiCodeUnit> = units
+            .iter()
+            .map(|u| ApiCodeUnit {
+                kind: format!("{:?}", u.kind).to_lowercase(),
+                name: u.name.clone(),
+                start_line: u.start_line,
+                end_line: u.end_line,
+                rule_refs: u.req_refs.clone(),
+            })
+            .collect();
+
+        Ok(Some(ApiFileData {
+            path: relative,
+            content,
+            html,
+            units: api_units,
+        }))
     }
 
     /// Get rendered spec content
