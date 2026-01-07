@@ -31,12 +31,20 @@ fn install() {
 
     let src = "target/release/tracey";
 
-    // On macOS, codesign the binary to avoid Gatekeeper issues
+    // Copy to ~/.cargo/bin
+    let home = std::env::var("HOME").expect("HOME not set");
+    let dst = format!("{}/.cargo/bin/tracey", home);
+
+    std::fs::copy(src, &dst).expect("Failed to copy binary");
+    println!("Copied tracey to {}", dst);
+
+    // On macOS, codesign the installed binary to avoid AMFI issues
+    // (signing must happen AFTER copy, not before)
     #[cfg(target_os = "macos")]
     {
-        println!("Signing binary...");
+        println!("Signing installed binary...");
         let status = Command::new("codesign")
-            .args(["--sign", "-", "--force", src])
+            .args(["--sign", "-", "--force", &dst])
             .status()
             .expect("Failed to run codesign");
 
@@ -45,9 +53,9 @@ fn install() {
         }
     }
 
-    // Verify the binary works before installing
-    println!("Verifying binary...");
-    let output = Command::new(src)
+    // Verify the installed binary works
+    println!("Verifying installation...");
+    let output = Command::new(&dst)
         .arg("--version")
         .output()
         .expect("Failed to run tracey --version");
@@ -59,12 +67,5 @@ fn install() {
     }
 
     let version = String::from_utf8_lossy(&output.stdout);
-    println!("Built: {}", version.trim());
-
-    // Copy to ~/.cargo/bin
-    let home = std::env::var("HOME").expect("HOME not set");
-    let dst = format!("{}/.cargo/bin/tracey", home);
-
-    std::fs::copy(src, &dst).expect("Failed to copy binary");
-    println!("Installed tracey to {}", dst);
+    println!("Installed: {}", version.trim());
 }
