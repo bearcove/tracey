@@ -73,6 +73,8 @@ export function useApi(): UseApiResult {
 	const [data, setData] = useState<ApiData | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [version, setVersion] = useState<string | null>(null);
+	// Track current URL path to detect spec/impl changes
+	const [urlPath, setUrlPath] = useState(window.location.pathname);
 
 	const fetchData = useCallback(async () => {
 		try {
@@ -101,17 +103,33 @@ export function useApi(): UseApiResult {
 		}
 	}, []);
 
-	// Initial fetch
+	// Refetch when URL path changes (spec/impl might change)
 	useEffect(() => {
 		fetchData();
-	}, [fetchData]);
+	}, [fetchData, urlPath]);
 
-	// Refetch when URL changes (spec/impl might change)
+	// Listen for URL changes from both popstate and programmatic navigation
 	useEffect(() => {
-		const handlePopState = () => fetchData();
-		window.addEventListener("popstate", handlePopState);
-		return () => window.removeEventListener("popstate", handlePopState);
-	}, [fetchData]);
+		const checkUrlChange = () => {
+			const newPath = window.location.pathname;
+			if (newPath !== urlPath) {
+				setUrlPath(newPath);
+			}
+		};
+
+		// popstate fires on back/forward
+		window.addEventListener("popstate", checkUrlChange);
+
+		// For programmatic navigation, we need to poll or use MutationObserver
+		// preact-iso uses history.pushState which doesn't fire popstate
+		// Use a short interval to detect changes
+		const interval = setInterval(checkUrlChange, 100);
+
+		return () => {
+			window.removeEventListener("popstate", checkUrlChange);
+			clearInterval(interval);
+		};
+	}, [urlPath]);
 
 	// r[impl dashboard.api.version]
 	// r[impl dashboard.api.live-updates]
