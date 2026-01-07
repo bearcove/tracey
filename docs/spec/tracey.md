@@ -431,6 +431,23 @@ Each impl configuration MAY have one or more `include` child nodes specifying gl
 r[config.impl.exclude]
 Each impl configuration MAY have one or more `exclude` child nodes specifying glob patterns for source files to exclude.
 
+r[config.impl.test_include]
+Each impl configuration MAY have one or more `test_include` child nodes specifying glob patterns for test files to scan.
+
+r[config.impl.test_include.verify-only]
+Files matched by `test_include` patterns MUST only contain `verify` annotations. Any `impl` annotation in a test file is a hard error.
+
+> r[config.impl.test_include.example]
+> Example configuration separating implementation and test files:
+> ```kdl
+> impl {
+>     name "rust"
+>     include "src/**/*.rs"
+>     test_include "tests/**/*.rs"
+> }
+> ```
+> In this example, `src/auth.rs` may contain `r[impl auth.token]` but `tests/auth_test.rs` may only contain `r[verify auth.token]`.
+
 ### Multiple Specs and Remote Specs
 
 r[config.multi-spec.prefix-namespace]
@@ -1097,6 +1114,9 @@ The server MUST publish diagnostics for duplicate requirement definitions in spe
 r[lsp.diagnostics.orphaned]
 The server MAY publish diagnostics for requirement definitions that have no implementation references, with severity `Hint` or `Information`.
 
+r[lsp.diagnostics.impl-in-test]
+The server MUST publish diagnostics for `impl` annotations in files matched by `test_include` patterns, with severity `Error`. Test files should only contain `verify` annotations.
+
 r[lsp.diagnostics.on-change]
 Diagnostics MUST be updated when files are modified, using debouncing to avoid excessive recomputation.
 
@@ -1117,24 +1137,6 @@ Hovering over a requirement reference in source code MUST display the requiremen
 >
 > The system must validate tokens before granting access.
 > Validation includes checking expiration, signature, and issuer.
-> ```
-
-r[lsp.hover.req-definition]
-Hovering over a requirement definition in a spec file MUST display coverage information: implementation and verification reference counts with file locations.
-
-> r[lsp.hover.req-definition-format]
-> The hover content MUST show counts and locations for impl and verify references.
->
-> Example:
-> ```markdown
-> ### auth.token.validation
->
-> **Implementations:** 2
-> - src/auth/token.rs:42
-> - src/auth/jwt.rs:87
->
-> **Tests:** 1
-> - tests/auth_test.rs:156
 > ```
 
 r[lsp.hover.prefix]
