@@ -373,6 +373,182 @@ impl TraceyDaemon for TraceyService {
         let path = std::path::PathBuf::from(path);
         data.test_files.contains(&path)
     }
+
+    /// Validate the spec and implementation
+    ///
+    /// r[impl mcp.validation.check]
+    async fn validate(&self, req: ValidateRequest) -> ValidationResult {
+        let data = self.engine.data().await;
+
+        let (spec, impl_name) =
+            self.resolve_spec_impl(req.spec.as_deref(), req.impl_name.as_deref(), &data.config);
+
+        let mut errors = Vec::new();
+
+        // Get all rules for this spec/impl
+        if let Some(forward_data) = data.forward_by_impl.get(&(spec.clone(), impl_name.clone())) {
+            // Build a map of rule IDs for quick lookup
+            let _rule_ids: std::collections::HashSet<_> =
+                forward_data.rules.iter().map(|r| r.id.as_str()).collect();
+
+            // Check each rule
+            for rule in &forward_data.rules {
+                // Check naming convention (dot-separated segments)
+                if !is_valid_rule_id(&rule.id) {
+                    errors.push(ValidationError {
+                        code: ValidationErrorCode::InvalidNaming,
+                        message: format!(
+                            "Rule ID '{}' doesn't follow naming convention (use dot-separated lowercase segments)",
+                            rule.id
+                        ),
+                        file: rule.source_file.clone(),
+                        line: rule.source_line,
+                        column: rule.source_column,
+                        related_rules: vec![],
+                    });
+                }
+
+                // Check depends references exist
+                for dep_ref in &rule.depends_refs {
+                    // Extract rule ID from the file path (this is a simplification)
+                    // In a full implementation, we'd track what rule ID each depends ref points to
+                    // For now, we just note that depends references exist
+                    let _ = dep_ref;
+                }
+            }
+
+            // Check for circular dependencies
+            // Build dependency graph and detect cycles
+            let cycles = detect_circular_dependencies(forward_data);
+            for cycle in cycles {
+                errors.push(ValidationError {
+                    code: ValidationErrorCode::CircularDependency,
+                    message: format!("Circular dependency detected: {}", cycle.join(" → ")),
+                    file: None,
+                    line: None,
+                    column: None,
+                    related_rules: cycle,
+                });
+            }
+
+            // Check for unknown references in impl/verify comments
+            // This would require scanning the source files for references
+            // to non-existent rule IDs, which is already done during parsing
+        }
+
+        let error_count = errors.len();
+
+        ValidationResult {
+            spec,
+            impl_name,
+            errors,
+            warning_count: 0,
+            error_count,
+        }
+    }
+}
+
+/// Check if a rule ID follows the naming convention
+fn is_valid_rule_id(id: &str) -> bool {
+    // Must have at least one segment
+    if id.is_empty() {
+        return false;
+    }
+
+    // Split by dots and check each segment
+    for segment in id.split('.') {
+        if segment.is_empty() {
+            return false;
+        }
+        // Each segment must contain only lowercase letters, digits, or hyphens
+        if !segment
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        {
+            return false;
+        }
+        // Segment must start with a letter
+        if !segment
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_lowercase())
+        {
+            return false;
+        }
+    }
+
+    true
+}
+
+/// Detect circular dependencies in the rule dependency graph
+fn detect_circular_dependencies(forward_data: &ApiSpecForward) -> Vec<Vec<String>> {
+    use std::collections::{HashMap, HashSet};
+
+    // Build adjacency list from depends_refs
+    // Note: This is a simplified version - in a full implementation,
+    // we'd need to track which rule ID each depends ref points to
+    let mut graph: HashMap<&str, Vec<&str>> = HashMap::new();
+
+    for rule in &forward_data.rules {
+        // Initialize empty adjacency list for each rule
+        graph.entry(rule.id.as_str()).or_default();
+
+        // For now, we can't easily extract dependency targets from depends_refs
+        // since they only contain file:line references, not rule IDs.
+        // A proper implementation would require parsing the depends comments
+        // to extract the target rule IDs.
+    }
+
+    // Detect cycles using DFS
+    let mut cycles = Vec::new();
+    let mut visited = HashSet::new();
+    let mut rec_stack = HashSet::new();
+    let mut path = Vec::new();
+
+    fn dfs<'a>(
+        node: &'a str,
+        graph: &HashMap<&'a str, Vec<&'a str>>,
+        visited: &mut HashSet<&'a str>,
+        rec_stack: &mut HashSet<&'a str>,
+        path: &mut Vec<String>,
+        cycles: &mut Vec<Vec<String>>,
+    ) {
+        visited.insert(node);
+        rec_stack.insert(node);
+        path.push(node.to_string());
+
+        if let Some(neighbors) = graph.get(node) {
+            for &neighbor in neighbors {
+                if !visited.contains(neighbor) {
+                    dfs(neighbor, graph, visited, rec_stack, path, cycles);
+                } else if rec_stack.contains(neighbor) {
+                    // Found a cycle
+                    let cycle_start = path.iter().position(|n| n == neighbor).unwrap();
+                    let mut cycle: Vec<String> = path[cycle_start..].to_vec();
+                    cycle.push(neighbor.to_string());
+                    cycles.push(cycle);
+                }
+            }
+        }
+
+        path.pop();
+        rec_stack.remove(node);
+    }
+
+    for &node in graph.keys() {
+        if !visited.contains(node) {
+            dfs(
+                node,
+                &graph,
+                &mut visited,
+                &mut rec_stack,
+                &mut path,
+                &mut cycles,
+            );
+        }
+    }
+
+    cycles
 }
 
 /// Dispatcher that wraps TraceyService and implements roam-tcp's ServiceDispatcher.

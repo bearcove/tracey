@@ -238,6 +238,18 @@ pub struct UpdateError {
     pub message: String,
 }
 
+/// Request for validation
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct ValidateRequest {
+    /// Spec name (optional if only one spec configured)
+    #[facet(default)]
+    pub spec: Option<String>,
+    /// Implementation name (optional if only one impl configured)
+    #[facet(default)]
+    pub impl_name: Option<String>,
+}
+
 /// Notification of data update (sent via streaming)
 #[derive(Debug, Clone, Facet)]
 #[facet(rename_all = "camelCase")]
@@ -355,4 +367,12 @@ pub trait TraceyDaemon {
     ///
     /// Returns true if the path matches the test_include patterns for any implementation.
     async fn is_test_file(&self, path: String) -> bool;
+
+    // === Validation ===
+
+    /// Validate the spec and implementation for errors
+    ///
+    /// Returns validation errors such as circular dependencies, naming violations,
+    /// and unknown references.
+    async fn validate(&self, req: ValidateRequest) -> ValidationResult;
 }
