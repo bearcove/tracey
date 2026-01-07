@@ -47,10 +47,40 @@ pub fn socket_path(project_root: &Path) -> PathBuf {
     project_root.join(".tracey").join(SOCKET_FILENAME)
 }
 
-/// Ensure the .tracey directory exists.
+/// Ensure the .tracey directory exists and is gitignored.
 pub fn ensure_tracey_dir(project_root: &Path) -> Result<PathBuf> {
     let dir = project_root.join(".tracey");
     std::fs::create_dir_all(&dir)?;
+
+    // Ensure .tracey/ is in .gitignore
+    let gitignore_path = project_root.join(".gitignore");
+    let needs_entry = if gitignore_path.exists() {
+        let content = std::fs::read_to_string(&gitignore_path).unwrap_or_default();
+        !content.lines().any(|line| {
+            let trimmed = line.trim();
+            trimmed == ".tracey" || trimmed == ".tracey/" || trimmed == "/.tracey/"
+        })
+    } else {
+        true
+    };
+
+    if needs_entry {
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&gitignore_path)?;
+        // Add newline before if file exists and doesn't end with newline
+        if gitignore_path.exists() {
+            let content = std::fs::read_to_string(&gitignore_path).unwrap_or_default();
+            if !content.is_empty() && !content.ends_with('\n') {
+                writeln!(file)?;
+            }
+        }
+        writeln!(file, ".tracey/")?;
+        info!("Added .tracey/ to .gitignore");
+    }
+
     Ok(dir)
 }
 
@@ -112,11 +142,26 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
     let project_root_for_rebuild = project_root.clone();
     tokio::spawn(async move {
         while let Some(changed_files) = watcher_rx.recv().await {
-            // Log which files triggered the rebuild
+            // Filter out dotfiles/directories (like .git/, .tracey/, etc.)
             let relative_paths: Vec<_> = changed_files
                 .iter()
                 .filter_map(|p| p.strip_prefix(&project_root_for_rebuild).ok())
+                .filter(|p| {
+                    // Exclude paths where any component starts with '.'
+                    !p.components().any(|c| {
+                        c.as_os_str()
+                            .to_str()
+                            .map(|s| s.starts_with('.'))
+                            .unwrap_or(false)
+                    })
+                })
                 .collect();
+
+            // Skip rebuild if no relevant files changed
+            if relative_paths.is_empty() {
+                continue;
+            }
+
             if relative_paths.len() <= 3 {
                 info!(
                     "File change detected: {}",
