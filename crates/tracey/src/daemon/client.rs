@@ -5,15 +5,14 @@
 //! Provides a roam RPC client that connects to the daemon's Unix socket
 //! and calls TraceyDaemon methods.
 
-use eyre::{Result, WrapErr};
+use eyre::Result;
 use std::path::Path;
 use std::time::Duration;
 use tokio::net::UnixStream;
 
 use roam::__private::facet_postcard;
-use roam_wire::{Hello, Message};
+use roam_stream::{CobsFramed, Hello, Message};
 
-use super::framing::CobsFramedUnix;
 use super::socket_path;
 use tracey_proto::*;
 
@@ -22,19 +21,39 @@ use tracey_proto::*;
 /// Connects to the daemon's Unix socket and provides typed methods
 /// for all TraceyDaemon RPC calls.
 pub struct DaemonClient {
-    io: CobsFramedUnix,
+    io: CobsFramed<UnixStream>,
     request_id: u64,
 }
 
 impl DaemonClient {
     /// Connect to the daemon for the given workspace.
+    ///
+    /// If the daemon is not running, this will return an error asking the user
+    /// to start it manually. In the future, this could auto-spawn the daemon.
     pub async fn connect(project_root: &Path) -> Result<Self> {
         let sock = socket_path(project_root);
-        let stream = UnixStream::connect(&sock)
-            .await
-            .wrap_err_with(|| format!("Failed to connect to daemon at {}", sock.display()))?;
 
-        let mut io = CobsFramedUnix::new(stream);
+        // Try to connect
+        let stream = match UnixStream::connect(&sock).await {
+            Ok(s) => s,
+            Err(_) => {
+                // Connection failed - check if there's a stale socket
+                if sock.exists() {
+                    let _ = std::fs::remove_file(&sock);
+                }
+                // TODO: Auto-spawn daemon process here
+                return Err(eyre::eyre!(
+                    "Daemon not running. Start it with: tracey daemon"
+                ));
+            }
+        };
+
+        Self::complete_handshake(stream).await
+    }
+
+    /// Complete the handshake on an already-connected stream.
+    async fn complete_handshake(stream: UnixStream) -> Result<Self> {
+        let mut io = CobsFramed::new(stream);
 
         // Send Hello
         let our_hello = Hello::V1 {
@@ -235,30 +254,4 @@ impl DaemonClient {
         let ids = tracey_daemon_method_ids();
         self.call(ids.validate, &(req,)).await
     }
-}
-
-/// Ensure the daemon is running for the given workspace.
-///
-/// r[impl daemon.lifecycle.stale-socket]
-///
-/// If the daemon is not running, this function will start it in the background.
-pub async fn ensure_daemon_running(project_root: &Path) -> Result<()> {
-    let sock = socket_path(project_root);
-
-    // Try to connect
-    if UnixStream::connect(&sock).await.is_ok() {
-        return Ok(());
-    }
-
-    // Remove stale socket if it exists (crashed daemon left it behind)
-    if sock.exists() {
-        let _ = std::fs::remove_file(&sock);
-    }
-
-    // Start daemon in background
-    // TODO: Actually spawn daemon process
-    // For now, return an error telling user to start daemon manually
-    Err(eyre::eyre!(
-        "Daemon not running. Start it with: tracey daemon"
-    ))
 }

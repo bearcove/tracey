@@ -24,7 +24,7 @@ use rust_mcp_sdk::{McpServer, StdioTransport, ToMcpServerHandler, TransportOptio
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
-use crate::daemon::{DaemonClient, ensure_daemon_running};
+use crate::daemon::DaemonClient;
 use tracey_proto::*;
 
 // ============================================================================
@@ -576,10 +576,7 @@ pub async fn run(root: Option<PathBuf>, _config_path: Option<PathBuf>) -> Result
         None => crate::find_project_root()?,
     };
 
-    // Ensure daemon is running
-    ensure_daemon_running(&project_root).await?;
-
-    // Connect to daemon
+    // Connect to daemon (will error if not running)
     let client = DaemonClient::connect(&project_root).await?;
 
     // Create handler

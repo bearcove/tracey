@@ -23,7 +23,7 @@ use serde::Deserialize;
 use tokio::sync::Mutex;
 use tower_http::cors::{Any, CorsLayer};
 
-use crate::daemon::{DaemonClient, ensure_daemon_running};
+use crate::daemon::DaemonClient;
 use tracey_api::*;
 
 /// State shared across HTTP handlers.
@@ -53,10 +53,7 @@ pub async fn run(
         None => crate::find_project_root()?,
     };
 
-    // Ensure daemon is running
-    ensure_daemon_running(&project_root).await?;
-
-    // Connect to daemon
+    // Connect to daemon (will error if not running)
     let client = DaemonClient::connect(&project_root).await?;
 
     let state = Arc::new(AppState {

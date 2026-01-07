@@ -91,9 +91,7 @@ tower-lsp = "0.20"
 
 # roam RPC framework (for daemon architecture)
 roam = { path = "../../../roam/rust/roam" }
-roam-tcp = { path = "../../../roam/rust/roam-tcp" }
-roam-wire = { path = "../../../roam/rust/roam-wire" }
-cobs = "0.3"
+roam-stream = { path = "../../../roam/rust/roam-stream" }
 miette = { version = "7.6.0", default-features = false, features = ["fancy-no-backtrace"] }
 
 [features]

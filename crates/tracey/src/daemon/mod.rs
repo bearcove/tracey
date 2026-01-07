@@ -18,14 +18,12 @@
 //! - Stale socket files are cleaned up on connect failure
 
 pub mod client;
-mod connection;
 pub mod engine;
-mod framing;
 pub mod service;
 
 use eyre::{Result, WrapErr};
 use notify_debouncer_mini::{new_debouncer, notify::RecursiveMode};
-use roam_wire::Hello;
+use roam_stream::{CobsFramed, ConnectionError, Hello, hello_exchange_acceptor};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -33,10 +31,9 @@ use std::time::{Duration, Instant};
 use tokio::net::UnixListener;
 use tracing::{error, info, warn};
 
-use connection::hello_exchange_acceptor;
-use framing::CobsFramedUnix;
+use service::TraceyDaemonDispatcher;
 
-pub use client::{DaemonClient, ensure_daemon_running};
+pub use client::DaemonClient;
 pub use engine::Engine;
 pub use service::TraceyService;
 
@@ -256,29 +253,29 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
                 let last_activity = Arc::clone(&last_activity);
 
                 tokio::spawn(async move {
-                    // Wrap in COBS framing
-                    let io = CobsFramedUnix::new(stream);
+                    // Wrap in COBS framing (roam-stream is generic over any AsyncRead+AsyncWrite)
+                    let io = CobsFramed::new(stream);
+
+                    // Create dispatcher (wraps service with generated dispatch + tracing)
+                    let dispatcher = TraceyDaemonDispatcher::new(service);
 
                     // Perform Hello exchange
                     match hello_exchange_acceptor(io, hello).await {
                         Ok(mut conn) => {
                             info!("Hello exchange completed");
-                            // Run the message loop
-                            if let Err(e) = conn.run(&*service).await {
+                            // Run the message loop with the dispatcher
+                            if let Err(e) = conn.run(&dispatcher).await {
                                 match e {
-                                    connection::ConnectionError::Closed => {
+                                    ConnectionError::Closed => {
                                         info!("Connection closed cleanly");
                                     }
-                                    connection::ConnectionError::ProtocolViolation {
-                                        rule_id,
-                                        ..
-                                    } => {
+                                    ConnectionError::ProtocolViolation { rule_id, .. } => {
                                         warn!("Protocol violation: {}", rule_id);
                                     }
-                                    connection::ConnectionError::Io(e) => {
+                                    ConnectionError::Io(e) => {
                                         error!("IO error: {}", e);
                                     }
-                                    connection::ConnectionError::Dispatch(e) => {
+                                    ConnectionError::Dispatch(e) => {
                                         error!("Dispatch error: {}", e);
                                     }
                                 }

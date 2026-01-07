@@ -15,7 +15,7 @@ use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
-use crate::daemon::{DaemonClient, ensure_daemon_running};
+use crate::daemon::DaemonClient;
 use tracey_api::ApiSpecForward;
 use tracey_proto::*;
 
@@ -42,10 +42,7 @@ pub async fn run(root: Option<PathBuf>, _config_path: Option<PathBuf>) -> Result
         None => crate::find_project_root()?,
     };
 
-    // Ensure daemon is running (or tell user to start it)
-    ensure_daemon_running(&project_root).await?;
-
-    // Connect to daemon
+    // Connect to daemon (will error if not running)
     let mut client = DaemonClient::connect(&project_root).await?;
 
     // Fetch initial data from daemon

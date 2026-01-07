@@ -1082,15 +1082,6 @@ dependencies = [
 
 [[package]]
 name = "cobs"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0fa961b519f0b462e3a3b4a34b64d119eeaca1d59af726fe450bbba07a9fc0a1"
-dependencies = [
- "thiserror 2.0.17",
-]
-
-[[package]]
-name = "cobs"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4ef0193218d365c251b5b9297f9911a908a8ddd2ebd3a36cc5d0ef0f63aee9e"
@@ -3602,10 +3593,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "roam-tcp"
+name = "roam-stream"
 version = "0.5.0"
 dependencies = [
- "cobs 0.5.0",
+ "cobs",
  "facet-postcard",
  "roam-session",
  "roam-wire",
@@ -4560,7 +4551,6 @@ dependencies = [
  "async-trait",
  "axum",
  "blake3",
- "cobs 0.3.0",
  "eyre",
  "facet",
  "facet-args",
@@ -4579,8 +4569,7 @@ dependencies = [
  "owo-colors",
  "roam",
  "roam-codegen",
- "roam-tcp",
- "roam-wire",
+ "roam-stream",
  "rust-mcp-sdk",
  "serde",
  "serde_json",
