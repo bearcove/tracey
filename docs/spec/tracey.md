@@ -291,6 +291,9 @@ When a reference uses a prefix that does not match any configured spec, tracey M
 r[ref.prefix.matching]
 When extracting references from source code, tracey MUST match the prefix against configured specs to determine which spec's requirement namespace to query.
 
+r[ref.prefix.coverage]
+When computing coverage, a reference MUST only be counted as covering a requirement if the reference's prefix matches the spec's configured prefix. References with non-matching prefixes MUST be ignored for that spec's coverage computation.
+
 ## Cross-Workspace Implementation References
 
 r[ref.cross-workspace.paths]
@@ -811,7 +814,10 @@ r[mcp.tool.unmapped-file]
 When zoomed into a specific file, `tracey_unmapped` MUST list individual unmapped code units with line numbers.
 
 r[mcp.tool.req]
-The `tracey_req` tool MUST return the full text of a requirement and all references to it.
+The `tracey_rule` tool MUST return the full text of a requirement and its coverage status across all configured implementations.
+
+r[mcp.tool.req.all-impls]
+When querying a requirement, the response MUST include coverage information for every implementation configured for that spec, showing which implementations have references and which do not.
 
 ### Configuration Tools
 
@@ -1296,38 +1302,10 @@ The server SHOULD support smart selection expansion:
 2. Second expansion: select the full reference including prefix and brackets
 3. Third expansion: select the entire comment or line
 
-### Folding Range
-
-r[lsp.folding.spec-sections]
-The server MAY provide folding ranges for spec file sections, allowing collapsing of heading groups.
-
-r[lsp.folding.blockquote-requirements]
-The server MAY provide folding ranges for multi-line blockquote requirements in spec files.
-
 ### Linked Editing
 
 r[lsp.linked-editing.req-id]
 The server MAY support linked editing ranges, enabling simultaneous editing of requirement IDs when they appear multiple times in the same file.
-
-### Signature Help
-
-r[lsp.signature.verb]
-The server MAY provide signature help when typing verbs, showing the expected format and available verbs.
-
-> r[lsp.signature.verb-format]
-> Example signature help for `r[|`:
-> ```
-> r[<verb> <requirement-id>]
-> Verbs: impl, verify, depends, related
-> ```
-
-### Document Links
-
-r[lsp.doclinks.dashboard]
-The server MAY provide document links for requirement references, making them clickable links to the tracey dashboard.
-
-r[lsp.doclinks.spec-source]
-The server MAY provide document links in hover content, making file paths clickable.
 
 ### Formatting
 

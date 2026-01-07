@@ -399,6 +399,8 @@ impl<'a> QueryEngine<'a> {
     }
 
     /// Get a specific rule by ID
+    // r[impl mcp.tool.req]
+    // r[impl mcp.tool.req.all-impls]
     pub fn rule(&self, rule_id: &str) -> Option<RuleInfo> {
         // Collect coverage from all impls for this rule
         let mut coverage = Vec::new();
