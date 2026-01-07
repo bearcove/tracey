@@ -74,6 +74,7 @@ pub async fn run(
         .route("/api/spec", get(api_spec))
         .route("/api/search", get(api_search))
         .route("/api/status", get(api_status))
+        .route("/api/validate", get(api_validate))
         .with_state(state)
         .layer(
             CorsLayer::new()
@@ -244,6 +245,31 @@ async fn api_status(State(state): State<Arc<AppState>>) -> Response {
     let mut client = state.client.lock().await;
     match client.status().await {
         Ok(status) => Json(status).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
+/// GET /api/validate - Validate spec/impl for errors.
+async fn api_validate(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<ImplQuery>,
+) -> Response {
+    let mut client = state.client.lock().await;
+
+    let config = match client.config().await {
+        Ok(c) => c,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    };
+
+    let (spec, impl_name) = resolve_spec_impl(query.spec, query.impl_name, &config);
+
+    let req = tracey_proto::ValidateRequest {
+        spec: Some(spec),
+        impl_name: Some(impl_name),
+    };
+
+    match client.validate(req).await {
+        Ok(result) => Json(result).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
 }
