@@ -199,6 +199,39 @@ impl Backend {
         self.state.lock().await
     }
 
+    /// Check if a rule ID follows naming conventions.
+    fn is_valid_rule_id(id: &str) -> bool {
+        // Rule IDs should be dot-separated segments
+        // Each segment should be lowercase letters, digits, or hyphens
+        // First character of each segment should be a letter
+        if id.is_empty() {
+            return false;
+        }
+
+        for segment in id.split('.') {
+            if segment.is_empty() {
+                return false;
+            }
+            // Each segment must contain only lowercase letters, digits, or hyphens
+            if !segment
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+            {
+                return false;
+            }
+            // Segment must start with a letter
+            if !segment
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_lowercase())
+            {
+                return false;
+            }
+        }
+
+        true
+    }
+
     /// Compute diagnostics for a document.
     async fn compute_diagnostics(&self, _uri: &Url, content: &str) -> Vec<Diagnostic> {
         use tracey_core::{RefVerb, Reqs, WarningKind};
@@ -244,6 +277,25 @@ impl Backend {
                     ..Default::default()
                 });
                 continue;
+            }
+
+            // For rule definitions, check naming convention
+            if matches!(reference.verb, RefVerb::Define)
+                && !Self::is_valid_rule_id(&reference.req_id)
+            {
+                let start = offset_to_position(reference.span.offset);
+                let end = offset_to_position(reference.span.offset + reference.span.length);
+                diagnostics.push(Diagnostic {
+                    range: Range { start, end },
+                    severity: Some(DiagnosticSeverity::WARNING),
+                    code: Some(NumberOrString::String("invalid-naming".into())),
+                    source: Some("tracey".into()),
+                    message: format!(
+                        "Rule ID '{}' doesn't follow naming convention (use dot-separated lowercase segments)",
+                        reference.req_id
+                    ),
+                    ..Default::default()
+                });
             }
 
             // Check if the rule exists (only for impl/verify/depends/related, not define)
