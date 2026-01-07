@@ -102,6 +102,25 @@ enum Command {
         #[facet(args::named, args::short = 'c', default)]
         config: Option<PathBuf>,
     },
+
+    /// Start HTTP bridge for dashboard (experimental, requires daemon running)
+    ServeBridge {
+        /// Project root directory (default: current directory)
+        #[facet(args::positional, default)]
+        root: Option<PathBuf>,
+
+        /// Path to config file (default: .config/tracey/config.kdl)
+        #[facet(args::named, args::short = 'c', default)]
+        config: Option<PathBuf>,
+
+        /// Port to listen on (default: 3000)
+        #[facet(args::named, args::short = 'p', default)]
+        port: Option<u16>,
+
+        /// Open the dashboard in your browser
+        #[facet(args::named, default)]
+        open: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -147,6 +166,16 @@ fn main() -> Result<()> {
         Some(Command::LspBridge { root, config }) => {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(bridge::lsp::run(root, config))
+        }
+        // r[impl daemon.bridge.http]
+        Some(Command::ServeBridge {
+            root,
+            config,
+            port,
+            open,
+        }) => {
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(bridge::http::run(root, config, port.unwrap_or(3000), open))
         }
         // r[impl cli.no-args]
         None => {
