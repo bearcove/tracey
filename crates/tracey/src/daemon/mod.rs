@@ -26,7 +26,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::UnixListener;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 use connection::hello_exchange_acceptor;
 use framing::CobsFramedUnix;
@@ -82,8 +82,8 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
     // Create service
     let service = Arc::new(TraceyService::new(Arc::clone(&engine)));
 
-    // Set up file watcher
-    let (watcher_tx, mut watcher_rx) = tokio::sync::mpsc::channel::<()>(1);
+    // Set up file watcher - channel sends list of changed files
+    let (watcher_tx, mut watcher_rx) = tokio::sync::mpsc::channel::<Vec<PathBuf>>(16);
 
     // Spawn file watcher in a separate OS thread
     let config_path_for_watcher = config_path.clone();
@@ -109,9 +109,36 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
 
     // Spawn rebuild task that listens for watcher events
     let engine_for_rebuild = Arc::clone(&engine);
+    let project_root_for_rebuild = project_root.clone();
     tokio::spawn(async move {
-        while watcher_rx.recv().await.is_some() {
-            debug!("File watcher triggered rebuild");
+        while let Some(changed_files) = watcher_rx.recv().await {
+            // Log which files triggered the rebuild
+            let relative_paths: Vec<_> = changed_files
+                .iter()
+                .filter_map(|p| p.strip_prefix(&project_root_for_rebuild).ok())
+                .collect();
+            if relative_paths.len() <= 3 {
+                info!(
+                    "File change detected: {}",
+                    relative_paths
+                        .iter()
+                        .map(|p| p.display().to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+            } else {
+                info!(
+                    "File changes detected: {} and {} more",
+                    relative_paths
+                        .iter()
+                        .take(2)
+                        .map(|p| p.display().to_string())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    relative_paths.len() - 2
+                );
+            }
+
             if let Err(e) = engine_for_rebuild.rebuild().await {
                 error!("Rebuild failed: {}", e);
             }
@@ -183,13 +210,24 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
 async fn run_file_watcher(
     project_root: &Path,
     config_path: &Path,
-    tx: tokio::sync::mpsc::Sender<()>,
+    tx: tokio::sync::mpsc::Sender<Vec<PathBuf>>,
 ) -> Result<()> {
+    use notify_debouncer_mini::DebounceEventResult;
+
     let tx_clone = tx.clone();
-    let mut debouncer = new_debouncer(Duration::from_millis(200), move |_events| {
-        // Just send a signal, the rebuild task will handle it
-        let _ = tx_clone.blocking_send(());
-    })?;
+    let mut debouncer = new_debouncer(
+        Duration::from_millis(200),
+        move |events: DebounceEventResult| {
+            // Extract paths from the events
+            let paths: Vec<PathBuf> = match events {
+                Ok(events) => events.into_iter().map(|e| e.path).collect(),
+                Err(_) => vec![],
+            };
+            if !paths.is_empty() {
+                let _ = tx_clone.blocking_send(paths);
+            }
+        },
+    )?;
 
     // Watch project root recursively
     debouncer

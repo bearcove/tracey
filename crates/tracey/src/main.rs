@@ -150,7 +150,9 @@ enum Command {
 }
 
 fn main() -> Result<()> {
-    let args: Args = args::from_std_args().expect("failed to parse arguments");
+    let args: Args = args::from_std_args()
+        .map_err(miette::Report::new)
+        .expect("failed to parse arguments");
 
     match args.command {
         // r[impl cli.web]

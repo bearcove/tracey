@@ -94,6 +94,7 @@ roam = { path = "../../../roam/rust/roam" }
 roam-tcp = { path = "../../../roam/rust/roam-tcp" }
 roam-wire = { path = "../../../roam/rust/roam-wire" }
 cobs = "0.3"
+miette = { version = "7.6.0", default-features = false, features = ["fancy-no-backtrace"] }
 
 [features]
 default = ["search"]

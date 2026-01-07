@@ -4537,6 +4537,7 @@ dependencies = [
  "hyper-util",
  "ignore",
  "marq",
+ "miette",
  "notify",
  "notify-debouncer-mini",
  "open",
