@@ -2,8 +2,7 @@
 //!
 //! This module provides an LSP server that translates LSP protocol to
 //! daemon RPC calls. It connects to the daemon as a client and forwards
-//! VFS operations (didOpen, didChange, didClose) to keep the daemon's
-//! overlay in sync with the editor's state.
+//! all operations to the daemon.
 //!
 //! r[impl daemon.bridge.lsp]
 
@@ -16,7 +15,6 @@ use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 use crate::daemon::DaemonClient;
-use tracey_api::ApiSpecForward;
 use tracey_proto::*;
 
 // Semantic token types for requirement references
@@ -34,7 +32,7 @@ const SEMANTIC_TOKEN_MODIFIERS: &[SemanticTokenModifier] = &[
 /// Run the LSP bridge over stdio.
 ///
 /// This function starts an LSP server that connects to the tracey daemon
-/// for data and VFS operations.
+/// for all operations.
 ///
 /// r[impl lsp.lifecycle.stdio]
 /// r[impl lsp.lifecycle.project-root]
@@ -45,54 +43,21 @@ pub async fn run(root: Option<PathBuf>, _config_path: Option<PathBuf>) -> Result
         None => crate::find_project_root()?,
     };
 
-    // Connect to daemon (will error if not running)
-    let mut client = DaemonClient::connect(&project_root).await?;
-
-    // Fetch initial data from daemon
-    let config = client.config().await?;
-    let mut forward_by_impl = HashMap::new();
-
-    for spec_config in &config.specs {
-        for impl_name in &spec_config.implementations {
-            if let Some(forward) = client
-                .forward(spec_config.name.clone(), impl_name.clone())
-                .await?
-            {
-                forward_by_impl.insert((spec_config.name.clone(), impl_name.clone()), forward);
-            }
-        }
-    }
-
-    // Create initial data cache
-    let initial_data = LspDataCache {
-        forward_by_impl,
-        config,
-    };
-
     // Run LSP server
-    run_lsp_server(initial_data, project_root).await
+    run_lsp_server(project_root).await
 }
 
-/// Cached data from daemon for LSP operations.
-struct LspDataCache {
-    /// Forward traceability data (rules → code references)
-    forward_by_impl: HashMap<(String, String), ApiSpecForward>,
-    /// Configuration
-    config: ApiConfig,
-}
-
-/// Internal: run the LSP server with cached data.
-async fn run_lsp_server(initial_data: LspDataCache, project_root: PathBuf) -> Result<()> {
+/// Internal: run the LSP server.
+async fn run_lsp_server(project_root: PathBuf) -> Result<()> {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
     let (service, socket) = LspService::new(|client| Backend {
         client,
         state: tokio::sync::Mutex::new(LspState {
-            data: initial_data,
             documents: HashMap::new(),
             project_root: project_root.clone(),
-            daemon_client: None, // Will be connected on first VFS operation
+            daemon_client: None,
         }),
     });
     Server::new(stdin, stdout, socket).serve(service).await;
@@ -106,8 +71,6 @@ struct Backend {
 }
 
 struct LspState {
-    /// Cached data from daemon
-    data: LspDataCache,
     /// Document content cache: uri -> content
     documents: HashMap<String, String>,
     /// Project root for resolving paths
@@ -125,53 +88,6 @@ impl LspState {
         Ok(self.daemon_client.as_mut().unwrap())
     }
 
-    /// Get all prefixes from config (for syntax validation).
-    fn get_prefixes(&self) -> Vec<String> {
-        self.data
-            .config
-            .specs
-            .iter()
-            .map(|s| s.prefix.clone())
-            .collect()
-    }
-
-    /// Find rule definition by ID across all specs/impls.
-    fn find_rule(&self, rule_id: &str) -> Option<(&str, &str, &tracey_api::ApiRule)> {
-        for ((spec, impl_name), spec_data) in &self.data.forward_by_impl {
-            for rule in &spec_data.rules {
-                if rule.id == rule_id {
-                    return Some((spec, impl_name, rule));
-                }
-            }
-        }
-        None
-    }
-
-    /// Get completion context (raw content inside r[...] or similar brackets).
-    fn get_completion_context(&self, uri: &Url, position: Position) -> Option<String> {
-        let content = self.documents.get(uri.as_str())?;
-        let lines: Vec<&str> = content.lines().collect();
-        let line = lines.get(position.line as usize)?;
-
-        // Find the bracket context at cursor position
-        let col = position.character as usize;
-        if col > line.len() {
-            return None;
-        }
-
-        // Look backwards for opening bracket
-        let before = &line[..col];
-        let open_pos = before.rfind("r[")?;
-        let after_bracket = &before[open_pos + 2..];
-
-        // Make sure we haven't closed the bracket yet
-        if after_bracket.contains(']') {
-            return None;
-        }
-
-        Some(after_bracket.to_string())
-    }
-
     /// Store document content when opened.
     fn document_opened(&mut self, uri: &Url, content: String) {
         self.documents.insert(uri.to_string(), content);
@@ -180,11 +96,6 @@ impl LspState {
     /// Update document content when changed.
     fn document_changed(&mut self, uri: &Url, content: String) {
         self.documents.insert(uri.to_string(), content);
-    }
-
-    /// Get document content.
-    fn get_document_content(&self, uri: &Url) -> Option<String> {
-        self.documents.get(uri.as_str()).cloned()
     }
 
     /// Remove document when closed.
@@ -199,178 +110,64 @@ impl Backend {
         self.state.lock().await
     }
 
-    /// Check if a rule ID follows naming conventions.
-    fn is_valid_rule_id(id: &str) -> bool {
-        // Rule IDs should be dot-separated segments
-        // Each segment should be lowercase letters, digits, or hyphens
-        // First character of each segment should be a letter
-        if id.is_empty() {
-            return false;
-        }
-
-        for segment in id.split('.') {
-            if segment.is_empty() {
-                return false;
-            }
-            // Each segment must contain only lowercase letters, digits, or hyphens
-            if !segment
-                .chars()
-                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-            {
-                return false;
-            }
-            // Segment must start with a letter
-            if !segment
-                .chars()
-                .next()
-                .is_some_and(|c| c.is_ascii_lowercase())
-            {
-                return false;
-            }
-        }
-
-        true
+    /// Get path and content for a document, for daemon calls.
+    async fn get_path_and_content(&self, uri: &Url) -> Option<(String, String)> {
+        let state = self.state().await;
+        let content = state.documents.get(uri.as_str())?.clone();
+        let path = uri.to_file_path().ok()?.to_string_lossy().into_owned();
+        Some((path, content))
     }
 
-    /// Compute diagnostics for a document.
+    /// Publish diagnostics for a document by calling daemon.
     ///
     /// r[impl lsp.diagnostics.broken-refs]
     /// r[impl lsp.diagnostics.broken-refs-message]
     /// r[impl lsp.diagnostics.unknown-prefix]
     /// r[impl lsp.diagnostics.unknown-prefix-message]
     /// r[impl lsp.diagnostics.unknown-verb]
-    async fn compute_diagnostics(&self, _uri: &Url, content: &str) -> Vec<Diagnostic> {
-        use tracey_core::{RefVerb, Reqs, WarningKind};
-
-        let state = self.state().await;
-        let mut diagnostics = Vec::new();
-        let prefixes = state.get_prefixes();
-
-        // Build line starts for byte offset to line/column conversion
-        let line_starts: Vec<usize> = std::iter::once(0)
-            .chain(content.match_indices('\n').map(|(i, _)| i + 1))
-            .collect();
-
-        // Helper to convert byte offset to (line, column)
-        let offset_to_position = |offset: usize| -> Position {
-            let line = match line_starts.binary_search(&offset) {
-                Ok(line) => line,
-                Err(line) => line.saturating_sub(1),
-            };
-            let line_start = line_starts.get(line).copied().unwrap_or(0);
-            let column = offset.saturating_sub(line_start);
-            Position {
-                line: line as u32,
-                character: column as u32,
-            }
+    async fn publish_diagnostics(&self, uri: Url) {
+        let Some((path, content)) = self.get_path_and_content(&uri).await else {
+            return;
         };
 
-        // Extract references from the content
-        let reqs = Reqs::extract_from_content(std::path::Path::new(""), content);
+        let mut state = self.state().await;
+        let Ok(client) = state.get_daemon_client().await else {
+            return;
+        };
 
-        // Check each reference
-        for reference in &reqs.references {
-            // Check if the prefix is known
-            if !prefixes.contains(&reference.prefix) {
-                let start = offset_to_position(reference.span.offset);
-                let end = offset_to_position(reference.span.offset + reference.span.length);
-                diagnostics.push(Diagnostic {
-                    range: Range { start, end },
-                    severity: Some(DiagnosticSeverity::WARNING),
-                    code: Some(NumberOrString::String("unknown-prefix".into())),
-                    source: Some("tracey".into()),
-                    message: format!("Unknown prefix: {}", reference.prefix),
-                    ..Default::default()
-                });
-                continue;
-            }
+        let req = LspDocumentRequest { path, content };
+        let Ok(daemon_diagnostics) = client.lsp_diagnostics(req).await else {
+            return;
+        };
 
-            // For rule definitions, check naming convention
-            if matches!(reference.verb, RefVerb::Define)
-                && !Self::is_valid_rule_id(&reference.req_id)
-            {
-                let start = offset_to_position(reference.span.offset);
-                let end = offset_to_position(reference.span.offset + reference.span.length);
-                diagnostics.push(Diagnostic {
-                    range: Range { start, end },
-                    severity: Some(DiagnosticSeverity::WARNING),
-                    code: Some(NumberOrString::String("invalid-naming".into())),
-                    source: Some("tracey".into()),
-                    message: format!(
-                        "Rule ID '{}' doesn't follow naming convention (use dot-separated lowercase segments)",
-                        reference.req_id
-                    ),
-                    ..Default::default()
-                });
-            }
+        // Convert daemon diagnostics to LSP diagnostics
+        let diagnostics: Vec<Diagnostic> = daemon_diagnostics
+            .into_iter()
+            .map(|d| Diagnostic {
+                range: Range {
+                    start: Position {
+                        line: d.start_line,
+                        character: d.start_char,
+                    },
+                    end: Position {
+                        line: d.end_line,
+                        character: d.end_char,
+                    },
+                },
+                severity: Some(match d.severity.as_str() {
+                    "error" => DiagnosticSeverity::ERROR,
+                    "warning" => DiagnosticSeverity::WARNING,
+                    "info" => DiagnosticSeverity::INFORMATION,
+                    _ => DiagnosticSeverity::HINT,
+                }),
+                code: Some(NumberOrString::String(d.code)),
+                source: Some("tracey".into()),
+                message: d.message,
+                ..Default::default()
+            })
+            .collect();
 
-            // Check if the rule exists (only for impl/verify/depends/related, not define)
-            if !matches!(reference.verb, RefVerb::Define)
-                && state.find_rule(&reference.req_id).is_none()
-            {
-                let start = offset_to_position(reference.span.offset);
-                let end = offset_to_position(reference.span.offset + reference.span.length);
-
-                let suggestion = suggest_similar_rules(&state, &reference.req_id);
-                let suggestion_text = if suggestion.is_empty() {
-                    String::new()
-                } else {
-                    format!(". Did you mean '{}'?", suggestion)
-                };
-
-                diagnostics.push(Diagnostic {
-                    range: Range { start, end },
-                    severity: Some(DiagnosticSeverity::ERROR),
-                    code: Some(NumberOrString::String("broken-ref".into())),
-                    source: Some("tracey".into()),
-                    message: format!(
-                        "Unknown requirement '{}'{}",
-                        reference.req_id, suggestion_text
-                    ),
-                    ..Default::default()
-                });
-            }
-        }
-
-        // Add warnings from the extraction (unknown verbs, malformed refs)
-        for warning in &reqs.warnings {
-            match &warning.kind {
-                WarningKind::UnknownVerb(v) => {
-                    let start = offset_to_position(warning.span.offset);
-                    let end = offset_to_position(warning.span.offset + warning.span.length);
-                    diagnostics.push(Diagnostic {
-                        range: Range { start, end },
-                        severity: Some(DiagnosticSeverity::WARNING),
-                        code: Some(NumberOrString::String("unknown-verb".into())),
-                        source: Some("tracey".into()),
-                        message: format!(
-                            "Unknown verb '{}'. Valid verbs: impl, verify, depends, related",
-                            v
-                        ),
-                        ..Default::default()
-                    });
-                }
-                WarningKind::MalformedReference => {
-                    let start = offset_to_position(warning.span.offset);
-                    let end = offset_to_position(warning.span.offset + warning.span.length);
-                    diagnostics.push(Diagnostic {
-                        range: Range { start, end },
-                        severity: Some(DiagnosticSeverity::WARNING),
-                        code: Some(NumberOrString::String("malformed-ref".into())),
-                        source: Some("tracey".into()),
-                        message: "Malformed reference".to_string(),
-                        ..Default::default()
-                    });
-                }
-            }
-        }
-
-        diagnostics
-    }
-
-    /// Publish diagnostics for a document.
-    async fn publish_diagnostics(&self, uri: Url, content: &str) {
-        let diagnostics = self.compute_diagnostics(&uri, content).await;
+        drop(state); // Release lock before async call
         self.client
             .publish_diagnostics(uri, diagnostics, None)
             .await;
@@ -411,61 +208,6 @@ impl Backend {
     }
 }
 
-/// Find similar rule IDs for suggestions.
-fn suggest_similar_rules(state: &LspState, rule_id: &str) -> String {
-    let mut suggestions: Vec<(usize, &str)> = Vec::new();
-
-    for spec_data in state.data.forward_by_impl.values() {
-        for rule in &spec_data.rules {
-            let distance = levenshtein_distance(rule_id, &rule.id);
-            if distance <= 3 {
-                suggestions.push((distance, &rule.id));
-            }
-        }
-    }
-
-    suggestions.sort_by_key(|(d, _)| *d);
-    suggestions
-        .into_iter()
-        .take(3)
-        .map(|(_, id)| id)
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-/// Simple Levenshtein distance for string similarity.
-fn levenshtein_distance(a: &str, b: &str) -> usize {
-    let a_chars: Vec<char> = a.chars().collect();
-    let b_chars: Vec<char> = b.chars().collect();
-    let m = a_chars.len();
-    let n = b_chars.len();
-
-    if m == 0 {
-        return n;
-    }
-    if n == 0 {
-        return m;
-    }
-
-    let mut prev = (0..=n).collect::<Vec<_>>();
-    let mut curr = vec![0; n + 1];
-
-    for i in 1..=m {
-        curr[0] = i;
-        for j in 1..=n {
-            let cost = if a_chars[i - 1] == b_chars[j - 1] {
-                0
-            } else {
-                1
-            };
-            curr[j] = (prev[j] + 1).min(curr[j - 1] + 1).min(prev[j - 1] + cost);
-        }
-        std::mem::swap(&mut prev, &mut curr);
-    }
-
-    prev[n]
-}
-
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
     /// r[impl lsp.lifecycle.initialize]
@@ -482,6 +224,20 @@ impl LanguageServer for Backend {
                 }),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 definition_provider: Some(OneOf::Left(true)),
+                implementation_provider: Some(ImplementationProviderCapability::Simple(true)),
+                references_provider: Some(OneOf::Left(true)),
+                document_highlight_provider: Some(OneOf::Left(true)),
+                document_symbol_provider: Some(OneOf::Left(true)),
+                workspace_symbol_provider: Some(OneOf::Left(true)),
+                code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
+                code_lens_provider: Some(CodeLensOptions {
+                    resolve_provider: Some(false),
+                }),
+                inlay_hint_provider: Some(OneOf::Left(true)),
+                rename_provider: Some(OneOf::Right(RenameOptions {
+                    prepare_provider: Some(true),
+                    work_done_progress_options: Default::default(),
+                })),
                 semantic_tokens_provider: Some(
                     SemanticTokensServerCapabilities::SemanticTokensOptions(
                         SemanticTokensOptions {
@@ -515,7 +271,7 @@ impl LanguageServer for Backend {
         let content = params.text_document.text.clone();
         self.state().await.document_opened(&uri, content.clone());
         self.notify_vfs_open(&uri, &content).await;
-        self.publish_diagnostics(uri, &content).await;
+        self.publish_diagnostics(uri).await;
     }
 
     /// r[impl lsp.diagnostics.on-change]
@@ -525,17 +281,14 @@ impl LanguageServer for Backend {
             let content = change.text.clone();
             self.state().await.document_changed(&uri, content.clone());
             self.notify_vfs_change(&uri, &content).await;
-            self.publish_diagnostics(uri, &content).await;
+            self.publish_diagnostics(uri).await;
         }
     }
 
     /// r[impl lsp.diagnostics.on-save]
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         let uri = params.text_document.uri.clone();
-        let content = self.state().await.get_document_content(&uri);
-        if let Some(content) = content {
-            self.publish_diagnostics(uri, &content).await;
-        }
+        self.publish_diagnostics(uri).await;
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
@@ -550,65 +303,44 @@ impl LanguageServer for Backend {
     /// r[impl lsp.completions.req-id-fuzzy]
     /// r[impl lsp.completions.req-id-preview]
     async fn completion(&self, params: CompletionParams) -> LspResult<Option<CompletionResponse>> {
-        let state = self.state().await;
         let uri = &params.text_document_position.text_document.uri;
         let position = params.text_document_position.position;
 
-        let Some(raw) = state.get_completion_context(uri, position) else {
+        let Some((path, content)) = self.get_path_and_content(uri).await else {
             return Ok(None);
         };
 
-        let verbs = ["impl", "verify", "depends", "related"];
-
-        // Check if user is typing a verb (no space yet)
-        let is_typing_verb = verbs.iter().any(|v| v.starts_with(&raw) || raw == *v);
-
-        // Offer verb completions
-        if is_typing_verb && !raw.contains(' ') {
-            let items: Vec<CompletionItem> = verbs
-                .iter()
-                .filter(|v| v.starts_with(&raw))
-                .map(|v| CompletionItem {
-                    label: v.to_string(),
-                    kind: Some(CompletionItemKind::KEYWORD),
-                    detail: Some(format!("{} reference", v)),
-                    insert_text: Some(format!("{} ", v)),
-                    ..Default::default()
-                })
-                .collect();
-            if !items.is_empty() {
-                return Ok(Some(CompletionResponse::Array(items)));
-            }
-        }
-
-        // Extract requirement prefix (after verb if present)
-        let req_prefix = if let Some(space_pos) = raw.find(' ') {
-            &raw[space_pos + 1..]
-        } else if !is_typing_verb {
-            raw.as_str()
-        } else {
-            ""
+        let mut state = self.state().await;
+        let Ok(client) = state.get_daemon_client().await else {
+            return Ok(None);
         };
 
-        // Suggest rule IDs
-        let mut items: Vec<CompletionItem> = Vec::new();
-        for spec_data in state.data.forward_by_impl.values() {
-            for rule in &spec_data.rules {
-                if rule.id.starts_with(req_prefix) || req_prefix.is_empty() {
-                    items.push(CompletionItem {
-                        label: rule.id.clone(),
-                        kind: Some(CompletionItemKind::CONSTANT),
-                        detail: Some(truncate_text(&rule.text, 60)),
-                        documentation: Some(Documentation::String(rule.text.clone())),
-                        ..Default::default()
-                    });
-                }
-            }
-        }
+        let req = LspPositionRequest {
+            path,
+            content,
+            line: position.line,
+            character: position.character,
+        };
 
-        // Limit and sort
-        items.sort_by(|a, b| a.label.cmp(&b.label));
-        items.truncate(50);
+        let Ok(completions) = client.lsp_completions(req).await else {
+            return Ok(None);
+        };
+
+        let items: Vec<CompletionItem> = completions
+            .into_iter()
+            .map(|c| CompletionItem {
+                label: c.label,
+                kind: Some(match c.kind.as_str() {
+                    "verb" => CompletionItemKind::KEYWORD,
+                    "rule" => CompletionItemKind::CONSTANT,
+                    _ => CompletionItemKind::TEXT,
+                }),
+                detail: c.detail,
+                documentation: c.documentation.map(Documentation::String),
+                insert_text: c.insert_text,
+                ..Default::default()
+            })
+            .collect();
 
         if items.is_empty() {
             Ok(None)
@@ -620,65 +352,56 @@ impl LanguageServer for Backend {
     /// r[impl lsp.hover.req-reference]
     /// r[impl lsp.hover.req-reference-format]
     async fn hover(&self, params: HoverParams) -> LspResult<Option<Hover>> {
-        let state = self.state().await;
         let uri = &params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
 
-        // Get document content
-        let Some(content) = state.documents.get(uri.as_str()) else {
+        let Some((path, content)) = self.get_path_and_content(uri).await else {
             return Ok(None);
         };
 
-        // Find requirement reference at position
-        let reqs = tracey_core::Reqs::extract_from_content(std::path::Path::new(""), content);
-        let line_starts: Vec<usize> = std::iter::once(0)
-            .chain(content.match_indices('\n').map(|(i, _)| i + 1))
-            .collect();
+        let mut state = self.state().await;
+        let Ok(client) = state.get_daemon_client().await else {
+            return Ok(None);
+        };
 
-        for reference in &reqs.references {
-            let ref_line = match line_starts.binary_search(&reference.span.offset) {
-                Ok(line) => line,
-                Err(line) => line.saturating_sub(1),
-            };
+        let req = LspPositionRequest {
+            path,
+            content,
+            line: position.line,
+            character: position.character,
+        };
 
-            if ref_line as u32 != position.line {
-                continue;
-            }
+        let Ok(Some(info)) = client.lsp_hover(req).await else {
+            return Ok(None);
+        };
 
-            let line_start = line_starts.get(ref_line).copied().unwrap_or(0);
-            let ref_col_start = reference.span.offset.saturating_sub(line_start) as u32;
-            let ref_col_end = ref_col_start + reference.span.length as u32;
-
-            if position.character >= ref_col_start && position.character <= ref_col_end {
-                // Found reference at cursor, show rule info
-                if let Some((_, _, rule)) = state.find_rule(&reference.req_id) {
-                    let markdown = format!(
-                        "## {}\n\n{}\n\n*Verb: {}*",
-                        rule.id,
-                        rule.text,
-                        reference.verb.as_str()
-                    );
-                    return Ok(Some(Hover {
-                        contents: HoverContents::Markup(MarkupContent {
-                            kind: MarkupKind::Markdown,
-                            value: markdown,
-                        }),
-                        range: Some(Range {
-                            start: Position {
-                                line: position.line,
-                                character: ref_col_start,
-                            },
-                            end: Position {
-                                line: position.line,
-                                character: ref_col_end,
-                            },
-                        }),
-                    }));
-                }
-            }
+        // Format hover with spec info
+        let mut markdown = format!("## {}\n\n{}", info.rule_id, info.text);
+        markdown.push_str(&format!("\n\n**Spec:** {}", info.spec_name));
+        if let Some(url) = &info.spec_url {
+            markdown.push_str(&format!(" ([source]({}))", url));
         }
+        markdown.push_str(&format!(
+            "\n\n*{} impl, {} verify*",
+            info.impl_count, info.verify_count
+        ));
 
-        Ok(None)
+        Ok(Some(Hover {
+            contents: HoverContents::Markup(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: markdown,
+            }),
+            range: Some(Range {
+                start: Position {
+                    line: info.range_start_line,
+                    character: info.range_start_char,
+                },
+                end: Position {
+                    line: info.range_end_line,
+                    character: info.range_end_char,
+                },
+            }),
+        }))
     }
 
     /// r[impl lsp.goto.ref-to-def]
@@ -687,64 +410,573 @@ impl LanguageServer for Backend {
         &self,
         params: GotoDefinitionParams,
     ) -> LspResult<Option<GotoDefinitionResponse>> {
-        let state = self.state().await;
         let uri = &params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
 
-        // Get document content
-        let Some(content) = state.documents.get(uri.as_str()) else {
+        let Some((path, content)) = self.get_path_and_content(uri).await else {
             return Ok(None);
         };
 
-        // Find requirement reference at position
-        let reqs = tracey_core::Reqs::extract_from_content(std::path::Path::new(""), content);
-        let line_starts: Vec<usize> = std::iter::once(0)
-            .chain(content.match_indices('\n').map(|(i, _)| i + 1))
-            .collect();
+        let project_root = self.state().await.project_root.clone();
 
-        for reference in &reqs.references {
-            let ref_line = match line_starts.binary_search(&reference.span.offset) {
-                Ok(line) => line,
-                Err(line) => line.saturating_sub(1),
-            };
+        let mut state = self.state().await;
+        let Ok(client) = state.get_daemon_client().await else {
+            return Ok(None);
+        };
 
-            if ref_line as u32 != position.line {
-                continue;
-            }
+        let req = LspPositionRequest {
+            path,
+            content,
+            line: position.line,
+            character: position.character,
+        };
 
-            let line_start = line_starts.get(ref_line).copied().unwrap_or(0);
-            let ref_col_start = reference.span.offset.saturating_sub(line_start) as u32;
-            let ref_col_end = ref_col_start + reference.span.length as u32;
+        let Ok(locations) = client.lsp_definition(req).await else {
+            return Ok(None);
+        };
 
-            if position.character >= ref_col_start && position.character <= ref_col_end {
-                // Found reference at cursor, jump to definition
-                if let Some((_, _, rule)) = state.find_rule(&reference.req_id)
-                    && let (Some(file), Some(line)) = (&rule.source_file, rule.source_line)
-                {
-                    let def_uri =
-                        Url::from_file_path(state.project_root.join(file.trim_start_matches("./")))
-                            .map_err(|_| {
-                                tower_lsp::jsonrpc::Error::invalid_params("Invalid file path")
-                            })?;
-
-                    return Ok(Some(GotoDefinitionResponse::Scalar(Location {
-                        uri: def_uri,
-                        range: Range {
-                            start: Position {
-                                line: line.saturating_sub(1) as u32,
-                                character: 0,
-                            },
-                            end: Position {
-                                line: line.saturating_sub(1) as u32,
-                                character: 0,
-                            },
-                        },
-                    })));
-                }
-            }
+        if locations.is_empty() {
+            return Ok(None);
         }
 
-        Ok(None)
+        let loc = &locations[0];
+        let def_uri = Url::from_file_path(project_root.join(&loc.path))
+            .map_err(|_| tower_lsp::jsonrpc::Error::invalid_params("Invalid file path"))?;
+
+        Ok(Some(GotoDefinitionResponse::Scalar(Location {
+            uri: def_uri,
+            range: Range {
+                start: Position {
+                    line: loc.line,
+                    character: loc.character,
+                },
+                end: Position {
+                    line: loc.line,
+                    character: loc.character,
+                },
+            },
+        })))
+    }
+
+    /// r[impl lsp.goto.def-to-impl]
+    async fn goto_implementation(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> LspResult<Option<GotoDefinitionResponse>> {
+        let uri = &params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+
+        let Some((path, content)) = self.get_path_and_content(uri).await else {
+            return Ok(None);
+        };
+
+        let project_root = self.state().await.project_root.clone();
+
+        let mut state = self.state().await;
+        let Ok(client) = state.get_daemon_client().await else {
+            return Ok(None);
+        };
+
+        let req = LspPositionRequest {
+            path,
+            content,
+            line: position.line,
+            character: position.character,
+        };
+
+        let Ok(locations) = client.lsp_implementation(req).await else {
+            return Ok(None);
+        };
+
+        if locations.is_empty() {
+            return Ok(None);
+        }
+
+        let lsp_locations: Vec<Location> = locations
+            .into_iter()
+            .filter_map(|loc| {
+                let uri = Url::from_file_path(project_root.join(&loc.path)).ok()?;
+                Some(Location {
+                    uri,
+                    range: Range {
+                        start: Position {
+                            line: loc.line,
+                            character: loc.character,
+                        },
+                        end: Position {
+                            line: loc.line,
+                            character: loc.character,
+                        },
+                    },
+                })
+            })
+            .collect();
+
+        Ok(Some(GotoDefinitionResponse::Array(lsp_locations)))
+    }
+
+    async fn references(&self, params: ReferenceParams) -> LspResult<Option<Vec<Location>>> {
+        let uri = &params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+
+        let Some((path, content)) = self.get_path_and_content(uri).await else {
+            return Ok(None);
+        };
+
+        let project_root = self.state().await.project_root.clone();
+
+        let mut state = self.state().await;
+        let Ok(client) = state.get_daemon_client().await else {
+            return Ok(None);
+        };
+
+        let req = LspReferencesRequest {
+            path,
+            content,
+            line: position.line,
+            character: position.character,
+            include_declaration: params.context.include_declaration,
+        };
+
+        let Ok(locations) = client.lsp_references(req).await else {
+            return Ok(None);
+        };
+
+        if locations.is_empty() {
+            return Ok(None);
+        }
+
+        let lsp_locations: Vec<Location> = locations
+            .into_iter()
+            .filter_map(|loc| {
+                let uri = Url::from_file_path(project_root.join(&loc.path)).ok()?;
+                Some(Location {
+                    uri,
+                    range: Range {
+                        start: Position {
+                            line: loc.line,
+                            character: loc.character,
+                        },
+                        end: Position {
+                            line: loc.line,
+                            character: loc.character,
+                        },
+                    },
+                })
+            })
+            .collect();
+
+        Ok(Some(lsp_locations))
+    }
+
+    async fn document_highlight(
+        &self,
+        params: DocumentHighlightParams,
+    ) -> LspResult<Option<Vec<DocumentHighlight>>> {
+        let uri = &params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+
+        let Some((path, content)) = self.get_path_and_content(uri).await else {
+            return Ok(None);
+        };
+
+        let mut state = self.state().await;
+        let Ok(client) = state.get_daemon_client().await else {
+            return Ok(None);
+        };
+
+        let req = LspPositionRequest {
+            path,
+            content,
+            line: position.line,
+            character: position.character,
+        };
+
+        let Ok(locations) = client.lsp_document_highlight(req).await else {
+            return Ok(None);
+        };
+
+        if locations.is_empty() {
+            return Ok(None);
+        }
+
+        let highlights: Vec<DocumentHighlight> = locations
+            .into_iter()
+            .map(|loc| DocumentHighlight {
+                range: Range {
+                    start: Position {
+                        line: loc.line,
+                        character: loc.character,
+                    },
+                    end: Position {
+                        line: loc.line,
+                        character: loc.character + 10, // Approximate length
+                    },
+                },
+                kind: Some(DocumentHighlightKind::READ),
+            })
+            .collect();
+
+        Ok(Some(highlights))
+    }
+
+    async fn document_symbol(
+        &self,
+        params: DocumentSymbolParams,
+    ) -> LspResult<Option<DocumentSymbolResponse>> {
+        let uri = &params.text_document.uri;
+
+        let Some((path, content)) = self.get_path_and_content(uri).await else {
+            return Ok(None);
+        };
+
+        let mut state = self.state().await;
+        let Ok(client) = state.get_daemon_client().await else {
+            return Ok(None);
+        };
+
+        let req = LspDocumentRequest { path, content };
+
+        let Ok(symbols) = client.lsp_document_symbols(req).await else {
+            return Ok(None);
+        };
+
+        if symbols.is_empty() {
+            return Ok(None);
+        }
+
+        let lsp_symbols: Vec<SymbolInformation> = symbols
+            .into_iter()
+            .map(|s| {
+                #[allow(deprecated)]
+                SymbolInformation {
+                    name: s.name,
+                    kind: SymbolKind::CONSTANT,
+                    tags: None,
+                    deprecated: None,
+                    location: Location {
+                        uri: uri.clone(),
+                        range: Range {
+                            start: Position {
+                                line: s.start_line,
+                                character: s.start_char,
+                            },
+                            end: Position {
+                                line: s.end_line,
+                                character: s.end_char,
+                            },
+                        },
+                    },
+                    container_name: Some(s.kind),
+                }
+            })
+            .collect();
+
+        Ok(Some(DocumentSymbolResponse::Flat(lsp_symbols)))
+    }
+
+    async fn symbol(
+        &self,
+        params: WorkspaceSymbolParams,
+    ) -> LspResult<Option<Vec<SymbolInformation>>> {
+        let project_root = self.state().await.project_root.clone();
+
+        let mut state = self.state().await;
+        let Ok(client) = state.get_daemon_client().await else {
+            return Ok(None);
+        };
+
+        let Ok(symbols) = client.lsp_workspace_symbols(params.query).await else {
+            return Ok(None);
+        };
+
+        if symbols.is_empty() {
+            return Ok(None);
+        }
+
+        let lsp_symbols: Vec<SymbolInformation> = symbols
+            .into_iter()
+            .filter_map(|s| {
+                // Try to construct a URI for the symbol
+                let uri = Url::from_file_path(project_root.join("docs/spec")).ok()?;
+                #[allow(deprecated)]
+                Some(SymbolInformation {
+                    name: s.name,
+                    kind: SymbolKind::CONSTANT,
+                    tags: None,
+                    deprecated: None,
+                    location: Location {
+                        uri,
+                        range: Range {
+                            start: Position {
+                                line: s.start_line,
+                                character: s.start_char,
+                            },
+                            end: Position {
+                                line: s.end_line,
+                                character: s.end_char,
+                            },
+                        },
+                    },
+                    container_name: Some(s.kind),
+                })
+            })
+            .collect();
+
+        Ok(Some(lsp_symbols))
+    }
+
+    async fn code_action(&self, params: CodeActionParams) -> LspResult<Option<CodeActionResponse>> {
+        let uri = &params.text_document.uri;
+        let position = params.range.start;
+
+        let Some((path, content)) = self.get_path_and_content(uri).await else {
+            return Ok(None);
+        };
+
+        let mut state = self.state().await;
+        let Ok(client) = state.get_daemon_client().await else {
+            return Ok(None);
+        };
+
+        let req = LspPositionRequest {
+            path,
+            content,
+            line: position.line,
+            character: position.character,
+        };
+
+        let Ok(actions) = client.lsp_code_actions(req).await else {
+            return Ok(None);
+        };
+
+        if actions.is_empty() {
+            return Ok(None);
+        }
+
+        let lsp_actions: Vec<CodeActionOrCommand> = actions
+            .into_iter()
+            .map(|a| {
+                CodeActionOrCommand::CodeAction(CodeAction {
+                    title: a.title,
+                    kind: Some(a.kind.into()),
+                    is_preferred: Some(a.is_preferred),
+                    command: Some(Command {
+                        title: String::new(),
+                        command: a.command,
+                        arguments: Some(
+                            a.arguments
+                                .into_iter()
+                                .map(serde_json::Value::String)
+                                .collect(),
+                        ),
+                    }),
+                    ..Default::default()
+                })
+            })
+            .collect();
+
+        Ok(Some(lsp_actions))
+    }
+
+    async fn code_lens(&self, params: CodeLensParams) -> LspResult<Option<Vec<CodeLens>>> {
+        let uri = &params.text_document.uri;
+
+        let Some((path, content)) = self.get_path_and_content(uri).await else {
+            return Ok(None);
+        };
+
+        let mut state = self.state().await;
+        let Ok(client) = state.get_daemon_client().await else {
+            return Ok(None);
+        };
+
+        let req = LspDocumentRequest { path, content };
+
+        let Ok(lenses) = client.lsp_code_lens(req).await else {
+            return Ok(None);
+        };
+
+        if lenses.is_empty() {
+            return Ok(None);
+        }
+
+        let lsp_lenses: Vec<CodeLens> = lenses
+            .into_iter()
+            .map(|l| CodeLens {
+                range: Range {
+                    start: Position {
+                        line: l.line,
+                        character: l.start_char,
+                    },
+                    end: Position {
+                        line: l.line,
+                        character: l.end_char,
+                    },
+                },
+                command: Some(Command {
+                    title: l.title,
+                    command: l.command,
+                    arguments: Some(
+                        l.arguments
+                            .into_iter()
+                            .map(serde_json::Value::String)
+                            .collect(),
+                    ),
+                }),
+                data: None,
+            })
+            .collect();
+
+        Ok(Some(lsp_lenses))
+    }
+
+    async fn inlay_hint(&self, params: InlayHintParams) -> LspResult<Option<Vec<InlayHint>>> {
+        let uri = &params.text_document.uri;
+
+        let Some((path, content)) = self.get_path_and_content(uri).await else {
+            return Ok(None);
+        };
+
+        let mut state = self.state().await;
+        let Ok(client) = state.get_daemon_client().await else {
+            return Ok(None);
+        };
+
+        let req = InlayHintsRequest {
+            path,
+            content,
+            start_line: params.range.start.line,
+            end_line: params.range.end.line,
+        };
+
+        let Ok(hints) = client.lsp_inlay_hints(req).await else {
+            return Ok(None);
+        };
+
+        if hints.is_empty() {
+            return Ok(None);
+        }
+
+        let lsp_hints: Vec<InlayHint> = hints
+            .into_iter()
+            .map(|h| InlayHint {
+                position: Position {
+                    line: h.line,
+                    character: h.character,
+                },
+                label: InlayHintLabel::String(h.label),
+                kind: Some(InlayHintKind::TYPE),
+                text_edits: None,
+                tooltip: None,
+                padding_left: Some(true),
+                padding_right: None,
+                data: None,
+            })
+            .collect();
+
+        Ok(Some(lsp_hints))
+    }
+
+    async fn prepare_rename(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> LspResult<Option<PrepareRenameResponse>> {
+        let uri = &params.text_document.uri;
+        let position = params.position;
+
+        let Some((path, content)) = self.get_path_and_content(uri).await else {
+            return Ok(None);
+        };
+
+        let mut state = self.state().await;
+        let Ok(client) = state.get_daemon_client().await else {
+            return Ok(None);
+        };
+
+        let req = LspPositionRequest {
+            path,
+            content,
+            line: position.line,
+            character: position.character,
+        };
+
+        let Ok(Some(result)) = client.lsp_prepare_rename(req).await else {
+            return Ok(None);
+        };
+
+        Ok(Some(PrepareRenameResponse::RangeWithPlaceholder {
+            range: Range {
+                start: Position {
+                    line: result.start_line,
+                    character: result.start_char,
+                },
+                end: Position {
+                    line: result.end_line,
+                    character: result.end_char,
+                },
+            },
+            placeholder: result.placeholder,
+        }))
+    }
+
+    async fn rename(&self, params: RenameParams) -> LspResult<Option<WorkspaceEdit>> {
+        let uri = &params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+
+        let Some((path, content)) = self.get_path_and_content(uri).await else {
+            return Ok(None);
+        };
+
+        let project_root = self.state().await.project_root.clone();
+
+        let mut state = self.state().await;
+        let Ok(client) = state.get_daemon_client().await else {
+            return Ok(None);
+        };
+
+        let req = LspRenameRequest {
+            path,
+            content,
+            line: position.line,
+            character: position.character,
+            new_name: params.new_name,
+        };
+
+        let Ok(edits) = client.lsp_rename(req).await else {
+            return Ok(None);
+        };
+
+        if edits.is_empty() {
+            return Ok(None);
+        }
+
+        // Group edits by file
+        let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
+        for edit in edits {
+            let uri = match Url::from_file_path(project_root.join(&edit.path)) {
+                Ok(u) => u,
+                Err(_) => continue,
+            };
+            changes.entry(uri).or_default().push(TextEdit {
+                range: Range {
+                    start: Position {
+                        line: edit.start_line,
+                        character: edit.start_char,
+                    },
+                    end: Position {
+                        line: edit.end_line,
+                        character: edit.end_char,
+                    },
+                },
+                new_text: edit.new_text,
+            });
+        }
+
+        Ok(Some(WorkspaceEdit {
+            changes: Some(changes),
+            ..Default::default()
+        }))
     }
 
     /// r[impl lsp.semantic-tokens.req-id]
@@ -752,63 +984,55 @@ impl LanguageServer for Backend {
         &self,
         params: SemanticTokensParams,
     ) -> LspResult<Option<SemanticTokensResult>> {
-        let state = self.state().await;
         let uri = &params.text_document.uri;
 
-        let Some(content) = state.documents.get(uri.as_str()) else {
+        let Some((path, content)) = self.get_path_and_content(uri).await else {
             return Ok(None);
         };
 
-        let reqs = tracey_core::Reqs::extract_from_content(std::path::Path::new(""), content);
-        let line_starts: Vec<usize> = std::iter::once(0)
-            .chain(content.match_indices('\n').map(|(i, _)| i + 1))
-            .collect();
+        let mut state = self.state().await;
+        let Ok(client) = state.get_daemon_client().await else {
+            return Ok(None);
+        };
 
-        let mut tokens: Vec<SemanticToken> = Vec::new();
+        let req = LspDocumentRequest { path, content };
+
+        let Ok(tokens) = client.lsp_semantic_tokens(req).await else {
+            return Ok(None);
+        };
+
+        if tokens.is_empty() {
+            return Ok(None);
+        }
+
+        // Convert to delta format
         let mut prev_line = 0u32;
         let mut prev_char = 0u32;
+        let mut lsp_tokens = Vec::new();
 
-        for reference in &reqs.references {
-            let line = match line_starts.binary_search(&reference.span.offset) {
-                Ok(l) => l,
-                Err(l) => l.saturating_sub(1),
-            };
-            let line_start = line_starts.get(line).copied().unwrap_or(0);
-            let col = reference.span.offset.saturating_sub(line_start);
-
-            let delta_line = line as u32 - prev_line;
+        for token in tokens {
+            let delta_line = token.line - prev_line;
             let delta_start = if delta_line == 0 {
-                col as u32 - prev_char
+                token.start_char - prev_char
             } else {
-                col as u32
+                token.start_char
             };
 
-            // Token for the entire reference
-            let is_valid = state.find_rule(&reference.req_id).is_some();
-            tokens.push(SemanticToken {
+            lsp_tokens.push(SemanticToken {
                 delta_line,
                 delta_start,
-                length: reference.span.length as u32,
-                token_type: 2, // VARIABLE for requirement ID
-                token_modifiers_bitset: if is_valid { 2 } else { 0 }, // DECLARATION if valid
+                length: token.length,
+                token_type: token.token_type,
+                token_modifiers_bitset: token.modifiers,
             });
 
-            prev_line = line as u32;
-            prev_char = col as u32;
+            prev_line = token.line;
+            prev_char = token.start_char;
         }
 
         Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
             result_id: None,
-            data: tokens,
+            data: lsp_tokens,
         })))
-    }
-}
-
-/// Truncate text to a maximum length.
-fn truncate_text(text: &str, max_len: usize) -> String {
-    if text.len() <= max_len {
-        text.to_string()
-    } else {
-        format!("{}...", &text[..max_len.saturating_sub(3)])
     }
 }

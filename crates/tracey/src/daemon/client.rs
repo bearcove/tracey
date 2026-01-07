@@ -249,4 +249,137 @@ impl DaemonClient {
         let ids = tracey_daemon_method_ids();
         self.call(ids.validate, &(req,)).await
     }
+
+    // === LSP Support Methods ===
+
+    /// Get hover info for a position in a file
+    pub async fn lsp_hover(&mut self, req: LspPositionRequest) -> Result<Option<HoverInfo>> {
+        let ids = tracey_daemon_method_ids();
+        self.call(ids.lsp_hover, &(req,)).await
+    }
+
+    /// Get definition location for a reference at a position
+    pub async fn lsp_definition(&mut self, req: LspPositionRequest) -> Result<Vec<LspLocation>> {
+        let ids = tracey_daemon_method_ids();
+        self.call(ids.lsp_definition, &(req,)).await
+    }
+
+    /// Get implementation locations for a reference at a position
+    pub async fn lsp_implementation(
+        &mut self,
+        req: LspPositionRequest,
+    ) -> Result<Vec<LspLocation>> {
+        let ids = tracey_daemon_method_ids();
+        self.call(ids.lsp_implementation, &(req,)).await
+    }
+
+    /// Get all references to a requirement
+    pub async fn lsp_references(&mut self, req: LspReferencesRequest) -> Result<Vec<LspLocation>> {
+        let ids = tracey_daemon_method_ids();
+        self.call(ids.lsp_references, &(req,)).await
+    }
+
+    /// Get completions for a position
+    pub async fn lsp_completions(
+        &mut self,
+        req: LspPositionRequest,
+    ) -> Result<Vec<LspCompletionItem>> {
+        let ids = tracey_daemon_method_ids();
+        self.call(ids.lsp_completions, &(req,)).await
+    }
+
+    /// Get diagnostics for a file
+    pub async fn lsp_diagnostics(&mut self, req: LspDocumentRequest) -> Result<Vec<LspDiagnostic>> {
+        let ids = tracey_daemon_method_ids();
+        self.call(ids.lsp_diagnostics, &(req,)).await
+    }
+
+    /// Get document symbols (requirement references) in a file
+    pub async fn lsp_document_symbols(
+        &mut self,
+        req: LspDocumentRequest,
+    ) -> Result<Vec<LspSymbol>> {
+        let ids = tracey_daemon_method_ids();
+        self.call(ids.lsp_document_symbols, &(req,)).await
+    }
+
+    /// Search workspace for requirement IDs
+    pub async fn lsp_workspace_symbols(&mut self, query: String) -> Result<Vec<LspSymbol>> {
+        let ids = tracey_daemon_method_ids();
+        self.call(ids.lsp_workspace_symbols, &(query,)).await
+    }
+
+    /// Get semantic tokens for syntax highlighting
+    pub async fn lsp_semantic_tokens(
+        &mut self,
+        req: LspDocumentRequest,
+    ) -> Result<Vec<LspSemanticToken>> {
+        let ids = tracey_daemon_method_ids();
+        self.call(ids.lsp_semantic_tokens, &(req,)).await
+    }
+
+    /// Get code lens items
+    pub async fn lsp_code_lens(&mut self, req: LspDocumentRequest) -> Result<Vec<LspCodeLens>> {
+        let ids = tracey_daemon_method_ids();
+        self.call(ids.lsp_code_lens, &(req,)).await
+    }
+
+    /// Get inlay hints for a range
+    pub async fn lsp_inlay_hints(&mut self, req: InlayHintsRequest) -> Result<Vec<LspInlayHint>> {
+        let ids = tracey_daemon_method_ids();
+        self.call(ids.lsp_inlay_hints, &(req,)).await
+    }
+
+    /// Prepare rename (check if renaming is valid)
+    pub async fn lsp_prepare_rename(
+        &mut self,
+        req: LspPositionRequest,
+    ) -> Result<Option<PrepareRenameResult>> {
+        let ids = tracey_daemon_method_ids();
+        self.call(ids.lsp_prepare_rename, &(req,)).await
+    }
+
+    /// Execute rename
+    pub async fn lsp_rename(&mut self, req: LspRenameRequest) -> Result<Vec<LspTextEdit>> {
+        let ids = tracey_daemon_method_ids();
+        self.call(ids.lsp_rename, &(req,)).await
+    }
+
+    /// Get code actions for a position
+    pub async fn lsp_code_actions(
+        &mut self,
+        req: LspPositionRequest,
+    ) -> Result<Vec<LspCodeAction>> {
+        let ids = tracey_daemon_method_ids();
+        self.call(ids.lsp_code_actions, &(req,)).await
+    }
+
+    /// Get document highlight ranges (same requirement references)
+    pub async fn lsp_document_highlight(
+        &mut self,
+        req: LspPositionRequest,
+    ) -> Result<Vec<LspLocation>> {
+        let ids = tracey_daemon_method_ids();
+        self.call(ids.lsp_document_highlight, &(req,)).await
+    }
+
+    // === Config Modification Methods (for MCP) ===
+
+    /// Add an exclude pattern to an implementation
+    pub async fn config_add_exclude(
+        &mut self,
+        req: ConfigPatternRequest,
+    ) -> Result<Result<(), String>> {
+        let ids = tracey_daemon_method_ids();
+        self.call(ids.config_add_exclude, &(req,)).await
+    }
+
+    /// Add an include pattern to an implementation
+    pub async fn config_add_include(
+        &mut self,
+        req: ConfigPatternRequest,
+    ) -> Result<Result<(), String>> {
+        let ids = tracey_daemon_method_ids();
+        self.call(ids.config_add_include, &(req,)).await
+    }
 }

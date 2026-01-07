@@ -262,6 +262,249 @@ pub struct CoverageChange {
 }
 
 // ============================================================================
+// LSP Support Types
+// ============================================================================
+
+/// Position in a file (0-indexed line and column)
+#[derive(Debug, Clone, Facet)]
+pub struct LspPosition {
+    pub path: String,
+    pub line: u32,
+    pub character: u32,
+}
+
+/// A location in a file
+#[derive(Debug, Clone, Facet)]
+pub struct LspLocation {
+    pub path: String,
+    pub line: u32,
+    pub character: u32,
+}
+
+/// Hover information for a requirement reference
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct HoverInfo {
+    /// Rule ID
+    pub rule_id: String,
+    /// Rule text (markdown)
+    pub text: String,
+    /// Spec name this rule belongs to
+    pub spec_name: String,
+    /// Spec source URL (if configured)
+    #[facet(default)]
+    pub spec_url: Option<String>,
+    /// Source file where the rule is defined
+    #[facet(default)]
+    pub source_file: Option<String>,
+    /// Number of impl references
+    pub impl_count: usize,
+    /// Number of verify references
+    pub verify_count: usize,
+    /// Range of the reference (for highlighting)
+    pub range_start_line: u32,
+    pub range_start_char: u32,
+    pub range_end_line: u32,
+    pub range_end_char: u32,
+}
+
+/// A completion item
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct LspCompletionItem {
+    /// The label to display
+    pub label: String,
+    /// Kind: "verb" or "rule"
+    pub kind: String,
+    /// Detail text (spec name or verb description)
+    #[facet(default)]
+    pub detail: Option<String>,
+    /// Documentation (rule text)
+    #[facet(default)]
+    pub documentation: Option<String>,
+    /// Text to insert (may include trailing space)
+    #[facet(default)]
+    pub insert_text: Option<String>,
+}
+
+/// A diagnostic (error/warning)
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct LspDiagnostic {
+    /// Severity: "error", "warning", "info", "hint"
+    pub severity: String,
+    /// Error code
+    pub code: String,
+    /// Message
+    pub message: String,
+    /// Range
+    pub start_line: u32,
+    pub start_char: u32,
+    pub end_line: u32,
+    pub end_char: u32,
+}
+
+/// A document symbol (requirement reference)
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct LspSymbol {
+    /// Symbol name (rule ID)
+    pub name: String,
+    /// Kind: "definition", "impl", "verify", etc.
+    pub kind: String,
+    /// Range
+    pub start_line: u32,
+    pub start_char: u32,
+    pub end_line: u32,
+    pub end_char: u32,
+}
+
+/// A semantic token
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct LspSemanticToken {
+    pub line: u32,
+    pub start_char: u32,
+    pub length: u32,
+    /// Token type index
+    pub token_type: u32,
+    /// Token modifiers bitmask
+    pub modifiers: u32,
+}
+
+/// A code lens
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct LspCodeLens {
+    /// Range (line where the lens appears)
+    pub line: u32,
+    pub start_char: u32,
+    pub end_char: u32,
+    /// Title to display
+    pub title: String,
+    /// Command name
+    pub command: String,
+    /// Command arguments (JSON)
+    #[facet(default)]
+    pub arguments: Vec<String>,
+}
+
+/// An inlay hint
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct LspInlayHint {
+    /// Position (end of reference)
+    pub line: u32,
+    pub character: u32,
+    /// Label text
+    pub label: String,
+}
+
+/// Rename preparation result
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct PrepareRenameResult {
+    /// Range of the text to be renamed
+    pub start_line: u32,
+    pub start_char: u32,
+    pub end_line: u32,
+    pub end_char: u32,
+    /// Current text (for display)
+    pub placeholder: String,
+}
+
+/// A text edit for rename
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct LspTextEdit {
+    pub path: String,
+    pub start_line: u32,
+    pub start_char: u32,
+    pub end_line: u32,
+    pub end_char: u32,
+    pub new_text: String,
+}
+
+/// A code action
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct LspCodeAction {
+    /// Title
+    pub title: String,
+    /// Kind: "quickfix", "source", etc.
+    pub kind: String,
+    /// Command name
+    pub command: String,
+    /// Command arguments
+    #[facet(default)]
+    pub arguments: Vec<String>,
+    /// Is this the preferred action?
+    #[facet(default)]
+    pub is_preferred: bool,
+}
+
+/// Request for inlay hints
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct InlayHintsRequest {
+    pub path: String,
+    pub content: String,
+    pub start_line: u32,
+    pub end_line: u32,
+}
+
+/// Request to add config pattern
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct ConfigPatternRequest {
+    #[facet(default)]
+    pub spec: Option<String>,
+    #[facet(default)]
+    pub impl_name: Option<String>,
+    pub pattern: String,
+}
+
+/// Request for LSP operations that need path, content, and position
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct LspPositionRequest {
+    pub path: String,
+    pub content: String,
+    pub line: u32,
+    pub character: u32,
+}
+
+/// Request for LSP references
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct LspReferencesRequest {
+    pub path: String,
+    pub content: String,
+    pub line: u32,
+    pub character: u32,
+    pub include_declaration: bool,
+}
+
+/// Request for LSP rename
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct LspRenameRequest {
+    pub path: String,
+    pub content: String,
+    pub line: u32,
+    pub character: u32,
+    pub new_name: String,
+}
+
+/// Request for LSP operations that need path and content
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct LspDocumentRequest {
+    pub path: String,
+    pub content: String,
+}
+
+// ============================================================================
 // TraceyDaemon service definition
 // ============================================================================
 
@@ -345,6 +588,51 @@ pub trait TraceyDaemon {
     /// Returns true if the path matches the test_include patterns for any implementation.
     async fn is_test_file(&self, path: String) -> bool;
 
+    /// Get hover info for a position in a file
+    async fn lsp_hover(&self, req: LspPositionRequest) -> Option<HoverInfo>;
+
+    /// Get definition location for a reference at a position
+    async fn lsp_definition(&self, req: LspPositionRequest) -> Vec<LspLocation>;
+
+    /// Get implementation locations for a reference at a position
+    async fn lsp_implementation(&self, req: LspPositionRequest) -> Vec<LspLocation>;
+
+    /// Get all references to a requirement
+    async fn lsp_references(&self, req: LspReferencesRequest) -> Vec<LspLocation>;
+
+    /// Get completions for a position
+    async fn lsp_completions(&self, req: LspPositionRequest) -> Vec<LspCompletionItem>;
+
+    /// Get diagnostics for a file
+    async fn lsp_diagnostics(&self, req: LspDocumentRequest) -> Vec<LspDiagnostic>;
+
+    /// Get document symbols (requirement references) in a file
+    async fn lsp_document_symbols(&self, req: LspDocumentRequest) -> Vec<LspSymbol>;
+
+    /// Search workspace for requirement IDs
+    async fn lsp_workspace_symbols(&self, query: String) -> Vec<LspSymbol>;
+
+    /// Get semantic tokens for syntax highlighting
+    async fn lsp_semantic_tokens(&self, req: LspDocumentRequest) -> Vec<LspSemanticToken>;
+
+    /// Get code lens items
+    async fn lsp_code_lens(&self, req: LspDocumentRequest) -> Vec<LspCodeLens>;
+
+    /// Get inlay hints for a range
+    async fn lsp_inlay_hints(&self, req: InlayHintsRequest) -> Vec<LspInlayHint>;
+
+    /// Prepare rename (check if renaming is valid)
+    async fn lsp_prepare_rename(&self, req: LspPositionRequest) -> Option<PrepareRenameResult>;
+
+    /// Execute rename
+    async fn lsp_rename(&self, req: LspRenameRequest) -> Vec<LspTextEdit>;
+
+    /// Get code actions for a position
+    async fn lsp_code_actions(&self, req: LspPositionRequest) -> Vec<LspCodeAction>;
+
+    /// Get document highlight ranges (same requirement references)
+    async fn lsp_document_highlight(&self, req: LspPositionRequest) -> Vec<LspLocation>;
+
     // === Validation ===
 
     /// Validate the spec and implementation for errors
@@ -352,4 +640,12 @@ pub trait TraceyDaemon {
     /// Returns validation errors such as circular dependencies, naming violations,
     /// and unknown references.
     async fn validate(&self, req: ValidateRequest) -> ValidationResult;
+
+    // === Config Modification (for MCP) ===
+
+    /// Add an exclude pattern to an implementation
+    async fn config_add_exclude(&self, req: ConfigPatternRequest) -> Result<(), String>;
+
+    /// Add an include pattern to an implementation
+    async fn config_add_include(&self, req: ConfigPatternRequest) -> Result<(), String>;
 }

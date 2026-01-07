@@ -118,6 +118,38 @@ pub struct ValidateTool {
     pub spec_impl: Option<String>,
 }
 
+/// Add an exclude pattern to filter out files from scanning
+///
+/// r[impl mcp.config.exclude]
+#[mcp_tool(
+    name = "tracey_config_exclude",
+    description = "Add an exclude pattern to filter out files from scanning for a specific implementation."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ConfigExcludeTool {
+    /// Spec/impl to modify (e.g., "my-spec/rust"). Optional if only one exists.
+    #[serde(default)]
+    pub spec_impl: Option<String>,
+    /// Glob pattern to exclude (e.g., "**/*_test.rs")
+    pub pattern: String,
+}
+
+/// Add an include pattern to expand the set of scanned files
+///
+/// r[impl mcp.config.include]
+#[mcp_tool(
+    name = "tracey_config_include",
+    description = "Add an include pattern to expand the set of scanned files for a specific implementation."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ConfigIncludeTool {
+    /// Spec/impl to modify (e.g., "my-spec/rust"). Optional if only one exists.
+    #[serde(default)]
+    pub spec_impl: Option<String>,
+    /// Glob pattern to include (e.g., "src/**/*.rs")
+    pub pattern: String,
+}
+
 // Create toolbox
 tool_box!(
     TraceyTools,
@@ -129,7 +161,9 @@ tool_box!(
         RuleTool,
         ConfigTool,
         ReloadTool,
-        ValidateTool
+        ValidateTool,
+        ConfigExcludeTool,
+        ConfigIncludeTool
     ]
 );
 
@@ -144,6 +178,7 @@ struct TraceyHandler {
 
 impl TraceyHandler {
     /// r[impl mcp.tool.status]
+    /// r[impl mcp.response.hints]
     async fn handle_status(&self) -> String {
         let mut client = self.client.lock().await;
         match client.status().await {
@@ -173,6 +208,10 @@ impl TraceyHandler {
                 if output.is_empty() {
                     "No specs configured".to_string()
                 } else {
+                    output.push_str("\n---\n");
+                    output.push_str("→ Use tracey_uncovered to see rules without implementation\n");
+                    output.push_str("→ Use tracey_untested to see rules without verification\n");
+                    output.push_str("→ Use tracey_unmapped to see code without requirements\n");
                     output
                 }
             }
@@ -181,6 +220,7 @@ impl TraceyHandler {
     }
 
     /// r[impl mcp.tool.uncovered]
+    /// r[impl mcp.response.hints]
     async fn handle_uncovered(&self, spec_impl: Option<&str>, prefix: Option<&str>) -> String {
         let mut client = self.client.lock().await;
         let (spec, impl_name) = parse_spec_impl(spec_impl);
@@ -211,6 +251,10 @@ impl TraceyHandler {
                     }
                 }
 
+                output.push_str("---\n");
+                output.push_str("→ Use tracey_rule to see details about a specific rule\n");
+                output.push_str("→ Use prefix parameter to filter by rule ID prefix\n");
+
                 output
             }
             Err(e) => format!("Error: {}", e),
@@ -218,6 +262,7 @@ impl TraceyHandler {
     }
 
     /// r[impl mcp.tool.untested]
+    /// r[impl mcp.response.hints]
     async fn handle_untested(&self, spec_impl: Option<&str>, prefix: Option<&str>) -> String {
         let mut client = self.client.lock().await;
         let (spec, impl_name) = parse_spec_impl(spec_impl);
@@ -248,6 +293,10 @@ impl TraceyHandler {
                     }
                 }
 
+                output.push_str("---\n");
+                output.push_str("→ Use tracey_rule to see details about a specific rule\n");
+                output.push_str("→ Use prefix parameter to filter by rule ID prefix\n");
+
                 output
             }
             Err(e) => format!("Error: {}", e),
@@ -256,6 +305,8 @@ impl TraceyHandler {
 
     /// r[impl mcp.tool.unmapped]
     /// r[impl mcp.tool.unmapped-zoom]
+    /// r[impl mcp.tool.unmapped-tree]
+    /// r[impl mcp.tool.unmapped-file]
     async fn handle_unmapped(&self, spec_impl: Option<&str>, path: Option<&str>) -> String {
         let mut client = self.client.lock().await;
         let (spec, impl_name) = parse_spec_impl(spec_impl);
@@ -276,19 +327,53 @@ impl TraceyHandler {
                     response.total_units
                 );
 
-                for entry in &response.entries {
-                    let pct = if entry.total_units > 0 {
-                        (entry.total_units - entry.unmapped_units) as f64 / entry.total_units as f64
-                            * 100.0
-                    } else {
-                        100.0
-                    };
-                    let marker = if entry.is_dir { "📁" } else { "📄" };
-                    output.push_str(&format!(
-                        "{} {} ({:.0}% mapped, {} units)\n",
-                        marker, entry.path, pct, entry.total_units
-                    ));
+                // Check if we're zoomed into a file with unit details
+                let has_unit_details = response.entries.iter().any(|e| !e.units.is_empty());
+
+                if has_unit_details {
+                    // File zoom view - show unmapped code units with line numbers
+                    for entry in &response.entries {
+                        if !entry.units.is_empty() {
+                            output.push_str(&format!("## {}\n\n", entry.path));
+                            for unit in &entry.units {
+                                let name = unit.name.as_deref().unwrap_or("<anonymous>");
+                                output.push_str(&format!(
+                                    "  L{}-{}: {} `{}`\n",
+                                    unit.start_line, unit.end_line, unit.kind, name
+                                ));
+                            }
+                            output.push('\n');
+                        }
+                    }
+                } else {
+                    // Tree view - format as ASCII tree with progress bars
+                    for (i, entry) in response.entries.iter().enumerate() {
+                        let pct = if entry.total_units > 0 {
+                            (entry.total_units - entry.unmapped_units) as f64
+                                / entry.total_units as f64
+                                * 100.0
+                        } else {
+                            100.0
+                        };
+
+                        // Progress bar (10 chars)
+                        let filled = (pct / 10.0).round() as usize;
+                        let bar: String = "█".repeat(filled) + &"░".repeat(10 - filled);
+
+                        // Tree connector
+                        let is_last = i == response.entries.len() - 1;
+                        let connector = if is_last { "└── " } else { "├── " };
+
+                        output.push_str(&format!(
+                            "{}{:<30} {:>3.0}% {}\n",
+                            connector, entry.path, pct, bar
+                        ));
+                    }
                 }
+
+                // r[impl mcp.response.hints]
+                output.push_str("\n---\n");
+                output.push_str("→ Use path parameter to zoom into a directory or file\n");
 
                 output
             }
@@ -414,6 +499,40 @@ impl TraceyHandler {
             Err(e) => format!("Error: {}", e),
         }
     }
+
+    async fn handle_config_exclude(&self, spec_impl: Option<&str>, pattern: &str) -> String {
+        let mut client = self.client.lock().await;
+        let (spec, impl_name) = parse_spec_impl(spec_impl);
+
+        let req = ConfigPatternRequest {
+            spec,
+            impl_name,
+            pattern: pattern.to_string(),
+        };
+
+        match client.config_add_exclude(req).await {
+            Ok(Ok(())) => format!("Added exclude pattern: {}", pattern),
+            Ok(Err(e)) => format!("Error: {}", e),
+            Err(e) => format!("Error: {}", e),
+        }
+    }
+
+    async fn handle_config_include(&self, spec_impl: Option<&str>, pattern: &str) -> String {
+        let mut client = self.client.lock().await;
+        let (spec, impl_name) = parse_spec_impl(spec_impl);
+
+        let req = ConfigPatternRequest {
+            spec,
+            impl_name,
+            pattern: pattern.to_string(),
+        };
+
+        match client.config_add_include(req).await {
+            Ok(Ok(())) => format!("Added include pattern: {}", pattern),
+            Ok(Err(e)) => format!("Error: {}", e),
+            Err(e) => format!("Error: {}", e),
+        }
+    }
 }
 
 #[async_trait]
@@ -467,6 +586,22 @@ impl ServerHandler for TraceyHandler {
                 let spec_impl = args.get("spec_impl").and_then(|v| v.as_str());
                 self.handle_validate(spec_impl).await
             }
+            "tracey_config_exclude" => {
+                let spec_impl = args.get("spec_impl").and_then(|v| v.as_str());
+                let pattern = args.get("pattern").and_then(|v| v.as_str());
+                match pattern {
+                    Some(p) => self.handle_config_exclude(spec_impl, p).await,
+                    None => "Error: pattern is required".to_string(),
+                }
+            }
+            "tracey_config_include" => {
+                let spec_impl = args.get("spec_impl").and_then(|v| v.as_str());
+                let pattern = args.get("pattern").and_then(|v| v.as_str());
+                match pattern {
+                    Some(p) => self.handle_config_include(spec_impl, p).await,
+                    None => "Error: pattern is required".to_string(),
+                }
+            }
             other => format!("Unknown tool: {}", other),
         };
 
@@ -483,6 +618,7 @@ impl ServerHandler for TraceyHandler {
 /// r[impl mcp.select.single]
 /// r[impl mcp.select.full]
 /// r[impl mcp.select.spec-only]
+/// r[impl mcp.select.ambiguous]
 fn parse_spec_impl(spec_impl: Option<&str>) -> (Option<String>, Option<String>) {
     match spec_impl {
         Some(s) if s.contains('/') => {
