@@ -13,8 +13,8 @@ authors.workspace = true
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [dependencies]
-# roam RPC framework (path dependency to local checkout)
-roam = { path = "../../../roam/rust/roam" }
+# roam RPC framework
+roam = { git = "https://github.com/bearcove/roam", rev = "4250a30e7064607d2288aed1504c3dddeaaa8a3b" }
 
 # API types (re-exported for convenience)
 tracey-api = { path = "../tracey-api" }
