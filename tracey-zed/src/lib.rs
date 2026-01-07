@@ -2,9 +2,16 @@
 //!
 //! r[impl zed.extension.manifest]
 //! r[impl zed.extension.language-server]
+//! r[impl zed.filetypes.source]
+//! r[impl zed.filetypes.spec]
+//! r[impl zed.filetypes.config]
+//! r[impl zed.install.manual]
+//! r[impl zed.install.extension-registry]
 //!
 //! This extension provides language server support for tracey, enabling
 //! requirement traceability features in Zed.
+//!
+//! File type activation is configured in `extension.toml` via the `languages` list.
 
 use std::fs;
 use zed_extension_api::{self as zed, LanguageServerId, Result};
@@ -62,8 +69,12 @@ struct TraceyExtension {
 
 impl TraceyExtension {
     /// r[impl zed.install.binary]
+    /// r[impl zed.install.binary-options]
     ///
     /// Ensure the tracey binary is installed, downloading if necessary.
+    /// Supports multiple installation methods:
+    /// - Pre-installed binary in extension directory
+    /// - Automatic download from GitHub releases
     fn ensure_binary_installed(&mut self, language_server_id: &LanguageServerId) -> Result<String> {
         // Return cached path if we have it
         if let Some(path) = &self.cached_binary_path {
