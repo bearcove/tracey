@@ -1056,7 +1056,6 @@ The modal MUST include an "Open in sources" button that navigates to the full so
 r[dashboard.impl-preview.stay-in-spec]
 Clicking an implementation reference badge MUST NOT automatically switch to the sources tab - it MUST show the preview modal while keeping the user in the specification view.
 
-r[dashboard.impl-preview.rationale]
 The preview modal allows quick inspection of implementation code without losing context in the specification, reducing cognitive load when reviewing how requirements are implemented.
 
 ### Inline Editor Interface
@@ -1087,7 +1086,6 @@ The server MUST provide a `GET /api/check-git?path=X` endpoint that returns `{in
 r[dashboard.editing.git.error-message]
 When a user attempts to edit a file not in a git repository, the dashboard MUST display a clear error message: "This file is not in a git repository. Tracey requires git for safe editing."
 
-r[dashboard.editing.git.rationale]
 Git requirement provides a safety net for inline editing: users can review changes with `git diff`, revert mistakes with `git checkout`, and maintain edit history without additional undo/redo implementation.
 
 ### Byte Range Operations
@@ -1113,7 +1111,6 @@ The byte range endpoints MUST validate that `start < end` and `end <= file_lengt
 r[dashboard.editing.api.utf8-validation]
 The fetch-range endpoint MUST validate that the extracted bytes form valid UTF-8 text, returning an error if the range splits a multi-byte character.
 
-r[dashboard.editing.hash.rationale]
 Hash-based conflict detection prevents race conditions where the file changes between loading the editor and saving, ensuring users don't accidentally overwrite concurrent modifications.
 
 ### Save and Cancel Workflow
@@ -1270,7 +1267,7 @@ Hovering over a requirement reference in source code MUST display the requiremen
 > ```
 
 r[lsp.hover.prefix]
-Hovering over a prefix (e.g., `r` in `r[impl auth.token]`) MUST display the spec name and source URL if configured.
+Hovering over a requirement reference MUST include the spec name and source URL (if configured) alongside the requirement info, allowing users to see which specification the prefix maps to.
 
 ### Document Highlight
 
@@ -1311,7 +1308,7 @@ r[lsp.references.from-reference]
 Find-references on a requirement reference MUST return the definition location plus all other references to the same requirement.
 
 r[lsp.references.include-type]
-Reference results MUST indicate the reference type (impl, verify, depends, related) in the reference context.
+Reference results MUST be grouped by type: implementation references first, then verification references, then dependency references. This ordering allows users to understand the reference type based on position in the list.
 
 ### Code Actions
 
@@ -1426,20 +1423,6 @@ The extension MUST activate for markdown files matching the spec patterns in the
 
 r[zed.filetypes.config]
 The extension SHOULD activate for the tracey configuration file (`.config/tracey/config.kdl`).
-
-### Zed-Specific Features
-
-r[zed.outline.requirements]
-The extension SHOULD contribute to Zed's outline panel, showing requirement definitions in spec files as navigable symbols.
-
-r[zed.status.coverage]
-The extension MAY display coverage information in Zed's status bar for the current file or project.
-
-r[zed.commands.dashboard]
-The extension SHOULD provide a command to open the tracey dashboard for the current project.
-
-r[zed.commands.goto-requirement]
-The extension SHOULD provide a command to fuzzy-search and navigate to any requirement by ID.
 
 ### Installation
 

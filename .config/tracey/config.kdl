@@ -7,9 +7,9 @@ spec {
     impl {
         name "main"
         include "crates/**/*.rs"
-        include "crates/tracey/dashboard/src/**/*.ts"
-        include "crates/tracey/dashboard/src/**/*.tsx"
-        include "crates/tracey/dashboard/src/**/*.css"
+        include "crates/**/*.ts"
+        include "crates/**/*.tsx"
+        include "crates/**/*.css"
         include "tracey-zed/src/**/*.rs"
         include "../marq/**/*.rs"
         exclude "target/**"

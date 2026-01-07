@@ -134,6 +134,8 @@ fn strsim_distance(a: &str, b: &str) -> usize {
 struct ReqAtPosition {
     /// The requirement ID (e.g., "config.path.default")
     id: String,
+    /// The prefix (e.g., "r")
+    prefix: String,
     /// Range of the full reference including prefix and brackets (e.g., "r[config.path.default]")
     full_range: Range,
     /// Range of just the requirement ID (e.g., "config.path.default")
@@ -149,6 +151,11 @@ impl LspState {
             .iter()
             .map(|s| s.prefix.clone())
             .collect()
+    }
+
+    /// Find spec info by prefix
+    fn find_spec_by_prefix(&self, prefix: &str) -> Option<&tracey_api::ApiSpecInfo> {
+        self.data.config.specs.iter().find(|s| s.prefix == prefix)
     }
 
     /// Get all requirement IDs with their descriptions from current data
@@ -242,6 +249,9 @@ impl LspState {
                     let bracket_open = line[bracket_start..].find('[')? + bracket_start;
                     let inner = &line[bracket_open + 1..bracket_end];
 
+                    // Extract the prefix (text before the '[')
+                    let prefix = &line[bracket_start..bracket_open];
+
                     // Parse: might be "impl foo.bar" or just "foo.bar"
                     // For rename, we need to know where the ID starts within the inner content
                     let (req_id, id_offset) = if let Some(space_pos) = inner.find(' ') {
@@ -278,6 +288,7 @@ impl LspState {
 
                     return Some(ReqAtPosition {
                         id: req_id.to_string(),
+                        prefix: prefix.to_string(),
                         full_range,
                         id_range,
                     });
@@ -747,12 +758,25 @@ impl LanguageServer for Backend {
 
         if let Some(info) = state.find_requirement(&req.id) {
             // r[impl lsp.hover.req-reference-format]
+            // r[impl lsp.hover.prefix]
             // Coverage info (impl/test counts) is shown via inlay hints, so hover just shows the requirement text
+            // Also show spec info (name and source URL) based on the prefix
+            let spec_line = if let Some(spec) = state.find_spec_by_prefix(&req.prefix) {
+                if let Some(url) = &spec.source_url {
+                    format!("*Spec: [{}]({})*", spec.name, url)
+                } else {
+                    format!("*Spec: {}*", spec.name)
+                }
+            } else {
+                String::new()
+            };
+
             let content = format!(
-                "### {}\n\n{}\n\n*Defined in: {}*",
+                "### {}\n\n{}\n\n*Defined in: {}*\n\n{}",
                 info.id,
                 info.text.trim(),
-                info.source_file
+                info.source_file,
+                spec_line
             );
 
             return Ok(Some(Hover {
@@ -927,13 +951,10 @@ impl LanguageServer for Backend {
             });
         }
 
-        // Add all impl refs
+        // r[impl lsp.references.include-type]
+        // Add refs grouped by type: impl first, then verify, then depends
         locations.extend(info.impl_refs.iter().filter_map(to_location));
-
-        // Add all verify refs
         locations.extend(info.verify_refs.iter().filter_map(to_location));
-
-        // Add all depends refs
         locations.extend(info.depends_refs.iter().filter_map(to_location));
 
         if locations.is_empty() {
