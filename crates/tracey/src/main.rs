@@ -5,6 +5,7 @@
 //! manifest to produce coverage reports.
 
 mod config;
+mod daemon;
 mod lsp;
 mod mcp;
 mod search;
@@ -78,6 +79,17 @@ enum Command {
         #[facet(args::named, args::short = 'c', default)]
         config: Option<PathBuf>,
     },
+
+    /// Start the tracey daemon (persistent server for this workspace)
+    Daemon {
+        /// Project root directory (default: current directory)
+        #[facet(args::positional, default)]
+        root: Option<PathBuf>,
+
+        /// Path to config file (default: .config/tracey/config.kdl)
+        #[facet(args::named, args::short = 'c', default)]
+        config: Option<PathBuf>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -102,6 +114,23 @@ fn main() -> Result<()> {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(lsp::run(root, config))
         }
+        // r[impl daemon.cli.daemon]
+        Some(Command::Daemon { root, config }) => {
+            // Initialize tracing
+            tracing_subscriber::fmt()
+                .with_env_filter(
+                    tracing_subscriber::EnvFilter::from_default_env()
+                        .add_directive("tracey=info".parse().unwrap()),
+                )
+                .init();
+
+            let project_root = root.unwrap_or_else(|| find_project_root().unwrap_or_default());
+            let config_path =
+                config.unwrap_or_else(|| project_root.join(".config/tracey/config.kdl"));
+
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(daemon::run(project_root, config_path))
+        }
         // r[impl cli.no-args]
         None => {
             print_help();
@@ -121,6 +150,7 @@ fn print_help() {
     {serve}     Start the interactive web dashboard
     {mcp}       Start the MCP server for AI assistants
     {lsp}       Start the LSP server for editor integration
+    {daemon}    Start the tracey daemon (persistent server)
 
 {options}:
     -h, --help      Show this help message
@@ -131,6 +161,7 @@ Run 'tracey <COMMAND> --help' for more information on a command."#,
         serve = "serve".cyan(),
         mcp = "mcp".cyan(),
         lsp = "lsp".cyan(),
+        daemon = "daemon".cyan(),
         options = "Options".bold(),
     );
 }

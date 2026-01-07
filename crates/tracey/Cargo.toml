@@ -28,6 +28,7 @@ path = "src/main.rs"
 [dependencies]
 tracey-core = { workspace = true, features = ["walk", "parallel", "reverse"] }
 tracey-api = { path = "../tracey-api" }
+tracey-proto = { path = "../tracey-proto" }
 
 # Facet ecosystem for config parsing and CLI
 facet = { workspace = true }
@@ -87,6 +88,12 @@ url = { version = "*", features = ["serde"] }
 
 # LSP server
 tower-lsp = "0.20"
+
+# roam RPC framework (for daemon architecture)
+roam = { path = "../../../roam/rust/roam" }
+roam-tcp = { path = "../../../roam/rust/roam-tcp" }
+roam-wire = { path = "../../../roam/rust/roam-wire" }
+cobs = "0.3"
 
 [features]
 default = ["search"]
