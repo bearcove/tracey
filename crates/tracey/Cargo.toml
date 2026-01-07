@@ -101,6 +101,8 @@ search = ["dep:tantivy"]
 [build-dependencies]
 roam-codegen = { path = "../../../roam/rust/roam-codegen" }
 tracey-proto = { path = "../tracey-proto" }
+tracey-api = { path = "../tracey-api" }
+facet-typescript = { git = "https://github.com/facet-rs/facet", branch = "main" }
 
 [dev-dependencies]
 tempfile = "3.24.0"

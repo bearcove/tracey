@@ -1,4 +1,4 @@
-//! Build script for tracey - builds the dashboard and generates roam dispatcher
+//! Build script for tracey - generates code and builds the dashboard
 
 use std::env;
 use std::fs;
@@ -9,7 +9,10 @@ fn main() {
     // Generate roam dispatcher code
     generate_roam_dispatcher();
 
-    // Build dashboard
+    // Generate TypeScript types for the dashboard
+    generate_typescript_types();
+
+    // Build dashboard (after TS types are generated)
     build_dashboard();
 }
 
@@ -23,6 +26,50 @@ fn generate_roam_dispatcher() {
     let out_dir = env::var("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("tracey_daemon_generated.rs");
     fs::write(&dest_path, code).unwrap();
+}
+
+fn generate_typescript_types() {
+    use facet_typescript::TypeScriptGenerator;
+    use tracey_api::*;
+
+    println!("cargo:rerun-if-changed=../tracey-api/src/lib.rs");
+
+    let mut generator = TypeScriptGenerator::new();
+
+    // Add all API types
+    generator.add_type::<GitStatus>();
+    generator.add_type::<ApiConfig>();
+    generator.add_type::<ApiSpecInfo>();
+    generator.add_type::<ApiForwardData>();
+    generator.add_type::<ApiSpecForward>();
+    generator.add_type::<ApiRule>();
+    generator.add_type::<ApiCodeRef>();
+    generator.add_type::<ApiReverseData>();
+    generator.add_type::<ApiFileEntry>();
+    generator.add_type::<ApiFileData>();
+    generator.add_type::<ApiCodeUnit>();
+    generator.add_type::<SpecSection>();
+    generator.add_type::<OutlineCoverage>();
+    generator.add_type::<OutlineEntry>();
+    generator.add_type::<ApiSpecData>();
+    generator.add_type::<ValidationResult>();
+    generator.add_type::<ValidationError>();
+
+    // Generate TypeScript code
+    let typescript = generator.finish();
+
+    // Add header comment
+    let output = format!(
+        "// This file is auto-generated from tracey-api Rust types\n\
+         // DO NOT EDIT MANUALLY - changes will be overwritten on build\n\
+         \n\
+         {}\n",
+        typescript
+    );
+
+    // Write to dashboard/src/api-types.ts
+    let output_path = Path::new("src/bridge/http/dashboard/src/api-types.ts");
+    fs::write(output_path, output).expect("Failed to write TypeScript types");
 }
 
 fn build_dashboard() {
