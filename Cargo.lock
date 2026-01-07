@@ -1100,6 +1100,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "codegen"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff61280aed771c3070e7dcc9e050c66f1eb1e3b96431ba66f9f74641d02fc41d"
+dependencies = [
+ "indexmap 1.9.3",
+]
+
+[[package]]
 name = "constant_time_eq"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1766,7 +1775,7 @@ source = "git+https://github.com/facet-rs/facet?branch=main#e32ba412bc3c4903ab34
 dependencies = [
  "facet-core",
  "facet-reflect",
- "indexmap",
+ "indexmap 2.12.1",
 ]
 
 [[package]]
@@ -2017,7 +2026,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e629b9b98ef3dd8afe6ca2bd0f89306cec16d43d907889945bc5d6687f2f13c7"
 dependencies = [
  "fallible-iterator",
- "indexmap",
+ "indexmap 2.12.1",
  "stable_deref_trait",
 ]
 
@@ -2052,7 +2061,7 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "http",
- "indexmap",
+ "indexmap 2.12.1",
  "slab",
  "tokio",
  "tokio-util",
@@ -2067,6 +2076,12 @@ checksum = "47d60b12902ba28e2730cd37e95b8c9223af2808df9e902d4df49588d1470606"
 dependencies = [
  "byteorder",
 ]
+
+[[package]]
+name = "hashbrown"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a9ee70c43aaf417c914396645a0fa852624801b24ebb7ae78fe8272889ac888"
 
 [[package]]
 name = "hashbrown"
@@ -2366,6 +2381,16 @@ name = "indenter"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "964de6e86d545b246d84badc0fef527924ace5134f30641c203ef52ba83f58d5"
+
+[[package]]
+name = "indexmap"
+version = "1.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd070e393353796e801d209ad339e89596eb4c8d430d18ede6a1cced8fafbd99"
+dependencies = [
+ "autocfg",
+ "hashbrown 0.12.3",
+]
 
 [[package]]
 name = "indexmap"
@@ -3513,6 +3538,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "roam-codegen"
+version = "0.5.0"
+dependencies = [
+ "codegen",
+ "heck",
+ "roam-hash",
+ "roam-schema",
+]
+
+[[package]]
 name = "roam-frame"
 version = "0.5.0"
 dependencies = [
@@ -4543,6 +4578,7 @@ dependencies = [
  "open",
  "owo-colors",
  "roam",
+ "roam-codegen",
  "roam-tcp",
  "roam-wire",
  "rust-mcp-sdk",

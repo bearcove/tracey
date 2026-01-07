@@ -2,7 +2,6 @@
 //!
 //! Implements the roam RPC service by delegating to the Engine.
 
-use roam::Pull;
 use std::sync::Arc;
 use tracey_proto::*;
 
@@ -551,23 +550,5 @@ fn detect_circular_dependencies(forward_data: &ApiSpecForward) -> Vec<Vec<String
     cycles
 }
 
-/// Dispatcher that wraps TraceyService and implements roam-tcp's ServiceDispatcher.
-#[allow(dead_code)]
-pub struct TraceyDispatcher {
-    service: Arc<TraceyService>,
-}
-
-#[allow(dead_code)]
-impl TraceyDispatcher {
-    pub fn new(service: Arc<TraceyService>) -> Self {
-        Self { service }
-    }
-}
-
-impl roam_tcp::ServiceDispatcher for TraceyDispatcher {
-    async fn dispatch_unary(&self, method_id: u64, payload: &[u8]) -> Result<Vec<u8>, String> {
-        tracey_daemon_dispatch_unary(&*self.service, method_id, payload)
-            .await
-            .map_err(|e| format!("Dispatch error: {:?}", e))
-    }
-}
+// Include the generated dispatcher from build.rs
+include!(concat!(env!("OUT_DIR"), "/tracey_daemon_generated.rs"));
