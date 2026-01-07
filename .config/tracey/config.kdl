@@ -10,6 +10,7 @@ spec {
         include "crates/tracey/dashboard/src/**/*.ts"
         include "crates/tracey/dashboard/src/**/*.tsx"
         include "crates/tracey/dashboard/src/**/*.css"
+        include "tracey-zed/src/**/*.rs"
         include "../marq/**/*.rs"
         exclude "target/**"
         exclude "../marq/target/**"
