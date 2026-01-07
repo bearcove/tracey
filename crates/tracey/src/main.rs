@@ -214,6 +214,7 @@ fn main() -> Result<()> {
         }
         // r[impl daemon.bridge.lsp]
         Some(Command::LspBridge { root, config }) => {
+            // LSP communicates over stdio, so no tracing to stdout
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(bridge::lsp::run(root, config))
         }
@@ -224,11 +225,13 @@ fn main() -> Result<()> {
             port,
             open,
         }) => {
+            init_tracing();
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(bridge::http::run(root, config, port.unwrap_or(3000), open))
         }
         // r[impl daemon.bridge.mcp]
         Some(Command::McpBridge { root, config }) => {
+            // MCP communicates over stdio, so no tracing to stdout
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(bridge::mcp::run(root, config))
         }
@@ -273,6 +276,16 @@ Run 'tracey <COMMAND> --help' for more information on a command."#,
         logs = "logs".cyan(),
         options = "Options".bold(),
     );
+}
+
+/// Initialize tracing for bridges (console output only).
+fn init_tracing() {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::from_default_env()
+                .add_directive("tracey=info".parse().unwrap()),
+        )
+        .init();
 }
 
 /// r[impl cli.logs]

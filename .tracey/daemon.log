@@ -1,0 +1,114 @@
+2026-01-07T11:11:57.663591Z  INFO tracey::daemon: Starting tracey daemon for /Users/amos/bearcove/tracey
+2026-01-07T11:11:58.062822Z  INFO tracey::daemon: Daemon listening on /Users/amos/bearcove/tracey/.tracey/daemon.sock
+2026-01-07T11:11:58.066050Z  INFO tracey::daemon: File watcher started for /Users/amos/bearcove/tracey
+2026-01-07T11:12:30.750838Z  INFO tracey::daemon::engine: Rebuild completed in 380.681083ms (version 2)
+2026-01-07T11:12:31.068253Z  INFO tracey::daemon::engine: Rebuild completed in 317.374917ms (version 3)
+2026-01-07T11:12:31.686866Z  INFO tracey::daemon::engine: Rebuild completed in 325.893708ms (version 4)
+2026-01-07T11:12:32.046987Z  INFO tracey::daemon::engine: Rebuild completed in 360.079125ms (version 5)
+2026-01-07T11:12:32.404713Z  INFO tracey::daemon::engine: Rebuild completed in 357.679667ms (version 6)
+2026-01-07T11:12:32.766391Z  INFO tracey::daemon::engine: Rebuild completed in 361.629416ms (version 7)
+2026-01-07T11:12:33.112809Z  INFO tracey::daemon::engine: Rebuild completed in 346.375375ms (version 8)
+2026-01-07T11:12:33.454855Z  INFO tracey::daemon::engine: Rebuild completed in 342.008833ms (version 9)
+2026-01-07T11:12:35.980762Z  INFO tracey::daemon::engine: Rebuild completed in 474.42575ms (version 10)
+2026-01-07T11:12:36.421831Z  INFO tracey::daemon::engine: Rebuild completed in 441.0215ms (version 11)
+2026-01-07T11:12:37.057220Z  INFO tracey::daemon::engine: Rebuild completed in 635.242917ms (version 12)
+2026-01-07T11:12:37.547535Z  INFO tracey::daemon::engine: Rebuild completed in 490.269917ms (version 13)
+2026-01-07T11:12:40.792807Z  INFO tracey::daemon::engine: Rebuild completed in 570.3195ms (version 14)
+2026-01-07T11:12:41.260682Z  INFO tracey::daemon::engine: Rebuild completed in 467.81175ms (version 15)
+2026-01-07T11:12:41.711267Z  INFO tracey::daemon::engine: Rebuild completed in 450.544459ms (version 16)
+2026-01-07T11:12:42.333044Z  INFO tracey::daemon::engine: Rebuild completed in 621.70425ms (version 17)
+2026-01-07T11:12:42.996047Z  INFO tracey::daemon::engine: Rebuild completed in 662.941208ms (version 18)
+2026-01-07T11:12:43.368577Z  INFO tracey::daemon::engine: Rebuild completed in 372.4835ms (version 19)
+2026-01-07T11:12:43.930997Z  INFO tracey::daemon::engine: Rebuild completed in 562.373458ms (version 20)
+2026-01-07T11:12:44.438641Z  INFO tracey::daemon::engine: Rebuild completed in 507.600458ms (version 21)
+2026-01-07T11:12:45.089481Z  INFO tracey::daemon::engine: Rebuild completed in 650.778292ms (version 22)
+2026-01-07T11:12:45.461033Z  INFO tracey::daemon::engine: Rebuild completed in 371.47825ms (version 23)
+2026-01-07T11:12:45.777974Z  INFO tracey::daemon::engine: Rebuild completed in 316.886833ms (version 24)
+2026-01-07T11:12:52.842459Z  INFO tracey::daemon::engine: Rebuild completed in 537.513125ms (version 25)
+2026-01-07T11:12:53.327446Z  INFO tracey::daemon::engine: Rebuild completed in 484.947667ms (version 26)
+2026-01-07T11:12:53.761494Z  INFO tracey::daemon::engine: Rebuild completed in 433.995292ms (version 27)
+2026-01-07T11:12:54.261359Z  INFO tracey::daemon::engine: Rebuild completed in 499.816375ms (version 28)
+2026-01-07T11:12:54.668347Z  INFO tracey::daemon::engine: Rebuild completed in 406.9425ms (version 29)
+2026-01-07T11:12:55.147426Z  INFO tracey::daemon::engine: Rebuild completed in 479.027875ms (version 30)
+2026-01-07T11:12:55.472601Z  INFO tracey::daemon::engine: Rebuild completed in 325.128917ms (version 31)
+2026-01-07T11:12:55.797712Z  INFO tracey::daemon::engine: Rebuild completed in 325.068708ms (version 32)
+2026-01-07T11:12:56.114440Z  INFO tracey::daemon::engine: Rebuild completed in 316.680958ms (version 33)
+2026-01-07T11:12:56.426053Z  INFO tracey::daemon::engine: Rebuild completed in 311.571917ms (version 34)
+2026-01-07T11:12:56.744798Z  INFO tracey::daemon::engine: Rebuild completed in 318.707833ms (version 35)
+2026-01-07T11:12:57.062596Z  INFO tracey::daemon::engine: Rebuild completed in 317.756542ms (version 36)
+2026-01-07T11:12:57.371591Z  INFO tracey::daemon::engine: Rebuild completed in 308.957375ms (version 37)
+2026-01-07T11:12:57.698722Z  INFO tracey::daemon::engine: Rebuild completed in 327.092125ms (version 38)
+2026-01-07T11:12:58.731836Z  INFO tracey::daemon::engine: Rebuild completed in 430.518417ms (version 39)
+2026-01-07T11:12:59.204183Z  INFO tracey::daemon::engine: Rebuild completed in 472.2985ms (version 40)
+2026-01-07T11:12:59.667755Z  INFO tracey::daemon::engine: Rebuild completed in 463.517875ms (version 41)
+2026-01-07T11:13:00.127161Z  INFO tracey::daemon::engine: Rebuild completed in 459.356ms (version 42)
+2026-01-07T11:13:02.966632Z  INFO tracey::daemon::engine: Rebuild completed in 555.598958ms (version 43)
+2026-01-07T11:13:03.439894Z  INFO tracey::daemon::engine: Rebuild completed in 473.221709ms (version 44)
+2026-01-07T11:13:03.989907Z  INFO tracey::daemon::engine: Rebuild completed in 549.962708ms (version 45)
+2026-01-07T11:13:04.463016Z  INFO tracey::daemon::engine: Rebuild completed in 473.071875ms (version 46)
+2026-01-07T11:13:04.931431Z  INFO tracey::daemon::engine: Rebuild completed in 468.376125ms (version 47)
+2026-01-07T11:13:05.373195Z  INFO tracey::daemon::engine: Rebuild completed in 441.729417ms (version 48)
+2026-01-07T11:13:05.850639Z  INFO tracey::daemon::engine: Rebuild completed in 477.393084ms (version 49)
+2026-01-07T11:13:06.317702Z  INFO tracey::daemon::engine: Rebuild completed in 467.010208ms (version 50)
+2026-01-07T11:13:06.856054Z  INFO tracey::daemon::engine: Rebuild completed in 538.296583ms (version 51)
+2026-01-07T11:13:07.316954Z  INFO tracey::daemon::engine: Rebuild completed in 460.851416ms (version 52)
+2026-01-07T11:13:07.770486Z  INFO tracey::daemon::engine: Rebuild completed in 453.488791ms (version 53)
+2026-01-07T11:13:08.231162Z  INFO tracey::daemon::engine: Rebuild completed in 460.629958ms (version 54)
+2026-01-07T11:13:08.735445Z  INFO tracey::daemon::engine: Rebuild completed in 504.240583ms (version 55)
+2026-01-07T11:13:10.360387Z  INFO tracey::daemon::engine: Rebuild completed in 456.299541ms (version 56)
+2026-01-07T11:15:11.017990Z  INFO tracey::daemon: Starting tracey daemon for /Users/amos/bearcove/tracey
+2026-01-07T11:15:11.018574Z  INFO tracey::daemon: Removing stale socket at /Users/amos/bearcove/tracey/.tracey/daemon.sock
+2026-01-07T11:15:13.416920Z  INFO tracey::daemon: Daemon listening on /Users/amos/bearcove/tracey/.tracey/daemon.sock
+2026-01-07T11:15:13.444207Z  INFO tracey::daemon: File watcher started for /Users/amos/bearcove/tracey
+2026-01-07T11:15:14.171922Z  INFO tracey::daemon: New connection accepted
+2026-01-07T11:15:14.173129Z ERROR tracey::daemon: Hello exchange failed: Io(Os { code: 32, kind: BrokenPipe, message: "Broken pipe" })
+2026-01-07T11:15:14.173177Z  INFO tracey::daemon: New connection accepted
+2026-01-07T11:15:14.179211Z  INFO tracey::daemon: Hello exchange completed
+2026-01-07T11:15:14.248685Z  INFO tracey::daemon: File changes detected: target/debug/build/parking_lot_core-753eb33bc5f912c4/build-script-build, target/debug/build/libc-2baf587748777cb3/build-script-build and 7 more
+2026-01-07T11:15:16.693066Z  INFO tracey::daemon::engine: Rebuild completed in 2.444292333s (version 2)
+2026-01-07T11:15:16.693129Z  INFO tracey::daemon: File changes detected: target/debug/build/rustix-64f614d33c83946b/build-script-build, target/debug/build/arborium-typst-fb7ba79ec454ac7e/build-script-build and 97 more
+2026-01-07T11:15:23.495980Z  INFO tracey::daemon: Starting tracey daemon for /Users/amos/bearcove/tracey
+2026-01-07T11:15:23.496067Z  INFO tracey::daemon: Removing stale socket at /Users/amos/bearcove/tracey/.tracey/daemon.sock
+2026-01-07T11:15:25.512860Z  INFO tracey::daemon: Daemon listening on /Users/amos/bearcove/tracey/.tracey/daemon.sock
+2026-01-07T11:15:25.515986Z  INFO tracey::daemon: File watcher started for /Users/amos/bearcove/tracey
+2026-01-07T11:15:49.759980Z  INFO tracey::daemon: New connection accepted
+2026-01-07T11:15:49.761040Z  INFO tracey::daemon: New connection accepted
+2026-01-07T11:15:49.761575Z ERROR tracey::daemon: Hello exchange failed: Io(Os { code: 32, kind: BrokenPipe, message: "Broken pipe" })
+2026-01-07T11:15:49.766701Z  INFO tracey::daemon: Hello exchange completed
+2026-01-07T11:15:49.881559Z  INFO tracey::daemon: File changes detected: target/debug/build/owo-colors-818b7bc64a1e1eea/build-script-build, target/debug/build/object-07dbacc96f5f5cb4/build-script-build and 10 more
+2026-01-07T11:15:51.361507Z  INFO tracey::daemon::engine: Rebuild completed in 1.479666291s (version 2)
+2026-01-07T11:15:51.361563Z  INFO tracey::daemon: File changes detected: target/debug/build/arborium-jinja2-d7722d26ce4a278b/build-script-build, target/debug/build/arborium-ocaml-0ac3c7231fa95f69/build-script-build and 26 more
+2026-01-07T11:15:52.816864Z  INFO tracey::daemon::engine: Rebuild completed in 1.455245459s (version 3)
+2026-01-07T11:15:52.816933Z  INFO tracey::daemon: File changes detected: target/debug/build/crunchy-554aca0187a09126/build-script-build, target/debug/build/serde_json-658d5507509df144/build-script-build and 67 more
+2026-01-07T11:15:54.171627Z  INFO tracey::daemon::engine: Rebuild completed in 1.354648s (version 4)
+2026-01-07T11:15:54.171678Z  INFO tracey::daemon: File changes detected: target/debug/build/thiserror-a76c80ec0f1e0fcb/build-script-build, target/debug/tracey.d and 3 more
+2026-01-07T11:15:55.528192Z  INFO tracey::daemon::engine: Rebuild completed in 1.356466959s (version 5)
+2026-01-07T11:16:42.517190Z  INFO tracey::daemon: File change detected: .git/refs/remotes/origin/feat/daemon-architecture.lock, .git/logs/refs/remotes/origin/feat/daemon-architecture, .git/refs/remotes/origin/feat/daemon-architecture
+2026-01-07T11:16:43.843963Z  INFO tracey::daemon::engine: Rebuild completed in 1.326479875s (version 6)
+2026-01-07T11:16:47.737767Z  INFO tracey::daemon: New connection accepted
+2026-01-07T11:16:47.738066Z ERROR tracey::daemon: Hello exchange failed: Closed
+2026-01-07T11:16:47.738611Z  INFO tracey::daemon: New connection accepted
+2026-01-07T11:16:47.742545Z  INFO tracey::daemon: Hello exchange completed
+2026-01-07T11:16:47.865420Z  INFO tracey::daemon: File changes detected: target/debug/build/camino-fb5e8c153a8ae88a/build-script-build, target/debug/build/tree-sitter-language-a3b28a14e7f0f6f0/build-script-build and 4 more
+2026-01-07T11:16:49.184337Z  INFO tracey::daemon::engine: Rebuild completed in 1.318840833s (version 7)
+2026-01-07T11:16:49.184414Z  INFO tracey::daemon: File changes detected: target/debug/build/arborium-sql-400694a13541355f/build-script-build, target/debug/build/thiserror-226389cc45301ea7/build-script-build and 100 more
+2026-01-07T11:16:50.493956Z  INFO tracey::daemon::engine: Rebuild completed in 1.309494791s (version 8)
+2026-01-07T11:16:50.494021Z  INFO tracey::daemon: File changes detected: target/debug/tracey.d, target/debug/build/thiserror-a76c80ec0f1e0fcb/build-script-build and 4 more
+2026-01-07T11:16:51.801929Z  INFO tracey::daemon::engine: Rebuild completed in 1.307859291s (version 9)
+2026-01-07T11:17:03.473423Z  INFO tracey::daemon: File change detected: crates/tracey/src/main.rs.tmp.27429.1767784623259, crates/tracey/src/main.rs
+2026-01-07T11:17:04.830107Z  INFO tracey::daemon::engine: Rebuild completed in 1.356423583s (version 10)
+2026-01-07T11:17:13.790788Z  INFO tracey::daemon: File change detected: crates/tracey/src/main.rs.tmp.27429.1767784633584, crates/tracey/src/main.rs
+2026-01-07T11:17:15.106276Z  INFO tracey::daemon::engine: Rebuild completed in 1.31461825s (version 11)
+2026-01-07T11:17:20.665597Z  INFO tracey::daemon: File change detected: target/debug/.fingerprint/tracey-f9f9370493f4933e/output-bin-tracey, target/debug/.fingerprint/tracey-f9f9370493f4933e/bin-tracey
+2026-01-07T11:17:21.969038Z  INFO tracey::daemon::engine: Rebuild completed in 1.303367667s (version 12)
+2026-01-07T11:17:21.969334Z  INFO tracey::daemon: File changes detected: target/debug/build/getrandom-56d7d2627dc4a0c0/build-script-build, target/debug/build/arborium-haskell-d98ddcc8f6b4f27b/build-script-build and 106 more
+2026-01-07T11:17:23.259978Z  INFO tracey::daemon::engine: Rebuild completed in 1.290586708s (version 13)
+2026-01-07T11:17:23.260034Z  INFO tracey::daemon: File changes detected: target/debug/build/eyre-16b0e212b857b7ef/build-script-build, target/debug/build/thiserror-a76c80ec0f1e0fcb/build-script-build and 4 more
+2026-01-07T11:17:24.543932Z  INFO tracey::daemon::engine: Rebuild completed in 1.283844291s (version 14)
+2026-01-07T11:17:24.543979Z  INFO tracey::daemon: File changes detected: target/debug/incremental/tracey-0wojj2zou3usk/s-hemkyxmg5n-0oiqh0d-3cetwj42fap8zq2g9xm7u8ds7, target/debug/incremental/tracey-0wojj2zou3usk/s-heml1wdofp-0zng95k-working and 4 more
+2026-01-07T11:17:25.837798Z  INFO tracey::daemon::engine: Rebuild completed in 1.293772917s (version 15)
+2026-01-07T11:17:25.837849Z  INFO tracey::daemon: File change detected: target/debug/incremental/tracey-0wojj2zou3usk/s-heml1wdofp-0zng95k-working/dep-graph.part.bin
+2026-01-07T11:17:27.136833Z  INFO tracey::daemon::engine: Rebuild completed in 1.298941042s (version 16)
+2026-01-07T11:17:27.136874Z  INFO tracey::daemon: File change detected: target/debug/deps/tracey-f9f9370493f4933e.d
+2026-01-07T11:17:28.439680Z  INFO tracey::daemon::engine: Rebuild completed in 1.302763166s (version 17)
+2026-01-07T11:17:28.439733Z  INFO tracey::daemon: File changes detected: target/debug/incremental/tracey-0wojj2zou3usk/s-heml1wdofp-0zng95k-working/dep-graph.part.bin, target/debug/deps/libtracey-f9f9370493f4933e.rmeta and 3 more
