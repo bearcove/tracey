@@ -145,6 +145,18 @@ impl DaemonClient {
         self.call(ids.config, &()).await
     }
 
+    /// Add an include pattern
+    pub async fn add_include(&mut self, req: AddPatternRequest) -> Result<Result<(), ConfigError>> {
+        let ids = tracey_daemon_method_ids();
+        self.call(ids.add_include, &(req,)).await
+    }
+
+    /// Add an exclude pattern
+    pub async fn add_exclude(&mut self, req: AddPatternRequest) -> Result<Result<(), ConfigError>> {
+        let ids = tracey_daemon_method_ids();
+        self.call(ids.add_exclude, &(req,)).await
+    }
+
     /// VFS: file opened
     pub async fn vfs_open(&mut self, path: String, content: String) -> Result<()> {
         let ids = tracey_daemon_method_ids();
@@ -216,6 +228,12 @@ impl DaemonClient {
     pub async fn is_test_file(&mut self, path: String) -> Result<bool> {
         let ids = tracey_daemon_method_ids();
         self.call(ids.is_test_file, &(path,)).await
+    }
+
+    /// Validate the spec and implementation for errors
+    pub async fn validate(&mut self, req: ValidateRequest) -> Result<ValidationResult> {
+        let ids = tracey_daemon_method_ids();
+        self.call(ids.validate, &(req,)).await
     }
 }
 
