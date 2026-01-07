@@ -1738,14 +1738,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "facet-typescript"
-version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#e32ba412bc3c4903ab34889e46e67b477d3bcdfd"
-dependencies = [
- "facet-core",
-]
-
-[[package]]
 name = "facet-urlencoded"
 version = "0.42.0"
 source = "git+https://github.com/facet-rs/facet?branch=main#e32ba412bc3c4903ab34889e46e67b477d3bcdfd"
@@ -4596,14 +4588,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tracey-codegen"
-version = "1.0.0"
-dependencies = [
- "facet-typescript",
- "tracey-api",
-]
-
-[[package]]
 name = "tracey-core"
 version = "1.0.0"
 dependencies = [
@@ -4619,14 +4603,6 @@ dependencies = [
  "ignore",
  "marq",
  "rayon",
-]
-
-[[package]]
-name = "tracey-lsp-proto"
-version = "0.1.0"
-dependencies = [
- "tokio",
- "tower-lsp",
 ]
 
 [[package]]

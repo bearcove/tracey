@@ -1164,14 +1164,14 @@ fn glob_match(path: &str, pattern: &str) -> bool {
 // Static Assets (embedded from Vite build)
 // ============================================================================
 
-/// HTML shell from Vite build
-const HTML_SHELL: &str = include_str!("../dashboard/dist/index.html");
+/// HTML shell from Vite build (dashboard colocated with HTTP bridge)
+const HTML_SHELL: &str = include_str!("bridge/http/dashboard/dist/index.html");
 
 /// JavaScript bundle from Vite build
-const JS_BUNDLE: &str = include_str!("../dashboard/dist/assets/index.js");
+const JS_BUNDLE: &str = include_str!("bridge/http/dashboard/dist/assets/index.js");
 
 /// CSS bundle from Vite build
-const CSS_BUNDLE: &str = include_str!("../dashboard/dist/assets/index.css");
+const CSS_BUNDLE: &str = include_str!("bridge/http/dashboard/dist/assets/index.css");
 
 // ============================================================================
 // Route Handlers

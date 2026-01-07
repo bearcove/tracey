@@ -26,18 +26,19 @@ fn generate_roam_dispatcher() {
 }
 
 fn build_dashboard() {
-    let dashboard_dir = Path::new("dashboard");
+    // Dashboard is colocated with the HTTP bridge
+    let dashboard_dir = Path::new("src/bridge/http/dashboard");
     let dist_dir = dashboard_dir.join("dist");
 
     // Re-run if dashboard source changes
-    println!("cargo:rerun-if-changed=dashboard/src");
-    println!("cargo:rerun-if-changed=dashboard/index.html");
-    println!("cargo:rerun-if-changed=dashboard/package.json");
-    println!("cargo:rerun-if-changed=dashboard/vite.config.ts");
+    println!("cargo:rerun-if-changed=src/bridge/http/dashboard/src");
+    println!("cargo:rerun-if-changed=src/bridge/http/dashboard/index.html");
+    println!("cargo:rerun-if-changed=src/bridge/http/dashboard/package.json");
+    println!("cargo:rerun-if-changed=src/bridge/http/dashboard/vite.config.ts");
     // Re-run if output is missing (so deleting dist triggers rebuild)
-    println!("cargo:rerun-if-changed=dashboard/dist/index.html");
-    println!("cargo:rerun-if-changed=dashboard/dist/assets/index.js");
-    println!("cargo:rerun-if-changed=dashboard/dist/assets/index.css");
+    println!("cargo:rerun-if-changed=src/bridge/http/dashboard/dist/index.html");
+    println!("cargo:rerun-if-changed=src/bridge/http/dashboard/dist/assets/index.js");
+    println!("cargo:rerun-if-changed=src/bridge/http/dashboard/dist/assets/index.css");
 
     // Skip build if dist already exists (for faster incremental builds)
     // To force rebuild, delete the dist directory
