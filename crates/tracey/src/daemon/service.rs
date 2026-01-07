@@ -376,10 +376,12 @@ impl TraceyDaemon for TraceyService {
 }
 
 /// Dispatcher that wraps TraceyService and implements roam-tcp's ServiceDispatcher.
+#[allow(dead_code)]
 pub struct TraceyDispatcher {
     service: Arc<TraceyService>,
 }
 
+#[allow(dead_code)]
 impl TraceyDispatcher {
     pub fn new(service: Arc<TraceyService>) -> Self {
         Self { service }

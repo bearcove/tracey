@@ -6,6 +6,8 @@
 //!
 //! r[impl daemon.bridge.mcp]
 
+#![allow(clippy::enum_variant_names)]
+
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -280,10 +282,10 @@ impl TraceyHandler {
             Ok(Some(info)) => {
                 let mut output = format!("# {}\n\n{}\n\n", info.id, info.text);
 
-                if let Some(file) = &info.source_file {
-                    if let Some(line) = info.source_line {
-                        output.push_str(&format!("Defined in: {}:{}\n\n", file, line));
-                    }
+                if let Some(file) = &info.source_file
+                    && let Some(line) = info.source_line
+                {
+                    output.push_str(&format!("Defined in: {}:{}\n\n", file, line));
                 }
 
                 for cov in &info.coverage {
@@ -405,7 +407,7 @@ impl ServerHandler for TraceyHandler {
 // Helper Functions
 // ============================================================================
 
-/// Parse "spec/impl" format into (Option<spec>, Option<impl>).
+/// Parse "spec/impl" format into `(Option<spec>, Option<impl>)`.
 fn parse_spec_impl(spec_impl: Option<&str>) -> (Option<String>, Option<String>) {
     match spec_impl {
         Some(s) if s.contains('/') => {

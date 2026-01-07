@@ -648,29 +648,28 @@ impl LanguageServer for Backend {
 
             if position.character >= ref_col_start && position.character <= ref_col_end {
                 // Found reference at cursor, jump to definition
-                if let Some((_, _, rule)) = state.find_rule(&reference.req_id) {
-                    if let (Some(file), Some(line)) = (&rule.source_file, rule.source_line) {
-                        let def_uri = Url::from_file_path(
-                            state.project_root.join(file.trim_start_matches("./")),
-                        )
-                        .map_err(|_| {
-                            tower_lsp::jsonrpc::Error::invalid_params("Invalid file path")
-                        })?;
+                if let Some((_, _, rule)) = state.find_rule(&reference.req_id)
+                    && let (Some(file), Some(line)) = (&rule.source_file, rule.source_line)
+                {
+                    let def_uri =
+                        Url::from_file_path(state.project_root.join(file.trim_start_matches("./")))
+                            .map_err(|_| {
+                                tower_lsp::jsonrpc::Error::invalid_params("Invalid file path")
+                            })?;
 
-                        return Ok(Some(GotoDefinitionResponse::Scalar(Location {
-                            uri: def_uri,
-                            range: Range {
-                                start: Position {
-                                    line: line.saturating_sub(1) as u32,
-                                    character: 0,
-                                },
-                                end: Position {
-                                    line: line.saturating_sub(1) as u32,
-                                    character: 0,
-                                },
+                    return Ok(Some(GotoDefinitionResponse::Scalar(Location {
+                        uri: def_uri,
+                        range: Range {
+                            start: Position {
+                                line: line.saturating_sub(1) as u32,
+                                character: 0,
                             },
-                        })));
-                    }
+                            end: Position {
+                                line: line.saturating_sub(1) as u32,
+                                character: 0,
+                            },
+                        },
+                    })));
                 }
             }
         }

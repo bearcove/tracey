@@ -17,6 +17,7 @@ use crate::serve::{DashboardData, FileOverlay, build_dashboard_data_with_overlay
 ///
 /// Owns the dashboard data, file watcher, and VFS overlay.
 /// Provides blocking rebuild semantics via RwLock.
+#[allow(dead_code)]
 pub struct Engine {
     /// Current dashboard data, protected by RwLock for blocking rebuilds
     data: Arc<RwLock<Arc<DashboardData>>>,
@@ -72,6 +73,7 @@ impl Engine {
     }
 
     /// Get a receiver for data updates.
+    #[allow(dead_code)]
     pub fn subscribe(&self) -> watch::Receiver<Arc<DashboardData>> {
         self.update_rx.clone()
     }
@@ -172,16 +174,19 @@ impl Engine {
     }
 
     /// Get the project root path.
+    #[allow(dead_code)]
     pub fn project_root(&self) -> &Path {
         &self.project_root
     }
 
     /// Get the config path.
+    #[allow(dead_code)]
     pub fn config_path(&self) -> &Path {
         &self.config_path
     }
 
     /// Get the current config.
+    #[allow(dead_code)]
     pub async fn config(&self) -> Config {
         self.config.read().await.clone()
     }

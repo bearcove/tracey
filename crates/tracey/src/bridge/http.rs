@@ -31,6 +31,7 @@ struct AppState {
     /// Client connection to daemon (protected by mutex for single-threaded access)
     client: Mutex<DaemonClient>,
     /// Project root for resolving paths
+    #[allow(dead_code)]
     project_root: PathBuf,
 }
 

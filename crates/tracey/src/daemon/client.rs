@@ -210,6 +210,7 @@ impl DaemonClient {
     }
 
     /// Check if a path is a test file
+    #[allow(dead_code)]
     pub async fn is_test_file(&mut self, path: String) -> Result<bool> {
         let ids = tracey_daemon_method_ids();
         self.call(ids.is_test_file, &(path,)).await
