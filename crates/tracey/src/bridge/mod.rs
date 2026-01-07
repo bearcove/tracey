@@ -6,3 +6,4 @@
 
 pub mod http;
 pub mod lsp;
+pub mod mcp;

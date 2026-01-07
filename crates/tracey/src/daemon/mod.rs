@@ -33,7 +33,7 @@ use framing::CobsFramedUnix;
 
 pub use client::{DaemonClient, ensure_daemon_running};
 pub use engine::Engine;
-pub use service::{TraceyDispatcher, TraceyService};
+pub use service::TraceyService;
 
 /// Default idle timeout in seconds (10 minutes)
 #[allow(dead_code)]

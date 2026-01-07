@@ -200,7 +200,7 @@ impl Backend {
     }
 
     /// Compute diagnostics for a document.
-    async fn compute_diagnostics(&self, uri: &Url, content: &str) -> Vec<Diagnostic> {
+    async fn compute_diagnostics(&self, _uri: &Url, content: &str) -> Vec<Diagnostic> {
         use tracey_core::{RefVerb, Reqs, WarningKind};
 
         let state = self.state().await;

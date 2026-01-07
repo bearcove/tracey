@@ -696,8 +696,8 @@ Tracey provides a minimal command-line interface focused on serving.
 r[cli.no-args]
 When invoked with no subcommand, tracey MUST display help text listing available commands.
 
-r[cli.serve]
-The `tracey serve` command MUST start the HTTP dashboard server.
+r[cli.web]
+The `tracey web` command MUST start the HTTP dashboard server.
 
 r[cli.mcp]
 The `tracey mcp` command MUST start an MCP (Model Context Protocol) server over stdio.
@@ -738,6 +738,100 @@ Both HTTP and MCP modes MUST use the same underlying coverage computation and st
 
 r[server.state.version]
 The server MUST maintain a version identifier that changes when any source data changes.
+
+## Daemon Architecture
+
+Tracey uses a daemon architecture where a single persistent daemon per workspace owns all state and computation. Protocol bridges (HTTP, LSP, MCP) connect as clients to the daemon via roam RPC over Unix sockets.
+
+### Daemon Lifecycle
+
+r[daemon.lifecycle.socket]
+The daemon MUST listen on `.tracey/daemon.sock` in the workspace root directory for client connections.
+
+r[daemon.lifecycle.auto-start]
+Protocol bridges MUST auto-start the daemon if it is not already running when they need to connect.
+
+r[daemon.lifecycle.stale-socket]
+When connecting to the daemon, bridges MUST detect stale socket files (left over from crashed daemons) and remove them before attempting to start a new daemon.
+
+r[daemon.lifecycle.idle-timeout]
+The daemon MAY exit after a configurable idle period with no active connections to conserve resources.
+
+### Daemon State
+
+r[daemon.state.single-source]
+The daemon MUST own a single `DashboardData` instance that serves as the source of truth for all coverage data.
+
+r[daemon.state.file-watcher]
+The daemon MUST run a file watcher that monitors all files matching the configuration's include/exclude patterns and triggers rebuilds on changes.
+
+r[daemon.state.vfs-overlay]
+The daemon MUST maintain a virtual filesystem (VFS) overlay that stores in-memory content for files opened in editors, allowing coverage computation on unsaved changes.
+
+r[daemon.state.blocking-rebuild]
+On file changes, the daemon MUST block all incoming requests until the rebuild completes. This ensures clients never see stale or inconsistent data.
+
+### roam Service
+
+r[daemon.roam.protocol]
+The daemon MUST expose a `TraceyDaemon` service via the roam RPC protocol.
+
+r[daemon.roam.unix-socket]
+Communication between the daemon and bridges MUST occur over Unix domain sockets.
+
+r[daemon.roam.framing]
+Messages on the Unix socket MUST use COBS framing for reliable message boundary detection.
+
+### VFS Overlay
+
+r[daemon.vfs.open]
+The `vfs_open(path, content)` method MUST register a file in the VFS overlay with the provided content.
+
+r[daemon.vfs.change]
+The `vfs_change(path, content)` method MUST update the content of a file in the VFS overlay.
+
+r[daemon.vfs.close]
+The `vfs_close(path)` method MUST remove a file from the VFS overlay.
+
+r[daemon.vfs.priority]
+When computing coverage, VFS overlay content MUST take precedence over disk content for files that exist in the overlay.
+
+### Protocol Bridges
+
+r[daemon.bridge.http]
+The HTTP bridge MUST translate REST API requests to roam RPC calls and serve the dashboard frontend.
+
+r[daemon.bridge.mcp]
+The MCP bridge MUST translate MCP tool calls to roam RPC calls, providing AI assistants access to coverage data.
+
+r[daemon.bridge.lsp]
+The LSP bridge MUST translate LSP protocol messages to roam RPC calls and feed the VFS overlay with document open/change/close events.
+
+### CLI Commands
+
+r[daemon.cli.daemon]
+The `tracey daemon` command MUST start the daemon in the foreground for the current workspace.
+
+r[daemon.cli.web]
+The `tracey web` command MUST start the HTTP bridge, auto-starting the daemon if needed.
+
+r[daemon.cli.mcp]
+The `tracey mcp` command MUST start the MCP bridge, auto-starting the daemon if needed.
+
+r[daemon.cli.lsp]
+The `tracey lsp` command MUST start the LSP bridge, auto-starting the daemon if needed.
+
+r[daemon.cli.logs]
+The `tracey logs` command MUST display the daemon's log output from `.tracey/daemon.log`.
+
+> r[daemon.cli.logs.follow]
+> The `--follow` flag MUST stream new log entries as they are written, similar to `tail -f`.
+
+> r[daemon.cli.logs.lines]
+> The `--lines` flag MUST control how many historical lines to display (default: 50).
+
+r[daemon.logs.file]
+The daemon MUST write all log output to `.tracey/daemon.log` in the workspace root.
 
 ## Validation
 
