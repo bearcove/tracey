@@ -104,34 +104,6 @@ pub struct ConfigTool {}
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ReloadTool {}
 
-/// Add an exclude pattern to an implementation
-#[mcp_tool(
-    name = "tracey_config_exclude",
-    description = "Add an exclude pattern to filter out files from scanning for a specific implementation."
-)]
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct ConfigExcludeTool {
-    /// Glob pattern to exclude (e.g., "**/test/**")
-    pub pattern: String,
-    /// Spec/impl to modify (e.g., "my-spec/rust"). Optional if only one exists.
-    #[serde(default)]
-    pub spec_impl: Option<String>,
-}
-
-/// Add an include pattern to an implementation
-#[mcp_tool(
-    name = "tracey_config_include",
-    description = "Add an include pattern to expand the set of scanned files for a specific implementation."
-)]
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct ConfigIncludeTool {
-    /// Glob pattern to include (e.g., "src/**/*.rs")
-    pub pattern: String,
-    /// Spec/impl to modify (e.g., "my-spec/rust"). Optional if only one exists.
-    #[serde(default)]
-    pub spec_impl: Option<String>,
-}
-
 /// r[impl mcp.validation.check]
 ///
 /// Validate the spec and implementation for errors
@@ -157,8 +129,6 @@ tool_box!(
         RuleTool,
         ConfigTool,
         ReloadTool,
-        ConfigExcludeTool,
-        ConfigIncludeTool,
         ValidateTool
     ]
 );
@@ -393,40 +363,6 @@ impl TraceyHandler {
         }
     }
 
-    async fn handle_config_exclude(&self, pattern: &str, spec_impl: Option<&str>) -> String {
-        let mut client = self.client.lock().await;
-        let (spec, impl_name) = parse_spec_impl(spec_impl);
-
-        let req = AddPatternRequest {
-            spec,
-            impl_name,
-            pattern: pattern.to_string(),
-        };
-
-        match client.add_exclude(req).await {
-            Ok(Ok(())) => format!("Added exclude pattern: {}", pattern),
-            Ok(Err(e)) => format!("Error: {}", e.message),
-            Err(e) => format!("Error: {}", e),
-        }
-    }
-
-    async fn handle_config_include(&self, pattern: &str, spec_impl: Option<&str>) -> String {
-        let mut client = self.client.lock().await;
-        let (spec, impl_name) = parse_spec_impl(spec_impl);
-
-        let req = AddPatternRequest {
-            spec,
-            impl_name,
-            pattern: pattern.to_string(),
-        };
-
-        match client.add_include(req).await {
-            Ok(Ok(())) => format!("Added include pattern: {}", pattern),
-            Ok(Err(e)) => format!("Error: {}", e.message),
-            Err(e) => format!("Error: {}", e),
-        }
-    }
-
     async fn handle_validate(&self, spec_impl: Option<&str>) -> String {
         let mut client = self.client.lock().await;
         let (spec, impl_name) = parse_spec_impl(spec_impl);
@@ -521,22 +457,6 @@ impl ServerHandler for TraceyHandler {
             }
             "tracey_config" => self.handle_config().await,
             "tracey_reload" => self.handle_reload().await,
-            "tracey_config_exclude" => {
-                let pattern = args.get("pattern").and_then(|v| v.as_str());
-                let spec_impl = args.get("spec_impl").and_then(|v| v.as_str());
-                match pattern {
-                    Some(p) => self.handle_config_exclude(p, spec_impl).await,
-                    None => "Error: pattern is required".to_string(),
-                }
-            }
-            "tracey_config_include" => {
-                let pattern = args.get("pattern").and_then(|v| v.as_str());
-                let spec_impl = args.get("spec_impl").and_then(|v| v.as_str());
-                match pattern {
-                    Some(p) => self.handle_config_include(p, spec_impl).await,
-                    None => "Error: pattern is required".to_string(),
-                }
-            }
             "tracey_validate" => {
                 let spec_impl = args.get("spec_impl").and_then(|v| v.as_str());
                 self.handle_validate(spec_impl).await

@@ -173,23 +173,6 @@ pub struct RuleCoverage {
     pub verify_refs: Vec<ApiCodeRef>,
 }
 
-/// Request to add a pattern (include or exclude)
-#[derive(Debug, Clone, Facet)]
-#[facet(rename_all = "camelCase")]
-pub struct AddPatternRequest {
-    #[facet(default)]
-    pub spec: Option<String>,
-    #[facet(default)]
-    pub impl_name: Option<String>,
-    pub pattern: String,
-}
-
-/// Error from config modification
-#[derive(Debug, Clone, Facet)]
-pub struct ConfigError {
-    pub message: String,
-}
-
 /// Response from reload command
 #[derive(Debug, Clone, Facet)]
 #[facet(rename_all = "camelCase")]
@@ -309,12 +292,6 @@ pub trait TraceyDaemon {
 
     /// Get current configuration
     async fn config(&self) -> ApiConfig;
-
-    /// Add an include pattern for an implementation
-    async fn add_include(&self, req: AddPatternRequest) -> Result<(), ConfigError>;
-
-    /// Add an exclude pattern for an implementation
-    async fn add_exclude(&self, req: AddPatternRequest) -> Result<(), ConfigError>;
 
     // === VFS Overlay (for LSP) ===
 

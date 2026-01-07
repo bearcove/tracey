@@ -49,12 +49,6 @@ impl TraceyDaemonHandler for Arc<TraceyService> {
     async fn config(&self) -> HandlerResult<ApiConfig> {
         (**self).config().await
     }
-    async fn add_include(&self, req: AddPatternRequest) -> HandlerResult<Result<(), ConfigError>> {
-        (**self).add_include(req).await
-    }
-    async fn add_exclude(&self, req: AddPatternRequest) -> HandlerResult<Result<(), ConfigError>> {
-        (**self).add_exclude(req).await
-    }
     async fn vfs_open(&self, path: String, content: String) -> HandlerResult<()> {
         (**self).vfs_open(path, content).await
     }
@@ -424,22 +418,6 @@ impl TraceyDaemonHandler for TraceyService {
         Ok(data.config.clone())
     }
 
-    /// Add an include pattern
-    async fn add_include(&self, _req: AddPatternRequest) -> HandlerResult<Result<(), ConfigError>> {
-        // TODO: Implement config modification
-        Ok(Err(ConfigError {
-            message: "Not implemented".to_string(),
-        }))
-    }
-
-    /// Add an exclude pattern
-    async fn add_exclude(&self, _req: AddPatternRequest) -> HandlerResult<Result<(), ConfigError>> {
-        // TODO: Implement config modification
-        Ok(Err(ConfigError {
-            message: "Not implemented".to_string(),
-        }))
-    }
-
     /// VFS: file opened
     async fn vfs_open(&self, path: String, content: String) -> HandlerResult<()> {
         self.engine
@@ -485,9 +463,59 @@ impl TraceyDaemonHandler for TraceyService {
     }
 
     /// Subscribe to data updates
-    async fn subscribe(&self, _updates: Push<DataUpdate>) -> HandlerResult<()> {
-        // TODO: Implement streaming updates
-        // This requires integrating with the engine's watch channel
+    async fn subscribe(&self, updates: Push<DataUpdate>) -> HandlerResult<()> {
+        // Get a watch receiver from the engine
+        let mut rx = self.engine.subscribe();
+
+        // Loop until the client disconnects or an error occurs
+        loop {
+            // Wait for a change in the data
+            if rx.changed().await.is_err() {
+                // Engine dropped the sender - shutting down
+                break;
+            }
+
+            // Build the update message (clone to avoid holding the guard across await)
+            let update = {
+                let data = rx.borrow_and_update();
+
+                // Convert server::Delta to proto::DeltaSummary
+                // Flatten all impl deltas into a single summary
+                let delta = if data.delta.is_empty() {
+                    None
+                } else {
+                    let mut newly_covered = Vec::new();
+                    let mut newly_uncovered = Vec::new();
+
+                    for impl_delta in data.delta.by_impl.values() {
+                        for change in &impl_delta.newly_covered {
+                            newly_covered.push(CoverageChange {
+                                rule_id: change.rule_id.clone(),
+                                file: change.file.clone(),
+                                line: change.line,
+                            });
+                        }
+                        newly_uncovered.extend(impl_delta.newly_uncovered.iter().cloned());
+                    }
+
+                    Some(DeltaSummary {
+                        newly_covered,
+                        newly_uncovered,
+                    })
+                };
+
+                DataUpdate {
+                    version: data.version,
+                    delta,
+                }
+            }; // Guard dropped here before the await
+
+            // Send the update - if this fails, the client disconnected
+            if updates.send(&update).await.is_err() {
+                break;
+            }
+        }
+
         Ok(())
     }
 
@@ -621,12 +649,66 @@ impl TraceyDaemonHandler for TraceyService {
     /// Update a file range
     async fn update_file_range(
         &self,
-        _req: UpdateFileRangeRequest,
+        req: UpdateFileRangeRequest,
     ) -> HandlerResult<Result<(), UpdateError>> {
-        // TODO: Implement file editing
-        Ok(Err(UpdateError {
-            message: "Not implemented".to_string(),
-        }))
+        let project_root = self.engine.project_root();
+
+        // Resolve the file path
+        let file_path = PathBuf::from(&req.path);
+        let full_path = if file_path.is_absolute() {
+            file_path
+        } else {
+            project_root.join(&file_path)
+        };
+
+        // Read current file content
+        let content = match std::fs::read_to_string(&full_path) {
+            Ok(c) => c,
+            Err(e) => {
+                return Ok(Err(UpdateError {
+                    message: format!("Failed to read file: {}", e),
+                }));
+            }
+        };
+
+        // Compute hash and compare
+        let current_hash = blake3::hash(content.as_bytes()).to_hex().to_string();
+        if current_hash != req.file_hash {
+            return Ok(Err(UpdateError {
+                message: format!(
+                    "File has been modified (expected hash {}, got {})",
+                    req.file_hash, current_hash
+                ),
+            }));
+        }
+
+        // Validate range
+        if req.start > req.end || req.end > content.len() {
+            return Ok(Err(UpdateError {
+                message: format!(
+                    "Invalid range: {}..{} (file length: {})",
+                    req.start,
+                    req.end,
+                    content.len()
+                ),
+            }));
+        }
+
+        // Replace the range
+        let mut new_content =
+            String::with_capacity(content.len() - (req.end - req.start) + req.content.len());
+        new_content.push_str(&content[..req.start]);
+        new_content.push_str(&req.content);
+        new_content.push_str(&content[req.end..]);
+
+        // Write back
+        if let Err(e) = std::fs::write(&full_path, &new_content) {
+            return Ok(Err(UpdateError {
+                message: format!("Failed to write file: {}", e),
+            }));
+        }
+
+        Ok(Ok(()))
     }
 
     /// Check if a path is a test file
