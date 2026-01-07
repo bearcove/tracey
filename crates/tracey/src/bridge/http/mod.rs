@@ -62,6 +62,11 @@ pub async fn run(
     });
 
     // Build router
+    // r[impl dashboard.api.config]
+    // r[impl dashboard.api.forward]
+    // r[impl dashboard.api.reverse]
+    // r[impl dashboard.api.spec]
+    // r[impl dashboard.api.file]
     let app = Router::new()
         // API routes
         .route("/api/config", get(api_config))

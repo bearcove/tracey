@@ -35,6 +35,9 @@ const SEMANTIC_TOKEN_MODIFIERS: &[SemanticTokenModifier] = &[
 ///
 /// This function starts an LSP server that connects to the tracey daemon
 /// for data and VFS operations.
+///
+/// r[impl lsp.lifecycle.stdio]
+/// r[impl lsp.lifecycle.project-root]
 pub async fn run(root: Option<PathBuf>, _config_path: Option<PathBuf>) -> Result<()> {
     // Determine project root
     let project_root = match root {
@@ -230,6 +233,12 @@ impl Backend {
     }
 
     /// Compute diagnostics for a document.
+    ///
+    /// r[impl lsp.diagnostics.broken-refs]
+    /// r[impl lsp.diagnostics.broken-refs-message]
+    /// r[impl lsp.diagnostics.unknown-prefix]
+    /// r[impl lsp.diagnostics.unknown-prefix-message]
+    /// r[impl lsp.diagnostics.unknown-verb]
     async fn compute_diagnostics(&self, _uri: &Url, content: &str) -> Vec<Diagnostic> {
         use tracey_core::{RefVerb, Reqs, WarningKind};
 
@@ -459,6 +468,8 @@ fn levenshtein_distance(a: &str, b: &str) -> usize {
 
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
+    /// r[impl lsp.lifecycle.initialize]
+    /// r[impl lsp.completions.trigger]
     async fn initialize(&self, _: InitializeParams) -> LspResult<InitializeResult> {
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
@@ -507,6 +518,7 @@ impl LanguageServer for Backend {
         self.publish_diagnostics(uri, &content).await;
     }
 
+    /// r[impl lsp.diagnostics.on-change]
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         let uri = params.text_document.uri.clone();
         if let Some(change) = params.content_changes.into_iter().next() {
@@ -517,6 +529,7 @@ impl LanguageServer for Backend {
         }
     }
 
+    /// r[impl lsp.diagnostics.on-save]
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         let uri = params.text_document.uri.clone();
         let content = self.state().await.get_document_content(&uri);
@@ -532,6 +545,10 @@ impl LanguageServer for Backend {
         self.client.publish_diagnostics(uri, vec![], None).await;
     }
 
+    /// r[impl lsp.completions.verb]
+    /// r[impl lsp.completions.req-id]
+    /// r[impl lsp.completions.req-id-fuzzy]
+    /// r[impl lsp.completions.req-id-preview]
     async fn completion(&self, params: CompletionParams) -> LspResult<Option<CompletionResponse>> {
         let state = self.state().await;
         let uri = &params.text_document_position.text_document.uri;
@@ -600,6 +617,8 @@ impl LanguageServer for Backend {
         }
     }
 
+    /// r[impl lsp.hover.req-reference]
+    /// r[impl lsp.hover.req-reference-format]
     async fn hover(&self, params: HoverParams) -> LspResult<Option<Hover>> {
         let state = self.state().await;
         let uri = &params.text_document_position_params.text_document.uri;
@@ -662,6 +681,8 @@ impl LanguageServer for Backend {
         Ok(None)
     }
 
+    /// r[impl lsp.goto.ref-to-def]
+    /// r[impl lsp.goto.precise-location]
     async fn goto_definition(
         &self,
         params: GotoDefinitionParams,
@@ -726,6 +747,7 @@ impl LanguageServer for Backend {
         Ok(None)
     }
 
+    /// r[impl lsp.semantic-tokens.req-id]
     async fn semantic_tokens_full(
         &self,
         params: SemanticTokensParams,

@@ -319,6 +319,8 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
 }
 
 /// Run the file watcher, sending events to the channel.
+/// r[impl server.watch.debounce]
+/// r[impl server.watch.config-file]
 async fn run_file_watcher(
     project_root: &Path,
     config_path: &Path,
@@ -327,6 +329,7 @@ async fn run_file_watcher(
     use notify_debouncer_mini::DebounceEventResult;
 
     let tx_clone = tx.clone();
+    // r[impl server.watch.debounce]
     let mut debouncer = new_debouncer(
         Duration::from_millis(200),
         move |events: DebounceEventResult| {

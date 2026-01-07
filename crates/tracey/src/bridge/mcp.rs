@@ -143,6 +143,7 @@ struct TraceyHandler {
 }
 
 impl TraceyHandler {
+    /// r[impl mcp.tool.status]
     async fn handle_status(&self) -> String {
         let mut client = self.client.lock().await;
         match client.status().await {
@@ -179,6 +180,7 @@ impl TraceyHandler {
         }
     }
 
+    /// r[impl mcp.tool.uncovered]
     async fn handle_uncovered(&self, spec_impl: Option<&str>, prefix: Option<&str>) -> String {
         let mut client = self.client.lock().await;
         let (spec, impl_name) = parse_spec_impl(spec_impl);
@@ -215,6 +217,7 @@ impl TraceyHandler {
         }
     }
 
+    /// r[impl mcp.tool.untested]
     async fn handle_untested(&self, spec_impl: Option<&str>, prefix: Option<&str>) -> String {
         let mut client = self.client.lock().await;
         let (spec, impl_name) = parse_spec_impl(spec_impl);
@@ -251,6 +254,8 @@ impl TraceyHandler {
         }
     }
 
+    /// r[impl mcp.tool.unmapped]
+    /// r[impl mcp.tool.unmapped-zoom]
     async fn handle_unmapped(&self, spec_impl: Option<&str>, path: Option<&str>) -> String {
         let mut client = self.client.lock().await;
         let (spec, impl_name) = parse_spec_impl(spec_impl);
@@ -326,6 +331,7 @@ impl TraceyHandler {
         }
     }
 
+    /// r[impl mcp.config.list]
     async fn handle_config(&self) -> String {
         let mut client = self.client.lock().await;
         match client.config().await {
@@ -473,6 +479,10 @@ impl ServerHandler for TraceyHandler {
 // ============================================================================
 
 /// Parse "spec/impl" format into `(Option<spec>, Option<impl>)`.
+///
+/// r[impl mcp.select.single]
+/// r[impl mcp.select.full]
+/// r[impl mcp.select.spec-only]
 fn parse_spec_impl(spec_impl: Option<&str>) -> (Option<String>, Option<String>) {
     match spec_impl {
         Some(s) if s.contains('/') => {

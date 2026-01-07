@@ -7,12 +7,9 @@
 mod bridge;
 mod config;
 mod daemon;
-mod lsp;
-mod mcp;
 mod search;
 mod serve;
 mod server;
-mod vite;
 
 use config::Config;
 use eyre::{Result, WrapErr};
@@ -46,17 +43,13 @@ enum Command {
         #[facet(args::named, args::short = 'c', default)]
         config: Option<PathBuf>,
 
-        /// Port to serve on (default: 3000)
+        /// Port to listen on (default: 3000)
         #[facet(args::named, args::short = 'p', default)]
         port: Option<u16>,
 
         /// Open the dashboard in your browser
         #[facet(args::named, default)]
         open: bool,
-
-        /// Development mode: serve dashboard from Vite dev server
-        #[facet(args::named, default)]
-        dev: bool,
     },
 
     /// Start the MCP server for AI assistants
@@ -92,36 +85,6 @@ enum Command {
         config: Option<PathBuf>,
     },
 
-    /// Start LSP bridge (experimental, requires daemon running)
-    LspBridge {
-        /// Project root directory (default: current directory)
-        #[facet(args::positional, default)]
-        root: Option<PathBuf>,
-
-        /// Path to config file (default: .config/tracey/config.kdl)
-        #[facet(args::named, args::short = 'c', default)]
-        config: Option<PathBuf>,
-    },
-
-    /// Start HTTP bridge for dashboard (experimental, requires daemon running)
-    WebBridge {
-        /// Project root directory (default: current directory)
-        #[facet(args::positional, default)]
-        root: Option<PathBuf>,
-
-        /// Path to config file (default: .config/tracey/config.kdl)
-        #[facet(args::named, args::short = 'c', default)]
-        config: Option<PathBuf>,
-
-        /// Port to listen on (default: 3000)
-        #[facet(args::named, args::short = 'p', default)]
-        port: Option<u16>,
-
-        /// Open the dashboard in your browser
-        #[facet(args::named, default)]
-        open: bool,
-    },
-
     /// Show daemon logs
     Logs {
         /// Project root directory (default: current directory)
@@ -136,17 +99,6 @@ enum Command {
         #[facet(args::named, args::short = 'n', default)]
         lines: Option<usize>,
     },
-
-    /// Start MCP bridge (experimental, requires daemon running)
-    McpBridge {
-        /// Project root directory (default: current directory)
-        #[facet(args::positional, default)]
-        root: Option<PathBuf>,
-
-        /// Path to config file (default: .config/tracey/config.kdl)
-        #[facet(args::named, args::short = 'c', default)]
-        config: Option<PathBuf>,
-    },
 }
 
 fn main() -> Result<()> {
@@ -156,22 +108,30 @@ fn main() -> Result<()> {
 
     match args.command {
         // r[impl cli.web]
+        // r[impl daemon.cli.web]
         Some(Command::Web {
             root,
             config,
             port,
             open,
-            dev,
-        }) => serve::run(root, config, port.unwrap_or(3000), open, dev),
-        // r[impl cli.mcp]
-        Some(Command::Mcp { root, config }) => {
+        }) => {
+            init_tracing();
             let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(mcp::run(root, config))
+            rt.block_on(bridge::http::run(root, config, port.unwrap_or(3000), open))
+        }
+        // r[impl cli.mcp]
+        // r[impl daemon.cli.mcp]
+        Some(Command::Mcp { root, config }) => {
+            // MCP communicates over stdio, so no tracing to stdout
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(bridge::mcp::run(root, config))
         }
         // r[impl cli.lsp]
+        // r[impl daemon.cli.lsp]
         Some(Command::Lsp { root, config }) => {
+            // LSP communicates over stdio, so no tracing to stdout
             let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(lsp::run(root, config))
+            rt.block_on(bridge::lsp::run(root, config))
         }
         // r[impl daemon.cli.daemon]
         Some(Command::Daemon { root, config }) => {
@@ -179,6 +139,7 @@ fn main() -> Result<()> {
             use tracing_subscriber::util::SubscriberInitExt;
 
             let project_root = root.unwrap_or_else(|| find_project_root().unwrap_or_default());
+            // r[impl config.path.default]
             let config_path =
                 config.unwrap_or_else(|| project_root.join(".config/tracey/config.kdl"));
 
@@ -215,29 +176,6 @@ fn main() -> Result<()> {
 
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(daemon::run(project_root, config_path))
-        }
-        // r[impl daemon.cli.lsp]
-        Some(Command::LspBridge { root, config }) => {
-            // LSP communicates over stdio, so no tracing to stdout
-            let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(bridge::lsp::run(root, config))
-        }
-        // r[impl daemon.cli.web]
-        Some(Command::WebBridge {
-            root,
-            config,
-            port,
-            open,
-        }) => {
-            init_tracing();
-            let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(bridge::http::run(root, config, port.unwrap_or(3000), open))
-        }
-        // r[impl daemon.cli.mcp]
-        Some(Command::McpBridge { root, config }) => {
-            // MCP communicates over stdio, so no tracing to stdout
-            let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(bridge::mcp::run(root, config))
         }
         // r[impl daemon.cli.logs]
         Some(Command::Logs {
@@ -550,6 +488,7 @@ pub(crate) fn find_project_root() -> Result<PathBuf> {
     }
 }
 
+#[allow(dead_code)] // Used by tests in server.rs
 pub(crate) fn load_config(path: &PathBuf) -> Result<Config> {
     if !path.exists() {
         eyre::bail!(
@@ -580,6 +519,7 @@ pub(crate) fn load_config(path: &PathBuf) -> Result<Config> {
 /// r[impl config.optional]
 /// Load config if it exists, otherwise return default empty config.
 /// This allows services to start without a config file.
+#[allow(dead_code)]
 pub(crate) fn load_config_or_default(path: &PathBuf) -> Config {
     if !path.exists() {
         return Config::default();

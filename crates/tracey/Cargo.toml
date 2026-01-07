@@ -53,9 +53,6 @@ marq = { workspace = true }
 # Syntax highlighting for source files
 arborium = { workspace = true }
 
-# Open files in browser
-open = "5"
-
 # HTTP server for serve command
 axum = { workspace = true }
 tokio = { workspace = true }
@@ -65,9 +62,6 @@ futures-util = { workspace = true }
 tokio-tungstenite = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-
-# File watching for live reload
-notify = { workspace = true }
 notify-debouncer-mini = { workspace = true }
 
 # URL decoding for API

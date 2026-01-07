@@ -2,6 +2,8 @@
 //!
 //! r[impl daemon.state.vfs-overlay]
 //! r[impl daemon.state.blocking-rebuild]
+//! r[impl server.state.shared]
+//! r[impl server.state.version]
 //!
 //! The engine owns the `DashboardData`, file watcher, and VFS overlay.
 //! It provides blocking rebuild semantics - all requests wait during rebuild.
