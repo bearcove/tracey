@@ -73,6 +73,11 @@ pub async fn run(
         .route("/api/search", get(api_search))
         .route("/api/status", get(api_status))
         .route("/api/validate", get(api_validate))
+        .route("/api/uncovered", get(api_uncovered))
+        .route("/api/untested", get(api_untested))
+        .route("/api/unmapped", get(api_unmapped))
+        .route("/api/rule", get(api_rule))
+        .route("/api/reload", get(api_reload))
         // Static assets
         .route("/assets/{*path}", get(serve_asset))
         // SPA fallback - all other routes serve index.html
@@ -160,6 +165,30 @@ struct FileQuery {
     spec: Option<String>,
     #[serde(rename = "impl")]
     impl_name: Option<String>,
+}
+
+/// Query parameters for uncovered/untested endpoints.
+#[derive(Debug, Clone, Deserialize)]
+struct CoverageQuery {
+    spec: Option<String>,
+    #[serde(rename = "impl")]
+    impl_name: Option<String>,
+    prefix: Option<String>,
+}
+
+/// Query parameters for unmapped endpoint.
+#[derive(Debug, Clone, Deserialize)]
+struct UnmappedQuery {
+    spec: Option<String>,
+    #[serde(rename = "impl")]
+    impl_name: Option<String>,
+    path: Option<String>,
+}
+
+/// Query parameters for rule endpoint.
+#[derive(Debug, Clone, Deserialize)]
+struct RuleQuery {
+    id: String,
 }
 
 /// Version response.
@@ -329,6 +358,104 @@ async fn api_validate(
 
     match client.validate(req).await {
         Ok(result) => Json(result).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
+/// GET /api/uncovered - Get uncovered rules.
+async fn api_uncovered(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<CoverageQuery>,
+) -> Response {
+    let mut client = state.client.lock().await;
+
+    let config = match client.config().await {
+        Ok(c) => c,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    };
+
+    let (spec, impl_name) = resolve_spec_impl(query.spec, query.impl_name, &config);
+
+    let req = tracey_proto::UncoveredRequest {
+        spec: Some(spec),
+        impl_name: Some(impl_name),
+        prefix: query.prefix,
+    };
+
+    match client.uncovered(req).await {
+        Ok(data) => Json(data).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
+/// GET /api/untested - Get untested rules.
+async fn api_untested(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<CoverageQuery>,
+) -> Response {
+    let mut client = state.client.lock().await;
+
+    let config = match client.config().await {
+        Ok(c) => c,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    };
+
+    let (spec, impl_name) = resolve_spec_impl(query.spec, query.impl_name, &config);
+
+    let req = tracey_proto::UntestedRequest {
+        spec: Some(spec),
+        impl_name: Some(impl_name),
+        prefix: query.prefix,
+    };
+
+    match client.untested(req).await {
+        Ok(data) => Json(data).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
+/// GET /api/unmapped - Get unmapped code.
+async fn api_unmapped(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<UnmappedQuery>,
+) -> Response {
+    let mut client = state.client.lock().await;
+
+    let config = match client.config().await {
+        Ok(c) => c,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    };
+
+    let (spec, impl_name) = resolve_spec_impl(query.spec, query.impl_name, &config);
+
+    let req = tracey_proto::UnmappedRequest {
+        spec: Some(spec),
+        impl_name: Some(impl_name),
+        path: query.path,
+    };
+
+    match client.unmapped(req).await {
+        Ok(data) => Json(data).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
+/// GET /api/rule - Get details for a specific rule.
+async fn api_rule(State(state): State<Arc<AppState>>, Query(query): Query<RuleQuery>) -> Response {
+    let mut client = state.client.lock().await;
+
+    match client.rule(query.id).await {
+        Ok(Some(info)) => Json(info).into_response(),
+        Ok(None) => (StatusCode::NOT_FOUND, "Rule not found").into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
+/// GET /api/reload - Force a rebuild.
+async fn api_reload(State(state): State<Arc<AppState>>) -> Response {
+    let mut client = state.client.lock().await;
+    match client.reload().await {
+        Ok(response) => Json(response).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
 }
