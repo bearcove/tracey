@@ -663,7 +663,9 @@ pub async fn build_dashboard_data_with_overlay(
                 for r in &reqs.references {
                     // r[impl ref.prefix.coverage]
                     if r.prefix == spec_config.prefix.value && r.req_id == extracted.def.id {
+                        // r[impl ref.cross-workspace.graceful]
                         // Canonicalize the reference file path for consistent matching
+                        // Uses unwrap_or_else to gracefully handle missing files
                         let canonical_ref =
                             r.file.canonicalize().unwrap_or_else(|_| r.file.clone());
 

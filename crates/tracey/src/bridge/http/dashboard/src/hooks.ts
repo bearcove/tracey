@@ -114,6 +114,7 @@ export function useApi(): UseApiResult {
 	}, [fetchData]);
 
 	// r[impl dashboard.api.version]
+	// r[impl dashboard.api.live-updates]
 	// r[impl dashboard.editing.reload.auto-detect]
 	// r[impl dashboard.editing.reload.live-update]
 	// Poll for version changes and refetch if changed

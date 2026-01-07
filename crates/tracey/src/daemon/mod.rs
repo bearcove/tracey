@@ -102,6 +102,7 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
     // Create socket path
     let sock_path = socket_path(&project_root);
 
+    // r[impl daemon.lifecycle.stale-socket]
     // Remove stale socket if it exists
     if sock_path.exists() {
         info!("Removing stale socket at {}", sock_path.display());
@@ -148,6 +149,7 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
     let engine_for_rebuild = Arc::clone(&engine);
     let project_root_for_rebuild = project_root.clone();
     tokio::spawn(async move {
+        // r[impl server.watch.respect-gitignore]
         // Build gitignore matcher for filtering file watcher events
         let gitignore = {
             let mut builder = ignore::gitignore::GitignoreBuilder::new(&project_root_for_rebuild);
@@ -253,6 +255,7 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
                 let last_activity = Arc::clone(&last_activity);
 
                 tokio::spawn(async move {
+                    // r[impl daemon.roam.framing]
                     // Wrap in COBS framing (roam-stream is generic over any AsyncRead+AsyncWrite)
                     let io = CobsFramed::new(stream);
 

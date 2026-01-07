@@ -6,6 +6,7 @@
 // r[impl dashboard.editing.save.patch-file]
 // r[impl dashboard.editing.save.error-handling]
 // r[impl dashboard.editing.cancel.discard]
+// r[impl dashboard.editing.cancel.vim]
 import { useEffect, useRef, useState } from "preact/hooks";
 import { html } from "../main";
 import { EditorView } from "@codemirror/view";

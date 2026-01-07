@@ -316,8 +316,8 @@ Implementation references MAY be located in different crates or workspaces outsi
 >   Referenced by spec 'tracey' implementation 'rust'
 > ```
 
-> r[ref.cross-workspace.dashboard-warnings]
-> Missing implementation file paths MUST be displayed as warnings in the dashboard UI, with visual indicators (warning badges, error states) on affected requirements or source file listings.
+> r[ref.cross-workspace.graceful]
+> The dashboard SHOULD handle missing implementation files gracefully, displaying available data rather than failing.
 
 > r[ref.cross-workspace.graceful-degradation]
 > When implementation files are missing, tracey MUST still display available data (requirement definitions, other implementations) and MUST NOT crash or fail to start.
@@ -552,11 +552,8 @@ The `/api/file?spec={specName}&impl={impl}&path={filePath}` endpoint MUST return
 r[dashboard.api.version]
 The `/api/version` endpoint MUST return a version string that changes when any source data changes.
 
-r[dashboard.api.websocket]
-The server MUST provide a WebSocket endpoint that notifies connected clients when source data changes, sending the new version identifier.
-
-r[dashboard.api.websocket-reconnect]
-The dashboard MUST automatically reconnect to the WebSocket if the connection is lost, with exponential backoff.
+r[dashboard.api.live-updates]
+The dashboard MUST receive live updates when source data changes, either through WebSocket notifications or version polling via the `/api/version` endpoint.
 
 ### Link Generation
 
@@ -910,14 +907,8 @@ The `tracey_status` tool MUST return a coverage overview and list available quer
 r[mcp.tool.uncovered]
 The `tracey_uncovered` tool MUST return requirements without `impl` references, grouped by markdown section.
 
-r[mcp.tool.uncovered-section]
-The `tracey_uncovered` tool MUST support a `--section` parameter to filter to a specific section.
-
 r[mcp.tool.untested]
 The `tracey_untested` tool MUST return requirements without `verify` references, grouped by markdown section.
-
-r[mcp.tool.untested-section]
-The `tracey_untested` tool MUST support a `--section` parameter to filter to a specific section.
 
 r[mcp.tool.unmapped]
 The `tracey_unmapped` tool MUST return a tree view of source files with coverage percentages.
@@ -975,28 +966,8 @@ Large result sets SHOULD be paginated with hints showing how to retrieve more re
 r[mcp.validation.check]
 The `tracey_validate` tool MUST run all validation checks and return a report of issues found (broken refs, naming violations, circular deps, orphaned requirements, duplicates).
 
-r[dashboard.validation.display]
-The dashboard MUST display validation errors prominently, with links to the problematic locations.
-
-r[dashboard.validation.continuous]
-The dashboard SHOULD run validation continuously and update the UI when new issues are detected.
-
-### Query Tools
-
-r[mcp.query.search]
-The `tracey_search` tool MUST support keyword search across requirement text and IDs, returning matching requirements with their definitions and references.
-
-r[mcp.query.file-reqs]
-The `tracey_file_reqs` tool MUST return all requirements referenced in a specific source file, grouped by reference type (impl/verify).
-
-r[mcp.query.priority]
-The `tracey_priority` tool MUST suggest which uncovered requirements to implement next, prioritizing by section completeness and requirement dependencies.
-
 r[dashboard.query.search]
 The dashboard MUST provide a search interface for finding requirements by keyword in their text or ID.
-
-r[dashboard.query.file-reqs]
-The dashboard MUST show all requirements referenced by a specific file when viewing file details.
 
 ## Dashboard In-Browser Editing
 
@@ -1124,8 +1095,8 @@ Save errors MUST be displayed inline in the editor footer without closing the ed
 r[dashboard.editing.cancel.discard]
 Clicking Cancel MUST discard all changes and close the inline editor without modifying the file.
 
-r[dashboard.editing.cancel.escape]
-Pressing Escape MUST cancel editing and close the inline editor (when not in vim insert mode).
+r[dashboard.editing.cancel.vim]
+The inline editor MUST support vim's `:q` command to cancel editing and close the editor.
 
 ### File Watching and Reload
 
@@ -1179,23 +1150,6 @@ The specification view MUST support keyboard navigation between requirements usi
 > r[dashboard.editing.keyboard.yank-link]
 > Pressing `yl` on a focused requirement MUST copy only the requirement ID to the clipboard (e.g., `rule.id.here`), and display a brief "Copied" notification.
 
-### Future: Add Requirement
-
-r[dashboard.editing.add.button status=draft]
-The dashboard SHOULD provide an "Add Requirement" button that inserts a new requirement template at appropriate locations (end of sections, after existing requirements).
-
-> r[dashboard.editing.add.template status=draft]
-> The template MUST be pre-filled as a blockquote with `r[|]` where `|` represents the cursor position, ready for the user to type the requirement ID.
-> 
-> Example template:
-> ```markdown
-> > r[|]
-> >
-> ```
-
-r[dashboard.editing.add.cursor-position status=draft]
-The cursor MUST be positioned inside the brackets after `r[` to enable immediate typing of the requirement ID, followed by tab to move to the content line.
-
 ## LSP Server
 
 Tracey provides a Language Server Protocol (LSP) server for editor integration, enabling real-time feedback on requirement references directly in source code and specification files.
@@ -1208,11 +1162,8 @@ The `tracey lsp` command MUST start an LSP server communicating over stdio.
 r[lsp.lifecycle.initialize]
 The server MUST respond to the `initialize` request with supported capabilities including diagnostics, hover, go-to-definition, and code actions.
 
-r[lsp.lifecycle.workspace-folders]
-The server MUST support workspace folders, using the workspace root to locate the tracey configuration file.
-
-r[lsp.lifecycle.config-watch]
-The server MUST watch the configuration file for changes and reload configuration when it changes.
+r[lsp.lifecycle.project-root]
+The server MUST use the project root (typically where `.config/tracey/config.kdl` is found) to locate the tracey configuration file.
 
 ### Diagnostics
 
@@ -1384,8 +1335,6 @@ The server MUST support renaming requirement IDs, updating the definition in the
 r[lsp.rename.prepare]
 The server MUST support prepare-rename to indicate whether rename is available at the cursor position and provide the current identifier range.
 
-r[lsp.rename.preview]
-The server SHOULD support workspace edit previews, allowing users to review all changes before applying.
 
 ### Inlay Hints
 

@@ -230,7 +230,7 @@ function SearchModal({ onClose, onSelect }: SearchModalProps) {
 
   return html`
     <div class="search-overlay" onClick=${handleBackdropClick}>
-      ${/* r[impl dashboard.search.modal] */ null}
+      ${/* r[impl dashboard.search.modal] r[impl dashboard.query.search] */ null}
       <div class="search-modal">
         <div class="search-modal-input">
           <input

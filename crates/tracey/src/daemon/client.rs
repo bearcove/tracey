@@ -37,6 +37,7 @@ impl DaemonClient {
         let stream = match UnixStream::connect(&sock).await {
             Ok(s) => s,
             Err(_) => {
+                // r[impl daemon.lifecycle.stale-socket]
                 // Connection failed - check if there's a stale socket
                 if sock.exists() {
                     let _ = std::fs::remove_file(&sock);

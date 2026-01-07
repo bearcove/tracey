@@ -26,6 +26,7 @@ pub struct SpecConfig {
 
     /// Prefix used to identify this spec in annotations (e.g., "r" for r[req.id])
     /// r[impl config.spec.prefix]
+    /// r[impl config.multi-spec.prefix-namespace]
     #[facet(kdl::child)]
     pub prefix: Prefix,
 

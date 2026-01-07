@@ -39,6 +39,7 @@ const SEMANTIC_TOKEN_MODIFIERS: &[SemanticTokenModifier] = &[
 pub async fn run(root: Option<PathBuf>, config_path: Option<PathBuf>) -> Result<()> {
     use crate::serve::build_dashboard_data;
 
+    // r[impl lsp.lifecycle.project-root]
     // Determine project root
     let project_root = match root {
         Some(r) => r,
@@ -140,6 +141,8 @@ struct ReqAtPosition {
     full_range: Range,
     /// Range of just the requirement ID (e.g., "config.path.default")
     id_range: Range,
+    /// True if this is a definition (r[foo.bar]) rather than a reference (r[impl foo.bar])
+    is_definition: bool,
 }
 
 impl LspState {
@@ -291,6 +294,7 @@ impl LspState {
                         prefix: prefix.to_string(),
                         full_range,
                         id_range,
+                        is_definition: id_offset == 0,
                     });
                 }
                 in_bracket = false;
@@ -411,6 +415,8 @@ impl Backend {
                 continue;
             }
             // r[impl lsp.diagnostics.unknown-prefix]
+            // r[impl lsp.diagnostics.unknown-prefix-message]
+            // r[impl ref.prefix.unknown]
             if !prefixes.contains(&reference.prefix) {
                 let start = offset_to_position(reference.span.offset);
                 let end = offset_to_position(reference.span.offset + reference.span.length);
@@ -479,6 +485,7 @@ impl Backend {
         // (data was already retrieved above for test file check)
 
         // r[impl lsp.diagnostics.duplicate-definition]
+        // r[impl config.multi-spec.unique-within-spec]
         // Count definitions per ID to detect duplicates
         let definitions: Vec<_> = reqs
             .references
@@ -800,6 +807,7 @@ impl LanguageServer for Backend {
     }
 
     // r[impl lsp.goto.ref-to-def]
+    // r[impl lsp.goto.def-to-impl]
     async fn goto_definition(
         &self,
         params: GotoDefinitionParams,
@@ -816,6 +824,39 @@ impl LanguageServer for Backend {
             return Ok(None);
         };
 
+        // r[impl lsp.goto.def-to-impl]
+        // If on a definition, navigate to implementations instead
+        if req.is_definition && !info.impl_refs.is_empty() {
+            let project_root = &state.project_root;
+            let locations: Vec<Location> = info
+                .impl_refs
+                .iter()
+                .filter_map(|r| {
+                    let path = project_root.join(&r.file);
+                    let uri = Url::from_file_path(&path).ok()?;
+                    let line = r.line.saturating_sub(1) as u32;
+                    Some(Location {
+                        uri,
+                        range: Range {
+                            start: Position { line, character: 0 },
+                            end: Position { line, character: 0 },
+                        },
+                    })
+                })
+                .collect();
+
+            if !locations.is_empty() {
+                return if locations.len() == 1 {
+                    Ok(Some(GotoDefinitionResponse::Scalar(
+                        locations.into_iter().next().unwrap(),
+                    )))
+                } else {
+                    Ok(Some(GotoDefinitionResponse::Array(locations)))
+                };
+            }
+        }
+
+        // For references, navigate to the definition
         // Construct path to spec file
         let spec_path = state.project_root.join(&info.source_file);
 
@@ -823,6 +864,7 @@ impl LanguageServer for Backend {
             return Ok(None);
         };
 
+        // r[impl lsp.goto.precise-location]
         // Use source_line/column if available (convert from 1-indexed to 0-indexed)
         let line = info
             .source_line
@@ -843,6 +885,7 @@ impl LanguageServer for Backend {
     }
 
     // r[impl lsp.impl.from-ref]
+    // r[impl lsp.impl.from-def]
     // r[impl lsp.impl.multiple]
     async fn goto_implementation(
         &self,
