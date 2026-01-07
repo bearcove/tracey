@@ -467,6 +467,8 @@ fn compute_relative_path(from: &Path, to: &Path) -> String {
 pub type FileOverlay = std::collections::HashMap<PathBuf, String>;
 
 /// Read a file, checking the overlay first, then falling back to disk
+///
+/// r[impl daemon.vfs.priority]
 async fn read_file_with_overlay(path: &Path, overlay: &FileOverlay) -> std::io::Result<String> {
     // Check overlay first (for open files in LSP)
     if let Some(content) = overlay.get(path) {

@@ -1,5 +1,8 @@
 //! Core engine for the tracey daemon.
 //!
+//! r[impl daemon.state.vfs-overlay]
+//! r[impl daemon.state.blocking-rebuild]
+//!
 //! The engine owns the `DashboardData`, file watcher, and VFS overlay.
 //! It provides blocking rebuild semantics - all requests wait during rebuild.
 
@@ -84,6 +87,8 @@ impl Engine {
     }
 
     /// Register a file in the VFS overlay (from LSP didOpen).
+    ///
+    /// r[impl daemon.vfs.open]
     pub async fn vfs_open(&self, path: PathBuf, content: String) {
         let mut vfs = self.vfs.write().await;
         vfs.insert(path.clone(), content);
@@ -96,6 +101,8 @@ impl Engine {
     }
 
     /// Update a file in the VFS overlay (from LSP didChange).
+    ///
+    /// r[impl daemon.vfs.change]
     pub async fn vfs_change(&self, path: PathBuf, content: String) {
         let mut vfs = self.vfs.write().await;
         vfs.insert(path.clone(), content);
@@ -108,6 +115,8 @@ impl Engine {
     }
 
     /// Remove a file from the VFS overlay (from LSP didClose).
+    ///
+    /// r[impl daemon.vfs.close]
     pub async fn vfs_close(&self, path: PathBuf) {
         let mut vfs = self.vfs.write().await;
         vfs.remove(&path);

@@ -212,13 +212,13 @@ fn main() -> Result<()> {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(daemon::run(project_root, config_path))
         }
-        // r[impl daemon.bridge.lsp]
+        // r[impl daemon.cli.lsp]
         Some(Command::LspBridge { root, config }) => {
             // LSP communicates over stdio, so no tracing to stdout
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(bridge::lsp::run(root, config))
         }
-        // r[impl daemon.bridge.http]
+        // r[impl daemon.cli.web]
         Some(Command::WebBridge {
             root,
             config,
@@ -229,13 +229,13 @@ fn main() -> Result<()> {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(bridge::http::run(root, config, port.unwrap_or(3000), open))
         }
-        // r[impl daemon.bridge.mcp]
+        // r[impl daemon.cli.mcp]
         Some(Command::McpBridge { root, config }) => {
             // MCP communicates over stdio, so no tracing to stdout
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(bridge::mcp::run(root, config))
         }
-        // r[impl cli.logs]
+        // r[impl daemon.cli.logs]
         Some(Command::Logs {
             root,
             follow,
@@ -313,6 +313,7 @@ fn show_logs(root: Option<PathBuf>, follow: bool, lines: usize) -> Result<()> {
     let file = std::fs::File::open(&log_path)?;
     let reader = BufReader::new(file);
 
+    // r[impl daemon.cli.logs.lines]
     // Read the last N lines
     let all_lines: Vec<String> = reader.lines().collect::<std::io::Result<_>>()?;
 
@@ -321,6 +322,7 @@ fn show_logs(root: Option<PathBuf>, follow: bool, lines: usize) -> Result<()> {
         println!("{}", line);
     }
 
+    // r[impl daemon.cli.logs.follow]
     if follow {
         // Re-open file for following
         let file = std::fs::File::open(&log_path)?;

@@ -1,9 +1,13 @@
 //! Tracey daemon - persistent server for a workspace.
 //!
+//! r[impl daemon.state.single-source]
+//!
 //! The daemon owns the `DashboardData` and exposes the `TraceyDaemon` RPC service
 //! over a Unix socket. HTTP, MCP, and LSP bridges connect as clients.
 //!
 //! ## Socket Location
+//!
+//! r[impl daemon.lifecycle.socket]
 //!
 //! The daemon listens on `.tracey/daemon.sock` in the workspace root.
 //!
@@ -24,7 +28,8 @@ use notify_debouncer_mini::{new_debouncer, notify::RecursiveMode};
 use roam_wire::Hello;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
 use tokio::net::UnixListener;
 use tracing::{error, info, warn};
 
@@ -36,13 +41,14 @@ pub use engine::Engine;
 pub use service::TraceyService;
 
 /// Default idle timeout in seconds (10 minutes)
-#[allow(dead_code)]
 const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 600;
 
 /// Socket file name within .tracey directory
 const SOCKET_FILENAME: &str = "daemon.sock";
 
 /// Get the socket path for a workspace.
+///
+/// r[impl daemon.roam.unix-socket]
 pub fn socket_path(project_root: &Path) -> PathBuf {
     project_root.join(".tracey").join(SOCKET_FILENAME)
 }
@@ -86,8 +92,11 @@ pub fn ensure_tracey_dir(project_root: &Path) -> Result<PathBuf> {
 
 /// Run the daemon for the given workspace.
 ///
+/// r[impl daemon.roam.protocol]
+///
 /// This function blocks until the daemon exits (idle timeout or signal).
 pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
+    // r[impl daemon.logs.file]
     info!("Starting tracey daemon for {}", project_root.display());
 
     // Ensure .tracey directory exists
@@ -112,6 +121,7 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
     // Create service
     let service = Arc::new(TraceyService::new(Arc::clone(&engine)));
 
+    // r[impl daemon.state.file-watcher]
     // Set up file watcher - channel sends list of changed files
     let (watcher_tx, mut watcher_rx) = tokio::sync::mpsc::channel::<Vec<PathBuf>>(16);
 
@@ -141,20 +151,33 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
     let engine_for_rebuild = Arc::clone(&engine);
     let project_root_for_rebuild = project_root.clone();
     tokio::spawn(async move {
+        // Build gitignore matcher for filtering file watcher events
+        let gitignore = {
+            let mut builder = ignore::gitignore::GitignoreBuilder::new(&project_root_for_rebuild);
+            // Add .gitignore from project root if it exists
+            let gitignore_path = project_root_for_rebuild.join(".gitignore");
+            if gitignore_path.exists() {
+                let _ = builder.add(&gitignore_path);
+            }
+            // Always ignore .git directory
+            let _ = builder.add_line(None, ".git/");
+            builder.build().unwrap_or_else(|e| {
+                warn!("Failed to build gitignore matcher: {}", e);
+                ignore::gitignore::Gitignore::empty()
+            })
+        };
+
         while let Some(changed_files) = watcher_rx.recv().await {
-            // Filter out .git/ and .tracey/ directories (but NOT .config/ which has our config)
-            const IGNORED_DIRS: &[&str] = &[".git", ".tracey"];
+            // Filter out paths that match gitignore patterns
             let relative_paths: Vec<_> = changed_files
                 .iter()
                 .filter_map(|p| p.strip_prefix(&project_root_for_rebuild).ok())
                 .filter(|p| {
-                    // Exclude paths inside ignored directories
-                    !p.components().any(|c| {
-                        c.as_os_str()
-                            .to_str()
-                            .map(|s| IGNORED_DIRS.contains(&s))
-                            .unwrap_or(false)
-                    })
+                    // Keep paths that are NOT ignored
+                    let full_path = project_root_for_rebuild.join(p);
+                    !gitignore
+                        .matched_path_or_any_parents(&full_path, full_path.is_dir())
+                        .is_ignore()
                 })
                 .collect();
 
@@ -203,13 +226,35 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
         initial_stream_credit: 64 * 1024, // 64KB stream credit
     };
 
+    // r[impl daemon.lifecycle.idle-timeout]
+    // Track active connections and last activity for idle timeout
+    let active_connections = Arc::new(AtomicUsize::new(0));
+    let last_activity = Arc::new(AtomicU64::new(
+        Instant::now().elapsed().as_secs(), // Will be updated on each connection
+    ));
+    let start_time = Instant::now();
+
     // Accept connections and handle roam RPC
     loop {
-        match listener.accept().await {
-            Ok((stream, _addr)) => {
-                info!("New connection accepted");
+        // Check idle timeout every 30 seconds
+        let accept_result = tokio::time::timeout(Duration::from_secs(30), listener.accept()).await;
+
+        match accept_result {
+            Ok(Ok((stream, _addr))) => {
+                // Update last activity
+                last_activity.store(start_time.elapsed().as_secs(), Ordering::Relaxed);
+                active_connections.fetch_add(1, Ordering::Relaxed);
+
+                info!(
+                    "New connection accepted (active: {})",
+                    active_connections.load(Ordering::Relaxed)
+                );
+
                 let service = Arc::clone(&service);
                 let hello = hello.clone();
+                let active_connections = Arc::clone(&active_connections);
+                let last_activity = Arc::clone(&last_activity);
+
                 tokio::spawn(async move {
                     // Wrap in COBS framing
                     let io = CobsFramedUnix::new(stream);
@@ -243,10 +288,31 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
                             error!("Hello exchange failed: {:?}", e);
                         }
                     }
+
+                    // Connection done, update counters
+                    let remaining = active_connections.fetch_sub(1, Ordering::Relaxed) - 1;
+                    last_activity.store(start_time.elapsed().as_secs(), Ordering::Relaxed);
+                    info!("Connection closed (active: {})", remaining);
                 });
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 error!("Failed to accept connection: {}", e);
+            }
+            Err(_) => {
+                // Timeout - check if we should exit due to idle
+                let current_connections = active_connections.load(Ordering::Relaxed);
+                if current_connections == 0 {
+                    let last = last_activity.load(Ordering::Relaxed);
+                    let now = start_time.elapsed().as_secs();
+                    let idle_secs = now.saturating_sub(last);
+
+                    if idle_secs >= DEFAULT_IDLE_TIMEOUT_SECS {
+                        info!("No connections for {} seconds, shutting down", idle_secs);
+                        // Clean up socket
+                        let _ = std::fs::remove_file(&sock_path);
+                        return Ok(());
+                    }
+                }
             }
         }
     }

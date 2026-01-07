@@ -1,5 +1,7 @@
 //! COBS framing for Unix socket streams.
 //!
+//! r[impl daemon.roam.framing]
+//!
 //! This is a copy of roam-tcp's CobsFramed adapted for UnixStream.
 
 use std::io;

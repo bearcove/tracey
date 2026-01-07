@@ -1,5 +1,7 @@
 //! Client for connecting to the tracey daemon.
 //!
+//! r[impl daemon.lifecycle.auto-start]
+//!
 //! Provides a roam RPC client that connects to the daemon's Unix socket
 //! and calls TraceyDaemon methods.
 
@@ -219,6 +221,8 @@ impl DaemonClient {
 
 /// Ensure the daemon is running for the given workspace.
 ///
+/// r[impl daemon.lifecycle.stale-socket]
+///
 /// If the daemon is not running, this function will start it in the background.
 pub async fn ensure_daemon_running(project_root: &Path) -> Result<()> {
     let sock = socket_path(project_root);
@@ -228,7 +232,7 @@ pub async fn ensure_daemon_running(project_root: &Path) -> Result<()> {
         return Ok(());
     }
 
-    // Remove stale socket if it exists
+    // Remove stale socket if it exists (crashed daemon left it behind)
     if sock.exists() {
         let _ = std::fs::remove_file(&sock);
     }
