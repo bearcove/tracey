@@ -15,6 +15,10 @@ use tracey::{bridge, daemon, find_project_root};
 /// CLI arguments
 #[derive(Debug, facet::Facet)]
 struct Args {
+    /// Print version information
+    #[facet(args::named, args::short = 'V', default)]
+    version: bool,
+
     /// Subcommand to run
     #[facet(args::subcommand)]
     command: Option<Command>,
@@ -96,6 +100,11 @@ fn main() -> Result<()> {
     let args: Args = args::from_std_args()
         .map_err(miette::Report::new)
         .expect("failed to parse arguments");
+
+    if args.version {
+        println!("tracey {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
 
     match args.command {
         // r[impl cli.web]
