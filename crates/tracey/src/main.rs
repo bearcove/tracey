@@ -4,6 +4,7 @@
 //! (in the format `[rule.id]` in comments) and compares them against a spec
 //! manifest to produce coverage reports.
 
+mod bridge;
 mod config;
 mod daemon;
 mod lsp;
@@ -90,6 +91,17 @@ enum Command {
         #[facet(args::named, args::short = 'c', default)]
         config: Option<PathBuf>,
     },
+
+    /// Start LSP bridge (experimental, requires daemon running)
+    LspBridge {
+        /// Project root directory (default: current directory)
+        #[facet(args::positional, default)]
+        root: Option<PathBuf>,
+
+        /// Path to config file (default: .config/tracey/config.kdl)
+        #[facet(args::named, args::short = 'c', default)]
+        config: Option<PathBuf>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -130,6 +142,11 @@ fn main() -> Result<()> {
 
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(daemon::run(project_root, config_path))
+        }
+        // r[impl daemon.bridge.lsp]
+        Some(Command::LspBridge { root, config }) => {
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(bridge::lsp::run(root, config))
         }
         // r[impl cli.no-args]
         None => {

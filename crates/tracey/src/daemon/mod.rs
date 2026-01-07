@@ -13,6 +13,7 @@
 //! - Daemon exits after idle timeout (no connections for N minutes)
 //! - Stale socket files are cleaned up on connect failure
 
+pub mod client;
 mod connection;
 pub mod engine;
 mod framing;
@@ -30,6 +31,7 @@ use tracing::{debug, error, info, warn};
 use connection::hello_exchange_acceptor;
 use framing::CobsFramedUnix;
 
+pub use client::{DaemonClient, ensure_daemon_running};
 pub use engine::Engine;
 pub use service::{TraceyDispatcher, TraceyService};
 

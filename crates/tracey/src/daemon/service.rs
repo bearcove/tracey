@@ -366,6 +366,13 @@ impl TraceyDaemon for TraceyService {
             message: "Not implemented".to_string(),
         })
     }
+
+    /// Check if a path is a test file
+    async fn is_test_file(&self, path: String) -> bool {
+        let data = self.engine.data().await;
+        let path = std::path::PathBuf::from(path);
+        data.test_files.contains(&path)
+    }
 }
 
 /// Dispatcher that wraps TraceyService and implements roam-tcp's ServiceDispatcher.

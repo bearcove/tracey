@@ -588,6 +588,7 @@ pub async fn build_dashboard_data_with_overlay(
             name: spec_name.clone(),
             prefix: spec_config.prefix.value.clone(),
             source: Some(include_patterns.join(", ")),
+            source_url: spec_config.source_url.as_ref().map(|u| u.value.clone()),
             implementations: spec_config
                 .impls
                 .iter()

@@ -143,11 +143,19 @@ export interface ApiCodeRef {
 
 export interface ApiRule {
   id: string;
+  /**
+   * Original markdown text (for LSP hover)
+   */
+  text: string;
+  /**
+   * Rendered HTML (for dashboard display)
+   */
   html: string;
   status?: string;
   level?: string;
   sourceFile?: string;
   sourceLine?: number;
+  sourceColumn?: number;
   implRefs: ApiCodeRef[];
   verifyRefs: ApiCodeRef[];
   dependsRefs: ApiCodeRef[];
@@ -175,6 +183,10 @@ export interface ApiSpecInfo {
    * Path to spec file(s) if local
    */
   source?: string;
+  /**
+   * Canonical URL for the specification (e.g., a GitHub repository)
+   */
+  sourceUrl?: string;
   /**
    * Available implementations for this spec
    */

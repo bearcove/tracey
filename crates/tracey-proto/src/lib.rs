@@ -348,4 +348,11 @@ pub trait TraceyDaemon {
 
     /// Update a byte range in a file (for inline editing)
     async fn update_file_range(&self, req: UpdateFileRangeRequest) -> Result<(), UpdateError>;
+
+    // === LSP Support ===
+
+    /// Check if a path is a test file (for LSP diagnostics)
+    ///
+    /// Returns true if the path matches the test_include patterns for any implementation.
+    async fn is_test_file(&self, path: String) -> bool;
 }

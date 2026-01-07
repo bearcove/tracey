@@ -196,6 +196,26 @@ pre {
     border-right: 1px solid var(--border);
 }
 
+.spec-source-link {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.25rem;
+    color: var(--fg-dim);
+    opacity: 0.6;
+    transition: opacity 0.15s, color 0.15s;
+}
+
+.spec-source-link:hover {
+    opacity: 1;
+    color: var(--accent);
+}
+
+.spec-source-link svg {
+    width: 14px;
+    height: 14px;
+}
+
 .header-select {
     padding: 0.4rem 0.6rem;
     background: var(--bg);

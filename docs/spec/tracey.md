@@ -443,18 +443,19 @@ Each impl configuration MAY have one or more `test_include` child nodes specifyi
 r[config.impl.test_include.verify-only]
 Files matched by `test_include` patterns MUST only contain `verify` annotations. Any `impl` annotation in a test file is a hard error.
 
-> r[config.impl.test_include.example]
-> Example configuration separating implementation and test files:
-> ```kdl
-> impl {
->     name "rust"
->     include "src/**/*.rs"
->     test_include "tests/**/*.rs"
-> }
-> ```
-> In this example, `src/auth.rs` may contain `r[impl auth.token]` but `tests/auth_test.rs` may only contain `r[verify auth.token]`.
+Example configuration separating implementation and test files:
 
-### Multiple Specs and Remote Specs
+```kdl
+impl {
+    name "rust"
+    include "src/**/*.rs"
+    test_include "tests/**/*.rs"
+}
+```
+
+In this example, `src/auth.rs` may contain `r[impl auth.token]` but `tests/auth_test.rs` may only contain `r[verify auth.token]`.
+
+### Multiple Specs
 
 r[config.multi-spec.prefix-namespace]
 When multiple specs are configured, the prefix serves as the namespace to disambiguate which spec a requirement belongs to.
@@ -462,31 +463,39 @@ When multiple specs are configured, the prefix serves as the namespace to disamb
 r[config.multi-spec.unique-within-spec]
 Requirement IDs MUST be unique within a single spec, but MAY be duplicated across different specs (since they use different prefixes).
 
-r[config.remote-spec.local-files]
-Remote specifications MUST be obtained as local files before tracey can process them. Users can use git submodules, manual downloads, or any other method to obtain spec files locally.
+Example: implementing both your own spec and an external specification:
 
-> r[config.remote-spec.workflow]
-> The recommended workflow for implementing a remote specification is:
->
-> 1. Obtain the spec files locally (e.g., via git submodule or download)
-> 2. Configure the spec with `include` pointing to the local files
-> 3. Set `source_url` to the canonical spec location for attribution
-> 4. Use the spec's configured prefix in source code annotations
->
-> Example:
-> ```kdl
-> spec {
->     name "http2"
->     prefix "h2"
->     include "vendor/http2-spec/docs/**/*.md"
->     source_url "https://github.com/http2/spec"
->
->     impl {
->         name "rust"
->         include "crates/http2/**/*.rs"
->     }
-> }
-> ```
+```kdl
+// Your project's internal specification
+spec {
+    name "myapp"
+    prefix "r"
+    include "docs/spec/**/*.md"
+
+    impl {
+        name "rust"
+        include "src/**/*.rs"
+        test_include "tests/**/*.rs"
+    }
+}
+
+// External HTTP/2 specification (obtained via git submodule)
+spec {
+    name "http2"
+    prefix "h2"
+    source_url "https://github.com/http2/spec"
+    include "vendor/http2-spec/docs/**/*.md"
+
+    impl {
+        name "rust"
+        include "src/http2/**/*.rs"
+    }
+}
+```
+
+With this configuration:
+- `r[impl auth.login]` refers to `myapp` spec's `auth.login` requirement
+- `h2[impl stream.priority]` refers to `http2` spec's `stream.priority` requirement
 
 ## File Walking
 

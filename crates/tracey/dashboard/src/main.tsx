@@ -322,6 +322,15 @@ function Header({
           >
             ${implementations.map((i) => html` <option key=${i} value=${i}>${i}</option> `)}
           </select>
+          ${currentSpecInfo?.sourceUrl &&
+          html`<a
+            href=${currentSpecInfo.sourceUrl}
+            class="spec-source-link"
+            target="_blank"
+            rel="noopener"
+            title="View spec source"
+            ><${LucideIcon} name="external-link" /></a
+          >`}
         </div>
 
         ${/* r[impl dashboard.header.nav-tabs] */ null}
