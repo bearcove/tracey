@@ -142,16 +142,17 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
     let project_root_for_rebuild = project_root.clone();
     tokio::spawn(async move {
         while let Some(changed_files) = watcher_rx.recv().await {
-            // Filter out dotfiles/directories (like .git/, .tracey/, etc.)
+            // Filter out .git/ and .tracey/ directories (but NOT .config/ which has our config)
+            const IGNORED_DIRS: &[&str] = &[".git", ".tracey"];
             let relative_paths: Vec<_> = changed_files
                 .iter()
                 .filter_map(|p| p.strip_prefix(&project_root_for_rebuild).ok())
                 .filter(|p| {
-                    // Exclude paths where any component starts with '.'
+                    // Exclude paths inside ignored directories
                     !p.components().any(|c| {
                         c.as_os_str()
                             .to_str()
-                            .map(|s| s.starts_with('.'))
+                            .map(|s| IGNORED_DIRS.contains(&s))
                             .unwrap_or(false)
                     })
                 })
