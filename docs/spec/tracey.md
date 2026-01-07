@@ -1427,41 +1427,6 @@ The extension MUST activate for markdown files matching the spec patterns in the
 r[zed.filetypes.config]
 The extension SHOULD activate for the tracey configuration file (`.config/tracey/config.kdl`).
 
-### LSP Feature Integration
-
-r[zed.lsp.diagnostics]
-Diagnostics from the tracey LSP MUST appear in Zed's diagnostics panel and inline in the editor.
-
-r[zed.lsp.hover]
-Hover information from the tracey LSP MUST appear in Zed's hover popover.
-
-r[zed.lsp.goto]
-Go-to-definition from the tracey LSP MUST work with Zed's standard go-to-definition keybinding.
-
-r[zed.lsp.references]
-Find-references from the tracey LSP MUST appear in Zed's references panel.
-
-r[zed.lsp.completions]
-Completions from the tracey LSP MUST appear in Zed's autocomplete menu.
-
-r[zed.lsp.actions]
-Code actions from the tracey LSP MUST appear in Zed's code actions menu.
-
-r[zed.lsp.highlight]
-Document highlight from the tracey LSP MUST highlight the full requirement reference range when the cursor is positioned within it.
-
-r[zed.lsp.implementation]
-Go-to-implementation from the tracey LSP MUST work with Zed's standard go-to-implementation keybinding, showing a picker when multiple implementations exist.
-
-r[zed.lsp.rename]
-Rename from the tracey LSP MUST work with Zed's rename functionality, updating all references across the workspace.
-
-r[zed.lsp.codelens]
-Code lens from the tracey LSP MUST appear inline in Zed above requirement definitions.
-
-r[zed.lsp.inlay-hints]
-Inlay hints from the tracey LSP MUST appear inline in Zed, respecting Zed's inlay hint settings.
-
 ### Zed-Specific Features
 
 r[zed.outline.requirements]
