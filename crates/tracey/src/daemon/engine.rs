@@ -45,9 +45,28 @@ pub struct Engine {
 impl Engine {
     /// Create a new engine for the given project root.
     pub async fn new(project_root: PathBuf, config_path: PathBuf) -> Result<Self> {
-        // Load initial config
-        let config_content = tokio::fs::read_to_string(&config_path).await?;
-        let config: Config = facet_kdl::from_str(&config_content)?;
+        // Load initial config - use empty config if file doesn't exist or can't be read
+        let config = match tokio::fs::read_to_string(&config_path).await {
+            Ok(content) => match facet_kdl::from_str(&content) {
+                Ok(config) => config,
+                Err(e) => {
+                    info!(
+                        "Config file {} has errors, starting with empty config: {}",
+                        config_path.display(),
+                        e
+                    );
+                    Config::default()
+                }
+            },
+            Err(e) => {
+                info!(
+                    "Config file {} not readable, starting with empty config: {}",
+                    config_path.display(),
+                    e
+                );
+                Config::default()
+            }
+        };
 
         // Build initial data
         let overlay = FileOverlay::new();
