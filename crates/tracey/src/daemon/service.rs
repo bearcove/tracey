@@ -1292,8 +1292,53 @@ impl TraceyDaemonHandler for TraceyService {
         let data = self.engine.data().await;
         let path = PathBuf::from(&req.path);
 
-        let reqs = tracey_core::Reqs::extract_from_content(&path, &req.content);
         let mut diagnostics = Vec::new();
+
+        // For markdown spec files, show coverage diagnostics for definitions
+        if path.extension().is_some_and(|ext| ext == "md") {
+            let options = marq::RenderOptions::default();
+            if let Ok(doc) = marq::render(&req.content, &options).await {
+                for def in &doc.reqs {
+                    let (start_line, start_char, end_line, end_char) =
+                        span_to_range(&req.content, def.span.offset, def.span.length);
+
+                    // Look up the rule to check coverage
+                    if let Some((_, rule)) = find_rule_in_data(&data, &def.id) {
+                        let impl_count = rule.impl_refs.len();
+                        let verify_count = rule.verify_refs.len();
+
+                        if impl_count == 0 {
+                            diagnostics.push(LspDiagnostic {
+                                severity: "hint".to_string(),
+                                code: "uncovered".to_string(),
+                                message: "Requirement has no implementations".to_string(),
+                                start_line,
+                                start_char,
+                                end_line,
+                                end_char,
+                            });
+                        } else if verify_count == 0 {
+                            diagnostics.push(LspDiagnostic {
+                                severity: "hint".to_string(),
+                                code: "untested".to_string(),
+                                message: format!(
+                                    "Requirement has {} impl but no verification",
+                                    impl_count
+                                ),
+                                start_line,
+                                start_char,
+                                end_line,
+                                end_char,
+                            });
+                        }
+                    }
+                }
+            }
+            return Ok(diagnostics);
+        }
+
+        // For source files, check references
+        let reqs = tracey_core::Reqs::extract_from_content(&path, &req.content);
 
         // Check if this is a test file
         let is_test = data.test_files.contains(&path);
@@ -1488,7 +1533,6 @@ impl TraceyDaemonHandler for TraceyService {
         req: LspDocumentRequest,
     ) -> HandlerResult<Vec<LspSemanticToken>> {
         let path = PathBuf::from(&req.path);
-        let reqs = tracey_core::Reqs::extract_from_content(&path, &req.content);
         let data = self.engine.data().await;
 
         // Build set of known rule IDs
@@ -1500,28 +1544,51 @@ impl TraceyDaemonHandler for TraceyService {
 
         let mut tokens = Vec::new();
 
-        for reference in &reqs.references {
-            let (start_line, start_char, _, _) =
-                span_to_range(&req.content, reference.span.offset, reference.span.length);
+        // For markdown spec files, tokenize requirement definitions
+        if path.extension().is_some_and(|ext| ext == "md") {
+            let options = marq::RenderOptions::default();
+            if let Ok(doc) = marq::render(&req.content, &options).await {
+                for def in &doc.reqs {
+                    let (start_line, start_char, _, _) =
+                        span_to_range(&req.content, def.span.offset, def.span.length);
 
-            // Token for the entire reference
-            // Token type 0 = namespace (prefix), 1 = keyword (verb), 2 = variable (req_id)
-            let is_valid = known_rules.contains(reference.req_id.as_str());
-            let modifier = if reference.verb == tracey_core::RefVerb::Define {
-                1 // DEFINITION modifier
-            } else if is_valid {
-                2 // DECLARATION modifier
-            } else {
-                0
-            };
+                    // Definitions are always the DEFINITION modifier
+                    tokens.push(LspSemanticToken {
+                        line: start_line,
+                        start_char,
+                        length: def.span.length as u32,
+                        token_type: 2, // variable (req_id)
+                        modifiers: 1,  // DEFINITION modifier
+                    });
+                }
+            }
+        } else {
+            // For source files, tokenize references in comments
+            let reqs = tracey_core::Reqs::extract_from_content(&path, &req.content);
 
-            tokens.push(LspSemanticToken {
-                line: start_line,
-                start_char,
-                length: reference.span.length as u32,
-                token_type: 2, // variable (req_id)
-                modifiers: modifier,
-            });
+            for reference in &reqs.references {
+                let (start_line, start_char, _, _) =
+                    span_to_range(&req.content, reference.span.offset, reference.span.length);
+
+                // Token for the entire reference
+                // Token type 0 = namespace (prefix), 1 = keyword (verb), 2 = variable (req_id)
+                let is_valid = known_rules.contains(reference.req_id.as_str());
+                let modifier = if reference.verb == tracey_core::RefVerb::Define {
+                    1 // DEFINITION modifier
+                } else if is_valid {
+                    2 // DECLARATION modifier
+                } else {
+                    0
+                };
+
+                tokens.push(LspSemanticToken {
+                    line: start_line,
+                    start_char,
+                    length: reference.span.length as u32,
+                    token_type: 2, // variable (req_id)
+                    modifiers: modifier,
+                });
+            }
         }
 
         Ok(tokens)
@@ -1535,40 +1602,76 @@ impl TraceyDaemonHandler for TraceyService {
     async fn lsp_code_lens(&self, req: LspDocumentRequest) -> HandlerResult<Vec<LspCodeLens>> {
         let data = self.engine.data().await;
         let path = PathBuf::from(&req.path);
-        let reqs = tracey_core::Reqs::extract_from_content(&path, &req.content);
 
         let mut lenses = Vec::new();
 
-        for reference in &reqs.references {
-            // Only show code lens for definitions
-            if reference.verb != tracey_core::RefVerb::Define {
-                continue;
+        // For markdown spec files, show code lenses for requirement definitions
+        if path.extension().is_some_and(|ext| ext == "md") {
+            let options = marq::RenderOptions::default();
+            if let Ok(doc) = marq::render(&req.content, &options).await {
+                for def in &doc.reqs {
+                    let (start_line, start_char, _, end_char) =
+                        span_to_range(&req.content, def.span.offset, def.span.length);
+
+                    // Look up coverage for this rule
+                    if let Some((_, rule)) = find_rule_in_data(&data, &def.id) {
+                        let impl_count = rule.impl_refs.len();
+                        let verify_count = rule.verify_refs.len();
+
+                        let title = if impl_count == 0 && verify_count == 0 {
+                            "⚪ not implemented".to_string()
+                        } else if verify_count == 0 {
+                            format!("🟡 {} impl, no verify", impl_count)
+                        } else {
+                            format!("🟢 {} impl, {} verify", impl_count, verify_count)
+                        };
+
+                        lenses.push(LspCodeLens {
+                            line: start_line,
+                            start_char,
+                            end_char,
+                            title,
+                            command: "tracey.showReferences".to_string(),
+                            arguments: vec![def.id.clone()],
+                        });
+                    }
+                }
             }
+        } else {
+            // For source files, show code lenses for definition references
+            let reqs = tracey_core::Reqs::extract_from_content(&path, &req.content);
 
-            let (start_line, start_char, _, end_char) =
-                span_to_range(&req.content, reference.span.offset, reference.span.length);
+            for reference in &reqs.references {
+                // Only show code lens for definitions
+                if reference.verb != tracey_core::RefVerb::Define {
+                    continue;
+                }
 
-            // Look up coverage for this rule
-            if let Some((_, rule)) = find_rule_in_data(&data, &reference.req_id) {
-                let impl_count = rule.impl_refs.len();
-                let verify_count = rule.verify_refs.len();
+                let (start_line, start_char, _, end_char) =
+                    span_to_range(&req.content, reference.span.offset, reference.span.length);
 
-                let title = if impl_count == 0 && verify_count == 0 {
-                    "⚪ not implemented".to_string()
-                } else if verify_count == 0 {
-                    format!("🟡 {} impl, no verify", impl_count)
-                } else {
-                    format!("🟢 {} impl, {} verify", impl_count, verify_count)
-                };
+                // Look up coverage for this rule
+                if let Some((_, rule)) = find_rule_in_data(&data, &reference.req_id) {
+                    let impl_count = rule.impl_refs.len();
+                    let verify_count = rule.verify_refs.len();
 
-                lenses.push(LspCodeLens {
-                    line: start_line,
-                    start_char,
-                    end_char,
-                    title,
-                    command: "tracey.showReferences".to_string(),
-                    arguments: vec![reference.req_id.clone()],
-                });
+                    let title = if impl_count == 0 && verify_count == 0 {
+                        "⚪ not implemented".to_string()
+                    } else if verify_count == 0 {
+                        format!("🟡 {} impl, no verify", impl_count)
+                    } else {
+                        format!("🟢 {} impl, {} verify", impl_count, verify_count)
+                    };
+
+                    lenses.push(LspCodeLens {
+                        line: start_line,
+                        start_char,
+                        end_char,
+                        title,
+                        command: "tracey.showReferences".to_string(),
+                        arguments: vec![reference.req_id.clone()],
+                    });
+                }
             }
         }
 
@@ -1582,31 +1685,63 @@ impl TraceyDaemonHandler for TraceyService {
     async fn lsp_inlay_hints(&self, req: InlayHintsRequest) -> HandlerResult<Vec<LspInlayHint>> {
         let data = self.engine.data().await;
         let path = PathBuf::from(&req.path);
-        let reqs = tracey_core::Reqs::extract_from_content(&path, &req.content);
 
         let mut hints = Vec::new();
 
-        for reference in &reqs.references {
-            let (line, _, _, end_char) =
-                span_to_range(&req.content, reference.span.offset, reference.span.length);
+        // For markdown spec files, show hints for requirement definitions
+        if path.extension().is_some_and(|ext| ext == "md") {
+            let options = marq::RenderOptions::default();
+            if let Ok(doc) = marq::render(&req.content, &options).await {
+                for def in &doc.reqs {
+                    let (line, _, _, end_char) =
+                        span_to_range(&req.content, def.span.offset, def.span.length);
 
-            // Only show hints in the requested range
-            if line < req.start_line || line > req.end_line {
-                continue;
+                    // Only show hints in the requested range
+                    if line < req.start_line || line > req.end_line {
+                        continue;
+                    }
+
+                    // Look up the rule to get impl/verify counts
+                    if let Some((_, rule)) = find_rule_in_data(&data, &def.id) {
+                        let impl_count = rule.impl_refs.len();
+                        let verify_count = rule.verify_refs.len();
+
+                        let label = format!(" [{} impl, {} verify]", impl_count, verify_count);
+
+                        hints.push(LspInlayHint {
+                            line,
+                            character: end_char,
+                            label,
+                        });
+                    }
+                }
             }
+        } else {
+            // For source files, show hints for references in comments
+            let reqs = tracey_core::Reqs::extract_from_content(&path, &req.content);
 
-            // Look up the rule
-            if let Some((_, rule)) = find_rule_in_data(&data, &reference.req_id) {
-                let impl_count = rule.impl_refs.len();
-                let verify_count = rule.verify_refs.len();
+            for reference in &reqs.references {
+                let (line, _, _, end_char) =
+                    span_to_range(&req.content, reference.span.offset, reference.span.length);
 
-                let label = format!(" [{} impl, {} verify]", impl_count, verify_count);
+                // Only show hints in the requested range
+                if line < req.start_line || line > req.end_line {
+                    continue;
+                }
 
-                hints.push(LspInlayHint {
-                    line,
-                    character: end_char,
-                    label,
-                });
+                // Look up the rule
+                if let Some((_, rule)) = find_rule_in_data(&data, &reference.req_id) {
+                    let impl_count = rule.impl_refs.len();
+                    let verify_count = rule.verify_refs.len();
+
+                    let label = format!(" [{} impl, {} verify]", impl_count, verify_count);
+
+                    hints.push(LspInlayHint {
+                        line,
+                        character: end_char,
+                        label,
+                    });
+                }
             }
         }
 
