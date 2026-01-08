@@ -1299,8 +1299,9 @@ impl TraceyDaemonHandler for TraceyService {
             let options = marq::RenderOptions::default();
             if let Ok(doc) = marq::render(&req.content, &options).await {
                 for def in &doc.reqs {
+                    // Use marker_span for diagnostics (only squiggle the marker, not content)
                     let (start_line, start_char, end_line, end_char) =
-                        span_to_range(&req.content, def.span.offset, def.span.length);
+                        span_to_range(&req.content, def.marker_span.offset, def.marker_span.length);
 
                     // Look up the rule to check coverage
                     if let Some((_, rule)) = find_rule_in_data(&data, &def.id) {
@@ -1549,14 +1550,15 @@ impl TraceyDaemonHandler for TraceyService {
             let options = marq::RenderOptions::default();
             if let Ok(doc) = marq::render(&req.content, &options).await {
                 for def in &doc.reqs {
+                    // Use marker_span for semantic tokens (only color the marker)
                     let (start_line, start_char, _, _) =
-                        span_to_range(&req.content, def.span.offset, def.span.length);
+                        span_to_range(&req.content, def.marker_span.offset, def.marker_span.length);
 
                     // Definitions are always the DEFINITION modifier
                     tokens.push(LspSemanticToken {
                         line: start_line,
                         start_char,
-                        length: def.span.length as u32,
+                        length: def.marker_span.length as u32,
                         token_type: 2, // variable (req_id)
                         modifiers: 1,  // DEFINITION modifier
                     });
@@ -1610,8 +1612,9 @@ impl TraceyDaemonHandler for TraceyService {
             let options = marq::RenderOptions::default();
             if let Ok(doc) = marq::render(&req.content, &options).await {
                 for def in &doc.reqs {
+                    // Use marker_span for code lens positioning
                     let (start_line, start_char, _, end_char) =
-                        span_to_range(&req.content, def.span.offset, def.span.length);
+                        span_to_range(&req.content, def.marker_span.offset, def.marker_span.length);
 
                     // Look up coverage for this rule
                     if let Some((_, rule)) = find_rule_in_data(&data, &def.id) {
@@ -1693,8 +1696,9 @@ impl TraceyDaemonHandler for TraceyService {
             let options = marq::RenderOptions::default();
             if let Ok(doc) = marq::render(&req.content, &options).await {
                 for def in &doc.reqs {
+                    // Use marker_span for inlay hint positioning (after the marker)
                     let (line, _, _, end_char) =
-                        span_to_range(&req.content, def.span.offset, def.span.length);
+                        span_to_range(&req.content, def.marker_span.offset, def.marker_span.length);
 
                     // Only show hints in the requested range
                     if line < req.start_line || line > req.end_line {
