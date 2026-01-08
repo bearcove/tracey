@@ -392,6 +392,16 @@ pub struct LspDiagnostic {
     pub end_char: u32,
 }
 
+/// Diagnostics for a single file (used in workspace diagnostics)
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct LspFileDiagnostics {
+    /// File path (relative to project root)
+    pub path: String,
+    /// Diagnostics for this file
+    pub diagnostics: Vec<LspDiagnostic>,
+}
+
 /// A document symbol (requirement reference)
 #[derive(Debug, Clone, Facet)]
 #[facet(rename_all = "camelCase")]
@@ -658,6 +668,12 @@ pub trait TraceyDaemon {
 
     /// Get diagnostics for a file
     async fn lsp_diagnostics(&self, req: LspDocumentRequest) -> Vec<LspDiagnostic>;
+
+    /// Get diagnostics for all files in the workspace
+    ///
+    /// This returns diagnostics for all spec files and implementation files
+    /// known to tracey, without requiring the files to be opened.
+    async fn lsp_workspace_diagnostics(&self) -> Vec<LspFileDiagnostics>;
 
     /// Get document symbols (requirement references) in a file
     async fn lsp_document_symbols(&self, req: LspDocumentRequest) -> Vec<LspSymbol>;

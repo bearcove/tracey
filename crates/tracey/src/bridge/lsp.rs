@@ -206,6 +206,63 @@ impl Backend {
             }
         }
     }
+
+    /// Publish diagnostics for all files in the workspace.
+    ///
+    /// r[impl lsp.diagnostics.workspace]
+    async fn publish_workspace_diagnostics(&self) {
+        let project_root = self.state().await.project_root.clone();
+
+        let mut state = self.state().await;
+        let Ok(client) = state.get_daemon_client().await else {
+            return;
+        };
+
+        let Ok(all_diagnostics) = client.lsp_workspace_diagnostics().await else {
+            return;
+        };
+
+        drop(state); // Release lock before async calls
+
+        for file_diag in all_diagnostics {
+            // Convert relative path to absolute and then to URI
+            let abs_path = project_root.join(&file_diag.path);
+            let Ok(uri) = Url::from_file_path(&abs_path) else {
+                continue;
+            };
+
+            let diagnostics: Vec<Diagnostic> = file_diag
+                .diagnostics
+                .into_iter()
+                .map(|d| Diagnostic {
+                    range: Range {
+                        start: Position {
+                            line: d.start_line,
+                            character: d.start_char,
+                        },
+                        end: Position {
+                            line: d.end_line,
+                            character: d.end_char,
+                        },
+                    },
+                    severity: Some(match d.severity.as_str() {
+                        "error" => DiagnosticSeverity::ERROR,
+                        "warning" => DiagnosticSeverity::WARNING,
+                        "info" => DiagnosticSeverity::INFORMATION,
+                        _ => DiagnosticSeverity::HINT,
+                    }),
+                    code: Some(NumberOrString::String(d.code)),
+                    source: Some("tracey".into()),
+                    message: d.message,
+                    ..Default::default()
+                })
+                .collect();
+
+            self.client
+                .publish_diagnostics(uri, diagnostics, None)
+                .await;
+        }
+    }
 }
 
 #[tower_lsp::async_trait]
@@ -260,6 +317,9 @@ impl LanguageServer for Backend {
         self.client
             .log_message(MessageType::INFO, "tracey LSP bridge initialized")
             .await;
+
+        // Publish workspace-wide diagnostics for all files on startup
+        self.publish_workspace_diagnostics().await;
     }
 
     async fn shutdown(&self) -> LspResult<()> {
@@ -289,6 +349,10 @@ impl LanguageServer for Backend {
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         let uri = params.text_document.uri.clone();
         self.publish_diagnostics(uri).await;
+
+        // Also refresh workspace-wide diagnostics, since saving one file
+        // can affect diagnostics in other files (e.g., covering a requirement)
+        self.publish_workspace_diagnostics().await;
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {

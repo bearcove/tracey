@@ -136,6 +136,9 @@ impl TraceyDaemonHandler for Arc<TraceyService> {
     async fn lsp_diagnostics(&self, req: LspDocumentRequest) -> HandlerResult<Vec<LspDiagnostic>> {
         (**self).lsp_diagnostics(req).await
     }
+    async fn lsp_workspace_diagnostics(&self) -> HandlerResult<Vec<LspFileDiagnostics>> {
+        (**self).lsp_workspace_diagnostics().await
+    }
     async fn lsp_document_symbols(&self, req: LspDocumentRequest) -> HandlerResult<Vec<LspSymbol>> {
         (**self).lsp_document_symbols(req).await
     }
@@ -1448,6 +1451,77 @@ impl TraceyDaemonHandler for TraceyService {
         }
 
         Ok(diagnostics)
+    }
+
+    /// Get diagnostics for all files in the workspace
+    ///
+    /// r[impl lsp.diagnostics.workspace]
+    async fn lsp_workspace_diagnostics(&self) -> HandlerResult<Vec<LspFileDiagnostics>> {
+        let data = self.engine.data().await;
+        let project_root = self.engine.project_root();
+        let mut results = Vec::new();
+
+        // Collect unique spec files from forward data
+        let mut spec_files: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for forward_data in data.forward_by_impl.values() {
+            for rule in &forward_data.rules {
+                if let Some(source_file) = &rule.source_file {
+                    spec_files.insert(source_file.clone());
+                }
+            }
+        }
+
+        // Process spec files
+        for spec_file in &spec_files {
+            let abs_path = project_root.join(spec_file);
+            if let Ok(content) = tokio::fs::read_to_string(&abs_path).await {
+                let req = LspDocumentRequest {
+                    path: abs_path.to_string_lossy().to_string(),
+                    content,
+                };
+                if let Ok(diagnostics) = self.lsp_diagnostics(req).await
+                    && !diagnostics.is_empty()
+                {
+                    results.push(LspFileDiagnostics {
+                        path: spec_file.clone(),
+                        diagnostics,
+                    });
+                }
+            }
+        }
+
+        // Collect unique implementation files from code_units
+        let mut impl_files: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+        for code_units_by_file in data.code_units_by_impl.values() {
+            for file_path in code_units_by_file.keys() {
+                impl_files.insert(file_path.clone());
+            }
+        }
+
+        // Process implementation files
+        for impl_file in &impl_files {
+            if let Ok(content) = tokio::fs::read_to_string(impl_file).await {
+                let req = LspDocumentRequest {
+                    path: impl_file.to_string_lossy().to_string(),
+                    content,
+                };
+                if let Ok(diagnostics) = self.lsp_diagnostics(req).await
+                    && !diagnostics.is_empty()
+                {
+                    // Convert to relative path for consistency
+                    let rel_path = impl_file
+                        .strip_prefix(project_root)
+                        .map(|p| p.to_string_lossy().to_string())
+                        .unwrap_or_else(|_| impl_file.to_string_lossy().to_string());
+                    results.push(LspFileDiagnostics {
+                        path: rel_path,
+                        diagnostics,
+                    });
+                }
+            }
+        }
+
+        Ok(results)
     }
 
     /// Get document symbols (requirement references) in a file

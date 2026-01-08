@@ -425,6 +425,12 @@ impl DaemonClient {
         self.call(ids.lsp_diagnostics, &(req,)).await
     }
 
+    /// Get diagnostics for all files in the workspace
+    pub async fn lsp_workspace_diagnostics(&mut self) -> Result<Vec<LspFileDiagnostics>> {
+        let ids = tracey_daemon_method_ids();
+        self.call(ids.lsp_workspace_diagnostics, &()).await
+    }
+
     /// Get document symbols (requirement references) in a file
     pub async fn lsp_document_symbols(
         &mut self,
