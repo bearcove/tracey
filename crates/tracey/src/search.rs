@@ -99,6 +99,14 @@ mod tantivy_impl {
                     .set_index_option(IndexRecordOption::WithFreqsAndPositions),
             );
 
+            // Text options for rule IDs - use simple tokenizer for split parts
+            // We'll replace dots with spaces so "dashboard.search.reqs" matches "dashboard" or "search"
+            let rule_id_options = TextOptions::default().set_indexing_options(
+                TextFieldIndexing::default()
+                    .set_tokenizer("simple") // splits on whitespace/punctuation
+                    .set_index_option(IndexRecordOption::WithFreqs),
+            );
+
             // "kind" field: "source" or "rule"
             let kind_field = schema_builder.add_text_field("kind", STRING | STORED);
             // "id" field: file path for source, rule ID for rules
@@ -107,6 +115,8 @@ mod tantivy_impl {
             let line_field = schema_builder.add_u64_field("line", INDEXED | STORED);
             // "content" field: the searchable text content with stemming
             let content_field = schema_builder.add_text_field("content", text_options);
+            // "rule_id" field: searchable rule ID with dot-separated parts (not stored)
+            let rule_id_field = schema_builder.add_text_field("rule_id", rule_id_options);
             // r[impl dashboard.search.render-requirements]
             // "html_content" field: original HTML for rules (for rendering)
             let html_content_field = schema_builder.add_text_field("html_content", STRING | STORED);
@@ -165,6 +175,7 @@ mod tantivy_impl {
                     id_field => rule.id.clone(),
                     line_field => 0u64,
                     content_field => searchable_content,
+                    rule_id_field => rule.id.clone(),
                     html_content_field => rule.html.clone(),
                 ))?;
             }
@@ -176,7 +187,10 @@ mod tantivy_impl {
                 .reload_policy(ReloadPolicy::Manual)
                 .try_into()?;
 
-            let query_parser = QueryParser::for_index(&index, vec![content_field]);
+            // Search both content and rule_id fields, with rule_id boosted higher
+            let mut query_parser =
+                QueryParser::for_index(&index, vec![content_field, rule_id_field]);
+            query_parser.set_field_boost(rule_id_field, 5.0); // Boost rule ID matches
 
             Ok(Self {
                 index,

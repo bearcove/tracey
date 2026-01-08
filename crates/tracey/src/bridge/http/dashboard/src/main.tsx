@@ -201,6 +201,13 @@ function SearchModal({ onClose, onSelect }: SearchModalProps) {
   // Keyboard navigation
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
+      // Escape closes the modal (even when input is focused)
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+        return;
+      }
+
       if (!results?.results?.length) return;
 
       if (e.key === "ArrowDown") {
@@ -215,7 +222,7 @@ function SearchModal({ onClose, onSelect }: SearchModalProps) {
         if (result) onSelect(result);
       }
     },
-    [results, selectedIndex, onSelect],
+    [results, selectedIndex, onSelect, onClose],
   );
 
   // Close on backdrop click
