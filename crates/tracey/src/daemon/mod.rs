@@ -20,22 +20,24 @@
 pub mod client;
 pub mod engine;
 pub mod service;
+pub mod watcher;
 
 use eyre::{Result, WrapErr};
-use notify_debouncer_mini::{new_debouncer, notify::RecursiveMode};
 use roam_stream::{CobsFramed, ConnectionError, Hello, hello_exchange_acceptor};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use tokio::net::UnixListener;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use service::TraceyDaemonDispatcher;
+use watcher::{WatcherEvent, WatcherManager, WatcherState};
 
-pub use client::DaemonClient;
+pub use client::{DaemonClient, ReconnectingClient};
 pub use engine::Engine;
 pub use service::TraceyService;
+pub use watcher::WatcherState as DaemonWatcherState;
 
 /// Default idle timeout in seconds (10 minutes)
 const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 600;
@@ -116,16 +118,23 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
             .wrap_err("Failed to initialize engine")?,
     );
 
-    // Create service
-    let service = Arc::new(TraceyService::new(Arc::clone(&engine)));
-
     // r[impl daemon.state.file-watcher]
-    // Set up file watcher - channel sends list of changed files
-    let (watcher_tx, mut watcher_rx) = tokio::sync::mpsc::channel::<Vec<PathBuf>>(16);
+    // r[impl daemon.watcher.smart-watch]
+    // Set up file watcher with smart directory watching
+    let watcher_state = WatcherState::new();
 
-    // Spawn file watcher in a separate OS thread
+    // Create service with watcher state for health monitoring
+    let service = Arc::new(TraceyService::new_with_watcher(
+        Arc::clone(&engine),
+        Arc::clone(&watcher_state),
+    ));
+    let (watcher_tx, mut watcher_rx) = tokio::sync::mpsc::channel::<WatcherEvent>(16);
+
+    // Spawn file watcher in a separate OS thread with auto-restart
+    // r[impl daemon.watcher.auto-restart]
     let config_path_for_watcher = config_path.clone();
     let project_root_for_watcher = project_root.clone();
+    let watcher_state_for_thread = Arc::clone(&watcher_state);
     std::thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -133,14 +142,33 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
             .expect("Failed to create tokio runtime for watcher");
 
         rt.block_on(async {
-            if let Err(e) = run_file_watcher(
-                &project_root_for_watcher,
-                &config_path_for_watcher,
-                watcher_tx,
-            )
-            .await
-            {
-                error!("File watcher error: {}", e);
+            loop {
+                watcher_state_for_thread.mark_active();
+                info!(
+                    "Starting file watcher for {}",
+                    project_root_for_watcher.display()
+                );
+
+                match run_smart_watcher(
+                    &project_root_for_watcher,
+                    &config_path_for_watcher,
+                    watcher_tx.clone(),
+                    Arc::clone(&watcher_state_for_thread),
+                )
+                .await
+                {
+                    Ok(()) => {
+                        // Clean shutdown (channel closed)
+                        info!("File watcher stopped cleanly");
+                        break;
+                    }
+                    Err(e) => {
+                        let error_msg = format!("{}", e);
+                        error!("File watcher failed: {}, restarting in 5s", error_msg);
+                        watcher_state_for_thread.mark_failed(error_msg);
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+                    }
+                }
             }
         });
     });
@@ -152,131 +180,129 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
     tokio::spawn(async move {
         // r[impl server.watch.respect-gitignore]
         // Build gitignore matcher for filtering file watcher events
-        let gitignore = {
-            let mut builder = ignore::gitignore::GitignoreBuilder::new(&project_root_for_rebuild);
-            // Add .gitignore from project root if it exists
-            let gitignore_path = project_root_for_rebuild.join(".gitignore");
-            if gitignore_path.exists() {
-                let _ = builder.add(&gitignore_path);
-            }
-            // Always ignore .git directory
-            let _ = builder.add_line(None, ".git/");
-            builder.build().unwrap_or_else(|e| {
-                warn!("Failed to build gitignore matcher: {}", e);
-                ignore::gitignore::Gitignore::empty()
-            })
-        };
+        let mut gitignore = build_gitignore(&project_root_for_rebuild);
 
-        while let Some(changed_files) = watcher_rx.recv().await {
-            // r[impl config.watch-creation]
-            // Check if the config file was created/modified
-            let config_changed = changed_files.iter().any(|p| p == &config_path_for_rebuild);
-            if config_changed {
-                info!("Config file changed, triggering rebuild");
-                if let Err(e) = engine_for_rebuild.rebuild().await {
-                    error!("Rebuild failed: {}", e);
-                }
-                continue;
-            }
+        while let Some(event) = watcher_rx.recv().await {
+            match event {
+                // r[impl daemon.watcher.reconfigure]
+                WatcherEvent::Reconfigure => {
+                    info!("Config or gitignore changed, reconfiguring watcher");
 
-            // r[impl server.watch.patterns-from-config]
-            // Collect all include patterns from config
-            let mut include_patterns: Vec<String> = Vec::new();
-            let mut exclude_patterns: Vec<String> = Vec::new();
+                    // Rebuild gitignore matcher
+                    gitignore = build_gitignore(&project_root_for_rebuild);
+                    debug!("Rebuilt gitignore matcher");
 
-            // Get patterns from the raw config file if available
-            if let Ok(config) = crate::load_config(&config_path_for_rebuild) {
-                for spec in &config.specs {
-                    for pattern in &spec.include {
-                        include_patterns.push(pattern.pattern.clone());
-                    }
-                    for impl_ in &spec.impls {
-                        for pattern in &impl_.include {
-                            include_patterns.push(pattern.pattern.clone());
-                        }
-                        // r[impl server.watch.respect-excludes]
-                        for pattern in &impl_.exclude {
-                            exclude_patterns.push(pattern.pattern.clone());
-                        }
+                    // Trigger rebuild (watcher reconfiguration happens in the watcher thread)
+                    if let Err(e) = engine_for_rebuild.rebuild().await {
+                        error!("Rebuild failed: {}", e);
                     }
                 }
-            } else {
-                // If config not available, get patterns from engine data
-                let data = engine_for_rebuild.data().await;
-                for spec in &data.config.specs {
-                    // Add spec include patterns (markdown files)
-                    if let Some(source) = &spec.source {
-                        include_patterns.push(source.clone());
-                    }
-                }
-            }
 
-            // Filter changed files
-            let relative_paths: Vec<_> = changed_files
-                .iter()
-                .filter_map(|p| p.strip_prefix(&project_root_for_rebuild).ok())
-                .filter(|p| {
-                    // Keep paths that are NOT ignored by gitignore
-                    let full_path = project_root_for_rebuild.join(p);
-                    !gitignore
-                        .matched_path_or_any_parents(&full_path, full_path.is_dir())
-                        .is_ignore()
-                })
-                .filter(|p| {
-                    let path_str = p.to_string_lossy();
-
-                    // r[impl server.watch.respect-excludes]
-                    // Reject paths that match exclude patterns
-                    for pattern in &exclude_patterns {
-                        if crate::serve::glob_match(&path_str, pattern.as_str()) {
-                            return false;
-                        }
-                    }
-
+                WatcherEvent::FilesChanged(changed_files) => {
                     // r[impl server.watch.patterns-from-config]
-                    // Accept paths that match include patterns
-                    // If no include patterns, accept all non-excluded files
-                    if include_patterns.is_empty() {
-                        return true;
-                    }
-                    for pattern in &include_patterns {
-                        if crate::serve::glob_match(&path_str, pattern.as_str()) {
-                            return true;
+                    // Collect all include patterns from config
+                    let mut include_patterns: Vec<String> = Vec::new();
+                    let mut exclude_patterns: Vec<String> = Vec::new();
+
+                    // Get patterns from the raw config file if available
+                    if let Ok(config) = crate::load_config(&config_path_for_rebuild) {
+                        for spec in &config.specs {
+                            for pattern in &spec.include {
+                                include_patterns.push(pattern.pattern.clone());
+                            }
+                            for impl_ in &spec.impls {
+                                for pattern in &impl_.include {
+                                    include_patterns.push(pattern.pattern.clone());
+                                }
+                                // r[impl server.watch.respect-excludes]
+                                for pattern in &impl_.exclude {
+                                    exclude_patterns.push(pattern.pattern.clone());
+                                }
+                            }
+                        }
+                    } else {
+                        // If config not available, get patterns from engine data
+                        let data = engine_for_rebuild.data().await;
+                        for spec in &data.config.specs {
+                            // Add spec include patterns (markdown files)
+                            if let Some(source) = &spec.source {
+                                include_patterns.push(source.clone());
+                            }
                         }
                     }
-                    false
-                })
-                .collect();
 
-            // Skip rebuild if no relevant files changed
-            if relative_paths.is_empty() {
-                continue;
-            }
-
-            if relative_paths.len() <= 3 {
-                info!(
-                    "File change detected: {}",
-                    relative_paths
+                    // Filter changed files
+                    let relative_paths: Vec<_> = changed_files
                         .iter()
-                        .map(|p| p.display().to_string())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                );
-            } else {
-                info!(
-                    "File changes detected: {} and {} more",
-                    relative_paths
-                        .iter()
-                        .take(2)
-                        .map(|p| p.display().to_string())
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                    relative_paths.len() - 2
-                );
-            }
+                        .filter_map(|p| p.strip_prefix(&project_root_for_rebuild).ok())
+                        .filter(|p| {
+                            // Keep paths that are NOT ignored by gitignore
+                            let full_path = project_root_for_rebuild.join(p);
+                            !gitignore
+                                .matched_path_or_any_parents(&full_path, full_path.is_dir())
+                                .is_ignore()
+                        })
+                        .filter(|p| {
+                            let path_str = p.to_string_lossy();
 
-            if let Err(e) = engine_for_rebuild.rebuild().await {
-                error!("Rebuild failed: {}", e);
+                            // r[impl server.watch.respect-excludes]
+                            // Reject paths that match exclude patterns
+                            for pattern in &exclude_patterns {
+                                if crate::serve::glob_match(&path_str, pattern.as_str()) {
+                                    return false;
+                                }
+                            }
+
+                            // r[impl server.watch.patterns-from-config]
+                            // Accept paths that match include patterns
+                            // If no include patterns, accept all non-excluded files
+                            if include_patterns.is_empty() {
+                                return true;
+                            }
+                            for pattern in &include_patterns {
+                                if crate::serve::glob_match(&path_str, pattern.as_str()) {
+                                    return true;
+                                }
+                            }
+                            false
+                        })
+                        .collect();
+
+                    // Skip rebuild if no relevant files changed
+                    if relative_paths.is_empty() {
+                        debug!(
+                            "Filtered out {} file changes (no relevant files)",
+                            changed_files.len()
+                        );
+                        continue;
+                    }
+
+                    if relative_paths.len() <= 3 {
+                        info!(
+                            "File change detected: {}",
+                            relative_paths
+                                .iter()
+                                .map(|p| p.display().to_string())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        );
+                    } else {
+                        info!(
+                            "File changes detected: {} and {} more",
+                            relative_paths
+                                .iter()
+                                .take(2)
+                                .map(|p| p.display().to_string())
+                                .collect::<Vec<_>>()
+                                .join(", "),
+                            relative_paths.len() - 2
+                        );
+                    }
+
+                    if let Err(e) = engine_for_rebuild.rebuild().await {
+                        error!("Rebuild failed: {}", e);
+                    }
+                }
             }
         }
     });
@@ -386,47 +412,135 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
     }
 }
 
-/// Run the file watcher, sending events to the channel.
+/// Build a gitignore matcher for the project.
+///
+/// r[impl server.watch.respect-gitignore]
+fn build_gitignore(project_root: &Path) -> ignore::gitignore::Gitignore {
+    let mut builder = ignore::gitignore::GitignoreBuilder::new(project_root);
+
+    // Add .gitignore from project root if it exists
+    let gitignore_path = project_root.join(".gitignore");
+    if gitignore_path.exists() {
+        let _ = builder.add(&gitignore_path);
+    }
+
+    // Always ignore .git directory
+    let _ = builder.add_line(None, ".git/");
+
+    builder.build().unwrap_or_else(|e| {
+        warn!("Failed to build gitignore matcher: {}", e);
+        ignore::gitignore::Gitignore::empty()
+    })
+}
+
+/// Run the smart file watcher, sending events to the channel.
+///
+/// r[impl daemon.watcher.smart-watch]
 /// r[impl server.watch.debounce]
 /// r[impl server.watch.config-file]
-async fn run_file_watcher(
+///
+/// This watcher only watches directories derived from config patterns,
+/// rather than the entire project root. It also handles reconfiguration
+/// when config or gitignore changes.
+async fn run_smart_watcher(
     project_root: &Path,
     config_path: &Path,
-    tx: tokio::sync::mpsc::Sender<Vec<PathBuf>>,
+    tx: tokio::sync::mpsc::Sender<WatcherEvent>,
+    state: Arc<WatcherState>,
 ) -> Result<()> {
-    use notify_debouncer_mini::DebounceEventResult;
+    use std::sync::Mutex;
 
-    let tx_clone = tx.clone();
+    // Load initial config
+    let config_path_buf = config_path.to_path_buf();
+    let config = crate::load_config(&config_path_buf).unwrap_or_default();
+
+    // Shared state for the event handler
+    let config_path_owned = config_path.to_path_buf();
+    let gitignore_path = project_root.join(".gitignore");
+    let tx_for_handler = tx.clone();
+    let state_for_handler = Arc::clone(&state);
+
+    // Track paths that trigger reconfiguration
+    let reconfigure_paths: Arc<Mutex<(PathBuf, PathBuf)>> = Arc::new(Mutex::new((
+        config_path_owned.clone(),
+        gitignore_path.clone(),
+    )));
+    let reconfigure_paths_for_handler = Arc::clone(&reconfigure_paths);
+
     // r[impl server.watch.debounce]
-    let mut debouncer = new_debouncer(
+    let mut watcher_manager = WatcherManager::new(
+        project_root.to_path_buf(),
+        config_path_owned,
         Duration::from_millis(200),
-        move |events: DebounceEventResult| {
-            // Extract paths from the events
+        move |events| {
             let paths: Vec<PathBuf> = match events {
                 Ok(events) => events.into_iter().map(|e| e.path).collect(),
-                Err(_) => vec![],
+                Err(e) => {
+                    warn!("File watcher error: {:?}", e);
+                    vec![]
+                }
             };
-            if !paths.is_empty() {
-                let _ = tx_clone.blocking_send(paths);
+
+            if paths.is_empty() {
+                return;
+            }
+
+            // Record event in state
+            state_for_handler.record_event();
+
+            // Check if any path triggers reconfiguration
+            let (config_path, gitignore_path) =
+                reconfigure_paths_for_handler.lock().unwrap().clone();
+            let needs_reconfigure = paths
+                .iter()
+                .any(|p| p == &config_path || p == &gitignore_path);
+
+            let event = if needs_reconfigure {
+                debug!("Config or gitignore changed, sending Reconfigure event");
+                WatcherEvent::Reconfigure
+            } else {
+                debug!("File changes detected: {} files", paths.len());
+                WatcherEvent::FilesChanged(paths)
+            };
+
+            if tx_for_handler.blocking_send(event).is_err() {
+                // Channel closed, watcher should stop
+                debug!("Watcher channel closed");
             }
         },
     )?;
 
-    // Watch project root recursively
-    debouncer
-        .watcher()
-        .watch(project_root, RecursiveMode::Recursive)?;
+    // Configure initial watches based on config
+    watcher_manager.reconfigure(&config)?;
 
-    // Also watch config file specifically
-    debouncer
-        .watcher()
-        .watch(config_path, RecursiveMode::NonRecursive)?;
+    // Update state with watched directories
+    state.set_watched_dirs(watcher_manager.watched_dirs());
 
-    info!("File watcher started for {}", project_root.display());
+    info!(
+        "Smart file watcher started: {} directories",
+        watcher_manager.watched_dirs().len()
+    );
 
-    // Keep the watcher alive
+    // Keep the watcher alive and handle reconfiguration requests
+    // We use a simple loop here; reconfiguration is triggered by the rebuild loop
+    // sending a message back (not implemented yet - for now we just reload on any config change)
     loop {
         tokio::time::sleep(Duration::from_secs(60)).await;
+
+        // Periodically check if we need to reconfigure (e.g., if directories were created)
+        // This is a simple approach; a more sophisticated one would use inotify for directory creation
+        if let Ok(new_config) = crate::load_config(&config_path_buf) {
+            let old_dirs = watcher_manager.watched_dirs();
+            if let Err(e) = watcher_manager.reconfigure(&new_config) {
+                warn!("Failed to reconfigure watcher: {}", e);
+            } else {
+                let new_dirs = watcher_manager.watched_dirs();
+                if old_dirs != new_dirs {
+                    state.set_watched_dirs(new_dirs);
+                    debug!("Updated watched directories");
+                }
+            }
+        }
     }
 }
 

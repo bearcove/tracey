@@ -4,9 +4,11 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 use tracey_proto::*;
 
 use super::engine::Engine;
+use super::watcher::WatcherState;
 use crate::server::QueryEngine;
 use roam::Push;
 
@@ -27,6 +29,10 @@ pub struct TraceyService {
     engine: Arc<Engine>,
     /// Syntax highlighter for source files
     highlighter: Mutex<arborium::Highlighter>,
+    /// Watcher state for health monitoring
+    watcher_state: Option<Arc<WatcherState>>,
+    /// Start time for uptime calculation
+    start_time: Instant,
 }
 
 /// Blanket impl: `Arc<TraceyService>` delegates to `TraceyService`
@@ -63,6 +69,9 @@ impl TraceyDaemonHandler for Arc<TraceyService> {
     }
     async fn version(&self) -> HandlerResult<u64> {
         (**self).version().await
+    }
+    async fn health(&self) -> HandlerResult<HealthResponse> {
+        (**self).health().await
     }
     async fn subscribe(&self, updates: Push<DataUpdate>) -> HandlerResult<()> {
         (**self).subscribe(updates).await
@@ -183,7 +192,24 @@ impl TraceyService {
         Self {
             engine,
             highlighter: Mutex::new(arborium::Highlighter::new()),
+            watcher_state: None,
+            start_time: Instant::now(),
         }
+    }
+
+    /// Create a new service with watcher state for health monitoring.
+    pub fn new_with_watcher(engine: Arc<Engine>, watcher_state: Arc<WatcherState>) -> Self {
+        Self {
+            engine,
+            highlighter: Mutex::new(arborium::Highlighter::new()),
+            watcher_state: Some(watcher_state),
+            start_time: Instant::now(),
+        }
+    }
+
+    /// Set the watcher state (for lazy initialization).
+    pub fn set_watcher_state(&mut self, state: Arc<WatcherState>) {
+        self.watcher_state = Some(state);
     }
 
     // Helper: resolve spec/impl from optional parameters
@@ -529,6 +555,48 @@ impl TraceyDaemonHandler for TraceyService {
     /// Get current version
     async fn version(&self) -> HandlerResult<u64> {
         Ok(self.engine.version())
+    }
+
+    /// Get daemon health status
+    ///
+    /// r[impl daemon.health]
+    async fn health(&self) -> HandlerResult<HealthResponse> {
+        let version = self.engine.version();
+        let uptime_secs = self.start_time.elapsed().as_secs();
+
+        // Get watcher state if available
+        let (
+            watcher_active,
+            watcher_error,
+            watcher_last_event_ms,
+            watcher_event_count,
+            watched_directories,
+        ) = if let Some(ref state) = self.watcher_state {
+            (
+                state.is_active(),
+                state.error(),
+                state.last_event_ms(),
+                state.event_count(),
+                state
+                    .watched_dirs()
+                    .into_iter()
+                    .map(|p| p.display().to_string())
+                    .collect(),
+            )
+        } else {
+            // No watcher state - return defaults
+            (false, None, None, 0, vec![])
+        };
+
+        Ok(HealthResponse {
+            version,
+            watcher_active,
+            watcher_error,
+            watcher_last_event_ms,
+            watcher_event_count,
+            watched_directories,
+            uptime_secs,
+        })
     }
 
     /// Subscribe to data updates

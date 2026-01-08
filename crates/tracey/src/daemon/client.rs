@@ -7,13 +7,74 @@ use eyre::{Result, WrapErr};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::net::UnixStream;
-use tracing::info;
+use tracing::{info, warn};
 
 use roam::__private::facet_postcard;
 use roam_stream::{CobsFramed, Hello, Message};
 
 use super::socket_path;
 use tracey_proto::*;
+
+// ============================================================================
+// Reconnecting Client Wrapper
+// ============================================================================
+
+/// A daemon client that automatically reconnects on connection failures.
+///
+/// r[impl daemon.bridge.reconnect]
+///
+/// Bridges (MCP, HTTP, LSP) use this wrapper to ensure they can survive
+/// daemon restarts without requiring manual intervention.
+pub struct ReconnectingClient {
+    project_root: PathBuf,
+    client: Option<DaemonClient>,
+}
+
+impl ReconnectingClient {
+    /// Create a new reconnecting client for the given project root.
+    pub fn new(project_root: PathBuf) -> Self {
+        Self {
+            project_root,
+            client: None,
+        }
+    }
+
+    /// Get a connected client, reconnecting if necessary.
+    ///
+    /// This will:
+    /// 1. Return the existing connection if valid
+    /// 2. Reconnect (and auto-start daemon if needed) on first call or after disconnection
+    pub async fn get_client(&mut self) -> Result<&mut DaemonClient> {
+        if self.client.is_none() {
+            info!("Connecting to daemon...");
+            self.client = Some(DaemonClient::connect(&self.project_root).await?);
+        }
+        Ok(self.client.as_mut().unwrap())
+    }
+
+    /// Check if an error looks like a connection failure.
+    pub fn is_connection_error(e: &eyre::Report) -> bool {
+        let err_str = e.to_string();
+        err_str.contains("closed")
+            || err_str.contains("Goodbye")
+            || err_str.contains("Broken pipe")
+            || err_str.contains("Connection reset")
+            || err_str.contains("os error 32") // EPIPE
+            || err_str.contains("os error 104") // ECONNRESET
+    }
+
+    /// Mark the connection as broken so next call will reconnect.
+    pub fn mark_disconnected(&mut self) {
+        if self.client.is_some() {
+            warn!("Daemon connection lost, will reconnect on next request");
+            self.client = None;
+        }
+    }
+}
+
+// ============================================================================
+// Low-level Client
+// ============================================================================
 
 /// Client for the tracey daemon.
 ///
@@ -255,6 +316,14 @@ impl DaemonClient {
     pub async fn version(&mut self) -> Result<u64> {
         let ids = tracey_daemon_method_ids();
         self.call(ids.version, &()).await
+    }
+
+    /// Get daemon health status
+    ///
+    /// r[impl daemon.health]
+    pub async fn health(&mut self) -> Result<HealthResponse> {
+        let ids = tracey_daemon_method_ids();
+        self.call(ids.health, &()).await
     }
 
     /// Get forward traceability data

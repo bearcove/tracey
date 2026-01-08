@@ -83,6 +83,7 @@ pub async fn run(
         .route("/api/unmapped", get(api_unmapped))
         .route("/api/rule", get(api_rule))
         .route("/api/reload", get(api_reload))
+        .route("/api/health", get(api_health))
         // Static assets
         .route("/assets/{*path}", get(serve_asset))
         // SPA fallback - all other routes serve index.html
@@ -267,6 +268,17 @@ async fn api_version(State(state): State<Arc<AppState>>) -> Response {
     let mut client = state.client.lock().await;
     match client.version().await {
         Ok(version) => Json(VersionResponse { version }).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
+/// GET /api/health - Get daemon health status.
+///
+/// r[impl daemon.health]
+async fn api_health(State(state): State<Arc<AppState>>) -> Response {
+    let mut client = state.client.lock().await;
+    match client.health().await {
+        Ok(health) => Json(health).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
 }

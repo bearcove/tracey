@@ -24,8 +24,16 @@ use rust_mcp_sdk::{McpServer, StdioTransport, ToMcpServerHandler, TransportOptio
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
-use crate::daemon::DaemonClient;
+use crate::daemon::ReconnectingClient;
 use tracey_proto::*;
+
+/// Helper to handle errors and mark disconnected if needed
+fn handle_error(guard: &mut ReconnectingClient, e: eyre::Report) -> String {
+    if ReconnectingClient::is_connection_error(&e) {
+        guard.mark_disconnected();
+    }
+    format!("Error: {}", e)
+}
 
 // ============================================================================
 // Tool Definitions (same as mcp.rs)
@@ -172,15 +180,20 @@ tool_box!(
 // ============================================================================
 
 /// MCP handler that delegates to the daemon.
+/// r[impl daemon.bridge.reconnect]
 struct TraceyHandler {
-    client: Arc<Mutex<DaemonClient>>,
+    client: Arc<Mutex<ReconnectingClient>>,
 }
 
 impl TraceyHandler {
     /// r[impl mcp.tool.status]
     /// r[impl mcp.response.hints]
     async fn handle_status(&self) -> String {
-        let mut client = self.client.lock().await;
+        let mut guard = self.client.lock().await;
+        let client = match guard.get_client().await {
+            Ok(c) => c,
+            Err(e) => return format!("Error: {}", e),
+        };
         match client.status().await {
             Ok(status) => {
                 let mut output = String::new();
@@ -215,14 +228,18 @@ impl TraceyHandler {
                     output
                 }
             }
-            Err(e) => format!("Error: {}", e),
+            Err(e) => handle_error(&mut guard, e),
         }
     }
 
     /// r[impl mcp.tool.uncovered]
     /// r[impl mcp.response.hints]
     async fn handle_uncovered(&self, spec_impl: Option<&str>, prefix: Option<&str>) -> String {
-        let mut client = self.client.lock().await;
+        let mut guard = self.client.lock().await;
+        let client = match guard.get_client().await {
+            Ok(c) => c,
+            Err(e) => return format!("Error: {}", e),
+        };
         let (spec, impl_name) = parse_spec_impl(spec_impl);
 
         let req = UncoveredRequest {
@@ -264,7 +281,11 @@ impl TraceyHandler {
     /// r[impl mcp.tool.untested]
     /// r[impl mcp.response.hints]
     async fn handle_untested(&self, spec_impl: Option<&str>, prefix: Option<&str>) -> String {
-        let mut client = self.client.lock().await;
+        let mut guard = self.client.lock().await;
+        let client = match guard.get_client().await {
+            Ok(c) => c,
+            Err(e) => return format!("Error: {}", e),
+        };
         let (spec, impl_name) = parse_spec_impl(spec_impl);
 
         let req = UntestedRequest {
@@ -308,7 +329,11 @@ impl TraceyHandler {
     /// r[impl mcp.tool.unmapped-tree]
     /// r[impl mcp.tool.unmapped-file]
     async fn handle_unmapped(&self, spec_impl: Option<&str>, path: Option<&str>) -> String {
-        let mut client = self.client.lock().await;
+        let mut guard = self.client.lock().await;
+        let client = match guard.get_client().await {
+            Ok(c) => c,
+            Err(e) => return format!("Error: {}", e),
+        };
         let (spec, impl_name) = parse_spec_impl(spec_impl);
 
         let req = UnmappedRequest {
@@ -382,7 +407,11 @@ impl TraceyHandler {
     }
 
     async fn handle_rule(&self, rule_id: &str) -> String {
-        let mut client = self.client.lock().await;
+        let mut guard = self.client.lock().await;
+        let client = match guard.get_client().await {
+            Ok(c) => c,
+            Err(e) => return format!("Error: {}", e),
+        };
         match client.rule(rule_id.to_string()).await {
             Ok(Some(info)) => {
                 let mut output = format!("# {}\n\n{}\n\n", info.id, info.text);
@@ -418,7 +447,11 @@ impl TraceyHandler {
 
     /// r[impl mcp.config.list]
     async fn handle_config(&self) -> String {
-        let mut client = self.client.lock().await;
+        let mut guard = self.client.lock().await;
+        let client = match guard.get_client().await {
+            Ok(c) => c,
+            Err(e) => return format!("Error: {}", e),
+        };
         match client.config().await {
             Ok(config) => {
                 let mut output = String::from("# Tracey Configuration\n\n");
@@ -442,7 +475,11 @@ impl TraceyHandler {
     }
 
     async fn handle_reload(&self) -> String {
-        let mut client = self.client.lock().await;
+        let mut guard = self.client.lock().await;
+        let client = match guard.get_client().await {
+            Ok(c) => c,
+            Err(e) => return format!("Error: {}", e),
+        };
         match client.reload().await {
             Ok(response) => {
                 format!(
@@ -455,7 +492,11 @@ impl TraceyHandler {
     }
 
     async fn handle_validate(&self, spec_impl: Option<&str>) -> String {
-        let mut client = self.client.lock().await;
+        let mut guard = self.client.lock().await;
+        let client = match guard.get_client().await {
+            Ok(c) => c,
+            Err(e) => return format!("Error: {}", e),
+        };
         let (spec, impl_name) = parse_spec_impl(spec_impl);
 
         let req = ValidateRequest { spec, impl_name };
@@ -501,7 +542,11 @@ impl TraceyHandler {
     }
 
     async fn handle_config_exclude(&self, spec_impl: Option<&str>, pattern: &str) -> String {
-        let mut client = self.client.lock().await;
+        let mut guard = self.client.lock().await;
+        let client = match guard.get_client().await {
+            Ok(c) => c,
+            Err(e) => return format!("Error: {}", e),
+        };
         let (spec, impl_name) = parse_spec_impl(spec_impl);
 
         let req = ConfigPatternRequest {
@@ -518,7 +563,11 @@ impl TraceyHandler {
     }
 
     async fn handle_config_include(&self, spec_impl: Option<&str>, pattern: &str) -> String {
-        let mut client = self.client.lock().await;
+        let mut guard = self.client.lock().await;
+        let client = match guard.get_client().await {
+            Ok(c) => c,
+            Err(e) => return format!("Error: {}", e),
+        };
         let (spec, impl_name) = parse_spec_impl(spec_impl);
 
         let req = ConfigPatternRequest {
@@ -642,8 +691,9 @@ pub async fn run(root: Option<PathBuf>, _config_path: Option<PathBuf>) -> Result
         None => crate::find_project_root()?,
     };
 
-    // Connect to daemon (will error if not running)
-    let client = DaemonClient::connect(&project_root).await?;
+    // Create reconnecting client (connects lazily on first request)
+    // r[impl daemon.bridge.reconnect]
+    let client = ReconnectingClient::new(project_root);
 
     // Create handler
     let handler = TraceyHandler {

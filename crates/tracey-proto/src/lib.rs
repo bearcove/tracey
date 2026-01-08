@@ -242,6 +242,38 @@ pub struct DataUpdate {
     pub delta: Option<DeltaSummary>,
 }
 
+/// Response for health check query.
+///
+/// r[impl daemon.health]
+///
+/// This provides visibility into daemon internals for monitoring.
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct HealthResponse {
+    /// Current data version
+    pub version: u64,
+
+    /// Whether the file watcher is active
+    pub watcher_active: bool,
+
+    /// Error message if watcher failed (None if healthy)
+    #[facet(default)]
+    pub watcher_error: Option<String>,
+
+    /// Timestamp of last file change event (millis since epoch)
+    #[facet(default)]
+    pub watcher_last_event_ms: Option<u64>,
+
+    /// Count of file change events received
+    pub watcher_event_count: u64,
+
+    /// Directories currently being watched
+    pub watched_directories: Vec<String>,
+
+    /// Daemon uptime in seconds
+    pub uptime_secs: u64,
+}
+
 /// Summary of what changed in a rebuild
 #[derive(Debug, Clone, Facet)]
 #[facet(rename_all = "camelCase")]
@@ -554,6 +586,11 @@ pub trait TraceyDaemon {
 
     /// Get current data version
     async fn version(&self) -> u64;
+
+    /// Get daemon health status
+    ///
+    /// r[impl daemon.health]
+    async fn health(&self) -> HealthResponse;
 
     /// Subscribe to data updates (streaming)
     ///
