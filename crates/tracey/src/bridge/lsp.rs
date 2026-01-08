@@ -375,16 +375,46 @@ impl LanguageServer for Backend {
             return Ok(None);
         };
 
+        let project_root = self.state().await.project_root.clone();
+
         // Format hover with spec info
         let mut markdown = format!("## {}\n\n{}", info.rule_id, info.text);
         markdown.push_str(&format!("\n\n**Spec:** {}", info.spec_name));
         if let Some(url) = &info.spec_url {
             markdown.push_str(&format!(" ([source]({}))", url));
         }
-        markdown.push_str(&format!(
-            "\n\n*{} impl, {} verify*",
-            info.impl_count, info.verify_count
-        ));
+
+        // Format impl refs as clickable links
+        if !info.impl_refs.is_empty() {
+            markdown.push_str("\n\n**Implementations:**");
+            for r in &info.impl_refs {
+                let abs_path = project_root.join(&r.file);
+                if let Ok(uri) = Url::from_file_path(&abs_path) {
+                    // Use file URI with line number fragment
+                    markdown.push_str(&format!("\n- [{}:{}]({}#L{})", r.file, r.line, uri, r.line));
+                } else {
+                    markdown.push_str(&format!("\n- {}:{}", r.file, r.line));
+                }
+            }
+        }
+
+        // Format verify refs as clickable links
+        if !info.verify_refs.is_empty() {
+            markdown.push_str("\n\n**Verifications:**");
+            for r in &info.verify_refs {
+                let abs_path = project_root.join(&r.file);
+                if let Ok(uri) = Url::from_file_path(&abs_path) {
+                    markdown.push_str(&format!("\n- [{}:{}]({}#L{})", r.file, r.line, uri, r.line));
+                } else {
+                    markdown.push_str(&format!("\n- {}:{}", r.file, r.line));
+                }
+            }
+        }
+
+        // Summary counts
+        if info.impl_refs.is_empty() && info.verify_refs.is_empty() {
+            markdown.push_str("\n\n*No implementations or verifications*");
+        }
 
         Ok(Some(Hover {
             contents: HoverContents::Markup(MarkupContent {

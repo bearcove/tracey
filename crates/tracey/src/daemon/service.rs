@@ -1051,9 +1051,26 @@ impl TraceyDaemonHandler for TraceyService {
         let spec_info = data.config.specs.iter().find(|s| &s.name == spec_name);
         let spec_url = spec_info.and_then(|s| s.source_url.clone());
 
-        // Count references
-        let impl_count = rule.impl_refs.len();
-        let verify_count = rule.verify_refs.len();
+        // Collect references
+        let impl_refs: Vec<HoverRef> = rule
+            .impl_refs
+            .iter()
+            .map(|r| HoverRef {
+                file: r.file.clone(),
+                line: r.line,
+            })
+            .collect();
+        let verify_refs: Vec<HoverRef> = rule
+            .verify_refs
+            .iter()
+            .map(|r| HoverRef {
+                file: r.file.clone(),
+                line: r.line,
+            })
+            .collect();
+
+        let impl_count = impl_refs.len();
+        let verify_count = verify_refs.len();
 
         // Calculate the range of the reference
         let (start_line, start_char, end_line, end_char) = span_to_range(
@@ -1070,6 +1087,8 @@ impl TraceyDaemonHandler for TraceyService {
             source_file: rule.source_file.clone(),
             impl_count,
             verify_count,
+            impl_refs,
+            verify_refs,
             range_start_line: start_line,
             range_start_char: start_char,
             range_end_line: end_line,

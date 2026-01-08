@@ -313,6 +313,16 @@ pub struct LspLocation {
     pub character: u32,
 }
 
+/// A code reference location for hover links
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct HoverRef {
+    /// Relative file path
+    pub file: String,
+    /// Line number (1-indexed)
+    pub line: usize,
+}
+
 /// Hover information for a requirement reference
 #[derive(Debug, Clone, Facet)]
 #[facet(rename_all = "camelCase")]
@@ -333,6 +343,12 @@ pub struct HoverInfo {
     pub impl_count: usize,
     /// Number of verify references
     pub verify_count: usize,
+    /// Implementation references (file:line)
+    #[facet(default)]
+    pub impl_refs: Vec<HoverRef>,
+    /// Verification references (file:line)
+    #[facet(default)]
+    pub verify_refs: Vec<HoverRef>,
     /// Range of the reference (for highlighting)
     pub range_start_line: u32,
     pub range_start_char: u32,
