@@ -81,7 +81,11 @@ enum Command {
 }
 
 fn main() -> Result<()> {
-    let args: Args = args::from_std_args().expect("failed to parse arguments");
+    let Ok(args) = args::from_std_args::<Args>() else {
+        eprintln!("{}: failed to parse arguments", "error".bold().red());
+        print_help();
+        return Ok(());
+    };
 
     match args.command {
         // r[impl cli.serve]
