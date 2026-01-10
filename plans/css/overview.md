@@ -18,14 +18,14 @@ This plan outlines a comprehensive modernization of `style.css` (~2660 lines) to
 | 008 | TODO | Container Queries | Medium | Medium | `008-TODO-container-queries.md` |
 | 009 | TODO | @scope | Low | High | `009-TODO-scope.md` |
 | 010 | TODO | Animations | Low | Low | `010-TODO-animations.md` |
-| 011 | TODO | Typography | Medium | Low | `011-TODO-typography.md` |
+| 011 | DONE | Typography | Medium | Low | `011-DONE-typography.md` |
 | 012 | TODO | Spacing | Medium | Low | `012-TODO-spacing.md` |
 
 ## Progress
 
-- **Completed**: 3/12
+- **Completed**: 4/12
 - **In Progress**: 0/12
-- **Remaining**: 9/12
+- **Remaining**: 8/12
 
 ## Current State
 
