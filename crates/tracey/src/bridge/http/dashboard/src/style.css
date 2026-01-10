@@ -225,6 +225,35 @@
     --code-size: var(--text-sm);
     --code-inline-size: 0.85em;
 
+    /* ==========================================================================
+       Spacing Scale
+       Based on 4px (0.25rem) base unit
+       ========================================================================== */
+
+    /* Core spacing scale */
+    --space-0: 0;
+    --space-px: 1px;
+    --space-0-5: 0.125rem; /* 2px */
+    --space-1: 0.25rem; /* 4px */
+    --space-1-5: 0.375rem; /* 6px */
+    --space-2: 0.5rem; /* 8px */
+    --space-2-5: 0.625rem; /* 10px */
+    --space-3: 0.75rem; /* 12px */
+    --space-3-5: 0.875rem; /* 14px */
+    --space-4: 1rem; /* 16px */
+    --space-5: 1.25rem; /* 20px */
+    --space-6: 1.5rem; /* 24px */
+    --space-8: 2rem; /* 32px */
+    --space-10: 2.5rem; /* 40px */
+    --space-12: 3rem; /* 48px */
+
+    /* Semantic spacing aliases */
+    --gap-xs: var(--space-1);
+    --gap-sm: var(--space-2);
+    --gap-md: var(--space-3);
+    --gap-lg: var(--space-4);
+    --gap-xl: var(--space-6);
+
     /* Arborium syntax highlighting colors (combined light/dark) */
     --arb-at: light-dark(var(--arb-at-light), var(--arb-at-dark));
     --arb-co: light-dark(var(--arb-co-light), var(--arb-co-dark));
@@ -307,7 +336,7 @@ body {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 0.5rem;
+    gap: var(--space-2);
     font-family: var(--font-sans);
     font-size: var(--ui-size);
     font-weight: var(--ui-weight);
@@ -319,11 +348,11 @@ body {
         opacity 0.15s;
 
     &-md {
-        padding: 0.5rem 1rem;
+        padding: var(--space-2) var(--space-4);
     }
 
     &-sm {
-        padding: 0.375rem 0.75rem;
+        padding: var(--space-1-5) var(--space-3);
         font-size: var(--text-xs);
     }
 
@@ -400,13 +429,13 @@ body {
     &-pickers {
         display: flex;
         align-items: center;
-        gap: 0.5rem;
-        padding: 0 1rem;
+        gap: var(--space-2);
+        padding: 0 var(--space-4);
         border-right: 1px solid var(--border);
     }
 
     &-select {
-        padding: 0.4rem 0.6rem;
+        padding: var(--space-1-5) var(--space-2-5);
         background: var(--bg);
         color: var(--fg);
         border: 1px solid var(--border);
@@ -429,7 +458,7 @@ body {
     &-controls {
         display: flex;
         align-items: center;
-        gap: 0.75rem;
+        gap: var(--space-3);
         margin-left: auto;
     }
 }
@@ -438,7 +467,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 0.25rem;
+    padding: var(--space-1);
     color: var(--fg-dim);
     opacity: 0.6;
     transition:
@@ -463,7 +492,7 @@ body {
     text-decoration: none;
     display: flex;
     align-items: center;
-    padding: 0.75rem 1.25rem;
+    padding: var(--space-3) var(--space-5);
     margin-left: auto;
 
     &:hover {
@@ -479,7 +508,7 @@ body {
     display: flex;
 
     &-tab {
-        padding: 0.75rem 1.25rem;
+        padding: var(--space-3) var(--space-5);
         background: transparent;
         color: var(--fg-muted);
         border: none;
@@ -491,7 +520,7 @@ body {
         text-decoration: none;
         display: flex;
         align-items: center;
-        gap: 0.35rem;
+        gap: var(--space-1-5);
 
         &:hover {
             background: var(--hover-subtle);
@@ -528,7 +557,7 @@ body {
 
 .search-input {
     width: 100%;
-    padding: 0.5rem 0.75rem;
+    padding: var(--space-2) var(--space-3);
     background: var(--bg);
     color: var(--fg);
     border: 1px solid var(--border);
@@ -554,8 +583,8 @@ body {
 .stats-bar {
     display: flex;
     align-items: center;
-    gap: 2rem;
-    padding: 1rem 1.5rem;
+    gap: var(--space-8);
+    padding: var(--space-4) var(--space-6);
     border-bottom: 1px solid var(--border);
     background: var(--bg-secondary);
     width: 100%;
@@ -566,7 +595,7 @@ body {
 .stat {
     display: flex;
     flex-direction: column;
-    gap: 0.125rem;
+    gap: var(--space-0-5);
 
     &-label {
         font-size: var(--label-size);
@@ -592,8 +621,8 @@ body {
 
     &.clickable {
         cursor: pointer;
-        padding: 0.5rem;
-        margin: -0.5rem;
+        padding: var(--space-2);
+        margin: calc(-1 * var(--space-2));
         border-radius: 6px;
         transition: background 0.15s;
 
@@ -605,7 +634,7 @@ body {
 
 .stats-controls {
     display: flex;
-    gap: 0.75rem;
+    gap: var(--space-3);
     margin-left: auto;
 }
 
@@ -622,7 +651,7 @@ body {
     overflow: hidden;
 
     &-header {
-        padding: 0.75rem 1rem;
+        padding: var(--space-3) var(--space-4);
         border-bottom: 1px solid var(--border);
         font-weight: var(--ui-weight);
         font-size: var(--text-sm);
@@ -643,7 +672,7 @@ body {
    ========================================================================== */
 
 .file-tree {
-    padding: 0.5rem;
+    padding: var(--space-2);
 }
 
 .tree-folder {
@@ -653,8 +682,8 @@ body {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 0.25rem;
-        padding: 0.35rem 0.5rem;
+        gap: var(--space-1);
+        padding: var(--space-1-5) var(--space-2);
         border-radius: 4px;
         cursor: pointer;
         font-size: var(--text-sm);
@@ -668,7 +697,7 @@ body {
     &-left {
         display: flex;
         align-items: center;
-        gap: 0.25rem;
+        gap: var(--space-1);
     }
 
     &-icon {
@@ -680,7 +709,7 @@ body {
 
     &-children {
         display: none;
-        padding-left: 1rem;
+        padding-left: var(--space-4);
     }
 
     &.open {
@@ -696,7 +725,7 @@ body {
 
 .folder-badge {
     font-size: var(--text-2xs);
-    padding: 0.1rem 0.4rem;
+    padding: var(--space-0-5) var(--space-1-5);
     border-radius: 4px;
     font-weight: var(--ui-weight);
 
@@ -719,9 +748,9 @@ body {
 .tree-file {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.35rem 0.5rem;
-    padding-left: 0.5rem;
+    gap: var(--space-2);
+    padding: var(--space-1-5) var(--space-2);
+    padding-left: var(--space-2);
     border-radius: 4px;
     cursor: pointer;
     font-size: var(--text-sm);
@@ -752,7 +781,7 @@ body {
     &-badge {
         flex-shrink: 0;
         font-size: var(--text-2xs);
-        padding: 0.1rem 0.4rem;
+        padding: var(--space-0-5) var(--space-1-5);
         border-radius: 4px;
         font-weight: var(--ui-weight);
 
@@ -787,8 +816,8 @@ body {
     &-header {
         display: flex;
         align-items: center;
-        gap: 1rem;
-        padding: 0.5rem 1rem;
+        gap: var(--space-4);
+        padding: var(--space-2) var(--space-4);
         border-bottom: 1px solid var(--border);
         background: var(--bg-secondary);
         font-size: var(--text-sm);
@@ -806,11 +835,11 @@ body {
 
 .spec-switcher {
     display: flex;
-    gap: 0.25rem;
+    gap: var(--space-1);
 }
 
 .spec-tab {
-    padding: 0.375rem 0.75rem;
+    padding: var(--space-1-5) var(--space-3);
     border: none;
     background: transparent;
     color: var(--fg-muted);
@@ -882,7 +911,7 @@ body {
 
 .line-number {
     width: 4rem;
-    padding: 0 0.75rem 0 0.5rem;
+    padding: 0 var(--space-3) 0 var(--space-2);
     text-align: right;
     color: var(--fg-dim);
     user-select: none;
@@ -916,8 +945,8 @@ body {
 .popover-btn {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem 0.75rem;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
     color: var(--fg);
     text-decoration: none;
     font-size: var(--text-sm);
@@ -943,10 +972,10 @@ body {
 }
 
 .line-annotations {
-    padding: 0 0.5rem;
+    padding: 0 var(--space-2);
     display: flex;
     align-items: center;
-    gap: 0.25rem;
+    gap: var(--space-1);
     position: relative;
 
     &:hover {
@@ -964,7 +993,7 @@ body {
     font-size: var(--text-2xs);
     min-width: 1.2em;
     height: 1.2em;
-    padding: 0 0.25rem;
+    padding: 0 var(--space-1);
     border-radius: 3px;
     background: var(--accent-dim);
     color: var(--accent);
@@ -984,8 +1013,8 @@ body {
     background: var(--bg-secondary);
     border: 1px solid var(--border);
     border-radius: 4px;
-    padding: 0.25rem;
-    gap: 0.25rem;
+    padding: var(--space-1);
+    gap: var(--space-1);
     flex-wrap: wrap;
     max-width: 300px;
     z-index: 50;
@@ -994,7 +1023,7 @@ body {
 
 .annotation-badge {
     font-size: var(--text-2xs);
-    padding: 0.1rem 0.35rem;
+    padding: var(--space-0-5) var(--space-1-5);
     border-radius: 3px;
     background: var(--accent-dim);
     color: var(--accent);
@@ -1020,7 +1049,7 @@ body {
 
     & th {
         text-align: left;
-        padding: 0.75rem 1rem;
+        padding: var(--space-3) var(--space-4);
         font-size: var(--label-size);
         font-weight: var(--label-weight);
         color: var(--fg-muted);
@@ -1034,7 +1063,7 @@ body {
     }
 
     & td {
-        padding: 0.75rem 1rem;
+        padding: var(--space-3) var(--space-4);
         border-bottom: 1px solid var(--border);
         vertical-align: top;
     }
@@ -1051,8 +1080,8 @@ body {
 
     &-row {
         display: flex;
-        align-items: center;
-        gap: 0.35rem;
+        align-items: flex-start;
+        gap: var(--space-1-5);
     }
 }
 
@@ -1071,7 +1100,7 @@ body {
     & code {
         font-size: var(--code-inline-size);
         background: var(--hover);
-        padding: 0.1rem 0.3rem;
+        padding: var(--space-0-5) var(--space-1);
         border-radius: 3px;
     }
 }
@@ -1083,7 +1112,7 @@ body {
 .rule-ref {
     color: var(--fg-muted);
     text-decoration: none;
-    padding: 0.125rem 0;
+    padding: var(--space-0-5) 0;
 
     &:hover {
         color: var(--accent);
@@ -1120,14 +1149,14 @@ body {
     }
 
     &-header {
-        padding: 0.5rem 1rem;
+        padding: var(--space-2) var(--space-4);
         border-bottom: 1px solid var(--border);
         background: var(--bg-secondary);
         font-size: var(--text-sm);
         font-weight: var(--ui-weight);
         display: flex;
         align-items: center;
-        gap: 0.5rem;
+        gap: var(--space-2);
     }
 
     &-content {
@@ -1141,7 +1170,7 @@ body {
    ========================================================================== */
 
 .markdown {
-    padding: 0.75rem 2rem 1.5rem 2rem;
+    padding: var(--space-3) var(--space-8) var(--space-6) var(--space-8);
     font-size: var(--text-base);
     line-height: var(--leading-relaxed);
     max-width: 800px;
@@ -1151,12 +1180,12 @@ body {
         border-style: solid;
         border-width: 0.5px;
         max-width: 100%;
-        margin: 2rem auto;
+        margin: var(--space-8) auto;
         opacity: 0.5;
     }
 
     & :is(h1, h2, h3, h4) {
-        margin: 1.5rem 0 0.75rem;
+        margin: var(--space-6) 0 var(--space-3);
         color: var(--fg-heading);
         cursor: pointer;
 
@@ -1167,15 +1196,15 @@ body {
         &:target {
             color: var(--accent);
             background: var(--highlight-target);
-            margin-left: -0.5rem;
-            margin-right: -0.5rem;
-            padding: 0.25rem 0.5rem;
+            margin-left: calc(-1 * var(--space-2));
+            margin-right: calc(-1 * var(--space-2));
+            padding: var(--space-1) var(--space-2);
             border-radius: 4px;
         }
     }
 
     & :is(h1, h2) {
-        margin-top: 2.5rem;
+        margin-top: var(--space-10);
 
         &:first-child {
             margin-top: 0;
@@ -1202,7 +1231,7 @@ body {
     }
 
     & p {
-        margin: 1rem 0;
+        margin: var(--space-4) 0;
         position: relative;
 
         &:hover > .para-edit-btn {
@@ -1221,7 +1250,7 @@ body {
 
     & code {
         background: var(--fg-15);
-        padding: 0.15rem 0.2rem;
+        padding: var(--space-0-5) var(--space-1);
         border-radius: 4px;
         font-size: var(--code-inline-size);
         color: var(--fg-heading);
@@ -1231,9 +1260,9 @@ body {
         background: var(--bg-secondary-95);
         border: 1px solid var(--border);
         border-radius: 6px;
-        padding: 0.6rem 0.8rem;
+        padding: var(--space-2-5) var(--space-3);
         overflow-x: auto;
-        margin: 1rem 0;
+        margin: var(--space-4) 0;
         line-height: var(--leading-snug);
         filter: saturate(0.9);
 
@@ -1253,12 +1282,12 @@ body {
     }
 
     & :is(ul, ol) {
-        margin: 0.75rem 0;
-        padding-left: 1.5rem;
+        margin: var(--space-3) 0;
+        padding-left: var(--space-6);
     }
 
     & li {
-        margin: 0.25rem 0;
+        margin: var(--space-1) 0;
         position: relative;
 
         &:hover > .para-edit-btn {
@@ -1268,8 +1297,8 @@ body {
 
     & blockquote {
         border-left: 3px solid var(--accent);
-        margin: 1rem 0;
-        padding: 0.75rem 1rem;
+        margin: var(--space-4) 0;
+        padding: var(--space-3) var(--space-4);
         background: var(--hover-subtle);
         border-radius: 0 0.25rem 0.25rem 0;
         color: var(--fg);
@@ -1283,12 +1312,12 @@ body {
     & table {
         width: 100%;
         border-collapse: collapse;
-        margin: 1rem 0;
+        margin: var(--space-4) 0;
         font-size: var(--text-sm);
     }
 
     & :is(th, td) {
-        padding: 0.6rem 0.8rem;
+        padding: var(--space-2-5) var(--space-3);
         text-align: left;
         border: none;
     }
@@ -1347,14 +1376,14 @@ body {
 .rule-marker {
     display: inline-flex;
     align-items: center;
-    gap: 0.25rem;
+    gap: var(--space-1);
     width: fit-content;
     background: var(--accent-dim);
     color: var(--accent);
     font-size: var(--text-xs);
-    padding: 0.1rem 0.35rem;
+    padding: var(--space-0-5) var(--space-1-5);
     border-radius: 3px;
-    margin: 0.15rem 0;
+    margin: var(--space-0-5) 0;
     text-decoration: none;
 
     &:is(a):hover {
@@ -1407,12 +1436,12 @@ body {
     position: relative;
     border: 1px solid var(--border);
     border-radius: 6px;
-    margin: 1.5rem 0;
-    padding: 1.25rem 1rem 0.5rem 1rem;
+    margin: var(--space-6) 0;
+    padding: var(--space-5) var(--space-4) var(--space-2) var(--space-4);
     font-size: var(--text-sm);
 
     & + & {
-        margin-top: 1rem;
+        margin-top: var(--space-4);
     }
 
     &-covered {
@@ -1430,12 +1459,12 @@ body {
     &-header {
         position: absolute;
         top: -0.65rem;
-        left: 0.75rem;
+        left: var(--space-3);
         display: flex;
         align-items: center;
-        gap: 0.5rem;
+        gap: var(--space-2);
         background: var(--bg);
-        padding: 0 0.35rem;
+        padding: 0 var(--space-1-5);
 
         & .rule-marker {
             margin: 0;
@@ -1448,7 +1477,7 @@ body {
     }
 
     &-content {
-        margin-top: 0.25rem;
+        margin-top: var(--space-1);
 
         & p:first-child {
             margin-top: 0;
@@ -1468,8 +1497,8 @@ body {
     position: relative;
     border: 1px solid var(--border);
     border-radius: 6px;
-    margin: 2rem 0;
-    padding: 1.5rem 1.25rem 1.25rem 1.25rem;
+    margin: var(--space-8) 0;
+    padding: var(--space-6) var(--space-5) var(--space-5) var(--space-5);
     font-size: var(--text-sm);
 
     /* Default (uncovered) badge colors */
@@ -1489,7 +1518,7 @@ body {
     }
 
     & + & {
-        margin-top: 1.5rem;
+        margin-top: var(--space-6);
     }
 
     &.req-covered {
@@ -1555,22 +1584,22 @@ body {
     top: -0.7rem;
     display: flex;
     align-items: center;
-    gap: 0.3rem;
+    gap: var(--space-1);
     background: var(--bg);
-    padding: 0 0.25rem;
+    padding: 0 var(--space-1);
 }
 
 .req-badges-left {
-    left: 0.75rem;
+    left: var(--space-3);
 }
 
 .req-badges-right {
-    right: 1rem;
+    right: var(--space-4);
 }
 
 .req-badge {
     font-size: var(--text-xs);
-    padding: 0.15rem 0.5rem;
+    padding: var(--space-0-5) var(--space-2);
     border-radius: 4px;
     text-decoration: none;
     font-weight: var(--weight-semibold);
@@ -1598,7 +1627,7 @@ body {
         display: flex;
         flex-direction: row;
         align-items: center;
-        gap: 0.25rem;
+        gap: var(--space-1);
     }
 
     &.req-test {
@@ -1614,7 +1643,7 @@ body {
         cursor: pointer;
         display: inline-flex;
         align-items: center;
-        gap: 0.3rem;
+        gap: var(--space-1);
         transition: all 0.15s;
 
         &:hover {
@@ -1630,7 +1659,7 @@ body {
         border: none;
         cursor: pointer;
         font-family: inherit;
-        padding: 0.15rem 0.4rem;
+        padding: var(--space-0-5) var(--space-1-5);
         min-width: 1.8rem;
         display: inline-flex;
         align-items: center;
@@ -1654,7 +1683,7 @@ body {
 
 .req-badge-group {
     display: inline-flex;
-    gap: 3px;
+    gap: var(--space-1);
 }
 
 .req-segment-left {
@@ -1666,10 +1695,10 @@ body {
 }
 
 .req-content {
-    margin-top: 0.25rem;
+    margin-top: var(--space-1);
 
     & p {
-        margin: 0.5rem 0;
+        margin: var(--space-2) 0;
     }
 
     & > *:last-child {
@@ -1677,14 +1706,13 @@ body {
     }
 
     & :is(ol, ul) {
-        margin: 0.75rem 0;
-        padding-left: 0.75rem;
-        margin-left: 0.25rem;
+        margin: var(--space-3) 0;
+        padding-left: var(--space-6);
     }
 
     & li {
-        margin: 0.4rem 0;
-        padding-left: 0.5rem;
+        margin: var(--space-1-5) 0;
+        padding-left: var(--space-2);
         line-height: var(--leading-loose);
 
         & :is(strong, em):first-child {
@@ -1705,12 +1733,12 @@ body {
 
 .vim-pending-key {
     position: fixed;
-    bottom: 1rem;
-    right: 1rem;
+    bottom: var(--space-4);
+    right: var(--space-4);
     background: var(--bg-secondary);
     border: 1px solid var(--accent);
     color: var(--accent);
-    padding: 0.5rem 1rem;
+    padding: var(--space-2) var(--space-4);
     border-radius: 6px;
     font-family: var(--font-mono);
     font-size: var(--text-xl);
@@ -1738,20 +1766,20 @@ body {
 .spec-refs {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.35rem;
-    margin: 0.25rem 0 0.5rem 0;
+    gap: var(--space-1-5);
+    margin: var(--space-1) 0 var(--space-2) 0;
     font-size: var(--text-sm);
 }
 
 .spec-ref {
     text-decoration: none;
-    padding: 0.15rem 0.4rem;
+    padding: var(--space-0-5) var(--space-1-5);
     border-radius: 3px;
     background: var(--bg-secondary);
     border: 1px solid var(--border);
     display: inline-flex;
     align-items: center;
-    gap: 0.3rem;
+    gap: var(--space-1);
 
     &:hover {
         border-color: var(--accent);
@@ -1802,7 +1830,7 @@ body {
     }
 
     &-item {
-        padding: 0.5rem 0.75rem;
+        padding: var(--space-2) var(--space-3);
         cursor: pointer;
         transition: background 0.15s;
         font-size: var(--text-sm);
@@ -1850,8 +1878,8 @@ body {
 .dropdown-selected {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.4rem 0.6rem;
+    gap: var(--space-2);
+    padding: var(--space-1-5) var(--space-2-5);
     background: var(--bg);
     border: 1px solid var(--border);
     border-radius: 6px;
@@ -1903,8 +1931,8 @@ body {
 .dropdown-option {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem 0.75rem;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
     cursor: pointer;
     font-family: inherit;
     font-size: var(--text-sm);
@@ -1970,10 +1998,10 @@ body {
 
 .ref-line {
     white-space: nowrap;
-    margin-bottom: 0.35rem;
+    margin-bottom: var(--space-1-5);
     display: flex;
     align-items: center;
-    gap: 0.35rem;
+    gap: var(--space-1-5);
 
     &:last-child {
         margin-bottom: 0;
@@ -2002,7 +2030,7 @@ body {
 .file-path-display {
     display: inline-flex;
     align-items: center;
-    gap: 0.35rem;
+    gap: var(--space-1-5);
     text-decoration: none;
     font-size: 0.95em;
 }
@@ -2056,8 +2084,8 @@ body {
    ========================================================================== */
 
 .outline-tree {
-    padding: 0.5rem;
-    padding-bottom: 12rem;
+    padding: var(--space-2);
+    padding-bottom: var(--space-12);
     margin: 0;
     list-style: none;
 }
@@ -2108,8 +2136,8 @@ body {
 .toc-row {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.25rem 0.5rem;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-2);
     border-radius: 6px;
     text-decoration: none;
     color: inherit;
@@ -2137,7 +2165,7 @@ body {
 .toc-badges {
     display: flex;
     align-items: center;
-    gap: 0.3rem;
+    gap: var(--space-1);
     flex: 0 0 auto;
     margin-left: auto;
     opacity: 0.5;
@@ -2146,8 +2174,8 @@ body {
 .toc-children {
     margin: 0;
     padding: 0;
-    padding-left: 0.75rem;
-    margin-left: 0.5rem;
+    padding-left: var(--space-3);
+    margin-left: var(--space-2);
     border-left: 1px solid var(--border-strong);
     list-style: none;
 
@@ -2163,7 +2191,7 @@ body {
 .outline-legend {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: var(--space-3);
     font-size: var(--text-2xs);
     font-weight: var(--weight-normal);
     color: var(--fg-dim);
@@ -2172,7 +2200,7 @@ body {
 .legend-item {
     display: flex;
     align-items: center;
-    gap: 0.3rem;
+    gap: var(--space-1);
 }
 
 .legend-dot {
@@ -2236,7 +2264,7 @@ body {
 }
 
 .search-result {
-    padding: 0.5rem 1rem;
+    padding: var(--space-2) var(--space-4);
     border-bottom: 1px solid var(--border);
     cursor: pointer;
     font-size: var(--text-sm);
@@ -2248,8 +2276,8 @@ body {
     &-file {
         display: flex;
         align-items: center;
-        gap: 0.25rem;
-        margin-bottom: 0.25rem;
+        gap: var(--space-1);
+        margin-bottom: var(--space-1);
     }
 
     &-path {
@@ -2272,7 +2300,7 @@ body {
     &-highlight {
         background: var(--yellow-dim);
         color: var(--yellow);
-        padding: 0.1rem 0.2rem;
+        padding: var(--space-0-5) var(--space-1);
         border-radius: 2px;
     }
 
@@ -2291,13 +2319,13 @@ body {
 }
 
 .search-empty {
-    padding: 2rem;
+    padding: var(--space-8);
     text-align: center;
     color: var(--fg-muted);
 }
 
 .search-loading {
-    padding: 1rem;
+    padding: var(--space-4);
     text-align: center;
     color: var(--fg-muted);
     font-size: var(--text-sm);
@@ -2310,14 +2338,14 @@ body {
 .rule-context {
     border: 1px solid var(--border);
     border-radius: 6px;
-    margin: 0.5rem;
+    margin: var(--space-2);
     background: var(--bg);
 
     &-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 0.5rem 0.75rem;
+        padding: var(--space-2) var(--space-3);
         background: var(--accent-dim);
         border-radius: 5px 5px 0 0;
         border-bottom: 1px solid var(--border);
@@ -2334,7 +2362,7 @@ body {
         border: none;
         cursor: pointer;
         color: var(--fg-muted);
-        padding: 0.25rem;
+        padding: var(--space-1);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -2347,27 +2375,27 @@ body {
     }
 
     &-body {
-        padding: 0.75rem;
+        padding: var(--space-3);
     }
 
     &-text {
         font-size: var(--text-sm);
         color: var(--fg-muted);
-        margin-bottom: 0.75rem;
+        margin-bottom: var(--space-3);
         line-height: var(--leading-normal);
     }
 
     &-refs {
         display: flex;
         flex-direction: column;
-        gap: 0.35rem;
+        gap: var(--space-1-5);
     }
 
     &-ref {
         display: flex;
         align-items: center;
-        gap: 0.5rem;
-        padding: 0.35rem 0.5rem;
+        gap: var(--space-2);
+        padding: var(--space-1-5) var(--space-2);
         border-radius: 4px;
         font-size: var(--text-sm);
         cursor: pointer;
@@ -2386,9 +2414,9 @@ body {
     &-back {
         display: flex;
         align-items: center;
-        gap: 0.35rem;
-        margin-top: 0.75rem;
-        padding: 0.35rem 0.5rem;
+        gap: var(--space-1-5);
+        margin-top: var(--space-3);
+        padding: var(--space-1-5) var(--space-2);
         border-radius: 4px;
         font-size: var(--text-sm);
         cursor: pointer;
@@ -2432,12 +2460,12 @@ body {
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
 
     &-input {
-        padding: 1rem;
+        padding: var(--space-4);
         border-bottom: 1px solid var(--border);
 
         & input {
             width: 100%;
-            padding: 0.75rem 1rem;
+            padding: var(--space-3) var(--space-4);
             background: var(--bg);
             border: 1px solid var(--border);
             border-radius: 6px;
@@ -2459,7 +2487,7 @@ body {
     }
 
     &-result {
-        padding: 0.75rem 1rem;
+        padding: var(--space-3) var(--space-4);
         border-bottom: 1px solid var(--border);
         cursor: pointer;
 
@@ -2474,8 +2502,8 @@ body {
         &-header {
             display: flex;
             align-items: center;
-            gap: 0.5rem;
-            margin-bottom: 0.25rem;
+            gap: var(--space-2);
+            margin-bottom: var(--space-1);
         }
 
         &-id {
@@ -2507,7 +2535,7 @@ body {
             font-size: var(--text-xs);
             line-height: var(--leading-relaxed);
             margin: 0;
-            padding: 0.25rem 0;
+            padding: var(--space-1) 0;
             background: transparent;
             white-space: pre;
             overflow: hidden;
@@ -2529,24 +2557,24 @@ body {
     }
 
     &-empty {
-        padding: 2rem;
+        padding: var(--space-8);
         text-align: center;
         color: var(--fg-muted);
     }
 
     &-hint {
-        padding: 0.75rem 1rem;
+        padding: var(--space-3) var(--space-4);
         border-top: 1px solid var(--border);
         font-size: var(--text-xs);
         color: var(--fg-dim);
         display: flex;
-        gap: 1rem;
+        gap: var(--space-4);
 
         & kbd {
             background: var(--bg);
             border: 1px solid var(--border);
             border-radius: 3px;
-            padding: 0.1rem 0.35rem;
+            padding: var(--space-0-5) var(--space-1-5);
             font-size: var(--text-2xs);
         }
     }
@@ -2567,7 +2595,7 @@ body {
     align-items: center;
     justify-content: center;
     z-index: 10000;
-    padding: 2rem;
+    padding: var(--space-8);
 }
 
 .modal-content {
@@ -2590,7 +2618,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 1rem 1.5rem;
+    padding: var(--space-4) var(--space-6);
     border-bottom: 1px solid var(--border);
 
     & h3 {
@@ -2603,14 +2631,14 @@ body {
 
 .modal-vim-indicator {
     font-size: var(--text-2xs);
-    padding: 0.2rem 0.5rem;
+    padding: var(--space-1) var(--space-2);
     background: var(--green-dim);
     color: var(--green);
     border-radius: 3px;
     font-weight: var(--weight-semibold);
     letter-spacing: var(--label-tracking);
     margin-left: auto;
-    margin-right: 0.5rem;
+    margin-right: var(--space-2);
 }
 
 .modal-close {
@@ -2688,15 +2716,15 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 1rem 1.5rem;
+    padding: var(--space-4) var(--space-6);
     border-top: 1px solid var(--border);
-    gap: 1rem;
+    gap: var(--space-4);
 }
 
 .modal-info {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: var(--space-3);
     font-size: var(--text-sm);
     color: var(--fg-muted);
     flex: 1;
@@ -2704,7 +2732,7 @@ body {
 
     & code {
         background: var(--bg);
-        padding: 0.2rem 0.4rem;
+        padding: var(--space-1) var(--space-1-5);
         border-radius: 3px;
         font-size: var(--text-xs);
         overflow: hidden;
@@ -2721,11 +2749,11 @@ body {
 
 .modal-actions {
     display: flex;
-    gap: 0.75rem;
+    gap: var(--space-3);
 }
 
 .modal-btn {
-    padding: 0.5rem 1rem;
+    padding: var(--space-2) var(--space-4);
     border-radius: 6px;
     border: 1px solid var(--border);
     font-family: inherit;
@@ -2777,14 +2805,14 @@ body {
     border: 2px solid var(--accent);
     border-radius: 6px;
     background: var(--bg-secondary);
-    margin: 1rem 0;
+    margin: var(--space-4) 0;
     overflow: hidden;
 
     &-header {
         display: flex;
         align-items: center;
-        gap: 0.75rem;
-        padding: 0.5rem 0.75rem;
+        gap: var(--space-3);
+        padding: var(--space-2) var(--space-3);
         background: var(--accent-dim);
         border-bottom: 1px solid var(--border);
         font-size: var(--text-sm);
@@ -2797,7 +2825,7 @@ body {
 
     &-vim {
         font-size: var(--text-2xs);
-        padding: 0.15rem 0.4rem;
+        padding: var(--space-0-5) var(--space-1-5);
         background: var(--green-dim);
         color: var(--green);
         border-radius: 3px;
@@ -2829,7 +2857,7 @@ body {
     }
 
     &-preview {
-        padding: 1.5rem;
+        padding: var(--space-6);
         background: var(--bg);
         min-height: 400px;
     }
@@ -2837,14 +2865,14 @@ body {
     &-footer {
         display: flex;
         justify-content: flex-end;
-        gap: 0.5rem;
-        padding: 0.75rem;
+        gap: var(--space-2);
+        padding: var(--space-3);
         border-top: 1px solid var(--border);
         background: var(--bg-secondary);
     }
 
     &-btn {
-        padding: 0.4rem 0.75rem;
+        padding: var(--space-1-5) var(--space-3);
         border-radius: 4px;
         border: 1px solid var(--border);
         font-family: inherit;
@@ -2879,7 +2907,7 @@ body {
 
     &-loading,
     &-error {
-        padding: 1rem;
+        padding: var(--space-4);
         text-align: center;
         color: var(--fg-muted);
         font-size: var(--text-sm);
