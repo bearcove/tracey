@@ -114,13 +114,13 @@ function SearchResultItem({ result, isSelected, onSelect, onHover }: SearchResul
       ${result.kind === "source"
         ? html`
             <pre class="search-modal-result-code"><code dangerouslySetInnerHTML=${{
-              __html: result.highlighted || result.content.trim(),
+              __html: result.highlighted || result.content?.trim() || "",
             }} /></pre>
           `
         : html`
             <div
               class="search-modal-result-content"
-              dangerouslySetInnerHTML=${{ __html: result.highlighted || result.content.trim() }}
+              dangerouslySetInnerHTML=${{ __html: result.highlighted || result.content?.trim() || "" }}
             />
           `}
     </div>
@@ -144,6 +144,18 @@ function SearchModal({ onClose, onSelect }: SearchModalProps) {
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
+
+  // Global Escape handler - works even when input loses focus
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+  }, [onClose]);
 
   // Re-render Lucide icons when results change
   useEffect(() => {
