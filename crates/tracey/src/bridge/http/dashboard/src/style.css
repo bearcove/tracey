@@ -1352,28 +1352,31 @@ a.rule-marker:hover {
     filter: brightness(1.15);
 }
 
+/* Default (uncovered) */
+.req-container {
+    --req-badge-bg: var(--accent);
+    --req-badge-color: light-dark(white, #111827);
+    --req-badge-weight: 700;
+}
+
+/* Covered - muted */
+.req-covered {
+    --req-badge-bg: color-mix(in srgb, var(--green) 15%, var(--bg));
+    --req-badge-color: var(--fg);
+    --req-badge-weight: 500;
+}
+
+/* Partial - moderate */
+.req-partial {
+    --req-badge-bg: var(--yellow-dim);
+    --req-badge-color: var(--fg);
+    --req-badge-weight: 500;
+}
+
 .req-badge.req-id {
-    background: var(--accent-dim);
-    color: var(--accent);
-}
-
-/* Covered - muted badge */
-.req-covered .req-badge.req-id {
-    background: color-mix(in srgb, var(--green) 15%, var(--bg));
-    color: color-mix(in srgb, var(--green) 60%, var(--fg-dim));
-}
-
-/* Partial - moderate badge */
-.req-partial .req-badge.req-id {
-    background: var(--yellow-dim);
-    color: var(--yellow);
-}
-
-/* Uncovered - bright, attention-grabbing badge */
-.req-uncovered .req-badge.req-id {
-    background: var(--accent);
-    color: light-dark(white, #111827);
-    font-weight: 700;
+    background: var(--req-badge-bg);
+    color: var(--req-badge-color);
+    font-weight: var(--req-badge-weight);
 }
 
 .req-badge.req-impl {
@@ -1420,8 +1423,8 @@ a.rule-marker:hover {
 }
 
 .req-badge.req-copy {
-    background: var(--accent-dim);
-    color: var(--accent);
+    background: var(--req-badge-bg);
+    color: var(--req-badge-color);
     border: none;
     cursor: pointer;
     font-family: inherit;
@@ -1431,24 +1434,6 @@ a.rule-marker:hover {
     align-items: center;
     justify-content: center;
     transition: all 0.15s;
-}
-
-/* Covered - muted copy button */
-.req-covered .req-badge.req-copy {
-    background: color-mix(in srgb, var(--green) 15%, var(--bg));
-    color: color-mix(in srgb, var(--green) 60%, var(--fg-dim));
-}
-
-/* Partial - moderate copy button */
-.req-partial .req-badge.req-copy {
-    background: var(--yellow-dim);
-    color: var(--yellow);
-}
-
-/* Uncovered - bright copy button */
-.req-uncovered .req-badge.req-copy {
-    background: var(--accent);
-    color: light-dark(white, #111827);
 }
 
 .req-badge.req-copy:hover {

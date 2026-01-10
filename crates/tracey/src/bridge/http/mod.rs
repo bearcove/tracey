@@ -25,17 +25,27 @@ use futures_util::{SinkExt, StreamExt};
 use hyper_util::client::legacy::Client;
 use hyper_util::rt::TokioExecutor;
 use serde::Deserialize;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, broadcast};
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{debug, error, info, warn};
 
 use crate::daemon::DaemonClient;
 use tracey_api::*;
 
+/// Message sent to WebSocket clients when data changes.
+#[derive(Debug, Clone, Facet)]
+struct WsMessage {
+    #[facet(rename = "type")]
+    msg_type: String,
+    version: u64,
+}
+
 /// State shared across HTTP handlers.
 struct AppState {
     /// Client connection to daemon (protected by mutex for single-threaded access)
     client: Mutex<DaemonClient>,
+    /// Broadcast channel for notifying WebSocket clients of version changes
+    version_tx: broadcast::Sender<u64>,
     /// Project root for resolving paths
     #[allow(dead_code)]
     project_root: PathBuf,
@@ -78,12 +88,24 @@ pub async fn run(
     };
     let vite_port = vite_server.as_ref().map(|s| s.port);
 
+    // Create broadcast channel for WebSocket clients (capacity 16 is plenty)
+    let (version_tx, _) = broadcast::channel(16);
+
     let state = Arc::new(AppState {
         client: Mutex::new(client),
+        version_tx: version_tx.clone(),
         project_root: project_root.clone(),
         vite_port,
         _vite_server: vite_server,
     });
+
+    // Start background task to poll daemon version and broadcast changes
+    {
+        let state = Arc::clone(&state);
+        tokio::spawn(async move {
+            version_poller(state).await;
+        });
+    }
 
     // Build router
     // r[impl dashboard.api.config]
@@ -92,6 +114,8 @@ pub async fn run(
     // r[impl dashboard.api.spec]
     // r[impl dashboard.api.file]
     let app = Router::new()
+        // WebSocket for live updates
+        .route("/ws", get(ws_handler))
         // API routes
         .route("/api/config", get(api_config))
         .route("/api/forward", get(api_forward))
@@ -553,6 +577,92 @@ async fn api_reload(State(state): State<Arc<AppState>>) -> Response {
     match client.reload().await {
         Ok(response) => Json(response).into_response(),
         Err(e) => ApiError::rpc_error(e),
+    }
+}
+
+// ============================================================================
+// WebSocket for live updates
+// ============================================================================
+
+/// Handle WebSocket upgrade for live version updates.
+async fn ws_handler(State(state): State<Arc<AppState>>, ws: WebSocketUpgrade) -> Response {
+    ws.on_upgrade(move |socket| handle_ws_client(socket, state))
+}
+
+/// Handle a single WebSocket client connection.
+async fn handle_ws_client(socket: ws::WebSocket, state: Arc<AppState>) {
+    let (mut tx, mut rx) = socket.split();
+
+    // Subscribe to version updates
+    let mut version_rx = state.version_tx.subscribe();
+
+    // Send initial version
+    {
+        let mut client = state.client.lock().await;
+        if let Ok(version) = client.version().await {
+            let msg = WsMessage {
+                msg_type: "version".to_string(),
+                version,
+            };
+            if let Ok(json) = facet_json::to_string(&msg) {
+                let _ = tx.send(ws::Message::Text(json.into())).await;
+            }
+        }
+    }
+
+    // Spawn task to forward version updates to client
+    let send_task = tokio::spawn(async move {
+        while let Ok(version) = version_rx.recv().await {
+            let msg = WsMessage {
+                msg_type: "version".to_string(),
+                version,
+            };
+            if let Ok(json) = facet_json::to_string(&msg)
+                && tx.send(ws::Message::Text(json.into())).await.is_err()
+            {
+                break; // Client disconnected
+            }
+        }
+    });
+
+    // Handle incoming messages (just drain them, we don't expect any)
+    while let Some(msg) = rx.next().await {
+        match msg {
+            Ok(ws::Message::Close(_)) => break,
+            Err(_) => break,
+            _ => {} // Ignore other messages
+        }
+    }
+
+    // Clean up
+    send_task.abort();
+    debug!("WebSocket client disconnected");
+}
+
+/// Background task that polls daemon version and broadcasts changes.
+async fn version_poller(state: Arc<AppState>) {
+    let mut last_version: Option<u64> = None;
+
+    loop {
+        // Poll every second (much better than every client polling every 500ms)
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        let version = {
+            let mut client = state.client.lock().await;
+            client.version().await.ok()
+        };
+
+        if let Some(v) = version {
+            if last_version.is_some() && last_version != Some(v) {
+                info!(
+                    "Version changed: {:?} -> {}, broadcasting to clients",
+                    last_version, v
+                );
+                // Broadcast to all connected WebSocket clients
+                let _ = state.version_tx.send(v);
+            }
+            last_version = Some(v);
+        }
     }
 }
 

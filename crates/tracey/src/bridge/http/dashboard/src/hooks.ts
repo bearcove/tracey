@@ -135,32 +135,59 @@ export function useApi(): UseApiResult {
 	// r[impl dashboard.api.live-updates]
 	// r[impl dashboard.editing.reload.auto-detect]
 	// r[impl dashboard.editing.reload.live-update]
-	// Poll for version changes and refetch if changed
+	// Connect to WebSocket for live version updates
 	useEffect(() => {
-		let active = true;
-		let lastVersion: string | null = null;
+		let ws: WebSocket | null = null;
+		let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+		let lastVersion: number | null = null;
 
-		async function poll() {
-			if (!active) return;
-			try {
-				const res = await fetchJson<{ version: string }>("/api/version");
-				if (lastVersion !== null && res.version !== lastVersion) {
-					console.log(
-						`Version changed: ${lastVersion} -> ${res.version}, refetching...`,
-					);
-					await fetchData();
+		function connect() {
+			const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+			const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+			ws = new WebSocket(wsUrl);
+
+			ws.onopen = () => {
+				console.log("WebSocket connected");
+			};
+
+			ws.onmessage = async (event) => {
+				try {
+					const msg = JSON.parse(event.data);
+					if (msg.type === "version") {
+						const newVersion = msg.version;
+						if (lastVersion !== null && newVersion !== lastVersion) {
+							console.log(`Version changed: ${lastVersion} -> ${newVersion}, refetching...`);
+							await fetchData();
+						}
+						lastVersion = newVersion;
+						setVersion(String(newVersion));
+					}
+				} catch (e) {
+					console.warn("WebSocket message parse error:", e);
 				}
-				lastVersion = res.version;
-				setVersion(res.version);
-			} catch (e) {
-				console.warn("Version poll failed:", e);
-			}
-			if (active) setTimeout(poll, 500);
+			};
+
+			ws.onclose = () => {
+				console.log("WebSocket disconnected, reconnecting in 2s...");
+				// Reconnect after delay
+				reconnectTimeout = setTimeout(connect, 2000);
+			};
+
+			ws.onerror = (e) => {
+				console.warn("WebSocket error:", e);
+				ws?.close();
+			};
 		}
 
-		poll();
+		connect();
+
 		return () => {
-			active = false;
+			if (reconnectTimeout) clearTimeout(reconnectTimeout);
+			if (ws) {
+				ws.onclose = null; // Prevent reconnect on intentional close
+				ws.close();
+			}
 		};
 	}, [fetchData]);
 
