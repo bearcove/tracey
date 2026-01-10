@@ -777,13 +777,12 @@ impl TraceyDaemonHandler for TraceyService {
                 ResultKind::Source => "source",
             };
 
-            // For rules, render the raw markdown content to HTML
-            // (not the highlighted field, which has <mark> tags that break markdown parsing)
+            // For rules, render the markdown snippet to HTML
             let highlighted = if r.kind == ResultKind::Rule {
                 let opts = marq::RenderOptions::default();
-                match marq::render(&r.content, &opts).await {
+                match marq::render(&r.highlighted, &opts).await {
                     Ok(doc) => doc.html,
-                    Err(_) => r.content.clone(),
+                    Err(_) => r.highlighted.clone(),
                 }
             } else {
                 r.highlighted.clone()
