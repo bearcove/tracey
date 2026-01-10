@@ -18,8 +18,8 @@
 
     --hover: light-dark(#f0f0f2, #1f2335);
     --hover-subtle: light-dark(#f8f8fa, #1a1f2e);
-    --accent: var(--arb-tu);
-    --accent-dim: color-mix(in srgb, var(--arb-tu) 20%, var(--bg));
+    --accent: var(--arb-at);
+    --accent-dim: color-mix(in srgb, var(--arb-at) 20%, var(--bg));
     --green: var(--arb-da);
     --green-dim: color-mix(in srgb, var(--arb-da) 20%, var(--bg));
     --red: var(--arb-dd);
@@ -953,7 +953,7 @@ a.annotation-badge:hover {
 
 .markdown code {
     background: color-mix(in srgb, var(--fg) 15%, var(--bg));
-    padding: 0.15rem 0.4rem;
+    padding: 0.15rem 0.2rem;
     border-radius: 4px;
     font-size: 0.85em;
     color: var(--fg-heading);
@@ -966,6 +966,7 @@ a.annotation-badge:hover {
     padding: 0.6rem 0.8rem;
     overflow-x: auto;
     margin: 1rem 0;
+    line-height: 1.4;
 }
 
 .markdown pre code {
@@ -1371,7 +1372,7 @@ a.rule-marker:hover {
 /* Uncovered - bright, attention-grabbing badge */
 .req-uncovered .req-badge.req-id {
     background: var(--accent);
-    color: white;
+    color: light-dark(white, #111827);
     font-weight: 700;
 }
 
@@ -1447,7 +1448,7 @@ a.rule-marker:hover {
 /* Uncovered - bright copy button */
 .req-uncovered .req-badge.req-copy {
     background: var(--accent);
-    color: white;
+    color: light-dark(white, #111827);
 }
 
 .req-badge.req-copy:hover {
@@ -1487,13 +1488,12 @@ a.rule-marker:hover {
 .req-content ol,
 .req-content ul {
     margin: 0.75rem 0;
-    padding-left: 1.75rem;
-    border-left: 2px solid var(--border);
+    padding-left: 0.75rem;
     margin-left: 0.25rem;
 }
 
 .req-content li {
-    margin: 0.6rem 0;
+    margin: 0.4rem 0;
     padding-left: 0.5rem;
     line-height: 1.75;
 }
