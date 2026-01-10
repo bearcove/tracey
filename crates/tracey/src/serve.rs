@@ -41,8 +41,8 @@ use tracing::{debug, error, info, warn};
 
 // Markdown rendering
 use marq::{
-    AasvgHandler, ArboriumHandler, PikruHandler, RenderOptions, ReqHandler, parse_frontmatter,
-    render,
+    AasvgHandler, ArboriumHandler, InlineCodeHandler, PikruHandler, RenderOptions, ReqHandler,
+    parse_frontmatter, render,
 };
 use std::future::Future;
 use std::pin::Pin;
@@ -172,6 +172,56 @@ impl TraceyRuleHandler {
             project_root,
             git_status,
         }
+    }
+}
+
+/// Custom inline code handler that transforms `r[rule.id]` into clickable links.
+struct TraceyInlineCodeHandler {
+    /// Spec name for URL generation
+    spec_name: String,
+    /// Implementation name for URL generation
+    impl_name: String,
+}
+
+impl TraceyInlineCodeHandler {
+    fn new(spec_name: String, impl_name: String) -> Self {
+        Self {
+            spec_name,
+            impl_name,
+        }
+    }
+}
+
+impl InlineCodeHandler for TraceyInlineCodeHandler {
+    fn render(&self, code: &str) -> Option<String> {
+        let code = code.trim();
+
+        // Match r[rule.id] pattern
+        if !code.starts_with("r[") || !code.ends_with(']') {
+            return None;
+        }
+
+        let rule_id = &code[2..code.len() - 1]; // Extract rule.id from r[rule.id]
+
+        // Validate it looks like a rule ID (alphanumeric, dots, dashes, underscores)
+        if rule_id.is_empty()
+            || !rule_id
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '.' || c == '-' || c == '_')
+        {
+            return None;
+        }
+
+        // Generate link: /{spec}/{impl}/spec#r-{rule_id}
+        // The anchor format matches what TraceyRuleHandler generates (r-{rule_id})
+        let anchor = format!("r-{}", rule_id);
+        Some(format!(
+            r#"<code><a href="/{}/{}/spec#{}" class="rule-ref">{}</a></code>"#,
+            self.spec_name,
+            self.impl_name,
+            anchor,
+            html_escape(code)
+        ))
     }
 }
 
@@ -712,7 +762,7 @@ pub async fn build_dashboard_data_with_overlay(
             for r in &api_rules {
                 all_search_rules.push(search::RuleEntry {
                     id: r.id.clone(),
-                    html: r.html.clone(),
+                    text: r.text.clone(),
                 });
             }
 
@@ -960,11 +1010,14 @@ async fn load_spec_content(
         root.to_path_buf(),
         git_status,
     );
+    let inline_code_handler =
+        TraceyInlineCodeHandler::new(spec_name.to_string(), impl_name.to_string());
     let opts = RenderOptions::new()
         .with_default_handler(ArboriumHandler::new())
         .with_handler(&["aasvg"], AasvgHandler::new())
         .with_handler(&["pikchr"], PikruHandler::new())
-        .with_req_handler(rule_handler);
+        .with_req_handler(rule_handler)
+        .with_inline_code_handler(inline_code_handler);
 
     // Collect all matching files with their content and weight
     let mut files: Vec<(String, String, i32)> = Vec::new(); // (relative_path, content, weight)

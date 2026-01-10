@@ -763,27 +763,42 @@ impl TraceyDaemonHandler for TraceyService {
     /// Search rules and files
     async fn search(&self, query: String, limit: u64) -> HandlerResult<Vec<SearchResult>> {
         let data = self.engine.data().await;
-        Ok(data
+        let raw_results: Vec<_> = data
             .search_index
             .search(&query, limit as usize)
             .into_iter()
-            .map(|r| {
-                use crate::search::ResultKind;
-                let (kind, text, path) = match r.kind {
-                    ResultKind::Rule => ("rule".to_string(), Some(r.content), None),
-                    ResultKind::Source => {
-                        ("file".to_string(), Some(r.highlighted), Some(r.id.clone()))
-                    }
-                };
-                SearchResult {
-                    kind,
-                    id: r.id,
-                    text,
-                    path,
-                    score: r.score,
+            .collect();
+
+        let mut results = Vec::with_capacity(raw_results.len());
+        for r in raw_results {
+            use crate::search::ResultKind;
+            let kind = match r.kind {
+                ResultKind::Rule => "rule",
+                ResultKind::Source => "source",
+            };
+
+            // For rules, render the markdown snippet to HTML
+            let highlighted = if r.kind == ResultKind::Rule {
+                let opts = marq::RenderOptions::default();
+                match marq::render(&r.highlighted, &opts).await {
+                    Ok(doc) => doc.html,
+                    Err(_) => r.highlighted.clone(),
                 }
-            })
-            .collect())
+            } else {
+                r.highlighted.clone()
+            };
+
+            results.push(SearchResult {
+                kind: kind.to_string(),
+                id: r.id,
+                line: r.line,
+                content: Some(r.content),
+                highlighted: Some(highlighted),
+                score: r.score,
+            });
+        }
+
+        Ok(results)
     }
 
     /// Update a file range

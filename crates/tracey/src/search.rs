@@ -42,8 +42,8 @@ pub struct SearchResult {
 #[derive(Debug, Clone)]
 pub struct RuleEntry {
     pub id: String,
-    /// HTML content (tags will be stripped for indexing)
-    pub html: String,
+    /// Original markdown text (indexed and highlighted, then rendered to HTML)
+    pub text: String,
 }
 
 /// Search index abstraction
@@ -116,9 +116,6 @@ mod tantivy_impl {
             let content_field = schema_builder.add_text_field("content", text_options);
             // "rule_id" field: searchable rule ID with dot-separated parts (not stored)
             let rule_id_field = schema_builder.add_text_field("rule_id", rule_id_options);
-            // r[impl dashboard.search.render-requirements]
-            // "html_content" field: original HTML for rules (for rendering)
-            let html_content_field = schema_builder.add_text_field("html_content", STRING | STORED);
             let schema = schema_builder.build();
 
             // Create index in RAM (small enough for most projects)
@@ -163,20 +160,17 @@ mod tantivy_impl {
                 }
             }
 
-            // Index rules
+            // Index rules - use markdown text directly for indexing and snippet generation
             for rule in rules {
-                // Index the rule ID and HTML content (stripped of tags for search)
-                let text = strip_html_tags(&rule.html);
-                let searchable_content = format!("{} {}", rule.id, text);
-
                 // r[impl dashboard.search.render-requirements]
+                let searchable_content = format!("{} {}", rule.id, rule.text);
+
                 index_writer.add_document(doc!(
                     kind_field => "rule",
                     id_field => rule.id.clone(),
                     line_field => 0u64,
                     content_field => searchable_content,
                     rule_id_field => rule.id.clone(),
-                    html_content_field => rule.html.clone(),
                 ))?;
             }
 
@@ -237,7 +231,6 @@ mod tantivy_impl {
             let id_field = self.schema.get_field("id").unwrap();
             let line_field = self.schema.get_field("line").unwrap();
             let content_field = self.schema.get_field("content").unwrap();
-            let html_content_field = self.schema.get_field("html_content").unwrap();
 
             let mut results: Vec<SearchResult> = top_docs
                 .into_iter()
@@ -254,25 +247,17 @@ mod tantivy_impl {
                     let line = doc.get_first(line_field)?.as_u64()? as usize;
                     let content = doc.get_first(content_field)?.as_str()?.to_string();
 
-                    // For rules, use stored HTML content for rendering
                     // r[impl dashboard.search.render-requirements]
                     // r[impl dashboard.search.requirement-styling]
-                    let highlighted = if kind == ResultKind::Rule {
-                        doc.get_first(html_content_field)
-                            .and_then(|v| v.as_str())
-                            .unwrap_or(&content)
-                            .to_string()
-                    } else {
-                        // For source code, generate highlighted snippet with <mark> tags
-                        snippet_generator
-                            .as_ref()
-                            .map(|sg| {
-                                let mut snippet = sg.snippet(&content);
-                                snippet.set_snippet_prefix_postfix("<mark>", "</mark>");
-                                snippet.to_html()
-                            })
-                            .unwrap_or_else(|| html_escape(&content))
-                    };
+                    // Generate highlighted snippet with <mark> tags
+                    let highlighted = snippet_generator
+                        .as_ref()
+                        .map(|sg| {
+                            let mut snippet = sg.snippet(&content);
+                            snippet.set_snippet_prefix_postfix("<mark>", "</mark>");
+                            snippet.to_html()
+                        })
+                        .unwrap_or_else(|| html_escape(&content));
 
                     Some(SearchResult {
                         kind,
@@ -307,21 +292,6 @@ fn html_escape(s: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
-}
-
-/// Strip HTML tags from a string for indexing
-fn strip_html_tags(html: &str) -> String {
-    let mut result = String::with_capacity(html.len());
-    let mut in_tag = false;
-    for c in html.chars() {
-        match c {
-            '<' => in_tag = true,
-            '>' => in_tag = false,
-            _ if !in_tag => result.push(c),
-            _ => {}
-        }
-    }
-    result
 }
 
 #[cfg(feature = "search")]
@@ -383,10 +353,9 @@ impl SimpleIndex {
             }
         }
 
-        // Index rules
+        // Index rules - use markdown text directly
         for rule in rules {
-            let text = strip_html_tags(&rule.html);
-            let searchable_content = format!("{} {}", rule.id, text);
+            let searchable_content = format!("{} {}", rule.id, rule.text);
             entries.push(SimpleEntry {
                 kind: ResultKind::Rule,
                 id: rule.id.clone(),

@@ -194,13 +194,19 @@ pub struct FileRequest {
 #[derive(Debug, Clone, Facet)]
 #[facet(rename_all = "camelCase")]
 pub struct SearchResult {
-    /// "rule" or "file"
+    /// "rule" or "source"
     pub kind: String,
+    /// For rule: rule ID, for source: file path
     pub id: String,
+    /// Line number (0 for rules)
     #[facet(default)]
-    pub text: Option<String>,
+    pub line: usize,
+    /// Raw content (line content or rule text)
     #[facet(default)]
-    pub path: Option<String>,
+    pub content: Option<String>,
+    /// HTML with highlighted matches
+    #[facet(default)]
+    pub highlighted: Option<String>,
     pub score: f32,
 }
 

@@ -372,9 +372,9 @@ async fn test_mcp_search() {
     for result in &results {
         let matches_auth = result.id.to_lowercase().contains("auth")
             || result
-                .text
+                .content
                 .as_ref()
-                .is_some_and(|t| t.to_lowercase().contains("auth"));
+                .is_some_and(|t: &String| t.to_lowercase().contains("auth"));
         assert!(
             matches_auth,
             "Search result {} doesn't seem relevant to 'auth'",
