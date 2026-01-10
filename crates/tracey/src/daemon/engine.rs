@@ -16,7 +16,7 @@ use tokio::sync::{RwLock, watch};
 use tracing::{debug, error, info};
 
 use crate::config::Config;
-use crate::serve::{DashboardData, FileOverlay, build_dashboard_data_with_overlay};
+use crate::data::{DashboardData, FileOverlay, build_dashboard_data_with_overlay};
 
 /// The core tracey engine.
 ///

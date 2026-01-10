@@ -248,7 +248,7 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
                             // r[impl server.watch.respect-excludes]
                             // Reject paths that match exclude patterns
                             for pattern in &exclude_patterns {
-                                if crate::serve::glob_match(&path_str, pattern.as_str()) {
+                                if crate::data::glob_match(&path_str, pattern.as_str()) {
                                     return false;
                                 }
                             }
@@ -260,7 +260,7 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
                                 return true;
                             }
                             for pattern in &include_patterns {
-                                if crate::serve::glob_match(&path_str, pattern.as_str()) {
+                                if crate::data::glob_match(&path_str, pattern.as_str()) {
                                     return true;
                                 }
                             }

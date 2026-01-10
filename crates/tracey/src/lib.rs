@@ -6,8 +6,8 @@
 pub mod bridge;
 pub mod config;
 pub mod daemon;
+pub mod data;
 pub mod search;
-pub mod serve;
 pub mod server;
 pub mod vite;
 

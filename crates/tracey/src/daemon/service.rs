@@ -2300,7 +2300,7 @@ fn span_to_range(content: &str, offset: usize, length: usize) -> (u32, u32, u32,
 
 /// Find a rule by ID in the engine data
 fn find_rule_in_data<'a>(
-    data: &'a crate::serve::DashboardData,
+    data: &'a crate::data::DashboardData,
     rule_id: &str,
 ) -> Option<(&'a String, &'a ApiRule)> {
     for ((spec, _), forward_data) in &data.forward_by_impl {

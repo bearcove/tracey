@@ -10,7 +10,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::serve::{ApiCodeRef, ApiFileEntry, ApiRule, DashboardData, ImplKey, OutlineEntry};
+use crate::data::{ApiCodeRef, ApiFileEntry, ApiRule, DashboardData, ImplKey, OutlineEntry};
 
 // ============================================================================
 // Delta Tracking
@@ -1076,7 +1076,7 @@ fn do_foo_baz() {}
         let config = crate::load_config(&config_path).unwrap();
 
         // Build dashboard data
-        let data = crate::serve::build_dashboard_data(&root, &config, 1, true)
+        let data = crate::data::build_dashboard_data(&root, &config, 1, true)
             .await
             .unwrap();
 
@@ -1123,7 +1123,7 @@ fn do_foo_baz() {}
         let config_path = root.join(".config/tracey/config.kdl");
         let config = crate::load_config(&config_path).unwrap();
 
-        let data = crate::serve::build_dashboard_data(&root, &config, 1, true)
+        let data = crate::data::build_dashboard_data(&root, &config, 1, true)
             .await
             .unwrap();
 
@@ -1220,7 +1220,7 @@ fn only_b() {}
         let config_path = root.join(".config/tracey/config.kdl");
         let config = crate::load_config(&config_path).unwrap();
 
-        let data = crate::serve::build_dashboard_data(&root, &config, 1, true)
+        let data = crate::data::build_dashboard_data(&root, &config, 1, true)
             .await
             .unwrap();
 
