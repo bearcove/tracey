@@ -34,6 +34,20 @@
     --neutral: light-dark(#6b7ba8, #8b9bc8);
     --neutral-dim: color-mix(in srgb, var(--neutral) 25%, var(--bg));
 
+    /* Coverage status colors - reusable across badges, markers, etc. */
+    --status-covered-bg: color-mix(in srgb, var(--green) 15%, var(--bg));
+    --status-covered-fg: var(--fg);
+    --status-partial-bg: var(--yellow-dim);
+    --status-partial-fg: var(--fg);
+    --status-uncovered-bg: var(--accent);
+    --status-uncovered-fg: light-dark(white, #111827);
+    --status-none-bg: var(--neutral-dim);
+    --status-none-fg: var(--fg);
+
+    /* Reference type colors */
+    --ref-impl-color: var(--green);
+    --ref-verify-color: var(--accent);
+
     --max-width: 1600px;
 
     /* Fonts */
@@ -462,16 +476,16 @@ pre {
     font-weight: 500;
 }
 .folder-badge.full {
-    background: var(--green-dim);
-    color: var(--green);
+    background: var(--status-covered-bg);
+    color: var(--status-covered-fg);
 }
 .folder-badge.partial {
-    background: var(--yellow-dim);
-    color: var(--yellow);
+    background: var(--status-partial-bg);
+    color: var(--status-partial-fg);
 }
 .folder-badge.none {
-    background: var(--neutral-dim);
-    color: var(--neutral);
+    background: var(--status-none-bg);
+    color: var(--status-none-fg);
 }
 
 .tree-folder-children {
@@ -526,16 +540,16 @@ pre {
 }
 
 .tree-file-badge.full {
-    background: var(--green-dim);
-    color: var(--green);
+    background: var(--status-covered-bg);
+    color: var(--status-covered-fg);
 }
 .tree-file-badge.partial {
-    background: var(--yellow-dim);
-    color: var(--yellow);
+    background: var(--status-partial-bg);
+    color: var(--status-partial-fg);
 }
 .tree-file-badge.none {
-    background: var(--neutral-dim);
-    color: var(--neutral);
+    background: var(--status-none-bg);
+    color: var(--status-none-fg);
 }
 
 /* Content area */
@@ -1114,18 +1128,18 @@ a.rule-marker:hover {
 }
 
 .rule-marker.covered {
-    background: var(--green-dim);
-    color: var(--green);
+    background: var(--status-covered-bg);
+    color: var(--status-covered-fg);
 }
 
 .rule-marker.partial {
-    background: var(--yellow-dim);
-    color: var(--yellow);
+    background: var(--status-partial-bg);
+    color: var(--status-partial-fg);
 }
 
 .rule-marker.uncovered {
-    background: var(--neutral-dim);
-    color: var(--neutral);
+    background: var(--status-none-bg);
+    color: var(--status-none-fg);
 }
 
 .rule-marker-highlighted {
@@ -1354,22 +1368,22 @@ a.rule-marker:hover {
 
 /* Default (uncovered) */
 .req-container {
-    --req-badge-bg: var(--accent);
-    --req-badge-color: light-dark(white, #111827);
+    --req-badge-bg: var(--status-uncovered-bg);
+    --req-badge-color: var(--status-uncovered-fg);
     --req-badge-weight: 700;
 }
 
 /* Covered - muted */
 .req-covered {
-    --req-badge-bg: color-mix(in srgb, var(--green) 15%, var(--bg));
-    --req-badge-color: var(--fg);
+    --req-badge-bg: var(--status-covered-bg);
+    --req-badge-color: var(--status-covered-fg);
     --req-badge-weight: 500;
 }
 
 /* Partial - moderate */
 .req-partial {
-    --req-badge-bg: var(--yellow-dim);
-    --req-badge-color: var(--fg);
+    --req-badge-bg: var(--status-partial-bg);
+    --req-badge-color: var(--status-partial-fg);
     --req-badge-weight: 500;
 }
 
@@ -1524,12 +1538,16 @@ a.rule-marker:hover {
     flex-shrink: 0;
 }
 
-.spec-ref-icon-impl {
-    color: var(--green);
+.spec-ref-icon-impl,
+.ref-icon-impl,
+.file-path-icon-impl {
+    color: var(--ref-impl-color);
 }
 
-.spec-ref-icon-verify {
-    color: var(--accent);
+.spec-ref-icon-verify,
+.ref-icon-verify,
+.file-path-icon-verify {
+    color: var(--ref-verify-color);
 }
 
 .spec-ref-impl {
@@ -1717,12 +1735,6 @@ a.rule-marker:hover {
     width: 100%;
     height: 100%;
 }
-.ref-icon-impl {
-    color: var(--green);
-}
-.ref-icon-verify {
-    color: var(--accent);
-}
 
 /* FilePath component */
 .file-path-link,
@@ -1743,12 +1755,7 @@ a.rule-marker:hover {
     flex-shrink: 0;
     color: var(--fg-muted);
 }
-.file-path-icon-impl {
-    color: var(--green);
-}
-.file-path-icon-verify {
-    color: var(--accent);
-}
+
 .file-path-text {
     display: inline;
 }
