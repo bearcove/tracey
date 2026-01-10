@@ -207,9 +207,9 @@ export interface ApiCodeRef {
 export interface ApiRule {
   id: string;
   /**
-   * Original markdown text (for LSP hover)
+   * Raw markdown source (without r[...] marker, but with `>` prefixes for blockquote rules)
    */
-  text: string;
+  raw: string;
   /**
    * Rendered HTML (for dashboard display)
    */

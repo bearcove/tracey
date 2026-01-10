@@ -61,8 +61,8 @@ pub struct ApiSpecForward {
 #[facet(rename_all = "camelCase")]
 pub struct ApiRule {
     pub id: String,
-    /// Original markdown text (for LSP hover)
-    pub text: String,
+    /// Raw markdown source (without r[...] marker, but with `>` prefixes for blockquote rules)
+    pub raw: String,
     /// Rendered HTML (for dashboard display)
     pub html: String,
     #[facet(default)]

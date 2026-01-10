@@ -493,7 +493,7 @@ impl TraceyDaemonHandler for TraceyService {
 
         Ok(query.rule(&rule_id).map(|info| RuleInfo {
             id: info.id,
-            text: info.text,
+            raw: info.raw,
             html: info.html,
             source_file: info.source_file,
             source_line: info.source_line,
@@ -1099,7 +1099,7 @@ impl TraceyDaemonHandler for TraceyService {
 
         Ok(Some(HoverInfo {
             rule_id: rule.id.clone(),
-            text: rule.text.clone(),
+            raw: rule.raw.clone(),
             spec_name: spec_name.clone(),
             spec_url,
             source_file: rule.source_file.clone(),
@@ -1306,7 +1306,7 @@ impl TraceyDaemonHandler for TraceyService {
                                     label: rule.id.clone(),
                                     kind: "rule".to_string(),
                                     detail: Some(spec.clone()),
-                                    documentation: Some(rule.text.clone()),
+                                    documentation: Some(rule.raw.clone()),
                                     insert_text: None,
                                 });
                             }

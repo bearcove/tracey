@@ -42,8 +42,8 @@ pub struct SearchResult {
 #[derive(Debug, Clone)]
 pub struct RuleEntry {
     pub id: String,
-    /// Original markdown text (indexed and highlighted, then rendered to HTML)
-    pub text: String,
+    /// Raw markdown source (without r[...] marker)
+    pub raw: String,
 }
 
 /// Search index abstraction
@@ -163,7 +163,7 @@ mod tantivy_impl {
             // Index rules - use markdown text directly for indexing and snippet generation
             for rule in rules {
                 // r[impl dashboard.search.render-requirements]
-                let searchable_content = format!("{} {}", rule.id, rule.text);
+                let searchable_content = format!("{} {}", rule.id, rule.raw);
 
                 index_writer.add_document(doc!(
                     kind_field => "rule",
@@ -355,7 +355,7 @@ impl SimpleIndex {
 
         // Index rules - use markdown text directly
         for rule in rules {
-            let searchable_content = format!("{} {}", rule.id, rule.text);
+            let searchable_content = format!("{} {}", rule.id, rule.raw);
             entries.push(SimpleEntry {
                 kind: ResultKind::Rule,
                 id: rule.id.clone(),

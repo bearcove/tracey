@@ -175,7 +175,7 @@ async fn test_rule_returns_details() {
 
     let info = rule.unwrap();
     assert_eq!(info.id, "auth.login");
-    assert!(!info.text.is_empty(), "Expected rule text");
+    assert!(!info.raw.is_empty(), "Expected rule raw markdown");
     assert!(
         !info.coverage.is_empty(),
         "Expected coverage info for auth.login"
@@ -246,7 +246,7 @@ fn test_func() {}"#;
 
     let info = hover.unwrap();
     assert_eq!(info.rule_id, "auth.login");
-    assert!(!info.text.is_empty(), "Expected rule text in hover");
+    assert!(!info.raw.is_empty(), "Expected rule raw markdown in hover");
 }
 
 #[tokio::test]

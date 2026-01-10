@@ -442,7 +442,7 @@ impl LanguageServer for Backend {
         let project_root = self.state().await.project_root.clone();
 
         // Format hover with spec info
-        let mut markdown = format!("## {}\n\n{}", info.rule_id, info.text);
+        let mut markdown = format!("## {}\n\n{}", info.rule_id, info.raw);
         markdown.push_str(&format!("\n\n**Spec:** {}", info.spec_name));
         if let Some(url) = &info.spec_url {
             markdown.push_str(&format!(" ([source]({}))", url));

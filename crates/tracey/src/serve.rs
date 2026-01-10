@@ -736,7 +736,7 @@ pub async fn build_dashboard_data_with_overlay(
 
                 api_rules.push(ApiRule {
                     id: extracted.def.id.clone(),
-                    text: extracted.def.text.clone(),
+                    raw: extracted.def.raw.clone(),
                     html: extracted.def.html.clone(),
                     status: extracted
                         .def
@@ -762,7 +762,7 @@ pub async fn build_dashboard_data_with_overlay(
             for r in &api_rules {
                 all_search_rules.push(search::RuleEntry {
                     id: r.id.clone(),
-                    text: r.text.clone(),
+                    raw: r.raw.clone(),
                 });
             }
 

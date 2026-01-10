@@ -413,7 +413,7 @@ impl<'a> QueryEngine<'a> {
                 if result.is_none() {
                     result = Some(RuleInfo {
                         id: rule_id.to_string(),
-                        text: rule.text.clone(),
+                        raw: rule.raw.clone(),
                         html: rule.html.clone(),
                         source_file: rule.source_file.clone(),
                         source_line: rule.source_line,
@@ -529,7 +529,8 @@ pub struct ImplCoverage {
 #[derive(Debug, Clone)]
 pub struct RuleInfo {
     pub id: String,
-    pub text: String,
+    /// Raw markdown source (without r[...] marker)
+    pub raw: String,
     pub html: String,
     pub source_file: Option<String>,
     pub source_line: Option<usize>,

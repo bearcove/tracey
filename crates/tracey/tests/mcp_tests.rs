@@ -217,7 +217,7 @@ async fn test_mcp_rule_tool_found() {
 
     let info = rule.unwrap();
     assert_eq!(info.id, "auth.login");
-    assert!(!info.text.is_empty(), "Expected rule text");
+    assert!(!info.raw.is_empty(), "Expected rule raw markdown");
     assert!(
         info.source_file.is_some(),
         "Expected source file for rule definition"

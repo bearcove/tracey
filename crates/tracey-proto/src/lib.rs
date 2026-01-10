@@ -153,7 +153,8 @@ pub struct ImplStatus {
 #[facet(rename_all = "camelCase")]
 pub struct RuleInfo {
     pub id: String,
-    pub text: String,
+    /// Raw markdown source (without r[...] marker, but with `>` prefixes for blockquote rules)
+    pub raw: String,
     pub html: String,
     #[facet(default)]
     pub source_file: Option<String>,
@@ -335,8 +336,8 @@ pub struct HoverRef {
 pub struct HoverInfo {
     /// Rule ID
     pub rule_id: String,
-    /// Rule text (markdown)
-    pub text: String,
+    /// Raw markdown source (without r[...] marker)
+    pub raw: String,
     /// Spec name this rule belongs to
     pub spec_name: String,
     /// Spec source URL (if configured)

@@ -414,7 +414,7 @@ impl TraceyHandler {
         };
         match client.rule(rule_id.to_string()).await {
             Ok(Some(info)) => {
-                let mut output = format!("# {}\n\n{}\n\n", info.id, info.text);
+                let mut output = format!("# {}\n\n{}\n\n", info.id, info.raw);
 
                 if let Some(file) = &info.source_file
                     && let Some(line) = info.source_line
