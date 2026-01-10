@@ -560,8 +560,8 @@ body {
     max-width: 100%;
     margin: 0 auto;
     background: var(--bg);
-    border-left: 1px solid var(--border);
-    border-right: 1px solid var(--border);
+    border-inline-start: 1px solid var(--border);
+    border-inline-end: 1px solid var(--border);
 }
 
 .main {
@@ -593,7 +593,7 @@ body {
         align-items: center;
         gap: var(--space-2);
         padding: 0 var(--space-4);
-        border-right: 1px solid var(--border);
+        border-inline-end: 1px solid var(--border);
     }
 
     &-select {
@@ -621,7 +621,7 @@ body {
         display: flex;
         align-items: center;
         gap: var(--space-3);
-        margin-left: auto;
+        margin-inline-start: auto;
     }
 }
 
@@ -655,7 +655,7 @@ body {
     display: flex;
     align-items: center;
     padding: var(--space-3) var(--space-5);
-    margin-left: auto;
+    margin-inline-start: auto;
 
     &:hover {
         background: var(--hover-subtle);
@@ -714,7 +714,7 @@ body {
 .search-box {
     flex: 1;
     max-width: 400px;
-    margin-left: auto;
+    margin-inline-start: auto;
 }
 
 .search-input {
@@ -797,7 +797,7 @@ body {
 .stats-controls {
     display: flex;
     gap: var(--space-3);
-    margin-left: auto;
+    margin-inline-start: auto;
 }
 
 /* ==========================================================================
@@ -806,7 +806,7 @@ body {
 
 .sidebar {
     width: 360px;
-    border-right: 1px solid var(--border);
+    border-inline-end: 1px solid var(--border);
     background: var(--bg-sidebar);
     display: flex;
     flex-direction: column;
@@ -871,7 +871,7 @@ body {
 
     &-children {
         display: none;
-        padding-left: var(--space-4);
+        padding-inline-start: var(--space-4);
     }
 
     &.open {
@@ -912,7 +912,7 @@ body {
     align-items: center;
     gap: var(--space-2);
     padding: var(--space-1-5) var(--space-2);
-    padding-left: var(--space-2);
+    padding-inline-start: var(--space-2);
     border-radius: 4px;
     cursor: pointer;
     font-size: var(--text-sm);
@@ -1063,24 +1063,24 @@ body {
     }
 
     &.covered .line-number {
-        border-left-color: var(--green);
+        border-inline-start-color: var(--green);
     }
 
     &.uncovered .line-number {
-        border-left-color: var(--red);
+        border-inline-start-color: var(--red);
     }
 }
 
 .line-number {
     width: 4rem;
     padding: 0 var(--space-3) 0 var(--space-2);
-    text-align: right;
+    text-align: end;
     color: var(--fg-dim);
     user-select: none;
     flex-shrink: 0;
     cursor: pointer;
     position: relative;
-    border-left: 3px solid transparent;
+    border-inline-start: 3px solid transparent;
 
     &:hover {
         color: var(--accent);
@@ -1089,10 +1089,10 @@ body {
 
 .line-popover {
     position: absolute;
-    left: 100%;
+    inset-inline-start: 100%;
     top: 50%;
     transform: translateY(-50%);
-    margin-left: 0.5rem;
+    margin-inline-start: 0.5rem;
     background: var(--bg-secondary);
     border: 1px solid var(--border);
     border-radius: 6px;
@@ -1129,7 +1129,7 @@ body {
 
 .line-content {
     flex: 1;
-    padding-right: 1rem;
+    padding-inline-end: 1rem;
     white-space: pre;
 }
 
@@ -1169,7 +1169,7 @@ body {
 .annotation-badges {
     display: none;
     position: absolute;
-    right: 0;
+    inset-inline-end: 0;
     top: 50%;
     transform: translateY(-50%);
     background: var(--bg-secondary);
@@ -1210,7 +1210,7 @@ body {
     border-collapse: collapse;
 
     & th {
-        text-align: left;
+        text-align: start;
         padding: var(--space-3) var(--space-4);
         font-size: var(--label-size);
         font-weight: var(--label-weight);
@@ -1307,7 +1307,7 @@ body {
     min-width: 0;
 
     & + & {
-        border-left: 1px solid var(--border);
+        border-inline-start: 1px solid var(--border);
     }
 
     &-header {
@@ -1358,8 +1358,8 @@ body {
         &:target {
             color: var(--accent);
             background: var(--highlight-target);
-            margin-left: calc(-1 * var(--space-2));
-            margin-right: calc(-1 * var(--space-2));
+            margin-inline-start: calc(-1 * var(--space-2));
+            margin-inline-end: calc(-1 * var(--space-2));
             padding: var(--space-1) var(--space-2);
             border-radius: 4px;
         }
@@ -1445,7 +1445,7 @@ body {
 
     & :is(ul, ol) {
         margin: var(--space-3) 0;
-        padding-left: var(--space-6);
+        padding-inline-start: var(--space-6);
     }
 
     & li {
@@ -1458,7 +1458,7 @@ body {
     }
 
     & blockquote {
-        border-left: 3px solid var(--accent);
+        border-inline-start: 3px solid var(--accent);
         margin: var(--space-4) 0;
         padding: var(--space-3) var(--space-4);
         background: var(--hover-subtle);
@@ -1480,7 +1480,7 @@ body {
 
     & :is(th, td) {
         padding: var(--space-2-5) var(--space-3);
-        text-align: left;
+        text-align: start;
         border: none;
     }
 
@@ -1621,7 +1621,7 @@ body {
     &-header {
         position: absolute;
         top: -0.65rem;
-        left: var(--space-3);
+        inset-inline-start: var(--space-3);
         display: flex;
         align-items: center;
         gap: var(--space-2);
@@ -1671,7 +1671,7 @@ body {
     &::before {
         content: "";
         position: absolute;
-        left: 0;
+        inset-inline-start: 0;
         top: 1.75rem;
         bottom: 1.25rem;
         width: 3px;
@@ -1752,11 +1752,11 @@ body {
 }
 
 .req-badges-left {
-    left: var(--space-3);
+    inset-inline-start: var(--space-3);
 }
 
 .req-badges-right {
-    right: var(--space-4);
+    inset-inline-end: var(--space-4);
 }
 
 .req-badge {
@@ -1869,12 +1869,12 @@ body {
 
     & :is(ol, ul) {
         margin: var(--space-3) 0;
-        padding-left: var(--space-6);
+        padding-inline-start: var(--space-6);
     }
 
     & li {
         margin: var(--space-1-5) 0;
-        padding-left: var(--space-2);
+        padding-inline-start: var(--space-2);
         line-height: var(--leading-loose);
 
         & :is(strong, em):first-child {
@@ -1884,7 +1884,7 @@ body {
             font-size: var(--code-inline-size);
             text-transform: uppercase;
             letter-spacing: var(--tracking-wider);
-            margin-right: 0.25em;
+            margin-inline-end: 0.25em;
         }
     }
 }
@@ -1896,7 +1896,7 @@ body {
 .vim-pending-key {
     position: fixed;
     bottom: var(--space-4);
-    right: var(--space-4);
+    inset-inline-end: var(--space-4);
     background: var(--bg-secondary);
     border: 1px solid var(--accent);
     color: var(--accent);
@@ -2066,7 +2066,7 @@ body {
     }
 
     & .chevron {
-        margin-left: auto;
+        margin-inline-start: auto;
         opacity: 0.5;
 
         & path {
@@ -2079,7 +2079,7 @@ body {
 .dropdown-menu {
     position: absolute;
     top: 100%;
-    left: 0;
+    inset-inline-start: 0;
     margin-top: 4px;
     background: var(--bg-secondary);
     border: 1px solid var(--border);
@@ -2329,20 +2329,20 @@ body {
     align-items: center;
     gap: var(--space-1);
     flex: 0 0 auto;
-    margin-left: auto;
+    margin-inline-start: auto;
     opacity: 0.5;
 }
 
 .toc-children {
     margin: 0;
     padding: 0;
-    padding-left: var(--space-3);
-    margin-left: var(--space-2);
-    border-left: 1px solid var(--border-strong);
+    padding-inline-start: var(--space-3);
+    margin-inline-start: var(--space-2);
+    border-inline-start: 1px solid var(--border-strong);
     list-style: none;
 
     &.has-active {
-        border-left-color: var(--accent);
+        border-inline-start-color: var(--accent);
     }
 }
 
@@ -2384,7 +2384,7 @@ body {
 
 .para-edit-btn {
     position: absolute;
-    right: -1.5rem;
+    inset-inline-end: -1.5rem;
     top: 0.15rem;
     width: 1.25rem;
     height: 1.25rem;
@@ -2598,10 +2598,7 @@ body {
 
 .search-overlay {
     position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    inset: 0;
     background: rgba(0, 0, 0, 0.5);
     display: flex;
     align-items: flex-start;
@@ -2748,10 +2745,7 @@ body {
 
 .modal-overlay {
     position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    inset: 0;
     background: rgba(0, 0, 0, 0.6);
     display: flex;
     align-items: center;
@@ -2799,8 +2793,8 @@ body {
     border-radius: 3px;
     font-weight: var(--weight-semibold);
     letter-spacing: var(--label-tracking);
-    margin-left: auto;
-    margin-right: var(--space-2);
+    margin-inline-start: auto;
+    margin-inline-end: var(--space-2);
 }
 
 .modal-close {
@@ -2999,7 +2993,7 @@ body {
         color: var(--fg-dim);
         font-family: var(--font-mono);
         font-size: var(--text-xs);
-        margin-left: auto;
+        margin-inline-start: auto;
     }
 
     &-content {
