@@ -248,14 +248,16 @@ mod tantivy_impl {
                     // r[impl dashboard.search.render-requirements]
                     // r[impl dashboard.search.requirement-styling]
                     // Generate highlighted snippet with <mark> tags
+                    // We use snippet.highlighted() to get ranges and insert marks ourselves,
+                    // because snippet.to_html() HTML-escapes the content which breaks markdown
                     let highlighted = snippet_generator
                         .as_ref()
                         .map(|sg| {
-                            let mut snippet = sg.snippet(&content);
-                            snippet.set_snippet_prefix_postfix("<mark>", "</mark>");
-                            snippet.to_html()
+                            let snippet = sg.snippet(&content);
+                            let ranges = snippet.highlighted();
+                            insert_mark_tags(&content, ranges)
                         })
-                        .unwrap_or_else(|| html_escape(&content));
+                        .unwrap_or_else(|| content.clone());
 
                     Some(SearchResult {
                         kind,
@@ -281,6 +283,36 @@ mod tantivy_impl {
 
             results
         }
+    }
+
+    /// Insert `<mark>` tags at the given byte ranges without HTML-escaping content.
+    /// Ranges must be non-overlapping and sorted by start position.
+    fn insert_mark_tags(content: &str, ranges: &[std::ops::Range<usize>]) -> String {
+        if ranges.is_empty() {
+            return content.to_string();
+        }
+
+        let mut result = String::with_capacity(content.len() + ranges.len() * 13); // "<mark></mark>" = 13 chars
+        let mut last_end = 0;
+
+        for range in ranges {
+            // Add content before this range
+            if range.start > last_end {
+                result.push_str(&content[last_end..range.start]);
+            }
+            // Add marked content
+            result.push_str("<mark>");
+            result.push_str(&content[range.start..range.end]);
+            result.push_str("</mark>");
+            last_end = range.end;
+        }
+
+        // Add remaining content after last range
+        if last_end < content.len() {
+            result.push_str(&content[last_end..]);
+        }
+
+        result
     }
 }
 
