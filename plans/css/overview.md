@@ -14,7 +14,7 @@ This plan outlines a comprehensive modernization of `style.css` (~2660 lines) to
 | 004 | DONE | Selector Grouping | Medium | Low | `004-DONE-selector-grouping.md` |
 | 005 | DONE | Color System | Medium | Low | `005-DONE-color-system.md` |
 | 006 | DONE | Logical Properties | Low | Low | `006-DONE-logical-properties.md` |
-| 007 | TODO | Cascade Layers | Medium | Medium | `007-TODO-cascade-layers.md` |
+| 007 | DONE | Cascade Layers | Medium | Medium | `007-DONE-cascade-layers.md` |
 | 008 | TODO | Container Queries | Medium | Medium | `008-TODO-container-queries.md` |
 | 009 | TODO | @scope | Low | High | `009-TODO-scope.md` |
 | 010 | DONE | Animations | Low | Low | `010-DONE-animations.md` |
@@ -23,9 +23,9 @@ This plan outlines a comprehensive modernization of `style.css` (~2660 lines) to
 
 ## Progress
 
-- **Completed**: 8/12
+- **Completed**: 9/12
 - **In Progress**: 0/12
-- **Remaining**: 4/12
+- **Remaining**: 3/12
 
 ## Current State
 
