@@ -160,16 +160,14 @@ mod tantivy_impl {
                 }
             }
 
-            // Index rules - use markdown text directly for indexing and snippet generation
+            // Index rules - use raw markdown directly (rule_id_field handles ID search)
+            // r[impl dashboard.search.render-requirements]
             for rule in rules {
-                // r[impl dashboard.search.render-requirements]
-                let searchable_content = format!("{} {}", rule.id, rule.raw);
-
                 index_writer.add_document(doc!(
                     kind_field => "rule",
                     id_field => rule.id.clone(),
                     line_field => 0u64,
-                    content_field => searchable_content,
+                    content_field => rule.raw.clone(),
                     rule_id_field => rule.id.clone(),
                 ))?;
             }
@@ -353,14 +351,13 @@ impl SimpleIndex {
             }
         }
 
-        // Index rules - use markdown text directly
+        // Index rules - use raw markdown directly
         for rule in rules {
-            let searchable_content = format!("{} {}", rule.id, rule.raw);
             entries.push(SimpleEntry {
                 kind: ResultKind::Rule,
                 id: rule.id.clone(),
                 line: 0,
-                content: searchable_content,
+                content: rule.raw.clone(),
             });
         }
 
@@ -375,7 +372,11 @@ impl SearchIndex for SimpleIndex {
         let mut results: Vec<SearchResult> = self
             .entries
             .iter()
-            .filter(|e| e.content.to_lowercase().contains(&query_lower))
+            // Match against both content and id (for rule ID searches)
+            .filter(|e| {
+                e.content.to_lowercase().contains(&query_lower)
+                    || e.id.to_lowercase().contains(&query_lower)
+            })
             .take(limit)
             .map(|e| {
                 // Simple case-insensitive highlighting

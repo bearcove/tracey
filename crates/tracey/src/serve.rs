@@ -1869,7 +1869,21 @@ async fn api_search(
         .unwrap_or(50usize);
 
     let data = state.data.borrow().clone();
-    let results = data.search_index.search(&query, limit);
+    let raw_results = data.search_index.search(&query, limit);
+
+    // r[impl dashboard.search.render-requirements]
+    // For rule results, render the highlighted markdown snippet through marq
+    let mut results = Vec::with_capacity(raw_results.len());
+    for mut r in raw_results {
+        if r.kind == search::ResultKind::Rule {
+            let opts = RenderOptions::default();
+            if let Ok(doc) = render(&r.highlighted, &opts).await {
+                r.highlighted = doc.html;
+            }
+        }
+        results.push(r);
+    }
+
     let response = ApiSearchResponse {
         query: query.into_owned(),
         results,
