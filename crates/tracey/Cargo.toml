@@ -87,6 +87,9 @@ url = { version = "*", features = ["serde"] }
 # LSP server
 tower-lsp = "0.20"
 
+# Open URLs in browser
+open = "5"
+
 # roam RPC framework (for daemon architecture)
 roam = { git = "https://github.com/bearcove/roam", rev = "4250a30e7064607d2288aed1504c3dddeaaa8a3b" }
 roam-stream = { git = "https://github.com/bearcove/roam", rev = "4250a30e7064607d2288aed1504c3dddeaaa8a3b" }

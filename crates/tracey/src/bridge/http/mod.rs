@@ -8,20 +8,26 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::{
     Router,
-    extract::{Path, Query, State},
-    http::{StatusCode, header},
+    body::Body,
+    extract::{FromRequestParts, Path, Query, State, WebSocketUpgrade, ws},
+    http::{Request, StatusCode, header},
     response::{Html, IntoResponse, Response},
     routing::get,
 };
 use eyre::Result;
 use facet::Facet;
 use facet_axum::Json;
+use futures_util::{SinkExt, StreamExt};
+use hyper_util::client::legacy::Client;
+use hyper_util::rt::TokioExecutor;
 use serde::Deserialize;
 use tokio::sync::Mutex;
 use tower_http::cors::{Any, CorsLayer};
+use tracing::{debug, error, info, warn};
 
 use crate::daemon::DaemonClient;
 use tracey_api::*;
@@ -33,6 +39,11 @@ struct AppState {
     /// Project root for resolving paths
     #[allow(dead_code)]
     project_root: PathBuf,
+    /// Vite dev server port (Some in dev mode, None otherwise)
+    vite_port: Option<u16>,
+    /// Keep Vite server alive (kill_on_drop)
+    #[allow(dead_code)]
+    _vite_server: Option<crate::vite::ViteServer>,
 }
 
 /// Run the HTTP bridge server.
@@ -44,9 +55,8 @@ pub async fn run(
     _config_path: Option<PathBuf>,
     port: u16,
     open: bool,
+    dev: bool,
 ) -> Result<()> {
-    use tracing::info;
-
     // Determine project root
     let project_root = match root {
         Some(r) => r,
@@ -56,9 +66,23 @@ pub async fn run(
     // Connect to daemon (will error if not running)
     let client = DaemonClient::connect(&project_root).await?;
 
+    // In dev mode, start Vite dev server
+    let vite_server = if dev {
+        // Dashboard is colocated with this module
+        let dashboard_dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/bridge/http/dashboard");
+        let server = crate::vite::ViteServer::start(&dashboard_dir).await?;
+        Some(server)
+    } else {
+        None
+    };
+    let vite_port = vite_server.as_ref().map(|s| s.port);
+
     let state = Arc::new(AppState {
         client: Mutex::new(client),
         project_root: project_root.clone(),
+        vite_port,
+        _vite_server: vite_server,
     });
 
     // Build router
@@ -83,27 +107,39 @@ pub async fn run(
         .route("/api/unmapped", get(api_unmapped))
         .route("/api/rule", get(api_rule))
         .route("/api/reload", get(api_reload))
-        .route("/api/health", get(api_health))
-        // Static assets
-        .route("/assets/{*path}", get(serve_asset))
-        // SPA fallback - all other routes serve index.html
-        .fallback(spa_fallback)
-        .with_state(state)
-        .layer(
-            CorsLayer::new()
-                .allow_origin(Any)
-                .allow_methods(Any)
-                .allow_headers(Any),
-        );
+        .route("/api/health", get(api_health));
+
+    // In dev mode, proxy to Vite; otherwise serve embedded assets
+    let app = if dev {
+        app.fallback(vite_proxy)
+    } else {
+        app.route("/assets/{*path}", get(serve_asset))
+            .fallback(spa_fallback)
+    };
+
+    let app = app.with_state(state).layer(
+        CorsLayer::new()
+            .allow_origin(Any)
+            .allow_methods(Any)
+            .allow_headers(Any),
+    );
 
     // Start server
     let addr = format!("127.0.0.1:{}", port);
-    info!("HTTP bridge listening on http://{}", addr);
+    if let Some(vp) = vite_port {
+        info!(
+            "HTTP bridge listening on http://{} (dev mode, proxying to Vite on port {})",
+            addr, vp
+        );
+    } else {
+        info!("HTTP bridge listening on http://{}", addr);
+    }
 
     if open {
         let url = format!("http://{}", addr);
-        eprintln!("Open browser at: {}", url);
-        // Note: webbrowser crate not available, user should open manually
+        if let Err(e) = ::open::that(&url) {
+            eprintln!("Failed to open browser: {}. Open manually at: {}", e, url);
+        }
     }
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
@@ -501,4 +537,235 @@ fn resolve_spec_impl(
     });
 
     (spec_name, impl_name)
+}
+
+// ============================================================================
+// Vite Proxy (dev mode)
+// ============================================================================
+
+/// Check if request has a WebSocket upgrade
+fn has_ws(req: &Request<Body>) -> bool {
+    req.headers()
+        .get(header::UPGRADE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.eq_ignore_ascii_case("websocket"))
+}
+
+/// Proxy requests to Vite dev server (handles both HTTP and WebSocket)
+async fn vite_proxy(State(state): State<Arc<AppState>>, req: Request<Body>) -> Response<Body> {
+    let vite_port = match state.vite_port {
+        Some(p) => p,
+        None => {
+            warn!("Vite proxy request but vite server not running");
+            return Response::builder()
+                .status(StatusCode::SERVICE_UNAVAILABLE)
+                .body(Body::from("Vite server not running"))
+                .unwrap();
+        }
+    };
+
+    let method = req.method().clone();
+    let original_uri = req.uri().to_string();
+    let path = req.uri().path().to_string();
+    let query = req
+        .uri()
+        .query()
+        .map(|q| format!("?{}", q))
+        .unwrap_or_default();
+
+    debug!(method = %method, uri = %original_uri, "=> proxying to vite");
+
+    // Check if this is a WebSocket upgrade request (for HMR)
+    if has_ws(&req) {
+        info!(uri = %original_uri, "=> detected websocket upgrade request");
+
+        // Split into parts so we can extract WebSocketUpgrade
+        let (mut parts, _body) = req.into_parts();
+
+        // Manually extract WebSocketUpgrade from request parts
+        let ws = match WebSocketUpgrade::from_request_parts(&mut parts, &()).await {
+            Ok(ws) => ws,
+            Err(e) => {
+                error!(error = %e, "!! failed to extract websocket upgrade");
+                return Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .body(Body::from(format!("WebSocket upgrade failed: {}", e)))
+                    .unwrap();
+            }
+        };
+
+        let target_uri = format!("ws://127.0.0.1:{}{}{}", vite_port, path, query);
+        info!(target = %target_uri, "-> upgrading websocket to vite");
+
+        return ws
+            .protocols(["vite-hmr"])
+            .on_upgrade(move |socket| async move {
+                info!(path = %path, "websocket connection established, starting proxy");
+                if let Err(e) = handle_vite_ws(socket, vite_port, &path, &query).await {
+                    error!(error = %e, path = %path, "!! vite websocket proxy error");
+                }
+                info!(path = %path, "websocket connection closed");
+            })
+            .into_response();
+    }
+
+    // Regular HTTP proxy
+    let target_uri = format!("http://127.0.0.1:{}{}{}", vite_port, path, query);
+
+    let client = Client::builder(TokioExecutor::new()).build_http();
+
+    let mut proxy_req_builder = Request::builder().method(req.method()).uri(&target_uri);
+
+    // Copy headers (except Host)
+    for (name, value) in req.headers() {
+        if name != header::HOST {
+            proxy_req_builder = proxy_req_builder.header(name, value);
+        }
+    }
+
+    let proxy_req = proxy_req_builder.body(req.into_body()).unwrap();
+
+    match client.request(proxy_req).await {
+        Ok(res) => {
+            let status = res.status();
+            debug!(status = %status, path = %path, "<- vite response");
+
+            let (parts, body) = res.into_parts();
+            Response::from_parts(parts, Body::new(body))
+        }
+        Err(e) => {
+            error!(error = %e, target = %target_uri, "!! vite proxy error");
+            Response::builder()
+                .status(StatusCode::BAD_GATEWAY)
+                .body(Body::from(format!("Vite proxy error: {}", e)))
+                .unwrap()
+        }
+    }
+}
+
+async fn handle_vite_ws(
+    client_socket: ws::WebSocket,
+    vite_port: u16,
+    path: &str,
+    query: &str,
+) -> Result<()> {
+    use axum::extract::ws::Message;
+    use tokio_tungstenite::connect_async_with_config;
+    use tokio_tungstenite::tungstenite::http::Request;
+
+    let vite_url = format!("ws://127.0.0.1:{}{}{}", vite_port, path, query);
+
+    info!(vite_url = %vite_url, "-> connecting to vite websocket");
+
+    // Build request with vite-hmr subprotocol
+    let request = Request::builder()
+        .uri(&vite_url)
+        .header("Sec-WebSocket-Protocol", "vite-hmr")
+        .header("Host", format!("127.0.0.1:{}", vite_port))
+        .header("Connection", "Upgrade")
+        .header("Upgrade", "websocket")
+        .header("Sec-WebSocket-Version", "13")
+        .header("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+        .body(())
+        .unwrap();
+
+    let connect_timeout = Duration::from_secs(5);
+    let connect_result = tokio::time::timeout(
+        connect_timeout,
+        connect_async_with_config(request, None, false),
+    )
+    .await;
+
+    let (vite_ws, _response) = match connect_result {
+        Ok(Ok((ws, resp))) => {
+            info!(vite_url = %vite_url, "-> successfully connected to vite websocket");
+            (ws, resp)
+        }
+        Ok(Err(e)) => {
+            info!(vite_url = %vite_url, error = %e, "!! failed to connect to vite websocket");
+            return Err(e.into());
+        }
+        Err(_) => {
+            info!(vite_url = %vite_url, "!! timeout connecting to vite websocket");
+            return Err(eyre::eyre!(
+                "Timeout connecting to Vite WebSocket after {:?}",
+                connect_timeout
+            ));
+        }
+    };
+
+    let (mut client_tx, mut client_rx) = client_socket.split();
+    let (mut vite_tx, mut vite_rx) = vite_ws.split();
+
+    // Bidirectional proxy
+    let client_to_vite = async {
+        while let Some(msg) = client_rx.next().await {
+            match msg {
+                Ok(Message::Text(text)) => {
+                    let text_str: String = text.to_string();
+                    if vite_tx
+                        .send(tokio_tungstenite::tungstenite::Message::Text(
+                            text_str.into(),
+                        ))
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                Ok(Message::Binary(data)) => {
+                    let data_vec: Vec<u8> = data.to_vec();
+                    if vite_tx
+                        .send(tokio_tungstenite::tungstenite::Message::Binary(
+                            data_vec.into(),
+                        ))
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                Ok(Message::Close(_)) => break,
+                Err(_) => break,
+                _ => {}
+            }
+        }
+    };
+
+    let vite_to_client = async {
+        while let Some(msg) = vite_rx.next().await {
+            match msg {
+                Ok(tokio_tungstenite::tungstenite::Message::Text(text)) => {
+                    let text_str: String = text.to_string();
+                    if client_tx
+                        .send(Message::Text(text_str.into()))
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                Ok(tokio_tungstenite::tungstenite::Message::Binary(data)) => {
+                    let data_vec: Vec<u8> = data.to_vec();
+                    if client_tx
+                        .send(Message::Binary(data_vec.into()))
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                Ok(tokio_tungstenite::tungstenite::Message::Close(_)) => break,
+                Err(_) => break,
+                _ => {}
+            }
+        }
+    };
+
+    tokio::select! {
+        _ = client_to_vite => {}
+        _ = vite_to_client => {}
+    }
+
+    Ok(())
 }

@@ -45,6 +45,10 @@ enum Command {
         /// Open the dashboard in your browser
         #[facet(args::named, default)]
         open: bool,
+
+        /// Development mode: proxy assets from Vite dev server instead of serving embedded assets
+        #[facet(args::named, default)]
+        dev: bool,
     },
 
     /// Start the MCP server for AI assistants
@@ -114,10 +118,17 @@ fn main() -> Result<()> {
             config,
             port,
             open,
+            dev,
         }) => {
             init_tracing();
             let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(bridge::http::run(root, config, port.unwrap_or(3000), open))
+            rt.block_on(bridge::http::run(
+                root,
+                config,
+                port.unwrap_or(3000),
+                open,
+                dev,
+            ))
         }
         // r[impl cli.mcp]
         // r[impl daemon.cli.mcp]
