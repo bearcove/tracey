@@ -630,14 +630,34 @@ function App() {
       route("/");
       apiResult.refetch();
     };
+
+    // Determine error type from message
+    const isRpcError = error.includes("RPC error") || error.includes("rpc_error");
+    const isNotFound = error.includes("not_found") || error.includes("Not Found");
+
+    const title = isRpcError
+      ? "Connection Error"
+      : isNotFound
+        ? "Not Found"
+        : "Error";
+
+    const message = isRpcError
+      ? "Failed to connect to the tracey daemon. Make sure it's running."
+      : isNotFound
+        ? "The requested resource doesn't exist."
+        : error;
+
     return html`
       <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 2rem;">
         <div style="text-align: center;">
-          <h2 style="margin: 0 0 1rem 0; font-size: 1.5rem;">Page Not Found</h2>
+          <h2 style="margin: 0 0 1rem 0; font-size: 1.5rem;">${title}</h2>
           <p style="color: var(--fg-muted); margin: 0 0 1.5rem 0;">
-            This page doesn't exist.
+            ${message}
           </p>
-          <${Button} onClick=${goHome}>Go Home<//>
+          <code style="display: block; background: var(--bg-tertiary); padding: 0.5rem 1rem; border-radius: 4px; margin-bottom: 1.5rem; font-size: 0.875rem; color: var(--fg-muted);">
+            ${error}
+          </code>
+          <${Button} onClick=${goHome}>Retry<//>
         </div>
       </div>
     `;

@@ -120,7 +120,9 @@ pre {
     border: none;
     border-radius: 6px;
     cursor: pointer;
-    transition: background 0.15s, opacity 0.15s;
+    transition:
+        background 0.15s,
+        opacity 0.15s;
 }
 
 .btn-md {
@@ -203,7 +205,9 @@ pre {
     padding: 0.25rem;
     color: var(--fg-dim);
     opacity: 0.6;
-    transition: opacity 0.15s, color 0.15s;
+    transition:
+        opacity 0.15s,
+        color 0.15s;
 }
 
 .spec-source-link:hover {
@@ -811,7 +815,6 @@ a.annotation-badge:hover {
 }
 
 .rule-ref {
-    display: block;
     color: var(--fg-muted);
     text-decoration: none;
     padding: 0.125rem 0;

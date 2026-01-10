@@ -247,12 +247,55 @@ struct SearchResponse {
     available: bool,
 }
 
+/// API error response (always JSON).
+#[derive(Debug, Clone, Facet)]
+struct ApiError {
+    error: String,
+    code: String,
+}
+
+impl ApiError {
+    fn not_found(msg: impl Into<String>) -> Response {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ApiError {
+                error: msg.into(),
+                code: "not_found".to_string(),
+            }),
+        )
+            .into_response()
+    }
+
+    #[allow(dead_code)]
+    fn internal(msg: impl Into<String>) -> Response {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiError {
+                error: msg.into(),
+                code: "internal_error".to_string(),
+            }),
+        )
+            .into_response()
+    }
+
+    fn rpc_error(e: impl std::fmt::Display) -> Response {
+        (
+            StatusCode::BAD_GATEWAY,
+            Json(ApiError {
+                error: format!("RPC error: {}", e),
+                code: "rpc_error".to_string(),
+            }),
+        )
+            .into_response()
+    }
+}
+
 /// GET /api/config - Get configuration.
 async fn api_config(State(state): State<Arc<AppState>>) -> Response {
     let mut client = state.client.lock().await;
     match client.config().await {
         Ok(config) => Json(config).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Err(e) => ApiError::rpc_error(e),
     }
 }
 
@@ -266,15 +309,15 @@ async fn api_forward(
     // Get config to resolve spec/impl if not provided
     let config = match client.config().await {
         Ok(c) => c,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Err(e) => return ApiError::rpc_error(e),
     };
 
     let (spec, impl_name) = resolve_spec_impl(query.spec, query.impl_name, &config);
 
     match client.forward(spec, impl_name).await {
         Ok(Some(data)) => Json(data).into_response(),
-        Ok(None) => (StatusCode::NOT_FOUND, "Spec/impl not found").into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Ok(None) => ApiError::not_found("Spec/impl not found"),
+        Err(e) => ApiError::rpc_error(e),
     }
 }
 
@@ -287,15 +330,15 @@ async fn api_reverse(
 
     let config = match client.config().await {
         Ok(c) => c,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Err(e) => return ApiError::rpc_error(e),
     };
 
     let (spec, impl_name) = resolve_spec_impl(query.spec, query.impl_name, &config);
 
     match client.reverse(spec, impl_name).await {
         Ok(Some(data)) => Json(data).into_response(),
-        Ok(None) => (StatusCode::NOT_FOUND, "Spec/impl not found").into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Ok(None) => ApiError::not_found("Spec/impl not found"),
+        Err(e) => ApiError::rpc_error(e),
     }
 }
 
@@ -304,7 +347,7 @@ async fn api_version(State(state): State<Arc<AppState>>) -> Response {
     let mut client = state.client.lock().await;
     match client.version().await {
         Ok(version) => Json(VersionResponse { version }).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Err(e) => ApiError::rpc_error(e),
     }
 }
 
@@ -315,7 +358,7 @@ async fn api_health(State(state): State<Arc<AppState>>) -> Response {
     let mut client = state.client.lock().await;
     match client.health().await {
         Ok(health) => Json(health).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Err(e) => ApiError::rpc_error(e),
     }
 }
 
@@ -325,15 +368,15 @@ async fn api_spec(State(state): State<Arc<AppState>>, Query(query): Query<SpecQu
 
     let config = match client.config().await {
         Ok(c) => c,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Err(e) => return ApiError::rpc_error(e),
     };
 
     let (spec, impl_name) = resolve_spec_impl(query.spec, query.impl_name, &config);
 
     match client.spec_content(spec, impl_name).await {
         Ok(Some(data)) => Json(data).into_response(),
-        Ok(None) => (StatusCode::NOT_FOUND, "Spec not found").into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Ok(None) => ApiError::not_found("Spec not found"),
+        Err(e) => ApiError::rpc_error(e),
     }
 }
 
@@ -343,7 +386,7 @@ async fn api_file(State(state): State<Arc<AppState>>, Query(query): Query<FileQu
 
     let config = match client.config().await {
         Ok(c) => c,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Err(e) => return ApiError::rpc_error(e),
     };
 
     let (spec, impl_name) = resolve_spec_impl(query.spec, query.impl_name, &config);
@@ -356,8 +399,8 @@ async fn api_file(State(state): State<Arc<AppState>>, Query(query): Query<FileQu
 
     match client.file(req).await {
         Ok(Some(data)) => Json(data).into_response(),
-        Ok(None) => (StatusCode::NOT_FOUND, "File not found").into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Ok(None) => ApiError::not_found("File not found"),
+        Err(e) => ApiError::rpc_error(e),
     }
 }
 
@@ -377,7 +420,7 @@ async fn api_search(
             available: true,
         })
         .into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Err(e) => ApiError::rpc_error(e),
     }
 }
 
@@ -386,7 +429,7 @@ async fn api_status(State(state): State<Arc<AppState>>) -> Response {
     let mut client = state.client.lock().await;
     match client.status().await {
         Ok(status) => Json(status).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Err(e) => ApiError::rpc_error(e),
     }
 }
 
@@ -399,7 +442,7 @@ async fn api_validate(
 
     let config = match client.config().await {
         Ok(c) => c,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Err(e) => return ApiError::rpc_error(e),
     };
 
     let (spec, impl_name) = resolve_spec_impl(query.spec, query.impl_name, &config);
@@ -411,7 +454,7 @@ async fn api_validate(
 
     match client.validate(req).await {
         Ok(result) => Json(result).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Err(e) => ApiError::rpc_error(e),
     }
 }
 
@@ -424,7 +467,7 @@ async fn api_uncovered(
 
     let config = match client.config().await {
         Ok(c) => c,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Err(e) => return ApiError::rpc_error(e),
     };
 
     let (spec, impl_name) = resolve_spec_impl(query.spec, query.impl_name, &config);
@@ -437,7 +480,7 @@ async fn api_uncovered(
 
     match client.uncovered(req).await {
         Ok(data) => Json(data).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Err(e) => ApiError::rpc_error(e),
     }
 }
 
@@ -450,7 +493,7 @@ async fn api_untested(
 
     let config = match client.config().await {
         Ok(c) => c,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Err(e) => return ApiError::rpc_error(e),
     };
 
     let (spec, impl_name) = resolve_spec_impl(query.spec, query.impl_name, &config);
@@ -463,7 +506,7 @@ async fn api_untested(
 
     match client.untested(req).await {
         Ok(data) => Json(data).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Err(e) => ApiError::rpc_error(e),
     }
 }
 
@@ -476,7 +519,7 @@ async fn api_unmapped(
 
     let config = match client.config().await {
         Ok(c) => c,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Err(e) => return ApiError::rpc_error(e),
     };
 
     let (spec, impl_name) = resolve_spec_impl(query.spec, query.impl_name, &config);
@@ -489,7 +532,7 @@ async fn api_unmapped(
 
     match client.unmapped(req).await {
         Ok(data) => Json(data).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Err(e) => ApiError::rpc_error(e),
     }
 }
 
@@ -499,8 +542,8 @@ async fn api_rule(State(state): State<Arc<AppState>>, Query(query): Query<RuleQu
 
     match client.rule(query.id).await {
         Ok(Some(info)) => Json(info).into_response(),
-        Ok(None) => (StatusCode::NOT_FOUND, "Rule not found").into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Ok(None) => ApiError::not_found("Rule not found"),
+        Err(e) => ApiError::rpc_error(e),
     }
 }
 
@@ -509,7 +552,7 @@ async fn api_reload(State(state): State<Arc<AppState>>) -> Response {
     let mut client = state.client.lock().await;
     match client.reload().await {
         Ok(response) => Json(response).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Err(e) => ApiError::rpc_error(e),
     }
 }
 
