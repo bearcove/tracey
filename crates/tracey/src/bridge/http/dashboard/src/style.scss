@@ -2031,14 +2031,12 @@
     }
 
     /* Reference type icon colors */
-    :is(.spec-ref-icon, .ref-icon, .file-path-icon) {
-        &-impl {
-            color: var(--ref-impl-color);
-        }
+    :is(.spec-ref-icon-impl, .ref-icon-impl, .file-path-icon-impl) {
+        color: var(--ref-impl-color);
+    }
 
-        &-verify {
-            color: var(--ref-verify-color);
-        }
+    :is(.spec-ref-icon-verify, .ref-icon-verify, .file-path-icon-verify) {
+        color: var(--ref-verify-color);
     }
 
     /* ==========================================================================

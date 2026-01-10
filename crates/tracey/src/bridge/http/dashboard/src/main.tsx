@@ -2,7 +2,7 @@ import htm from "htm";
 import { createContext, h, render } from "preact";
 import { useCallback, useContext, useEffect, useRef, useState } from "preact/hooks";
 import { LocationProvider, Route, Router, useLocation, useRoute } from "preact-iso";
-import "./style.css";
+import "./style.scss";
 
 import { getDeviconClass, modKey, TAB_ICON_NAMES } from "./config";
 
@@ -62,7 +62,13 @@ function LucideIcon({ name, className = "" }: LucideIconProps) {
   return html`<span ref=${iconRef} class=${className}></span>`;
 }
 
-function Button({ onClick, children, variant = "primary", size = "md", className = "" }: ButtonProps) {
+function Button({
+  onClick,
+  children,
+  variant = "primary",
+  size = "md",
+  className = "",
+}: ButtonProps) {
   const classes = `btn btn-${variant} btn-${size} ${className}`.trim();
   return html`<button class=${classes} onClick=${onClick}>${children}</button>`;
 }
@@ -120,7 +126,9 @@ function SearchResultItem({ result, isSelected, onSelect, onHover }: SearchResul
         : html`
             <div
               class="search-modal-result-content"
-              dangerouslySetInnerHTML=${{ __html: result.highlighted || result.content?.trim() || "" }}
+              dangerouslySetInnerHTML=${{
+                __html: result.highlighted || result.content?.trim() || "",
+              }}
             />
           `}
     </div>
@@ -348,8 +356,8 @@ function Header({
             target="_blank"
             rel="noopener"
             title="View spec source"
-            ><${LucideIcon} name="external-link" /></a
-          >`}
+            ><${LucideIcon} name="external-link"
+          /></a>`}
         </div>
 
         ${/* r[impl dashboard.header.nav-tabs] */ null}
@@ -635,11 +643,7 @@ function App() {
     const isRpcError = error.includes("RPC error") || error.includes("rpc_error");
     const isNotFound = error.includes("not_found") || error.includes("Not Found");
 
-    const title = isRpcError
-      ? "Connection Error"
-      : isNotFound
-        ? "Not Found"
-        : "Error";
+    const title = isRpcError ? "Connection Error" : isNotFound ? "Not Found" : "Error";
 
     const message = isRpcError
       ? "Failed to connect to the tracey daemon. Make sure it's running."
@@ -648,13 +652,15 @@ function App() {
         : error;
 
     return html`
-      <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 2rem;">
+      <div
+        style="display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 2rem;"
+      >
         <div style="text-align: center;">
           <h2 style="margin: 0 0 1rem 0; font-size: 1.5rem;">${title}</h2>
-          <p style="color: var(--fg-muted); margin: 0 0 1.5rem 0;">
-            ${message}
-          </p>
-          <code style="display: block; background: var(--bg-tertiary); padding: 0.5rem 1rem; border-radius: 4px; margin-bottom: 1.5rem; font-size: 0.875rem; color: var(--fg-muted);">
+          <p style="color: var(--fg-muted); margin: 0 0 1.5rem 0;">${message}</p>
+          <code
+            style="display: block; background: var(--bg-tertiary); padding: 0.5rem 1rem; border-radius: 4px; margin-bottom: 1.5rem; font-size: 0.875rem; color: var(--fg-muted);"
+          >
             ${error}
           </code>
           <${Button} onClick=${goHome}>Retry<//>
@@ -729,9 +735,7 @@ function App() {
       // Don't trigger if typing in input/textarea
       const target = e.target as HTMLElement;
       const isTyping =
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.isContentEditable;
+        target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
 
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
@@ -815,10 +819,14 @@ function App() {
                 <div class="empty-state">
                   <h2>Page Not Found</h2>
                   <p style="color: var(--text-secondary); margin: 1rem 0;">
-                    <code style="background: var(--bg-tertiary); padding: 0.25rem 0.5rem; border-radius: 4px;">${path}</code>
+                    <code
+                      style="background: var(--bg-tertiary); padding: 0.25rem 0.5rem; border-radius: 4px;"
+                      >${path}</code
+                    >
                   </p>
                   <p style="color: var(--text-secondary); margin: 1rem 0;">
-                    This page doesn't exist. Try navigating from the sidebar or go to the <a href="/" style="color: var(--accent-primary);">home page</a>.
+                    This page doesn't exist. Try navigating from the sidebar or go to the
+                    <a href="/" style="color: var(--accent-primary);">home page</a>.
                   </p>
                 </div>
               `;
