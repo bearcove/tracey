@@ -1,5 +1,32 @@
 # Plan 004: Selector Grouping with `:is()` and `:where()`
 
+## Status: ✅ COMPLETED
+
+**Completed:** 2025-01-10
+
+### Summary
+Most selector grouping was accomplished during the CSS nesting migration (001). The key `:is()` patterns are now in place.
+
+### Already Applied (from task 001)
+- `:is(.mono, code, pre)` for monospace font settings
+- `.markdown :is(h1, h2, h3, h4)` for heading styles
+- `.markdown :is(h1, h2)` for major heading margin
+- `.markdown :is(ul, ol)` for list styles
+- `.markdown :is(th, td)` for table cell styles
+- `:is(kw-must, kw-must-not, kw-required, kw-shall, kw-shall-not)` for RFC 2119 keywords
+- `:is(kw-should, kw-should-not, kw-recommended, kw-not-recommended)` for RFC 2119 keywords
+- `:is(kw-may, kw-optional)` for RFC 2119 keywords
+- `:is(.spec-ref-icon, .ref-icon, .file-path-icon)` for reference icons
+- `.req-content :is(ol, ul)` for requirement lists
+- `.req-content li :is(strong, em):first-child` for semantic labels
+
+### Notes
+- Hover states are kept component-local (nested) rather than globally grouped - this is more maintainable
+- `:where()` wasn't needed as the specificity is well-managed through nesting
+- The existing patterns provide good coverage without over-abstracting
+
+---
+
 ## Overview
 
 CSS now has powerful pseudo-class functions for grouping selectors: `:is()` and `:where()`. These reduce repetition and make stylesheets more maintainable.

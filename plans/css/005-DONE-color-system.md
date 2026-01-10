@@ -1,5 +1,28 @@
 # Plan 005: Color System Consolidation
 
+## Status: ✅ COMPLETED
+
+**Completed:** 2025-01-10
+
+### Summary
+- Created standardized color opacity scale in `:root` (5, 10, 12, 15, 20, 25, 30, 40, 50%)
+- Consolidated all inline `color-mix()` calls into CSS custom properties
+- Added semantic color aliases for highlights, focus rings, status colors
+- Reduced inline `color-mix()` from 28 occurrences to 0 (all now in `:root`)
+
+### Key Changes
+- Added `--accent-{5,10,12,15,20,30}` scale
+- Added `--green-{15,20,30,40}` scale
+- Added `--yellow-{20,40,50}` scale
+- Added `--red-{20,30}` scale
+- Added `--neutral-{25,40}` scale
+- Added `--fg-{8,15,20}` and `--bg-secondary-95`
+- Created semantic aliases: `--highlight-impl`, `--highlight-verify`, `--focus-ring`, `--flash-success`
+- Created reference type system: `--ref-impl-{color,bg,border}`, `--ref-verify-{color,bg,border}`
+- Created rule block borders: `--rule-{covered,partial,uncovered}-border`
+
+---
+
 ## Overview
 
 Consolidate the color mixing patterns and status colors into a more systematic approach using CSS custom property composition.

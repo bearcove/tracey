@@ -6,41 +6,114 @@
 :root {
     color-scheme: light dark;
 
-    /* Panel backgrounds - dark mode panels slightly lighter than page */
+    /* ==========================================================================
+       Background Colors
+       ========================================================================== */
     --bg-outer: light-dark(#e5e7eb, #0f1117);
     --bg: light-dark(#f8f9fa, #141822);
     --bg-secondary: light-dark(#ffffff, #1a2030);
     --bg-sidebar: light-dark(#f3f4f6, #12161e);
 
-    /* Text hierarchy: headers ~90%, body ~80%, muted ~65%, dim ~55% */
+    /* ==========================================================================
+       Text Colors (hierarchy: heading ~90%, body ~80%, muted ~65%, dim ~55%)
+       ========================================================================== */
     --fg-heading: light-dark(#111827, #e8ecf4);
     --fg: light-dark(#1a1b26, #d0d4da);
     --fg-muted: light-dark(#4b5563, #9ba3b0);
     --fg-dim: light-dark(#6b7280, #6b7585);
 
-    /* Borders - softer with alpha in dark mode */
+    /* ==========================================================================
+       Border Colors
+       ========================================================================== */
     --border: light-dark(#e5e5e5, rgba(255, 255, 255, 0.08));
     --border-strong: light-dark(#d1d5db, rgba(255, 255, 255, 0.15));
 
+    /* ==========================================================================
+       Interactive State Colors
+       ========================================================================== */
     --hover: light-dark(#f0f0f2, #1f2335);
     --hover-subtle: light-dark(#f8f8fa, #1a1f2e);
+
+    /* ==========================================================================
+       Semantic Base Colors
+       ========================================================================== */
     --accent: var(--arb-at);
-    --accent-dim: color-mix(in srgb, var(--arb-at) 20%, var(--bg));
     --green: var(--arb-da);
-    --green-dim: color-mix(in srgb, var(--arb-da) 20%, var(--bg));
     --red: var(--arb-dd);
-    --red-dim: color-mix(in srgb, var(--arb-dd) 20%, var(--bg));
     --yellow: var(--arb-n);
-    --yellow-dim: color-mix(in srgb, var(--arb-n) 20%, var(--bg));
     --purple: var(--arb-s);
     --blue: var(--arb-tu);
-
-    /* Neutral color for requirements without coverage (not an error, just pending work) */
     --neutral: light-dark(#6b7ba8, #8b9bc8);
-    --neutral-dim: color-mix(in srgb, var(--neutral) 25%, var(--bg));
 
-    /* Coverage status colors - reusable across badges, markers, etc. */
-    --status-covered-bg: color-mix(in srgb, var(--green) 15%, var(--bg));
+    /* ==========================================================================
+       Color Opacity Scale
+       Standardized percentages: 5, 10, 12, 15, 20, 25, 30, 40, 50
+       Usage: backgrounds, borders, highlights at various intensities
+       ========================================================================== */
+
+    /* Accent scale */
+    --accent-5: color-mix(in srgb, var(--accent) 5%, var(--bg));
+    --accent-10: color-mix(in srgb, var(--accent) 10%, var(--bg));
+    --accent-12: color-mix(in srgb, var(--accent) 12%, var(--bg));
+    --accent-15: color-mix(in srgb, var(--accent) 15%, var(--bg));
+    --accent-20: color-mix(in srgb, var(--accent) 20%, var(--bg));
+    --accent-30: color-mix(in srgb, var(--accent) 30%, var(--bg));
+
+    /* Green scale */
+    --green-15: color-mix(in srgb, var(--green) 15%, var(--bg));
+    --green-20: color-mix(in srgb, var(--green) 20%, var(--bg));
+    --green-30: color-mix(in srgb, var(--green) 30%, var(--bg));
+    --green-40: color-mix(in srgb, var(--green) 40%, var(--bg));
+
+    /* Yellow scale */
+    --yellow-20: color-mix(in srgb, var(--yellow) 20%, var(--bg));
+    --yellow-40: color-mix(in srgb, var(--yellow) 40%, var(--bg));
+    --yellow-50: color-mix(in srgb, var(--yellow) 50%, var(--bg));
+
+    /* Red scale */
+    --red-20: color-mix(in srgb, var(--red) 20%, var(--bg));
+    --red-30: color-mix(in srgb, var(--red) 30%, var(--bg));
+
+    /* Neutral scale */
+    --neutral-25: color-mix(in srgb, var(--neutral) 25%, var(--bg));
+    --neutral-40: color-mix(in srgb, var(--neutral) 40%, var(--bg));
+
+    /* Foreground scale (for code backgrounds, subtle buttons) */
+    --fg-8: color-mix(in srgb, var(--fg-dim) 8%, var(--bg));
+    --fg-15: color-mix(in srgb, var(--fg) 15%, var(--bg));
+    --fg-20: color-mix(in srgb, var(--fg-dim) 20%, var(--bg));
+
+    /* Background secondary scale (for code blocks) */
+    --bg-secondary-95: color-mix(in srgb, var(--bg-secondary) 95%, var(--bg));
+
+    /* ==========================================================================
+       Semantic Color Aliases (use these in components)
+       ========================================================================== */
+
+    /* Dim variants - for subtle backgrounds */
+    --accent-dim: var(--accent-20);
+    --green-dim: var(--green-20);
+    --yellow-dim: var(--yellow-20);
+    --red-dim: var(--red-20);
+    --neutral-dim: var(--neutral-25);
+
+    /* Highlight backgrounds - for selection, focus states */
+    --highlight-accent: var(--accent-15);
+    --highlight-impl: var(--green-15);
+    --highlight-verify: var(--accent-15);
+    --highlight-search: var(--yellow-20);
+    --highlight-target: var(--accent-10);
+
+    /* Focus ring */
+    --focus-ring: var(--accent-20);
+
+    /* Flash feedback */
+    --flash-success: var(--green-30);
+
+    /* ==========================================================================
+       Status Colors (coverage states)
+       ========================================================================== */
+    --status-covered-bg: var(--green-15);
     --status-covered-fg: var(--fg);
     --status-partial-bg: var(--yellow-dim);
     --status-partial-fg: var(--fg);
@@ -49,10 +122,27 @@
     --status-none-bg: var(--neutral-dim);
     --status-none-fg: var(--fg);
 
-    /* Reference type colors */
+    /* ==========================================================================
+       Reference Type Colors
+       ========================================================================== */
     --ref-impl-color: var(--green);
-    --ref-verify-color: var(--accent);
+    --ref-impl-bg: var(--green-15);
+    --ref-impl-border: var(--green-30);
 
+    --ref-verify-color: var(--accent);
+    --ref-verify-bg: var(--accent-15);
+    --ref-verify-border: var(--accent-30);
+
+    /* ==========================================================================
+       Rule Block Border Colors
+       ========================================================================== */
+    --rule-covered-border: var(--green-40);
+    --rule-partial-border: var(--yellow-40);
+    --rule-uncovered-border: var(--neutral-40);
+
+    /* ==========================================================================
+       Layout
+       ========================================================================== */
     --max-width: 1600px;
 
     /* Fonts */
@@ -698,11 +788,11 @@ body {
     }
 
     &.selected-impl {
-        background: color-mix(in srgb, var(--green) 15%, transparent);
+        background: var(--highlight-impl);
     }
 
     &.selected-verify {
-        background: color-mix(in srgb, var(--accent) 15%, transparent);
+        background: var(--highlight-verify);
     }
 
     &.covered .line-number {
@@ -1000,7 +1090,7 @@ body {
 
         &:target {
             color: var(--accent);
-            background: color-mix(in srgb, var(--accent) 10%, transparent);
+            background: var(--highlight-target);
             margin-left: -0.5rem;
             margin-right: -0.5rem;
             padding: 0.25rem 0.5rem;
@@ -1054,7 +1144,7 @@ body {
     }
 
     & code {
-        background: color-mix(in srgb, var(--fg) 15%, var(--bg));
+        background: var(--fg-15);
         padding: 0.15rem 0.2rem;
         border-radius: 4px;
         font-size: 0.85em;
@@ -1062,7 +1152,7 @@ body {
     }
 
     & pre {
-        background: color-mix(in srgb, var(--bg-secondary) 95%, var(--bg));
+        background: var(--bg-secondary-95);
         border: 1px solid var(--border);
         border-radius: 6px;
         padding: 0.6rem 0.8rem;
@@ -1250,15 +1340,15 @@ body {
     }
 
     &-covered {
-        border-color: color-mix(in srgb, var(--green) 40%, var(--border));
+        border-color: var(--rule-covered-border);
     }
 
     &-partial {
-        border-color: color-mix(in srgb, var(--yellow) 40%, var(--border));
+        border-color: var(--rule-partial-border);
     }
 
     &-uncovered {
-        border-color: color-mix(in srgb, var(--neutral) 40%, var(--border));
+        border-color: var(--rule-uncovered-border);
     }
 
     &-header {
@@ -1344,7 +1434,7 @@ body {
     }
 
     &.req-partial {
-        border-color: color-mix(in srgb, var(--yellow) 50%, var(--border));
+        border-color: var(--yellow-50);
         --req-badge-bg: var(--status-partial-bg);
         --req-badge-color: var(--status-partial-fg);
         --req-badge-weight: 500;
@@ -1356,7 +1446,7 @@ body {
 
     &.req-uncovered {
         border: 2px dashed var(--accent);
-        background: color-mix(in srgb, var(--accent) 5%, var(--bg));
+        background: var(--accent-5);
 
         &::before {
             display: none;
@@ -1366,7 +1456,7 @@ body {
     &.req-focused {
         outline: 2px solid var(--accent);
         outline-offset: 2px;
-        box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 20%, transparent);
+        box-shadow: 0 0 0 4px var(--focus-ring);
     }
 
     &.req-copy-success {
@@ -1376,7 +1466,7 @@ body {
 
 @keyframes req-copy-flash {
     0% {
-        background: color-mix(in srgb, var(--green) 30%, var(--bg));
+        background: var(--flash-success);
     }
     100% {
         background: transparent;
@@ -1426,9 +1516,9 @@ body {
     }
 
     &.req-impl {
-        background: color-mix(in srgb, var(--green) 15%, transparent);
-        color: var(--green);
-        border: 1px solid color-mix(in srgb, var(--green) 30%, transparent);
+        background: var(--ref-impl-bg);
+        color: var(--ref-impl-color);
+        border: 1px solid var(--ref-impl-border);
         display: flex;
         flex-direction: row;
         align-items: center;
@@ -1436,15 +1526,15 @@ body {
     }
 
     &.req-test {
-        background: color-mix(in srgb, var(--accent) 15%, transparent);
-        color: var(--accent);
-        border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+        background: var(--ref-verify-bg);
+        color: var(--ref-verify-color);
+        border: 1px solid var(--ref-verify-border);
     }
 
     &.req-edit {
-        background: color-mix(in srgb, var(--fg-dim) 8%, transparent);
+        background: var(--fg-8);
         color: var(--fg-muted);
-        border: 1px solid color-mix(in srgb, var(--fg-dim) 20%, transparent);
+        border: 1px solid var(--fg-20);
         cursor: pointer;
         display: inline-flex;
         align-items: center;
@@ -1452,9 +1542,9 @@ body {
         transition: all 0.15s;
 
         &:hover {
-            background: color-mix(in srgb, var(--accent) 12%, transparent);
+            background: var(--accent-12);
             color: var(--accent);
-            border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+            border-color: var(--accent-30);
         }
     }
 
@@ -1926,7 +2016,7 @@ body {
     }
 
     &.is-active > .toc-row {
-        background: color-mix(in srgb, var(--accent) 12%, transparent);
+        background: var(--accent-12);
 
         & .toc-link {
             font-weight: 600;
@@ -2489,7 +2579,7 @@ body {
         overflow-x: auto;
 
         & .highlight-line {
-            background: color-mix(in srgb, var(--accent) 15%, transparent);
+            background: var(--highlight-accent);
         }
     }
 }

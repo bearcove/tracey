@@ -11,8 +11,8 @@ This plan outlines a comprehensive modernization of `style.css` (~2660 lines) to
 | 001 | DONE | CSS Nesting | High | Low | `001-DONE-nesting.md` |
 | 002 | TODO | Utility Classes | Medium | Low | `002-TODO-utility-classes.md` |
 | 003 | TODO | Data Attribute Variants | High | Medium | `003-TODO-data-attributes.md` |
-| 004 | TODO | Selector Grouping | Medium | Low | `004-TODO-selector-grouping.md` |
-| 005 | TODO | Color System | Medium | Low | `005-TODO-color-system.md` |
+| 004 | DONE | Selector Grouping | Medium | Low | `004-DONE-selector-grouping.md` |
+| 005 | DONE | Color System | Medium | Low | `005-DONE-color-system.md` |
 | 006 | TODO | Logical Properties | Low | Low | `006-TODO-logical-properties.md` |
 | 007 | TODO | Cascade Layers | Medium | Medium | `007-TODO-cascade-layers.md` |
 | 008 | TODO | Container Queries | Medium | Medium | `008-TODO-container-queries.md` |
@@ -23,9 +23,9 @@ This plan outlines a comprehensive modernization of `style.css` (~2660 lines) to
 
 ## Progress
 
-- **Completed**: 1/12
+- **Completed**: 3/12
 - **In Progress**: 0/12
-- **Remaining**: 11/12
+- **Remaining**: 9/12
 
 ## Current State
 
