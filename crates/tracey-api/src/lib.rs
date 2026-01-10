@@ -30,6 +30,7 @@ pub struct ApiConfig {
 }
 
 #[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
 pub struct ApiSpecInfo {
     pub name: String,
     /// Prefix used in annotations (e.g., "r" for r[req.id])
@@ -37,6 +38,9 @@ pub struct ApiSpecInfo {
     /// Path to spec file(s) if local
     #[facet(default)]
     pub source: Option<String>,
+    /// Canonical URL for the specification (e.g., a GitHub repository)
+    #[facet(default)]
+    pub source_url: Option<String>,
     /// Available implementations for this spec
     pub implementations: Vec<String>,
 }
@@ -57,8 +61,8 @@ pub struct ApiSpecForward {
 #[facet(rename_all = "camelCase")]
 pub struct ApiRule {
     pub id: String,
-    /// Original markdown text (for LSP hover)
-    pub text: String,
+    /// Raw markdown source (without r[...] marker, but with `>` prefixes for blockquote rules)
+    pub raw: String,
     /// Rendered HTML (for dashboard display)
     pub html: String,
     #[facet(default)]
@@ -71,6 +75,12 @@ pub struct ApiRule {
     pub source_line: Option<usize>,
     #[facet(default)]
     pub source_column: Option<usize>,
+    /// Section slug (heading ID) that this rule belongs to
+    #[facet(default)]
+    pub section: Option<String>,
+    /// Section title (heading text) that this rule belongs to
+    #[facet(default)]
+    pub section_title: Option<String>,
     pub impl_refs: Vec<ApiCodeRef>,
     pub verify_refs: Vec<ApiCodeRef>,
     pub depends_refs: Vec<ApiCodeRef>,
@@ -175,4 +185,68 @@ pub struct ApiSpecData {
     pub sections: Vec<SpecSection>,
     /// Outline with coverage info
     pub outline: Vec<OutlineEntry>,
+}
+
+// ============================================================================
+// Validation
+// ============================================================================
+
+/// r[impl validation.circular-deps]
+/// r[impl validation.naming]
+///
+/// A validation error found in the spec or implementation.
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct ValidationError {
+    /// Error code for programmatic handling
+    pub code: ValidationErrorCode,
+    /// Human-readable error message
+    pub message: String,
+    /// File where the error was found (if applicable)
+    #[facet(default)]
+    pub file: Option<String>,
+    /// Line number (if applicable)
+    #[facet(default)]
+    pub line: Option<usize>,
+    /// Column number (if applicable)
+    #[facet(default)]
+    pub column: Option<usize>,
+    /// Related rule IDs (for dependency errors)
+    #[facet(default)]
+    pub related_rules: Vec<String>,
+}
+
+/// Error codes for validation errors
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Facet)]
+#[facet(rename_all = "snake_case")]
+#[repr(u8)]
+pub enum ValidationErrorCode {
+    /// Circular dependency detected in `depends` references
+    CircularDependency,
+    /// Requirement ID doesn't follow naming convention
+    InvalidNaming,
+    /// Unknown requirement ID referenced
+    UnknownRequirement,
+    /// Duplicate requirement ID in the same spec
+    DuplicateRequirement,
+    /// Unknown prefix in reference
+    UnknownPrefix,
+    /// Impl annotation in test file (only verify allowed)
+    ImplInTestFile,
+}
+
+/// Validation results for a spec/implementation pair
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct ValidationResult {
+    /// Spec name
+    pub spec: String,
+    /// Implementation name
+    pub impl_name: String,
+    /// List of validation errors found
+    pub errors: Vec<ValidationError>,
+    /// Number of warnings (non-fatal issues)
+    pub warning_count: usize,
+    /// Number of errors (fatal issues)
+    pub error_count: usize,
 }

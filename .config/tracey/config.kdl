@@ -1,14 +1,16 @@
 spec {
     name "tracey"
     prefix "r"
+    source_url "https://github.com/bearcove/tracey"
     include "docs/spec/**/*.md"
 
     impl {
         name "main"
         include "crates/**/*.rs"
-        include "crates/tracey/dashboard/src/**/*.ts"
-        include "crates/tracey/dashboard/src/**/*.tsx"
-        include "crates/tracey/dashboard/src/**/*.css"
+        include "crates/**/*.ts"
+        include "crates/**/*.tsx"
+        include "crates/**/*.css"
+        include "tracey-zed/src/**/*.rs"
         include "../marq/**/*.rs"
         exclude "target/**"
         exclude "../marq/target/**"

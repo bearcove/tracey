@@ -14,13 +14,24 @@ A [Zed](https://zed.dev) extension for [tracey](https://github.com/bearcove/trac
 
 ## Installation
 
+### Option 1: Automatic (Recommended)
+
+Install this extension from the Zed extension registry (search for "Tracey"). The extension will automatically download the tracey binary from GitHub releases.
+
+### Option 2: Manual Binary Installation
+
+If you prefer to manage the binary yourself:
+
 1. Install the tracey binary:
    ```bash
    cargo binstall tracey
    # or: cargo install tracey
+   # or: download from https://github.com/bearcove/tracey/releases
    ```
 
-2. Install this extension from the Zed extension registry (search for "Tracey")
+2. Install this extension from the Zed extension registry
+
+The extension will use the downloaded binary if available, otherwise fall back to looking for `tracey` in your PATH.
 
 ## Configuration
 
@@ -29,3 +40,8 @@ The extension uses tracey's standard configuration at `.config/tracey/config.kdl
 ## Supported Languages
 
 Rust, TypeScript, TSX, JavaScript, Python, Go, and Markdown.
+
+## Requirements
+
+- Zed editor
+- A tracey configuration file in your project

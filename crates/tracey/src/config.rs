@@ -26,8 +26,14 @@ pub struct SpecConfig {
 
     /// Prefix used to identify this spec in annotations (e.g., "r" for r[req.id])
     /// r[impl config.spec.prefix]
+    /// r[impl config.multi-spec.prefix-namespace]
     #[facet(kdl::child)]
     pub prefix: Prefix,
+
+    /// Canonical URL for the specification (e.g., a GitHub repository)
+    /// r[impl config.spec.source-url]
+    #[facet(kdl::child, default)]
+    pub source_url: Option<SourceUrl>,
 
     /// Glob patterns for markdown spec files containing requirement definitions
     /// e.g., "docs/spec/**/*.md"
@@ -74,6 +80,12 @@ pub struct Name {
 
 #[derive(Debug, Clone, Facet)]
 pub struct Prefix {
+    #[facet(kdl::argument)]
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Facet)]
+pub struct SourceUrl {
     #[facet(kdl::argument)]
     pub value: String,
 }

@@ -42,8 +42,8 @@ pub struct SearchResult {
 #[derive(Debug, Clone)]
 pub struct RuleEntry {
     pub id: String,
-    /// HTML content (tags will be stripped for indexing)
-    pub html: String,
+    /// Raw markdown source (without r[...] marker)
+    pub raw: String,
 }
 
 /// Search index abstraction
@@ -99,6 +99,13 @@ mod tantivy_impl {
                     .set_index_option(IndexRecordOption::WithFreqsAndPositions),
             );
 
+            // Text options for rule IDs - use default tokenizer for split parts
+            let rule_id_options = TextOptions::default().set_indexing_options(
+                TextFieldIndexing::default()
+                    .set_tokenizer("default")
+                    .set_index_option(IndexRecordOption::WithFreqs),
+            );
+
             // "kind" field: "source" or "rule"
             let kind_field = schema_builder.add_text_field("kind", STRING | STORED);
             // "id" field: file path for source, rule ID for rules
@@ -107,15 +114,15 @@ mod tantivy_impl {
             let line_field = schema_builder.add_u64_field("line", INDEXED | STORED);
             // "content" field: the searchable text content with stemming
             let content_field = schema_builder.add_text_field("content", text_options);
-            // r[impl dashboard.search.render-requirements]
-            // "html_content" field: original HTML for rules (for rendering)
-            let html_content_field = schema_builder.add_text_field("html_content", STRING | STORED);
+            // "rule_id" field: searchable rule ID with dot-separated parts (not stored)
+            let rule_id_field = schema_builder.add_text_field("rule_id", rule_id_options);
             let schema = schema_builder.build();
 
             // Create index in RAM (small enough for most projects)
             let index = Index::create_in_ram(schema.clone());
 
-            let mut index_writer: IndexWriter = index.writer(50_000_000)?;
+            // Use single thread to avoid worker thread panics on some platforms
+            let mut index_writer: IndexWriter = index.writer_with_num_threads(1, 15_000_000)?;
 
             // Index source files with context lines
             const CONTEXT_LINES: usize = 2;
@@ -153,19 +160,15 @@ mod tantivy_impl {
                 }
             }
 
-            // Index rules
+            // Index rules - use raw markdown directly (rule_id_field handles ID search)
+            // r[impl dashboard.search.render-requirements]
             for rule in rules {
-                // Index the rule ID and HTML content (stripped of tags for search)
-                let text = strip_html_tags(&rule.html);
-                let searchable_content = format!("{} {}", rule.id, text);
-
-                // r[impl dashboard.search.render-requirements]
                 index_writer.add_document(doc!(
                     kind_field => "rule",
                     id_field => rule.id.clone(),
                     line_field => 0u64,
-                    content_field => searchable_content,
-                    html_content_field => rule.html.clone(),
+                    content_field => rule.raw.clone(),
+                    rule_id_field => rule.id.clone(),
                 ))?;
             }
 
@@ -176,7 +179,10 @@ mod tantivy_impl {
                 .reload_policy(ReloadPolicy::Manual)
                 .try_into()?;
 
-            let query_parser = QueryParser::for_index(&index, vec![content_field]);
+            // Search both content and rule_id fields, with rule_id boosted higher
+            let mut query_parser =
+                QueryParser::for_index(&index, vec![content_field, rule_id_field]);
+            query_parser.set_field_boost(rule_id_field, 5.0); // Boost rule ID matches
 
             Ok(Self {
                 index,
@@ -223,7 +229,6 @@ mod tantivy_impl {
             let id_field = self.schema.get_field("id").unwrap();
             let line_field = self.schema.get_field("line").unwrap();
             let content_field = self.schema.get_field("content").unwrap();
-            let html_content_field = self.schema.get_field("html_content").unwrap();
 
             let mut results: Vec<SearchResult> = top_docs
                 .into_iter()
@@ -240,25 +245,19 @@ mod tantivy_impl {
                     let line = doc.get_first(line_field)?.as_u64()? as usize;
                     let content = doc.get_first(content_field)?.as_str()?.to_string();
 
-                    // For rules, use stored HTML content for rendering
                     // r[impl dashboard.search.render-requirements]
                     // r[impl dashboard.search.requirement-styling]
-                    let highlighted = if kind == ResultKind::Rule {
-                        doc.get_first(html_content_field)
-                            .and_then(|v| v.as_str())
-                            .unwrap_or(&content)
-                            .to_string()
-                    } else {
-                        // For source code, generate highlighted snippet with <mark> tags
-                        snippet_generator
-                            .as_ref()
-                            .map(|sg| {
-                                let mut snippet = sg.snippet(&content);
-                                snippet.set_snippet_prefix_postfix("<mark>", "</mark>");
-                                snippet.to_html()
-                            })
-                            .unwrap_or_else(|| html_escape(&content))
-                    };
+                    // Generate highlighted snippet with <mark> tags
+                    // We use snippet.highlighted() to get ranges and insert marks ourselves,
+                    // because snippet.to_html() HTML-escapes the content which breaks markdown
+                    let highlighted = snippet_generator
+                        .as_ref()
+                        .map(|sg| {
+                            let snippet = sg.snippet(&content);
+                            let ranges = snippet.highlighted();
+                            insert_mark_tags(&content, ranges)
+                        })
+                        .unwrap_or_else(|| content.clone());
 
                     Some(SearchResult {
                         kind,
@@ -285,6 +284,36 @@ mod tantivy_impl {
             results
         }
     }
+
+    /// Insert `<mark>` tags at the given byte ranges without HTML-escaping content.
+    /// Ranges must be non-overlapping and sorted by start position.
+    fn insert_mark_tags(content: &str, ranges: &[std::ops::Range<usize>]) -> String {
+        if ranges.is_empty() {
+            return content.to_string();
+        }
+
+        let mut result = String::with_capacity(content.len() + ranges.len() * 13); // "<mark></mark>" = 13 chars
+        let mut last_end = 0;
+
+        for range in ranges {
+            // Add content before this range
+            if range.start > last_end {
+                result.push_str(&content[last_end..range.start]);
+            }
+            // Add marked content
+            result.push_str("<mark>");
+            result.push_str(&content[range.start..range.end]);
+            result.push_str("</mark>");
+            last_end = range.end;
+        }
+
+        // Add remaining content after last range
+        if last_end < content.len() {
+            result.push_str(&content[last_end..]);
+        }
+
+        result
+    }
 }
 
 /// Simple HTML escape for fallback
@@ -293,21 +322,6 @@ fn html_escape(s: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
-}
-
-/// Strip HTML tags from a string for indexing
-fn strip_html_tags(html: &str) -> String {
-    let mut result = String::with_capacity(html.len());
-    let mut in_tag = false;
-    for c in html.chars() {
-        match c {
-            '<' => in_tag = true,
-            '>' => in_tag = false,
-            _ if !in_tag => result.push(c),
-            _ => {}
-        }
-    }
-    result
 }
 
 #[cfg(feature = "search")]
@@ -369,15 +383,13 @@ impl SimpleIndex {
             }
         }
 
-        // Index rules
+        // Index rules - use raw markdown directly
         for rule in rules {
-            let text = strip_html_tags(&rule.html);
-            let searchable_content = format!("{} {}", rule.id, text);
             entries.push(SimpleEntry {
                 kind: ResultKind::Rule,
                 id: rule.id.clone(),
                 line: 0,
-                content: searchable_content,
+                content: rule.raw.clone(),
             });
         }
 
@@ -392,7 +404,11 @@ impl SearchIndex for SimpleIndex {
         let mut results: Vec<SearchResult> = self
             .entries
             .iter()
-            .filter(|e| e.content.to_lowercase().contains(&query_lower))
+            // Match against both content and id (for rule ID searches)
+            .filter(|e| {
+                e.content.to_lowercase().contains(&query_lower)
+                    || e.id.to_lowercase().contains(&query_lower)
+            })
             .take(limit)
             .map(|e| {
                 // Simple case-insensitive highlighting
