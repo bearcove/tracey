@@ -254,6 +254,22 @@
     --gap-lg: var(--space-4);
     --gap-xl: var(--space-6);
 
+    /* ==========================================================================
+       Animation & Transition Timing
+       ========================================================================== */
+
+    /* Duration scale */
+    --duration-instant: 0.1s;
+    --duration-fast: 0.15s;
+    --duration-normal: 0.25s;
+    --duration-slow: 0.4s;
+    --duration-emphasis: 3s;
+
+    /* Easing functions */
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+    --ease-spring: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+
     /* Arborium syntax highlighting colors (combined light/dark) */
     --arb-at: light-dark(var(--arb-at-light), var(--arb-at-dark));
     --arb-co: light-dark(var(--arb-co-light), var(--arb-co-dark));
@@ -469,6 +485,67 @@ body {
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
     border: 0;
+}
+
+/* ==========================================================================
+   ANIMATIONS & KEYFRAMES
+   Reusable animation definitions
+   ========================================================================== */
+
+/* Attention-grabbing pulse for highlights */
+@keyframes pulse-attention {
+    0%,
+    20% {
+        box-shadow: 0 0 0 4px var(--pulse-color, var(--accent));
+        transform: scale(var(--pulse-scale, 1.05));
+    }
+    100% {
+        box-shadow: 0 0 0 0 transparent;
+        transform: scale(1);
+    }
+}
+
+/* Flash for success feedback */
+@keyframes flash-success {
+    0% {
+        background: var(--flash-success);
+    }
+    100% {
+        background: transparent;
+    }
+}
+
+/* Pop-in for appearing elements */
+@keyframes pop-in {
+    from {
+        transform: scale(0.8);
+        opacity: 0;
+    }
+    to {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+/* Fade in */
+@keyframes fade-in {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+/* Respect user preferences for reduced motion */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
 }
 
 /* ==========================================================================
@@ -1574,19 +1651,7 @@ body {
     }
 
     &-highlighted {
-        animation: rule-highlight-pulse 3s ease-out;
-    }
-}
-
-@keyframes rule-highlight-pulse {
-    0%,
-    20% {
-        box-shadow: 0 0 0 4px var(--accent);
-        transform: scale(1.05);
-    }
-    100% {
-        box-shadow: 0 0 0 0 transparent;
-        transform: scale(1);
+        animation: pulse-attention var(--duration-emphasis) var(--ease-out);
     }
 }
 
@@ -1727,16 +1792,7 @@ body {
     }
 
     &.req-copy-success {
-        animation: req-copy-flash 0.3s ease-out;
-    }
-}
-
-@keyframes req-copy-flash {
-    0% {
-        background: var(--flash-success);
-    }
-    100% {
-        background: transparent;
+        animation: flash-success var(--duration-normal) var(--ease-out);
     }
 }
 
@@ -1907,18 +1963,7 @@ body {
     font-weight: var(--weight-bold);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
     z-index: 1000;
-    animation: vim-pending-pop 0.1s ease-out;
-}
-
-@keyframes vim-pending-pop {
-    0% {
-        transform: scale(0.8);
-        opacity: 0;
-    }
-    100% {
-        transform: scale(1);
-        opacity: 1;
-    }
+    animation: pop-in var(--duration-instant) var(--ease-spring);
 }
 
 /* ==========================================================================

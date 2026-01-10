@@ -17,15 +17,15 @@ This plan outlines a comprehensive modernization of `style.css` (~2660 lines) to
 | 007 | TODO | Cascade Layers | Medium | Medium | `007-TODO-cascade-layers.md` |
 | 008 | TODO | Container Queries | Medium | Medium | `008-TODO-container-queries.md` |
 | 009 | TODO | @scope | Low | High | `009-TODO-scope.md` |
-| 010 | TODO | Animations | Low | Low | `010-TODO-animations.md` |
+| 010 | DONE | Animations | Low | Low | `010-DONE-animations.md` |
 | 011 | DONE | Typography | Medium | Low | `011-DONE-typography.md` |
 | 012 | DONE | Spacing | Medium | Low | `012-DONE-spacing.md` |
 
 ## Progress
 
-- **Completed**: 7/12
+- **Completed**: 8/12
 - **In Progress**: 0/12
-- **Remaining**: 5/12
+- **Remaining**: 4/12
 
 ## Current State
 
