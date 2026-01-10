@@ -99,11 +99,10 @@ mod tantivy_impl {
                     .set_index_option(IndexRecordOption::WithFreqsAndPositions),
             );
 
-            // Text options for rule IDs - use simple tokenizer for split parts
-            // We'll replace dots with spaces so "dashboard.search.reqs" matches "dashboard" or "search"
+            // Text options for rule IDs - use default tokenizer for split parts
             let rule_id_options = TextOptions::default().set_indexing_options(
                 TextFieldIndexing::default()
-                    .set_tokenizer("simple") // splits on whitespace/punctuation
+                    .set_tokenizer("default")
                     .set_index_option(IndexRecordOption::WithFreqs),
             );
 
@@ -125,7 +124,8 @@ mod tantivy_impl {
             // Create index in RAM (small enough for most projects)
             let index = Index::create_in_ram(schema.clone());
 
-            let mut index_writer: IndexWriter = index.writer(50_000_000)?;
+            // Use single thread to avoid worker thread panics on some platforms
+            let mut index_writer: IndexWriter = index.writer_with_num_threads(1, 15_000_000)?;
 
             // Index source files with context lines
             const CONTEXT_LINES: usize = 2;
