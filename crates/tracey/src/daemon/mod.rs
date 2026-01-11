@@ -124,10 +124,8 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
     let watcher_state = WatcherState::new();
 
     // Create service with watcher state for health monitoring
-    let service = Arc::new(TraceyService::new_with_watcher(
-        Arc::clone(&engine),
-        Arc::clone(&watcher_state),
-    ));
+    // TraceyService is cheap to clone (holds Arc internally)
+    let service = TraceyService::new_with_watcher(Arc::clone(&engine), Arc::clone(&watcher_state));
     let (watcher_tx, mut watcher_rx) = tokio::sync::mpsc::channel::<WatcherEvent>(16);
 
     // Spawn file watcher in a separate OS thread with auto-restart
@@ -208,15 +206,15 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
                     if let Ok(config) = crate::load_config(&config_path_for_rebuild) {
                         for spec in &config.specs {
                             for pattern in &spec.include {
-                                include_patterns.push(pattern.pattern.clone());
+                                include_patterns.push(pattern.clone());
                             }
                             for impl_ in &spec.impls {
                                 for pattern in &impl_.include {
-                                    include_patterns.push(pattern.pattern.clone());
+                                    include_patterns.push(pattern.clone());
                                 }
                                 // r[impl server.watch.respect-excludes]
                                 for pattern in &impl_.exclude {
-                                    exclude_patterns.push(pattern.pattern.clone());
+                                    exclude_patterns.push(pattern.clone());
                                 }
                             }
                         }
@@ -315,8 +313,8 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
 
     // Default Hello configuration
     let hello = Hello::V1 {
-        max_payload_size: 1024 * 1024,    // 1MB max payload
-        initial_stream_credit: 64 * 1024, // 64KB stream credit
+        max_payload_size: 1024 * 1024,     // 1MB max payload
+        initial_channel_credit: 64 * 1024, // 64KB channel credit
     };
 
     // r[impl daemon.lifecycle.idle-timeout]
@@ -343,7 +341,7 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
                     active_connections.load(Ordering::Relaxed)
                 );
 
-                let service = Arc::clone(&service);
+                let service = service.clone();
                 let hello = hello.clone();
                 let active_connections = Arc::clone(&active_connections);
                 let last_activity = Arc::clone(&last_activity);

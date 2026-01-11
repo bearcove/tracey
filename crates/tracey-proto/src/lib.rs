@@ -5,7 +5,7 @@
 //! (HTTP, MCP, LSP) connect as clients.
 
 use facet::Facet;
-use roam::Pull;
+use roam::Tx;
 use roam::prelude::*;
 
 // Re-export API types for convenience
@@ -627,9 +627,9 @@ pub trait TraceyDaemon {
 
     /// Subscribe to data updates (streaming)
     ///
-    /// The daemon will send `DataUpdate` messages through the pull stream
+    /// The daemon will send `DataUpdate` messages through the Tx channel
     /// whenever the dashboard data is rebuilt.
-    async fn subscribe(&self, updates: Pull<DataUpdate>);
+    async fn subscribe(&self, updates: Tx<DataUpdate>);
 
     // === Dashboard Data ===
 
@@ -646,7 +646,7 @@ pub trait TraceyDaemon {
     async fn spec_content(&self, spec: String, impl_name: String) -> Option<ApiSpecData>;
 
     /// Search rules and files
-    async fn search(&self, query: String, limit: usize) -> Vec<SearchResult>;
+    async fn search(&self, query: String, limit: u32) -> Vec<SearchResult>;
 
     /// Update a byte range in a file (for inline editing)
     async fn update_file_range(&self, req: UpdateFileRangeRequest) -> Result<(), UpdateError>;

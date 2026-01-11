@@ -178,7 +178,7 @@ async fn create_test_service_with_watcher() -> (tracey::daemon::TraceyService, A
 
 #[tokio::test]
 async fn test_health_without_watcher_state() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = Arc::new(create_test_service().await);
     let health = service.health().await.expect("health() failed");
@@ -194,7 +194,7 @@ async fn test_health_without_watcher_state() {
 
 #[tokio::test]
 async fn test_health_with_watcher_state() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let (service, _state) = create_test_service_with_watcher().await;
     let service = Arc::new(service);
@@ -210,7 +210,7 @@ async fn test_health_with_watcher_state() {
 
 #[tokio::test]
 async fn test_health_reports_watcher_error() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let (service, state) = create_test_service_with_watcher().await;
 

@@ -210,7 +210,7 @@ pub fn extract_watch_dirs_from_config(config: &Config, project_root: &Path) -> H
     for spec in &config.specs {
         // Spec include patterns (e.g., "docs/spec/**/*.md")
         for include in &spec.include {
-            let dir = glob_to_watch_dir(&include.pattern);
+            let dir = glob_to_watch_dir(include);
             let full_path = project_root.join(&dir);
             if full_path.exists() {
                 dirs.insert(full_path);
@@ -225,7 +225,7 @@ pub fn extract_watch_dirs_from_config(config: &Config, project_root: &Path) -> H
         // Impl include and test_include patterns
         for impl_ in &spec.impls {
             for include in &impl_.include {
-                let dir = glob_to_watch_dir(&include.pattern);
+                let dir = glob_to_watch_dir(include);
                 let full_path = project_root.join(&dir);
                 if full_path.exists() {
                     dirs.insert(full_path);
@@ -233,7 +233,7 @@ pub fn extract_watch_dirs_from_config(config: &Config, project_root: &Path) -> H
             }
 
             for test_include in &impl_.test_include {
-                let dir = glob_to_watch_dir(&test_include.pattern);
+                let dir = glob_to_watch_dir(test_include);
                 let full_path = project_root.join(&dir);
                 if full_path.exists() {
                     dirs.insert(full_path);

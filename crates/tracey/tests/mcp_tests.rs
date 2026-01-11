@@ -39,7 +39,7 @@ async fn create_test_service() -> tracey::daemon::TraceyService {
 
 #[tokio::test]
 async fn test_mcp_status_tool() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
     let status = service.status().await.expect("status() failed");
@@ -66,7 +66,7 @@ async fn test_mcp_status_tool() {
 
 #[tokio::test]
 async fn test_mcp_uncovered_tool_no_filter() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
     let req = UncoveredRequest {
@@ -86,7 +86,7 @@ async fn test_mcp_uncovered_tool_no_filter() {
 
 #[tokio::test]
 async fn test_mcp_uncovered_tool_with_prefix() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
     let req = UncoveredRequest {
@@ -111,7 +111,7 @@ async fn test_mcp_uncovered_tool_with_prefix() {
 
 #[tokio::test]
 async fn test_mcp_uncovered_tool_auto_select() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
 
@@ -135,7 +135,7 @@ async fn test_mcp_uncovered_tool_auto_select() {
 
 #[tokio::test]
 async fn test_mcp_untested_tool() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
     let req = UntestedRequest {
@@ -159,7 +159,7 @@ async fn test_mcp_untested_tool() {
 
 #[tokio::test]
 async fn test_mcp_unmapped_tool() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
     let req = UnmappedRequest {
@@ -178,7 +178,7 @@ async fn test_mcp_unmapped_tool() {
 
 #[tokio::test]
 async fn test_mcp_unmapped_tool_with_path_filter() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
     let req = UnmappedRequest {
@@ -205,7 +205,7 @@ async fn test_mcp_unmapped_tool_with_path_filter() {
 
 #[tokio::test]
 async fn test_mcp_rule_tool_found() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
     let rule = service
@@ -226,7 +226,7 @@ async fn test_mcp_rule_tool_found() {
 
 #[tokio::test]
 async fn test_mcp_rule_tool_not_found() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
     let rule = service
@@ -239,7 +239,7 @@ async fn test_mcp_rule_tool_not_found() {
 
 #[tokio::test]
 async fn test_mcp_rule_tool_coverage_info() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
     let rule = service
@@ -270,7 +270,7 @@ async fn test_mcp_rule_tool_coverage_info() {
 
 #[tokio::test]
 async fn test_mcp_config_tool() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
     let config = service.config().await.expect("config() failed");
@@ -292,7 +292,7 @@ async fn test_mcp_config_tool() {
 
 #[tokio::test]
 async fn test_mcp_reload_tool() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
     let response = service.reload().await.expect("reload() failed");
@@ -313,7 +313,7 @@ async fn test_mcp_reload_tool() {
 
 #[tokio::test]
 async fn test_mcp_validate_tool() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
     let req = ValidateRequest {
@@ -332,7 +332,7 @@ async fn test_mcp_validate_tool() {
 
 #[tokio::test]
 async fn test_mcp_validate_tool_auto_select() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
 
@@ -355,7 +355,7 @@ async fn test_mcp_validate_tool_auto_select() {
 
 #[tokio::test]
 async fn test_mcp_search() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
 
@@ -385,7 +385,7 @@ async fn test_mcp_search() {
 
 #[tokio::test]
 async fn test_mcp_search_limit() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
 
@@ -405,7 +405,7 @@ async fn test_mcp_search_limit() {
 
 #[tokio::test]
 async fn test_mcp_forward_data() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
     let forward = service
@@ -426,7 +426,7 @@ async fn test_mcp_forward_data() {
 
 #[tokio::test]
 async fn test_mcp_reverse_data() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
     let reverse = service

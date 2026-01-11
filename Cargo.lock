@@ -1100,15 +1100,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "codegen"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff61280aed771c3070e7dcc9e050c66f1eb1e3b96431ba66f9f74641d02fc41d"
-dependencies = [
- "indexmap 1.9.3",
-]
-
-[[package]]
 name = "const-fnv1a-hash"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1775,7 +1766,7 @@ source = "git+https://github.com/facet-rs/facet?branch=main#539c564ceb459c73237d
 dependencies = [
  "facet-core",
  "facet-reflect",
- "indexmap 2.12.1",
+ "indexmap",
 ]
 
 [[package]]
@@ -2025,7 +2016,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e629b9b98ef3dd8afe6ca2bd0f89306cec16d43d907889945bc5d6687f2f13c7"
 dependencies = [
  "fallible-iterator",
- "indexmap 2.12.1",
+ "indexmap",
  "stable_deref_trait",
 ]
 
@@ -2060,7 +2051,7 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "http",
- "indexmap 2.12.1",
+ "indexmap",
  "slab",
  "tokio",
  "tokio-util",
@@ -2075,12 +2066,6 @@ checksum = "47d60b12902ba28e2730cd37e95b8c9223af2808df9e902d4df49588d1470606"
 dependencies = [
  "byteorder",
 ]
-
-[[package]]
-name = "hashbrown"
-version = "0.12.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a9ee70c43aaf417c914396645a0fa852624801b24ebb7ae78fe8272889ac888"
 
 [[package]]
 name = "hashbrown"
@@ -2380,16 +2365,6 @@ name = "indenter"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "964de6e86d545b246d84badc0fef527924ace5134f30641c203ef52ba83f58d5"
-
-[[package]]
-name = "indexmap"
-version = "1.9.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd070e393353796e801d209ad339e89596eb4c8d430d18ede6a1cced8fafbd99"
-dependencies = [
- "autocfg",
- "hashbrown 0.12.3",
-]
 
 [[package]]
 name = "indexmap"
@@ -3461,21 +3436,10 @@ source = "git+https://github.com/bearcove/roam?branch=main#a876ee97f1d3798e3a385
 dependencies = [
  "facet",
  "facet-postcard",
- "roam-hash 0.5.0 (git+https://github.com/bearcove/roam?branch=main)",
- "roam-schema 0.5.0 (git+https://github.com/bearcove/roam?branch=main)",
+ "roam-hash",
+ "roam-schema",
  "roam-service-macros",
  "roam-session",
-]
-
-[[package]]
-name = "roam-codegen"
-version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?rev=4250a30e7064607d2288aed1504c3dddeaaa8a3b#4250a30e7064607d2288aed1504c3dddeaaa8a3b"
-dependencies = [
- "codegen",
- "heck",
- "roam-hash 0.5.0 (git+https://github.com/bearcove/roam?rev=4250a30e7064607d2288aed1504c3dddeaaa8a3b)",
- "roam-schema 0.5.0 (git+https://github.com/bearcove/roam?rev=4250a30e7064607d2288aed1504c3dddeaaa8a3b)",
 ]
 
 [[package]]
@@ -3496,16 +3460,7 @@ dependencies = [
  "blake3",
  "facet-core",
  "heck",
- "roam-schema 0.5.0 (git+https://github.com/bearcove/roam?branch=main)",
-]
-
-[[package]]
-name = "roam-hash"
-version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?rev=4250a30e7064607d2288aed1504c3dddeaaa8a3b#4250a30e7064607d2288aed1504c3dddeaaa8a3b"
-dependencies = [
- "blake3",
- "roam-schema 0.5.0 (git+https://github.com/bearcove/roam?rev=4250a30e7064607d2288aed1504c3dddeaaa8a3b)",
+ "roam-schema",
 ]
 
 [[package]]
@@ -3524,14 +3479,6 @@ source = "git+https://github.com/bearcove/roam?branch=main#a876ee97f1d3798e3a385
 dependencies = [
  "facet",
  "facet-core",
-]
-
-[[package]]
-name = "roam-schema"
-version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?rev=4250a30e7064607d2288aed1504c3dddeaaa8a3b#4250a30e7064607d2288aed1504c3dddeaaa8a3b"
-dependencies = [
- "facet",
 ]
 
 [[package]]
@@ -4538,7 +4485,6 @@ dependencies = [
  "open",
  "owo-colors",
  "roam",
- "roam-codegen",
  "roam-stream",
  "rust-mcp-sdk",
  "serde",

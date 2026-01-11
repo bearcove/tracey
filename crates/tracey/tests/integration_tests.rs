@@ -42,7 +42,7 @@ async fn create_test_service() -> tracey::daemon::TraceyService {
 
 #[tokio::test]
 async fn test_status_returns_coverage() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
     let status = service.status().await.expect("status() failed");
@@ -63,7 +63,7 @@ async fn test_status_returns_coverage() {
 
 #[tokio::test]
 async fn test_status_coverage_percentages() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
     let status = service.status().await.expect("status() failed");
@@ -93,7 +93,7 @@ async fn test_status_coverage_percentages() {
 
 #[tokio::test]
 async fn test_uncovered_returns_rules() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
     let req = UncoveredRequest {
@@ -115,7 +115,7 @@ async fn test_uncovered_returns_rules() {
 
 #[tokio::test]
 async fn test_uncovered_with_prefix_filter() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
     let req = UncoveredRequest {
@@ -140,7 +140,7 @@ async fn test_uncovered_with_prefix_filter() {
 
 #[tokio::test]
 async fn test_untested_returns_rules() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
     let req = UntestedRequest {
@@ -163,7 +163,7 @@ async fn test_untested_returns_rules() {
 
 #[tokio::test]
 async fn test_rule_returns_details() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
     let rule = service
@@ -184,7 +184,7 @@ async fn test_rule_returns_details() {
 
 #[tokio::test]
 async fn test_rule_not_found() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
     let rule = service
@@ -201,7 +201,7 @@ async fn test_rule_not_found() {
 
 #[tokio::test]
 async fn test_config_returns_project_info() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
     let config = service.config().await.expect("config() failed");
@@ -225,7 +225,7 @@ async fn test_config_returns_project_info() {
 
 #[tokio::test]
 async fn test_lsp_hover_on_reference() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
 
@@ -251,7 +251,7 @@ fn test_func() {}"#;
 
 #[tokio::test]
 async fn test_lsp_hover_outside_reference() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
 
@@ -272,7 +272,7 @@ fn test_func() {}"#;
 
 #[tokio::test]
 async fn test_lsp_definition() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
 
@@ -305,7 +305,7 @@ fn test_func() {}"#;
 
 #[tokio::test]
 async fn test_lsp_completions() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
 
@@ -339,7 +339,7 @@ async fn test_lsp_completions() {
 
 #[tokio::test]
 async fn test_lsp_diagnostics_orphaned_reference() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
 
@@ -364,7 +364,7 @@ fn test_func() {}"#;
 
 #[tokio::test]
 async fn test_lsp_document_symbols() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
 
@@ -402,7 +402,7 @@ fn test_login() {}"#;
 
 #[tokio::test]
 async fn test_lsp_workspace_symbols() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
 
@@ -425,7 +425,7 @@ async fn test_lsp_workspace_symbols() {
 
 #[tokio::test]
 async fn test_lsp_references() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
 
@@ -455,7 +455,7 @@ fn login() {}"#;
 
 #[tokio::test]
 async fn test_validate_returns_results() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
     let req = ValidateRequest {
@@ -476,7 +476,7 @@ async fn test_validate_returns_results() {
 
 #[tokio::test]
 async fn test_lsp_semantic_tokens() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
 
@@ -507,7 +507,7 @@ fn test_login() {}"#;
 
 #[tokio::test]
 async fn test_lsp_code_lens() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
 
@@ -545,7 +545,7 @@ pub fn login() {}"#;
 
 #[tokio::test]
 async fn test_validate_ignores_other_spec_prefixes() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
 
@@ -578,7 +578,7 @@ async fn test_validate_ignores_other_spec_prefixes() {
 
 #[tokio::test]
 async fn test_validate_other_spec_validates_its_own_prefix() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
 
@@ -610,7 +610,7 @@ async fn test_validate_other_spec_validates_its_own_prefix() {
 
 #[tokio::test]
 async fn test_validate_other_spec_ignores_r_prefix() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
 
@@ -643,7 +643,7 @@ async fn test_validate_other_spec_ignores_r_prefix() {
 
 #[tokio::test]
 async fn test_validate_detects_unknown_rule_in_matching_prefix() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
 

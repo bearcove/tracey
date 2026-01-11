@@ -1,31 +1,15 @@
 //! Build script for tracey - generates code and builds the dashboard
 
-use std::env;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
 
 fn main() {
-    // Generate roam dispatcher code
-    generate_roam_dispatcher();
-
     // Generate TypeScript types for the dashboard
     generate_typescript_types();
 
     // Build dashboard (after TS types are generated)
     build_dashboard();
-}
-
-fn generate_roam_dispatcher() {
-    println!("cargo:rerun-if-changed=../tracey-proto/src/lib.rs");
-
-    let detail = tracey_proto::tracey_daemon_service_detail();
-    let options = roam_codegen::targets::rust::RustCodegenOptions { tracing: true };
-    let code = roam_codegen::targets::rust::generate_service_with_options(&detail, &options);
-
-    let out_dir = env::var("OUT_DIR").unwrap();
-    let dest_path = Path::new(&out_dir).join("tracey_daemon_generated.rs");
-    fs::write(&dest_path, code).unwrap();
 }
 
 fn generate_typescript_types() {

@@ -64,7 +64,7 @@ async fn create_isolated_test_service() -> (tempfile::TempDir, tracey::daemon::T
 /// Test that a file with an orphaned reference produces diagnostics.
 #[tokio::test]
 async fn test_orphaned_reference_produces_diagnostic() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
 
@@ -98,7 +98,7 @@ fn test_func() {}"#;
 /// Test that a file with valid references produces no diagnostics.
 #[tokio::test]
 async fn test_valid_reference_no_diagnostic() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
 
@@ -137,7 +137,7 @@ fn login_impl() {}"#;
 /// Test that VFS open with errors produces diagnostics.
 #[tokio::test]
 async fn test_vfs_open_with_error_produces_diagnostics() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let (temp, service) = create_isolated_test_service().await;
     let test_file = temp.path().join("src/vfs_test.rs");
@@ -185,7 +185,7 @@ fn broken_func() {}"#;
 /// 2. Change the file to fix the error → diagnostic should clear
 #[tokio::test]
 async fn test_vfs_change_fixes_error_clears_diagnostics() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let (temp, service) = create_isolated_test_service().await;
     let test_file = temp.path().join("src/vfs_test.rs");
@@ -252,7 +252,7 @@ fn login_impl() {}"#;
 /// Test multiple fix-and-break cycles in the same session.
 #[tokio::test]
 async fn test_vfs_multiple_fix_break_cycles() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let (temp, service) = create_isolated_test_service().await;
     let test_file = temp.path().join("src/vfs_test.rs");
@@ -343,7 +343,7 @@ fn working_again() {}"#;
 /// Test that workspace diagnostics returns files with issues.
 #[tokio::test]
 async fn test_workspace_diagnostics_includes_files_with_issues() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let (temp, service) = create_isolated_test_service().await;
 
@@ -387,7 +387,7 @@ fn broken() {}"#;
 /// but the service layer should correctly return an empty list for fixed files.
 #[tokio::test]
 async fn test_workspace_diagnostics_excludes_fixed_files() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let (temp, service) = create_isolated_test_service().await;
     let test_file = temp.path().join("src/fixable.rs");
@@ -456,7 +456,7 @@ fn working() {}"#;
 /// ensures they would receive updates when fixed.
 #[tokio::test]
 async fn test_diagnostic_clearing_behavior_documented() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let (temp, service) = create_isolated_test_service().await;
     let test_file = temp.path().join("src/clearing_test.rs");
@@ -529,7 +529,7 @@ fn working() {}"#;
 /// Test that VFS close doesn't affect diagnostic state - workspace diagnostics persist.
 #[tokio::test]
 async fn test_vfs_close_preserves_workspace_diagnostics() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let (temp, service) = create_isolated_test_service().await;
     let test_file = temp.path().join("src/close_test.rs");
@@ -586,7 +586,7 @@ fn broken() {}"#;
 /// Test diagnostics for a file with multiple errors.
 #[tokio::test]
 async fn test_multiple_errors_in_file() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
 
@@ -629,7 +629,7 @@ fn third_error() {}"#;
 /// Test that fixing one error but leaving others still produces diagnostics.
 #[tokio::test]
 async fn test_partial_fix_still_has_diagnostics() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let (temp, service) = create_isolated_test_service().await;
     let test_file = temp.path().join("src/partial_fix.rs");
@@ -695,7 +695,7 @@ fn second() {}"#;
 /// Test unknown prefix diagnostic.
 #[tokio::test]
 async fn test_unknown_prefix_diagnostic() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
 
@@ -732,7 +732,7 @@ fn test_func() {}"#;
 /// 2. When refreshing, publish empty diagnostics for files that no longer have issues
 #[tokio::test]
 async fn test_lsp_bridge_workspace_diagnostics_clearing_simulation() {
-    use tracey::daemon::service::TraceyDaemonHandler;
+    use tracey_proto::TraceyDaemon;
 
     let (temp, service) = create_isolated_test_service().await;
 

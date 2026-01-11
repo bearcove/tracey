@@ -98,8 +98,6 @@ default = ["search"]
 search = ["dep:tantivy"]
 
 [build-dependencies]
-roam-codegen = { git = "https://github.com/bearcove/roam", rev = "4250a30e7064607d2288aed1504c3dddeaaa8a3b" }
-tracey-proto = { path = "../tracey-proto" }
 tracey-api = { path = "../tracey-api" }
 facet-typescript = { git = "https://github.com/facet-rs/facet", branch = "main" }
 

@@ -529,7 +529,7 @@ pub async fn build_dashboard_data_with_overlay(
             let test_patterns: Vec<&str> = impl_config
                 .test_include
                 .iter()
-                .map(|t| t.pattern.as_str())
+                .map(|t| t.as_str())
                 .collect();
             if !test_patterns.is_empty() {
                 // Walk files and match against test patterns
@@ -560,12 +560,8 @@ pub async fn build_dashboard_data_with_overlay(
     }
 
     for spec_config in &config.specs {
-        let spec_name = &spec_config.name.value;
-        let include_patterns: Vec<&str> = spec_config
-            .include
-            .iter()
-            .map(|i| i.pattern.as_str())
-            .collect();
+        let spec_name = &spec_config.name;
+        let include_patterns: Vec<&str> = spec_config.include.iter().map(|i| i.as_str()).collect();
 
         // Validate that spec has at least one implementation
         if spec_config.impls.is_empty() {
@@ -583,20 +579,16 @@ pub async fn build_dashboard_data_with_overlay(
                 }}",
                 spec_name,
                 spec_name,
-                spec_config.prefix.value
+                spec_config.prefix
             ));
         }
 
         api_config.specs.push(ApiSpecInfo {
             name: spec_name.clone(),
-            prefix: spec_config.prefix.value.clone(),
+            prefix: spec_config.prefix.clone(),
             source: Some(include_patterns.join(", ")),
-            source_url: spec_config.source_url.as_ref().map(|u| u.value.clone()),
-            implementations: spec_config
-                .impls
-                .iter()
-                .map(|i| i.name.value.clone())
-                .collect(),
+            source_url: spec_config.source_url.clone(),
+            implementations: spec_config.impls.iter().map(|i| i.name.clone()).collect(),
         });
 
         // Extract requirements directly from markdown files (shared across impls)
@@ -612,7 +604,7 @@ pub async fn build_dashboard_data_with_overlay(
 
         // Build data for each implementation
         for impl_config in &spec_config.impls {
-            let impl_name = &impl_config.name.value;
+            let impl_name = &impl_config.name;
             let impl_key: ImplKey = (spec_name.clone(), impl_name.clone());
 
             if !quiet {
@@ -624,17 +616,9 @@ pub async fn build_dashboard_data_with_overlay(
             let include: Vec<String> = if impl_config.include.is_empty() {
                 vec!["**/*.rs".to_string()]
             } else {
-                impl_config
-                    .include
-                    .iter()
-                    .map(|inc| inc.pattern.clone())
-                    .collect()
+                impl_config.include.iter().map(|inc| inc.clone()).collect()
             };
-            let exclude: Vec<String> = impl_config
-                .exclude
-                .iter()
-                .map(|exc| exc.pattern.clone())
-                .collect();
+            let exclude: Vec<String> = impl_config.exclude.iter().map(|exc| exc.clone()).collect();
 
             // r[impl ref.cross-workspace.paths]
             // Extract requirement references from this impl's source files
@@ -663,7 +647,7 @@ pub async fn build_dashboard_data_with_overlay(
 
                 for r in &reqs.references {
                     // r[impl ref.prefix.coverage]
-                    if r.prefix == spec_config.prefix.value && r.req_id == extracted.def.id {
+                    if r.prefix == spec_config.prefix && r.req_id == extracted.def.id {
                         // r[impl ref.cross-workspace.graceful]
                         // Canonicalize the reference file path for consistent matching
                         // Uses unwrap_or_else to gracefully handle missing files
@@ -693,7 +677,7 @@ pub async fn build_dashboard_data_with_overlay(
 
                 api_rules.push(ApiRule {
                     id: extracted.def.id.clone(),
-                    raw: extracted.def.text.clone(),
+                    raw: extracted.def.raw.clone(),
                     html: extracted.def.html.clone(),
                     status: extracted
                         .def

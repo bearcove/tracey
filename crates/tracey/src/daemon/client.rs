@@ -182,7 +182,7 @@ impl DaemonClient {
         // Send Hello
         let our_hello = Hello::V1 {
             max_payload_size: 1024 * 1024,
-            initial_stream_credit: 64 * 1024,
+            initial_channel_credit: 64 * 1024,
         };
         io.send(&Message::Hello(our_hello)).await?;
 
@@ -254,76 +254,71 @@ impl DaemonClient {
 
     /// Get coverage status for all specs/impls
     pub async fn status(&mut self) -> Result<StatusResponse> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.status, &()).await
+        self.call(tracey_daemon_method_id::status(), &()).await
     }
 
     /// Get uncovered rules
     pub async fn uncovered(&mut self, req: UncoveredRequest) -> Result<UncoveredResponse> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.uncovered, &(req,)).await
+        self.call(tracey_daemon_method_id::uncovered(), &(req,))
+            .await
     }
 
     /// Get untested rules
     pub async fn untested(&mut self, req: UntestedRequest) -> Result<UntestedResponse> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.untested, &(req,)).await
+        self.call(tracey_daemon_method_id::untested(), &(req,))
+            .await
     }
 
     /// Get unmapped code
     pub async fn unmapped(&mut self, req: UnmappedRequest) -> Result<UnmappedResponse> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.unmapped, &(req,)).await
+        self.call(tracey_daemon_method_id::unmapped(), &(req,))
+            .await
     }
 
     /// Get details for a specific rule
     pub async fn rule(&mut self, rule_id: String) -> Result<Option<RuleInfo>> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.rule, &(rule_id,)).await
+        self.call(tracey_daemon_method_id::rule(), &(rule_id,))
+            .await
     }
 
     /// Get current configuration
     pub async fn config(&mut self) -> Result<ApiConfig> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.config, &()).await
+        self.call(tracey_daemon_method_id::config(), &()).await
     }
 
     /// VFS: file opened
     pub async fn vfs_open(&mut self, path: String, content: String) -> Result<()> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.vfs_open, &(path, content)).await
+        self.call(tracey_daemon_method_id::vfs_open(), &(path, content))
+            .await
     }
 
     /// VFS: file changed
     pub async fn vfs_change(&mut self, path: String, content: String) -> Result<()> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.vfs_change, &(path, content)).await
+        self.call(tracey_daemon_method_id::vfs_change(), &(path, content))
+            .await
     }
 
     /// VFS: file closed
     pub async fn vfs_close(&mut self, path: String) -> Result<()> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.vfs_close, &(path,)).await
+        self.call(tracey_daemon_method_id::vfs_close(), &(path,))
+            .await
     }
 
     /// Force a rebuild
     pub async fn reload(&mut self) -> Result<ReloadResponse> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.reload, &()).await
+        self.call(tracey_daemon_method_id::reload(), &()).await
     }
 
     /// Get current version
     pub async fn version(&mut self) -> Result<u64> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.version, &()).await
+        self.call(tracey_daemon_method_id::version(), &()).await
     }
 
     /// Get daemon health status
     ///
     /// r[impl daemon.health]
     pub async fn health(&mut self) -> Result<HealthResponse> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.health, &()).await
+        self.call(tracey_daemon_method_id::health(), &()).await
     }
 
     /// Get forward traceability data
@@ -332,8 +327,8 @@ impl DaemonClient {
         spec: String,
         impl_name: String,
     ) -> Result<Option<ApiSpecForward>> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.forward, &(spec, impl_name)).await
+        self.call(tracey_daemon_method_id::forward(), &(spec, impl_name))
+            .await
     }
 
     /// Get reverse traceability data
@@ -342,8 +337,8 @@ impl DaemonClient {
         spec: String,
         impl_name: String,
     ) -> Result<Option<ApiReverseData>> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.reverse, &(spec, impl_name)).await
+        self.call(tracey_daemon_method_id::reverse(), &(spec, impl_name))
+            .await
     }
 
     /// Get rendered spec content
@@ -352,47 +347,46 @@ impl DaemonClient {
         spec: String,
         impl_name: String,
     ) -> Result<Option<ApiSpecData>> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.spec_content, &(spec, impl_name)).await
+        self.call(tracey_daemon_method_id::spec_content(), &(spec, impl_name))
+            .await
     }
 
     /// Get file content with syntax highlighting
     pub async fn file(&mut self, req: FileRequest) -> Result<Option<ApiFileData>> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.file, &(req,)).await
+        self.call(tracey_daemon_method_id::file(), &(req,)).await
     }
 
     /// Search rules and files
     pub async fn search(&mut self, query: String, limit: usize) -> Result<Vec<SearchResult>> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.search, &(query, limit)).await
+        self.call(tracey_daemon_method_id::search(), &(query, limit))
+            .await
     }
 
     /// Check if a path is a test file
     #[allow(dead_code)]
     pub async fn is_test_file(&mut self, path: String) -> Result<bool> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.is_test_file, &(path,)).await
+        self.call(tracey_daemon_method_id::is_test_file(), &(path,))
+            .await
     }
 
     /// Validate the spec and implementation for errors
     pub async fn validate(&mut self, req: ValidateRequest) -> Result<ValidationResult> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.validate, &(req,)).await
+        self.call(tracey_daemon_method_id::validate(), &(req,))
+            .await
     }
 
     // === LSP Support Methods ===
 
     /// Get hover info for a position in a file
     pub async fn lsp_hover(&mut self, req: LspPositionRequest) -> Result<Option<HoverInfo>> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.lsp_hover, &(req,)).await
+        self.call(tracey_daemon_method_id::lsp_hover(), &(req,))
+            .await
     }
 
     /// Get definition location for a reference at a position
     pub async fn lsp_definition(&mut self, req: LspPositionRequest) -> Result<Vec<LspLocation>> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.lsp_definition, &(req,)).await
+        self.call(tracey_daemon_method_id::lsp_definition(), &(req,))
+            .await
     }
 
     /// Get implementation locations for a reference at a position
@@ -400,14 +394,14 @@ impl DaemonClient {
         &mut self,
         req: LspPositionRequest,
     ) -> Result<Vec<LspLocation>> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.lsp_implementation, &(req,)).await
+        self.call(tracey_daemon_method_id::lsp_implementation(), &(req,))
+            .await
     }
 
     /// Get all references to a requirement
     pub async fn lsp_references(&mut self, req: LspReferencesRequest) -> Result<Vec<LspLocation>> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.lsp_references, &(req,)).await
+        self.call(tracey_daemon_method_id::lsp_references(), &(req,))
+            .await
     }
 
     /// Get completions for a position
@@ -415,20 +409,20 @@ impl DaemonClient {
         &mut self,
         req: LspPositionRequest,
     ) -> Result<Vec<LspCompletionItem>> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.lsp_completions, &(req,)).await
+        self.call(tracey_daemon_method_id::lsp_completions(), &(req,))
+            .await
     }
 
     /// Get diagnostics for a file
     pub async fn lsp_diagnostics(&mut self, req: LspDocumentRequest) -> Result<Vec<LspDiagnostic>> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.lsp_diagnostics, &(req,)).await
+        self.call(tracey_daemon_method_id::lsp_diagnostics(), &(req,))
+            .await
     }
 
     /// Get diagnostics for all files in the workspace
     pub async fn lsp_workspace_diagnostics(&mut self) -> Result<Vec<LspFileDiagnostics>> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.lsp_workspace_diagnostics, &()).await
+        self.call(tracey_daemon_method_id::lsp_workspace_diagnostics(), &())
+            .await
     }
 
     /// Get document symbols (requirement references) in a file
@@ -436,14 +430,14 @@ impl DaemonClient {
         &mut self,
         req: LspDocumentRequest,
     ) -> Result<Vec<LspSymbol>> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.lsp_document_symbols, &(req,)).await
+        self.call(tracey_daemon_method_id::lsp_document_symbols(), &(req,))
+            .await
     }
 
     /// Search workspace for requirement IDs
     pub async fn lsp_workspace_symbols(&mut self, query: String) -> Result<Vec<LspSymbol>> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.lsp_workspace_symbols, &(query,)).await
+        self.call(tracey_daemon_method_id::lsp_workspace_symbols(), &(query,))
+            .await
     }
 
     /// Get semantic tokens for syntax highlighting
@@ -451,20 +445,20 @@ impl DaemonClient {
         &mut self,
         req: LspDocumentRequest,
     ) -> Result<Vec<LspSemanticToken>> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.lsp_semantic_tokens, &(req,)).await
+        self.call(tracey_daemon_method_id::lsp_semantic_tokens(), &(req,))
+            .await
     }
 
     /// Get code lens items
     pub async fn lsp_code_lens(&mut self, req: LspDocumentRequest) -> Result<Vec<LspCodeLens>> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.lsp_code_lens, &(req,)).await
+        self.call(tracey_daemon_method_id::lsp_code_lens(), &(req,))
+            .await
     }
 
     /// Get inlay hints for a range
     pub async fn lsp_inlay_hints(&mut self, req: InlayHintsRequest) -> Result<Vec<LspInlayHint>> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.lsp_inlay_hints, &(req,)).await
+        self.call(tracey_daemon_method_id::lsp_inlay_hints(), &(req,))
+            .await
     }
 
     /// Prepare rename (check if renaming is valid)
@@ -472,14 +466,14 @@ impl DaemonClient {
         &mut self,
         req: LspPositionRequest,
     ) -> Result<Option<PrepareRenameResult>> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.lsp_prepare_rename, &(req,)).await
+        self.call(tracey_daemon_method_id::lsp_prepare_rename(), &(req,))
+            .await
     }
 
     /// Execute rename
     pub async fn lsp_rename(&mut self, req: LspRenameRequest) -> Result<Vec<LspTextEdit>> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.lsp_rename, &(req,)).await
+        self.call(tracey_daemon_method_id::lsp_rename(), &(req,))
+            .await
     }
 
     /// Get code actions for a position
@@ -487,8 +481,8 @@ impl DaemonClient {
         &mut self,
         req: LspPositionRequest,
     ) -> Result<Vec<LspCodeAction>> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.lsp_code_actions, &(req,)).await
+        self.call(tracey_daemon_method_id::lsp_code_actions(), &(req,))
+            .await
     }
 
     /// Get document highlight ranges (same requirement references)
@@ -496,8 +490,8 @@ impl DaemonClient {
         &mut self,
         req: LspPositionRequest,
     ) -> Result<Vec<LspLocation>> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.lsp_document_highlight, &(req,)).await
+        self.call(tracey_daemon_method_id::lsp_document_highlight(), &(req,))
+            .await
     }
 
     // === Config Modification Methods (for MCP) ===
@@ -507,8 +501,8 @@ impl DaemonClient {
         &mut self,
         req: ConfigPatternRequest,
     ) -> Result<Result<(), String>> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.config_add_exclude, &(req,)).await
+        self.call(tracey_daemon_method_id::config_add_exclude(), &(req,))
+            .await
     }
 
     /// Add an include pattern to an implementation
@@ -516,7 +510,7 @@ impl DaemonClient {
         &mut self,
         req: ConfigPatternRequest,
     ) -> Result<Result<(), String>> {
-        let ids = tracey_daemon_method_ids();
-        self.call(ids.config_add_include, &(req,)).await
+        self.call(tracey_daemon_method_id::config_add_include(), &(req,))
+            .await
     }
 }

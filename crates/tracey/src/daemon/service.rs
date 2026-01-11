@@ -10,22 +10,19 @@ use tracey_proto::*;
 use super::engine::Engine;
 use super::watcher::WatcherState;
 use crate::server::QueryEngine;
-use roam::Push;
+use roam::Tx;
 
-// Include generated code (TraceyDaemonHandler trait, TraceyDaemonDispatcher)
-// The generated file has both caller and handler code - we only use handler
-mod generated {
-    #![allow(dead_code)]
-    pub use tracey_proto::*;
-    include!(concat!(env!("OUT_DIR"), "/tracey_daemon_generated.rs"));
-}
-pub use generated::{TraceyDaemonDispatcher, TraceyDaemonHandler};
+// Re-export the generated dispatcher from tracey-proto
+pub use tracey_proto::TraceyDaemonDispatcher;
 
-/// Handler error type (we never fail, so this is just for the trait)
-type HandlerResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+// Import the RoamError and Never types for the trait return types
+use roam::session::{Never, RoamError};
 
-/// Service implementation wrapping the Engine.
-pub struct TraceyService {
+/// Handler result type - we never return service-level errors
+type HandlerResult<T> = Result<T, RoamError<Never>>;
+
+/// Inner service state shared via Arc.
+struct TraceyServiceInner {
     engine: Arc<Engine>,
     /// Syntax highlighter for source files
     highlighter: Mutex<arborium::Highlighter>,
@@ -35,184 +32,47 @@ pub struct TraceyService {
     start_time: Instant,
 }
 
-/// Blanket impl: `Arc<TraceyService>` delegates to `TraceyService`
-impl TraceyDaemonHandler for Arc<TraceyService> {
-    async fn status(&self) -> HandlerResult<StatusResponse> {
-        (**self).status().await
-    }
-    async fn uncovered(&self, req: UncoveredRequest) -> HandlerResult<UncoveredResponse> {
-        (**self).uncovered(req).await
-    }
-    async fn untested(&self, req: UntestedRequest) -> HandlerResult<UntestedResponse> {
-        (**self).untested(req).await
-    }
-    async fn unmapped(&self, req: UnmappedRequest) -> HandlerResult<UnmappedResponse> {
-        (**self).unmapped(req).await
-    }
-    async fn rule(&self, rule_id: String) -> HandlerResult<Option<RuleInfo>> {
-        (**self).rule(rule_id).await
-    }
-    async fn config(&self) -> HandlerResult<ApiConfig> {
-        (**self).config().await
-    }
-    async fn vfs_open(&self, path: String, content: String) -> HandlerResult<()> {
-        (**self).vfs_open(path, content).await
-    }
-    async fn vfs_change(&self, path: String, content: String) -> HandlerResult<()> {
-        (**self).vfs_change(path, content).await
-    }
-    async fn vfs_close(&self, path: String) -> HandlerResult<()> {
-        (**self).vfs_close(path).await
-    }
-    async fn reload(&self) -> HandlerResult<ReloadResponse> {
-        (**self).reload().await
-    }
-    async fn version(&self) -> HandlerResult<u64> {
-        (**self).version().await
-    }
-    async fn health(&self) -> HandlerResult<HealthResponse> {
-        (**self).health().await
-    }
-    async fn subscribe(&self, updates: Push<DataUpdate>) -> HandlerResult<()> {
-        (**self).subscribe(updates).await
-    }
-    async fn forward(
-        &self,
-        spec: String,
-        impl_name: String,
-    ) -> HandlerResult<Option<ApiSpecForward>> {
-        (**self).forward(spec, impl_name).await
-    }
-    async fn reverse(
-        &self,
-        spec: String,
-        impl_name: String,
-    ) -> HandlerResult<Option<ApiReverseData>> {
-        (**self).reverse(spec, impl_name).await
-    }
-    async fn file(&self, req: FileRequest) -> HandlerResult<Option<ApiFileData>> {
-        (**self).file(req).await
-    }
-    async fn spec_content(
-        &self,
-        spec: String,
-        impl_name: String,
-    ) -> HandlerResult<Option<ApiSpecData>> {
-        (**self).spec_content(spec, impl_name).await
-    }
-    async fn search(&self, query: String, limit: u64) -> HandlerResult<Vec<SearchResult>> {
-        (**self).search(query, limit).await
-    }
-    async fn update_file_range(
-        &self,
-        req: UpdateFileRangeRequest,
-    ) -> HandlerResult<Result<(), UpdateError>> {
-        (**self).update_file_range(req).await
-    }
-    async fn is_test_file(&self, path: String) -> HandlerResult<bool> {
-        (**self).is_test_file(path).await
-    }
-    async fn validate(&self, req: ValidateRequest) -> HandlerResult<ValidationResult> {
-        (**self).validate(req).await
-    }
-    async fn lsp_hover(&self, req: LspPositionRequest) -> HandlerResult<Option<HoverInfo>> {
-        (**self).lsp_hover(req).await
-    }
-    async fn lsp_definition(&self, req: LspPositionRequest) -> HandlerResult<Vec<LspLocation>> {
-        (**self).lsp_definition(req).await
-    }
-    async fn lsp_implementation(&self, req: LspPositionRequest) -> HandlerResult<Vec<LspLocation>> {
-        (**self).lsp_implementation(req).await
-    }
-    async fn lsp_references(&self, req: LspReferencesRequest) -> HandlerResult<Vec<LspLocation>> {
-        (**self).lsp_references(req).await
-    }
-    async fn lsp_completions(
-        &self,
-        req: LspPositionRequest,
-    ) -> HandlerResult<Vec<LspCompletionItem>> {
-        (**self).lsp_completions(req).await
-    }
-    async fn lsp_diagnostics(&self, req: LspDocumentRequest) -> HandlerResult<Vec<LspDiagnostic>> {
-        (**self).lsp_diagnostics(req).await
-    }
-    async fn lsp_workspace_diagnostics(&self) -> HandlerResult<Vec<LspFileDiagnostics>> {
-        (**self).lsp_workspace_diagnostics().await
-    }
-    async fn lsp_document_symbols(&self, req: LspDocumentRequest) -> HandlerResult<Vec<LspSymbol>> {
-        (**self).lsp_document_symbols(req).await
-    }
-    async fn lsp_workspace_symbols(&self, query: String) -> HandlerResult<Vec<LspSymbol>> {
-        (**self).lsp_workspace_symbols(query).await
-    }
-    async fn lsp_semantic_tokens(
-        &self,
-        req: LspDocumentRequest,
-    ) -> HandlerResult<Vec<LspSemanticToken>> {
-        (**self).lsp_semantic_tokens(req).await
-    }
-    async fn lsp_code_lens(&self, req: LspDocumentRequest) -> HandlerResult<Vec<LspCodeLens>> {
-        (**self).lsp_code_lens(req).await
-    }
-    async fn lsp_inlay_hints(&self, req: InlayHintsRequest) -> HandlerResult<Vec<LspInlayHint>> {
-        (**self).lsp_inlay_hints(req).await
-    }
-    async fn lsp_prepare_rename(
-        &self,
-        req: LspPositionRequest,
-    ) -> HandlerResult<Option<PrepareRenameResult>> {
-        (**self).lsp_prepare_rename(req).await
-    }
-    async fn lsp_rename(&self, req: LspRenameRequest) -> HandlerResult<Vec<LspTextEdit>> {
-        (**self).lsp_rename(req).await
-    }
-    async fn lsp_code_actions(&self, req: LspPositionRequest) -> HandlerResult<Vec<LspCodeAction>> {
-        (**self).lsp_code_actions(req).await
-    }
-    async fn lsp_document_highlight(
-        &self,
-        req: LspPositionRequest,
-    ) -> HandlerResult<Vec<LspLocation>> {
-        (**self).lsp_document_highlight(req).await
-    }
-    async fn config_add_exclude(
-        &self,
-        req: ConfigPatternRequest,
-    ) -> HandlerResult<Result<(), String>> {
-        (**self).config_add_exclude(req).await
-    }
-    async fn config_add_include(
-        &self,
-        req: ConfigPatternRequest,
-    ) -> HandlerResult<Result<(), String>> {
-        (**self).config_add_include(req).await
-    }
+/// Service implementation wrapping the Engine.
+///
+/// This is a cheap-to-clone handle that wraps the inner state in an Arc.
+#[derive(Clone)]
+pub struct TraceyService {
+    inner: Arc<TraceyServiceInner>,
 }
 
 impl TraceyService {
     /// Create a new service wrapping the given engine.
     pub fn new(engine: Arc<Engine>) -> Self {
         Self {
-            engine,
-            highlighter: Mutex::new(arborium::Highlighter::new()),
-            watcher_state: None,
-            start_time: Instant::now(),
+            inner: Arc::new(TraceyServiceInner {
+                engine,
+                highlighter: Mutex::new(arborium::Highlighter::new()),
+                watcher_state: None,
+                start_time: Instant::now(),
+            }),
         }
     }
 
     /// Create a new service with watcher state for health monitoring.
     pub fn new_with_watcher(engine: Arc<Engine>, watcher_state: Arc<WatcherState>) -> Self {
         Self {
-            engine,
-            highlighter: Mutex::new(arborium::Highlighter::new()),
-            watcher_state: Some(watcher_state),
-            start_time: Instant::now(),
+            inner: Arc::new(TraceyServiceInner {
+                engine,
+                highlighter: Mutex::new(arborium::Highlighter::new()),
+                watcher_state: Some(watcher_state),
+                start_time: Instant::now(),
+            }),
         }
     }
 
     /// Set the watcher state (for lazy initialization).
+    ///
+    /// Note: This requires exclusive access to the inner state. If the Arc
+    /// has been cloned, this will fail silently (watcher state won't be set).
     pub fn set_watcher_state(&mut self, state: Arc<WatcherState>) {
-        self.watcher_state = Some(state);
+        if let Some(inner) = Arc::get_mut(&mut self.inner) {
+            inner.watcher_state = Some(state);
+        }
     }
 
     // Helper: resolve spec/impl from optional parameters
@@ -320,11 +180,11 @@ fn arborium_language(path: &str) -> Option<&'static str> {
     }
 }
 
-/// Implementation of the TraceyDaemonHandler trait (generated by roam-codegen).
-impl TraceyDaemonHandler for TraceyService {
+/// Implementation of the TraceyDaemon trait.
+impl TraceyDaemon for TraceyService {
     /// Get coverage status for all specs/impls
     async fn status(&self) -> HandlerResult<StatusResponse> {
-        let data = self.engine.data().await;
+        let data = self.inner.engine.data().await;
         let query = QueryEngine::new(&data);
         let stats = query.status();
 
@@ -344,7 +204,7 @@ impl TraceyDaemonHandler for TraceyService {
 
     /// Get uncovered rules
     async fn uncovered(&self, req: UncoveredRequest) -> HandlerResult<UncoveredResponse> {
-        let data = self.engine.data().await;
+        let data = self.inner.engine.data().await;
         let query = QueryEngine::new(&data);
 
         // Find the spec/impl to query
@@ -385,7 +245,7 @@ impl TraceyDaemonHandler for TraceyService {
 
     /// Get untested rules
     async fn untested(&self, req: UntestedRequest) -> HandlerResult<UntestedResponse> {
-        let data = self.engine.data().await;
+        let data = self.inner.engine.data().await;
         let query = QueryEngine::new(&data);
 
         let (spec, impl_name) =
@@ -425,7 +285,7 @@ impl TraceyDaemonHandler for TraceyService {
 
     /// Get unmapped code
     async fn unmapped(&self, req: UnmappedRequest) -> HandlerResult<UnmappedResponse> {
-        let data = self.engine.data().await;
+        let data = self.inner.engine.data().await;
         let query = QueryEngine::new(&data);
 
         let (spec, impl_name) =
@@ -488,7 +348,7 @@ impl TraceyDaemonHandler for TraceyService {
 
     /// Get details for a specific rule
     async fn rule(&self, rule_id: String) -> HandlerResult<Option<RuleInfo>> {
-        let data = self.engine.data().await;
+        let data = self.inner.engine.data().await;
         let query = QueryEngine::new(&data);
 
         Ok(query.rule(&rule_id).map(|info| RuleInfo {
@@ -512,13 +372,14 @@ impl TraceyDaemonHandler for TraceyService {
 
     /// Get current configuration
     async fn config(&self) -> HandlerResult<ApiConfig> {
-        let data = self.engine.data().await;
+        let data = self.inner.engine.data().await;
         Ok(data.config.clone())
     }
 
     /// VFS: file opened
     async fn vfs_open(&self, path: String, content: String) -> HandlerResult<()> {
-        self.engine
+        self.inner
+            .engine
             .vfs_open(std::path::PathBuf::from(path), content)
             .await;
         Ok(())
@@ -526,7 +387,8 @@ impl TraceyDaemonHandler for TraceyService {
 
     /// VFS: file changed
     async fn vfs_change(&self, path: String, content: String) -> HandlerResult<()> {
-        self.engine
+        self.inner
+            .engine
             .vfs_change(std::path::PathBuf::from(path), content)
             .await;
         Ok(())
@@ -534,13 +396,16 @@ impl TraceyDaemonHandler for TraceyService {
 
     /// VFS: file closed
     async fn vfs_close(&self, path: String) -> HandlerResult<()> {
-        self.engine.vfs_close(std::path::PathBuf::from(path)).await;
+        self.inner
+            .engine
+            .vfs_close(std::path::PathBuf::from(path))
+            .await;
         Ok(())
     }
 
     /// Force a rebuild
     async fn reload(&self) -> HandlerResult<ReloadResponse> {
-        match self.engine.rebuild().await {
+        match self.inner.engine.rebuild().await {
             Ok((version, duration)) => Ok(ReloadResponse {
                 version,
                 rebuild_time_ms: duration.as_millis() as u64,
@@ -548,7 +413,7 @@ impl TraceyDaemonHandler for TraceyService {
             Err(e) => {
                 tracing::error!("Reload failed: {}", e);
                 Ok(ReloadResponse {
-                    version: self.engine.version(),
+                    version: self.inner.engine.version(),
                     rebuild_time_ms: 0,
                 })
             }
@@ -557,15 +422,15 @@ impl TraceyDaemonHandler for TraceyService {
 
     /// Get current version
     async fn version(&self) -> HandlerResult<u64> {
-        Ok(self.engine.version())
+        Ok(self.inner.engine.version())
     }
 
     /// Get daemon health status
     ///
     /// r[impl daemon.health]
     async fn health(&self) -> HandlerResult<HealthResponse> {
-        let version = self.engine.version();
-        let uptime_secs = self.start_time.elapsed().as_secs();
+        let version = self.inner.engine.version();
+        let uptime_secs = self.inner.start_time.elapsed().as_secs();
 
         // Get watcher state if available
         let (
@@ -574,7 +439,7 @@ impl TraceyDaemonHandler for TraceyService {
             watcher_last_event_ms,
             watcher_event_count,
             watched_directories,
-        ) = if let Some(ref state) = self.watcher_state {
+        ) = if let Some(ref state) = self.inner.watcher_state {
             (
                 state.is_active(),
                 state.error(),
@@ -603,9 +468,9 @@ impl TraceyDaemonHandler for TraceyService {
     }
 
     /// Subscribe to data updates
-    async fn subscribe(&self, updates: Push<DataUpdate>) -> HandlerResult<()> {
+    async fn subscribe(&self, updates: Tx<DataUpdate>) -> HandlerResult<()> {
         // Get a watch receiver from the engine
-        let mut rx = self.engine.subscribe();
+        let mut rx = self.inner.engine.subscribe();
 
         // Loop until the client disconnects or an error occurs
         loop {
@@ -665,7 +530,7 @@ impl TraceyDaemonHandler for TraceyService {
         spec: String,
         impl_name: String,
     ) -> HandlerResult<Option<ApiSpecForward>> {
-        let data = self.engine.data().await;
+        let data = self.inner.engine.data().await;
         Ok(data.forward_by_impl.get(&(spec, impl_name)).cloned())
     }
 
@@ -675,14 +540,14 @@ impl TraceyDaemonHandler for TraceyService {
         spec: String,
         impl_name: String,
     ) -> HandlerResult<Option<ApiReverseData>> {
-        let data = self.engine.data().await;
+        let data = self.inner.engine.data().await;
         Ok(data.reverse_by_impl.get(&(spec, impl_name)).cloned())
     }
 
     /// Get file with syntax highlighting
     async fn file(&self, req: FileRequest) -> HandlerResult<Option<ApiFileData>> {
-        let data = self.engine.data().await;
-        let project_root = self.engine.project_root();
+        let data = self.inner.engine.data().await;
+        let project_root = self.inner.engine.project_root();
 
         let impl_key = (req.spec, req.impl_name);
 
@@ -721,7 +586,7 @@ impl TraceyDaemonHandler for TraceyService {
 
         // Syntax highlight the content
         let html = if let Some(lang) = arborium_language(&relative) {
-            let mut hl = self.highlighter.lock().unwrap();
+            let mut hl = self.inner.highlighter.lock().unwrap();
             match hl.highlight(lang, &content) {
                 Ok(highlighted) => highlighted,
                 Err(_) => html_escape(&content),
@@ -756,13 +621,13 @@ impl TraceyDaemonHandler for TraceyService {
         spec: String,
         impl_name: String,
     ) -> HandlerResult<Option<ApiSpecData>> {
-        let data = self.engine.data().await;
+        let data = self.inner.engine.data().await;
         Ok(data.specs_content_by_impl.get(&(spec, impl_name)).cloned())
     }
 
     /// Search rules and files
-    async fn search(&self, query: String, limit: u64) -> HandlerResult<Vec<SearchResult>> {
-        let data = self.engine.data().await;
+    async fn search(&self, query: String, limit: u32) -> HandlerResult<Vec<SearchResult>> {
+        let data = self.inner.engine.data().await;
         let raw_results: Vec<_> = data
             .search_index
             .search(&query, limit as usize)
@@ -805,8 +670,8 @@ impl TraceyDaemonHandler for TraceyService {
     async fn update_file_range(
         &self,
         req: UpdateFileRangeRequest,
-    ) -> HandlerResult<Result<(), UpdateError>> {
-        let project_root = self.engine.project_root();
+    ) -> Result<(), RoamError<UpdateError>> {
+        let project_root = self.inner.engine.project_root();
 
         // Resolve the file path
         let file_path = PathBuf::from(&req.path);
@@ -820,7 +685,7 @@ impl TraceyDaemonHandler for TraceyService {
         let content = match std::fs::read_to_string(&full_path) {
             Ok(c) => c,
             Err(e) => {
-                return Ok(Err(UpdateError {
+                return Err(RoamError::User(UpdateError {
                     message: format!("Failed to read file: {}", e),
                 }));
             }
@@ -829,7 +694,7 @@ impl TraceyDaemonHandler for TraceyService {
         // Compute hash and compare
         let current_hash = blake3::hash(content.as_bytes()).to_hex().to_string();
         if current_hash != req.file_hash {
-            return Ok(Err(UpdateError {
+            return Err(RoamError::User(UpdateError {
                 message: format!(
                     "File has been modified (expected hash {}, got {})",
                     req.file_hash, current_hash
@@ -839,7 +704,7 @@ impl TraceyDaemonHandler for TraceyService {
 
         // Validate range
         if req.start > req.end || req.end > content.len() {
-            return Ok(Err(UpdateError {
+            return Err(RoamError::User(UpdateError {
                 message: format!(
                     "Invalid range: {}..{} (file length: {})",
                     req.start,
@@ -858,17 +723,17 @@ impl TraceyDaemonHandler for TraceyService {
 
         // Write back
         if let Err(e) = std::fs::write(&full_path, &new_content) {
-            return Ok(Err(UpdateError {
+            return Err(RoamError::User(UpdateError {
                 message: format!("Failed to write file: {}", e),
             }));
         }
 
-        Ok(Ok(()))
+        Ok(())
     }
 
     /// Check if a path is a test file
     async fn is_test_file(&self, path: String) -> HandlerResult<bool> {
-        let data = self.engine.data().await;
+        let data = self.inner.engine.data().await;
         let path = std::path::PathBuf::from(path);
         Ok(data.test_files.contains(&path))
     }
@@ -877,8 +742,8 @@ impl TraceyDaemonHandler for TraceyService {
     ///
     /// r[impl mcp.validation.check]
     async fn validate(&self, req: ValidateRequest) -> HandlerResult<ValidationResult> {
-        let data = self.engine.data().await;
-        let project_root = self.engine.project_root();
+        let data = self.inner.engine.data().await;
+        let project_root = self.inner.engine.project_root();
 
         let (spec, impl_name) =
             self.resolve_spec_impl(req.spec.as_deref(), req.impl_name.as_deref(), &data.config);
@@ -1066,7 +931,7 @@ impl TraceyDaemonHandler for TraceyService {
     /// r[impl lsp.hover.prefix]
     /// r[impl lsp.hover.req-info]
     async fn lsp_hover(&self, req: LspPositionRequest) -> HandlerResult<Option<HoverInfo>> {
-        let data = self.engine.data().await;
+        let data = self.inner.engine.data().await;
         let path = PathBuf::from(&req.path);
 
         // Find the rule at cursor position (works for both spec and source files)
@@ -1134,7 +999,7 @@ impl TraceyDaemonHandler for TraceyService {
     ///
     /// r[impl lsp.goto.ref-to-def]
     async fn lsp_definition(&self, req: LspPositionRequest) -> HandlerResult<Vec<LspLocation>> {
-        let data = self.engine.data().await;
+        let data = self.inner.engine.data().await;
         let path = PathBuf::from(&req.path);
 
         // Find the rule at cursor position (works for both spec and source files)
@@ -1166,7 +1031,7 @@ impl TraceyDaemonHandler for TraceyService {
     /// r[impl lsp.impl.from-ref]
     /// r[impl lsp.impl.multiple]
     async fn lsp_implementation(&self, req: LspPositionRequest) -> HandlerResult<Vec<LspLocation>> {
-        let data = self.engine.data().await;
+        let data = self.inner.engine.data().await;
         let path = PathBuf::from(&req.path);
 
         // Find the rule at cursor position (works for both spec and source files)
@@ -1198,7 +1063,7 @@ impl TraceyDaemonHandler for TraceyService {
     /// r[impl lsp.references.from-reference]
     /// r[impl lsp.references.include-type]
     async fn lsp_references(&self, req: LspReferencesRequest) -> HandlerResult<Vec<LspLocation>> {
-        let data = self.engine.data().await;
+        let data = self.inner.engine.data().await;
         let path = PathBuf::from(&req.path);
 
         // Find the rule at cursor position (works for both spec and source files)
@@ -1265,7 +1130,7 @@ impl TraceyDaemonHandler for TraceyService {
         &self,
         req: LspPositionRequest,
     ) -> HandlerResult<Vec<LspCompletionItem>> {
-        let data = self.engine.data().await;
+        let data = self.inner.engine.data().await;
 
         // Get the text before cursor to determine completion context
         let lines: Vec<&str> = req.content.lines().collect();
@@ -1342,7 +1207,7 @@ impl TraceyDaemonHandler for TraceyService {
     /// r[impl lsp.diagnostics.duplicate-definition]
     /// r[impl lsp.diagnostics.impl-in-test]
     async fn lsp_diagnostics(&self, req: LspDocumentRequest) -> HandlerResult<Vec<LspDiagnostic>> {
-        let data = self.engine.data().await;
+        let data = self.inner.engine.data().await;
         let path = PathBuf::from(&req.path);
 
         let mut diagnostics = Vec::new();
@@ -1488,8 +1353,8 @@ impl TraceyDaemonHandler for TraceyService {
     ///
     /// r[impl lsp.diagnostics.workspace]
     async fn lsp_workspace_diagnostics(&self) -> HandlerResult<Vec<LspFileDiagnostics>> {
-        let data = self.engine.data().await;
-        let project_root = self.engine.project_root();
+        let data = self.inner.engine.data().await;
+        let project_root = self.inner.engine.project_root();
         let mut results = Vec::new();
 
         // Collect unique spec files from forward data
@@ -1565,8 +1430,8 @@ impl TraceyDaemonHandler for TraceyService {
 
         // For spec files (markdown), return requirement definitions
         if path.extension().is_some_and(|ext| ext == "md") {
-            let data = self.engine.data().await;
-            let project_root = self.engine.project_root();
+            let data = self.inner.engine.data().await;
+            let project_root = self.inner.engine.project_root();
 
             // Get relative path for matching
             let relative_path = path
@@ -1618,7 +1483,7 @@ impl TraceyDaemonHandler for TraceyService {
     ///
     /// r[impl lsp.workspace-symbols.requirements]
     async fn lsp_workspace_symbols(&self, query: String) -> HandlerResult<Vec<LspSymbol>> {
-        let data = self.engine.data().await;
+        let data = self.inner.engine.data().await;
         let query_lower = query.to_lowercase();
 
         let mut symbols = Vec::new();
@@ -1658,7 +1523,7 @@ impl TraceyDaemonHandler for TraceyService {
         req: LspDocumentRequest,
     ) -> HandlerResult<Vec<LspSemanticToken>> {
         let path = PathBuf::from(&req.path);
-        let data = self.engine.data().await;
+        let data = self.inner.engine.data().await;
 
         // Build set of known rule IDs
         let known_rules: std::collections::HashSet<_> = data
@@ -1726,7 +1591,7 @@ impl TraceyDaemonHandler for TraceyService {
     /// r[impl lsp.codelens.clickable]
     /// r[impl lsp.codelens.run-test]
     async fn lsp_code_lens(&self, req: LspDocumentRequest) -> HandlerResult<Vec<LspCodeLens>> {
-        let data = self.engine.data().await;
+        let data = self.inner.engine.data().await;
         let path = PathBuf::from(&req.path);
 
         let mut lenses = Vec::new();
@@ -1810,7 +1675,7 @@ impl TraceyDaemonHandler for TraceyService {
     /// r[impl lsp.inlay.coverage-status]
     /// r[impl lsp.inlay.impl-count]
     async fn lsp_inlay_hints(&self, req: InlayHintsRequest) -> HandlerResult<Vec<LspInlayHint>> {
-        let data = self.engine.data().await;
+        let data = self.inner.engine.data().await;
         let path = PathBuf::from(&req.path);
 
         let mut hints = Vec::new();
@@ -1883,7 +1748,7 @@ impl TraceyDaemonHandler for TraceyService {
         &self,
         req: LspPositionRequest,
     ) -> HandlerResult<Option<PrepareRenameResult>> {
-        let data = self.engine.data().await;
+        let data = self.inner.engine.data().await;
         let path = PathBuf::from(&req.path);
 
         // Find the rule at cursor position (works for both spec and source files)
@@ -1920,7 +1785,7 @@ impl TraceyDaemonHandler for TraceyService {
     /// r[impl lsp.rename.req-id]
     /// r[impl lsp.rename.validation]
     async fn lsp_rename(&self, req: LspRenameRequest) -> HandlerResult<Vec<LspTextEdit>> {
-        let data = self.engine.data().await;
+        let data = self.inner.engine.data().await;
         let path = PathBuf::from(&req.path);
 
         // Find the rule at cursor position (works for both spec and source files)
@@ -1977,7 +1842,7 @@ impl TraceyDaemonHandler for TraceyService {
     /// r[impl lsp.actions.create-requirement]
     /// r[impl lsp.actions.open-dashboard]
     async fn lsp_code_actions(&self, req: LspPositionRequest) -> HandlerResult<Vec<LspCodeAction>> {
-        let data = self.engine.data().await;
+        let data = self.inner.engine.data().await;
         let path = PathBuf::from(&req.path);
 
         let mut actions = Vec::new();
@@ -2075,30 +1940,25 @@ impl TraceyDaemonHandler for TraceyService {
     ///
     /// r[impl mcp.config.exclude]
     /// r[impl mcp.config.persist]
-    async fn config_add_exclude(
-        &self,
-        req: ConfigPatternRequest,
-    ) -> HandlerResult<Result<(), String>> {
-        let data = self.engine.data().await;
+    async fn config_add_exclude(&self, req: ConfigPatternRequest) -> Result<(), RoamError<String>> {
+        let data = self.inner.engine.data().await;
         let (spec_name, impl_name) =
             self.resolve_spec_impl(req.spec.as_deref(), req.impl_name.as_deref(), &data.config);
 
         // Load current config
-        let config_path = self.engine.config_path().to_path_buf();
+        let config_path = self.inner.engine.config_path().to_path_buf();
         let mut config = match crate::load_config(&config_path) {
             Ok(c) => c,
-            Err(e) => return Ok(Err(format!("Error loading config: {}", e))),
+            Err(e) => return Err(RoamError::User(format!("Error loading config: {}", e))),
         };
 
         // Find the spec and impl
         let mut found = false;
         for spec in &mut config.specs {
-            if spec.name.value == spec_name {
+            if spec.name == spec_name {
                 for impl_ in &mut spec.impls {
-                    if impl_.name.value == impl_name {
-                        impl_.exclude.push(crate::config::Exclude {
-                            pattern: req.pattern.clone(),
-                        });
+                    if impl_.name == impl_name {
+                        impl_.exclude.push(req.pattern.clone());
                         found = true;
                         break;
                     }
@@ -2108,7 +1968,7 @@ impl TraceyDaemonHandler for TraceyService {
         }
 
         if !found {
-            return Ok(Err(format!(
+            return Err(RoamError::User(format!(
                 "Spec/impl '{}/{}' not found",
                 spec_name, impl_name
             )));
@@ -2116,40 +1976,35 @@ impl TraceyDaemonHandler for TraceyService {
 
         // Save config
         if let Err(e) = save_config(&config_path, &config) {
-            return Ok(Err(format!("Error saving config: {}", e)));
+            return Err(RoamError::User(format!("Error saving config: {}", e)));
         }
 
-        Ok(Ok(()))
+        Ok(())
     }
 
     /// Add an include pattern to an implementation
     ///
     /// r[impl mcp.config.include]
     /// r[impl mcp.config.persist]
-    async fn config_add_include(
-        &self,
-        req: ConfigPatternRequest,
-    ) -> HandlerResult<Result<(), String>> {
-        let data = self.engine.data().await;
+    async fn config_add_include(&self, req: ConfigPatternRequest) -> Result<(), RoamError<String>> {
+        let data = self.inner.engine.data().await;
         let (spec_name, impl_name) =
             self.resolve_spec_impl(req.spec.as_deref(), req.impl_name.as_deref(), &data.config);
 
         // Load current config
-        let config_path = self.engine.config_path().to_path_buf();
+        let config_path = self.inner.engine.config_path().to_path_buf();
         let mut config = match crate::load_config(&config_path) {
             Ok(c) => c,
-            Err(e) => return Ok(Err(format!("Error loading config: {}", e))),
+            Err(e) => return Err(RoamError::User(format!("Error loading config: {}", e))),
         };
 
         // Find the spec and impl
         let mut found = false;
         for spec in &mut config.specs {
-            if spec.name.value == spec_name {
+            if spec.name == spec_name {
                 for impl_ in &mut spec.impls {
-                    if impl_.name.value == impl_name {
-                        impl_.include.push(crate::config::Include {
-                            pattern: req.pattern.clone(),
-                        });
+                    if impl_.name == impl_name {
+                        impl_.include.push(req.pattern.clone());
                         found = true;
                         break;
                     }
@@ -2159,7 +2014,7 @@ impl TraceyDaemonHandler for TraceyService {
         }
 
         if !found {
-            return Ok(Err(format!(
+            return Err(RoamError::User(format!(
                 "Spec/impl '{}/{}' not found",
                 spec_name, impl_name
             )));
@@ -2167,10 +2022,10 @@ impl TraceyDaemonHandler for TraceyService {
 
         // Save config
         if let Err(e) = save_config(&config_path, &config) {
-            return Ok(Err(format!("Error saving config: {}", e)));
+            return Err(RoamError::User(format!("Error saving config: {}", e)));
         }
 
-        Ok(Ok(()))
+        Ok(())
     }
 }
 
