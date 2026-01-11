@@ -294,6 +294,9 @@ When extracting references from source code, tracey MUST match the prefix agains
 r[ref.prefix.coverage]
 When computing coverage, a reference MUST only be counted as covering a requirement if the reference's prefix matches the spec's configured prefix. References with non-matching prefixes MUST be ignored for that spec's coverage computation.
 
+r[ref.prefix.filter]
+When validating a spec/implementation pair, tracey MUST only report "unknown requirement" errors for references whose prefix matches the spec being validated. References with prefixes that belong to other configured specs MUST be silently skipped, as they will be validated when those respective specs are checked.
+
 ## Cross-Workspace Implementation References
 
 r[ref.cross-workspace.paths]

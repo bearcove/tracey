@@ -537,3 +537,138 @@ pub fn login() {}"#;
     );
     assert_eq!(lenses[0].command, "tracey.showReferences");
 }
+
+// ============================================================================
+// Multi-Spec Prefix Filtering Tests
+// r[verify ref.prefix.filter]
+// ============================================================================
+
+#[tokio::test]
+async fn test_validate_ignores_other_spec_prefixes() {
+    use tracey::daemon::service::TraceyDaemonHandler;
+
+    let service = create_test_service().await;
+
+    // Validate test/rust - should NOT report errors for o[...] references
+    // The fixtures/src/lib.rs has both r[impl auth.login] and o[impl api.fetch]
+    let req = ValidateRequest {
+        spec: Some("test".to_string()),
+        impl_name: Some("rust".to_string()),
+    };
+
+    let result = service.validate(req).await.expect("validate() failed");
+
+    // Should not have any UnknownRequirement errors for o[impl api.fetch]
+    // because that reference belongs to the "other" spec, not "test"
+    let unknown_api_errors: Vec<_> = result
+        .errors
+        .iter()
+        .filter(|e| {
+            e.code == ValidationErrorCode::UnknownRequirement && e.message.contains("api.fetch")
+        })
+        .collect();
+
+    assert!(
+        unknown_api_errors.is_empty(),
+        "Validation of test/rust should NOT report errors for o[...] references. \
+         Found errors: {:?}",
+        unknown_api_errors
+    );
+}
+
+#[tokio::test]
+async fn test_validate_other_spec_validates_its_own_prefix() {
+    use tracey::daemon::service::TraceyDaemonHandler;
+
+    let service = create_test_service().await;
+
+    // Validate other/rust - should properly validate o[...] references
+    let req = ValidateRequest {
+        spec: Some("other".to_string()),
+        impl_name: Some("rust".to_string()),
+    };
+
+    let result = service.validate(req).await.expect("validate() failed");
+
+    // Should not have UnknownRequirement errors for o[impl api.fetch]
+    // because api.fetch exists in the other spec
+    let unknown_api_errors: Vec<_> = result
+        .errors
+        .iter()
+        .filter(|e| {
+            e.code == ValidationErrorCode::UnknownRequirement && e.message.contains("api.fetch")
+        })
+        .collect();
+
+    assert!(
+        unknown_api_errors.is_empty(),
+        "Validation of other/rust should NOT report errors for valid o[...] references. \
+         Found errors: {:?}",
+        unknown_api_errors
+    );
+}
+
+#[tokio::test]
+async fn test_validate_other_spec_ignores_r_prefix() {
+    use tracey::daemon::service::TraceyDaemonHandler;
+
+    let service = create_test_service().await;
+
+    // Validate other/rust - should NOT report errors for r[...] references
+    // because those belong to the "test" spec
+    let req = ValidateRequest {
+        spec: Some("other".to_string()),
+        impl_name: Some("rust".to_string()),
+    };
+
+    let result = service.validate(req).await.expect("validate() failed");
+
+    // Should not have UnknownRequirement errors for r[impl auth.login]
+    // because that reference belongs to the "test" spec, not "other"
+    let unknown_auth_errors: Vec<_> = result
+        .errors
+        .iter()
+        .filter(|e| {
+            e.code == ValidationErrorCode::UnknownRequirement && e.message.contains("auth.")
+        })
+        .collect();
+
+    assert!(
+        unknown_auth_errors.is_empty(),
+        "Validation of other/rust should NOT report errors for r[...] references. \
+         Found errors: {:?}",
+        unknown_auth_errors
+    );
+}
+
+#[tokio::test]
+async fn test_validate_detects_unknown_rule_in_matching_prefix() {
+    use tracey::daemon::service::TraceyDaemonHandler;
+
+    let service = create_test_service().await;
+
+    // Create a test case where a rule ID is wrong for the matching prefix
+    // We'll use the existing lsp_diagnostics to check for orphaned references
+    // in a synthetic content
+
+    // For the r[...] prefix (test spec), a reference to a non-existent rule should error
+    let content = r#"/// r[impl nonexistent.rule]
+fn test_func() {}"#;
+
+    let req = LspDocumentRequest {
+        path: fixtures_dir().join("src/test.rs").display().to_string(),
+        content: content.to_string(),
+    };
+
+    let diagnostics = service
+        .lsp_diagnostics(req)
+        .await
+        .expect("lsp_diagnostics() failed");
+
+    // Should have a diagnostic for the orphaned reference
+    let orphaned = diagnostics.iter().find(|d| d.code == "orphaned");
+    assert!(
+        orphaned.is_some(),
+        "Expected orphaned diagnostic for r[impl nonexistent.rule]"
+    );
+}

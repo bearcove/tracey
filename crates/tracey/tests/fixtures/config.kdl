@@ -11,3 +11,17 @@ spec {
         test-include "src/tests.rs"
     }
 }
+
+// Second spec with a different prefix, for testing multi-spec prefix filtering
+// r[verify ref.prefix.filter]
+spec {
+    name "other"
+    prefix "o"
+    include "other-spec.md"
+
+    impl {
+        name "rust"
+        // Same source files as test/rust - exercises the prefix filtering
+        include "src/**/*.rs"
+    }
+}

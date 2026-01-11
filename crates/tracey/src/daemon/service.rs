@@ -974,6 +974,15 @@ impl TraceyDaemonHandler for TraceyService {
                     .map(|s| s.prefix.as_str())
                     .collect();
 
+                // r[impl ref.prefix.filter]
+                // Find the prefix for the current spec being validated
+                let current_spec_prefix: Option<&str> = data
+                    .config
+                    .specs
+                    .iter()
+                    .find(|s| s.name == spec)
+                    .map(|s| s.prefix.as_str());
+
                 // Check files for unknown references
                 for file_entry in &reverse_data.files {
                     let file_path = project_root.join(&file_entry.path);
@@ -996,20 +1005,27 @@ impl TraceyDaemonHandler for TraceyService {
                                     related_rules: vec![],
                                 });
                             }
-                            // Check if rule ID exists (for known prefixes)
-                            else if !rule_ids.contains(reference.req_id.as_str()) {
-                                errors.push(ValidationError {
-                                    code: ValidationErrorCode::UnknownRequirement,
-                                    message: format!(
-                                        "Reference to unknown rule '{}'",
-                                        reference.req_id
-                                    ),
-                                    file: Some(file_entry.path.clone()),
-                                    line: Some(reference.line),
-                                    column: None,
-                                    related_rules: vec![],
-                                });
+                            // r[impl ref.prefix.filter]
+                            // Only validate references whose prefix matches the current spec
+                            // Skip references that belong to a different spec (different prefix)
+                            else if current_spec_prefix == Some(reference.prefix.as_str()) {
+                                // Check if rule ID exists (for matching prefix only)
+                                if !rule_ids.contains(reference.req_id.as_str()) {
+                                    errors.push(ValidationError {
+                                        code: ValidationErrorCode::UnknownRequirement,
+                                        message: format!(
+                                            "Reference to unknown rule '{}'",
+                                            reference.req_id
+                                        ),
+                                        file: Some(file_entry.path.clone()),
+                                        line: Some(reference.line),
+                                        column: None,
+                                        related_rules: vec![],
+                                    });
+                                }
                             }
+                            // References with different known prefixes are intentionally skipped
+                            // They belong to a different spec and will be validated when that spec is checked
                         }
                     }
                 }
