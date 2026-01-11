@@ -497,48 +497,63 @@ impl TraceyHandler {
             Ok(c) => c,
             Err(e) => return format!("Error: {}", e),
         };
-        let (spec, impl_name) = parse_spec_impl(spec_impl);
 
-        let req = ValidateRequest { spec, impl_name };
+        // If a specific spec/impl was requested, validate just that one
+        if spec_impl.is_some() {
+            let (spec, impl_name) = parse_spec_impl(spec_impl);
+            let req = ValidateRequest { spec, impl_name };
+            return match client.validate(req).await {
+                Ok(result) => format_validation_result(&result),
+                Err(e) => format!("Error: {}", e),
+            };
+        }
 
-        match client.validate(req).await {
-            Ok(result) => {
-                if result.errors.is_empty() {
-                    format!(
-                        "✓ {}/{}: No validation errors found",
-                        result.spec, result.impl_name
-                    )
-                } else {
-                    let mut output = format!(
-                        "✗ {}/{}: {} error(s) found\n\n",
-                        result.spec, result.impl_name, result.error_count
-                    );
+        // No filter provided: validate ALL spec/impl combinations
+        let status = match client.status().await {
+            Ok(s) => s,
+            Err(e) => return format!("Error getting status: {}", e),
+        };
 
-                    for error in &result.errors {
-                        let location = match (&error.file, error.line) {
-                            (Some(f), Some(l)) => format!(" at {}:{}", f, l),
-                            (Some(f), None) => format!(" in {}", f),
-                            _ => String::new(),
-                        };
+        if status.impls.is_empty() {
+            return "No spec/impl combinations configured.".to_string();
+        }
 
-                        output.push_str(&format!(
-                            "- [{:?}] {}{}\n",
-                            error.code, error.message, location
-                        ));
+        let mut output = String::new();
+        let mut total_errors = 0;
 
-                        if !error.related_rules.is_empty() {
-                            output.push_str(&format!(
-                                "  Related rules: {}\n",
-                                error.related_rules.join(", ")
-                            ));
-                        }
-                    }
+        for impl_status in &status.impls {
+            let req = ValidateRequest {
+                spec: Some(impl_status.spec.clone()),
+                impl_name: Some(impl_status.impl_name.clone()),
+            };
 
-                    output
+            match client.validate(req).await {
+                Ok(result) => {
+                    total_errors += result.error_count;
+                    output.push_str(&format_validation_result(&result));
+                    output.push('\n');
+                }
+                Err(e) => {
+                    output.push_str(&format!(
+                        "✗ {}/{}: Error: {}\n\n",
+                        impl_status.spec, impl_status.impl_name, e
+                    ));
                 }
             }
-            Err(e) => format!("Error: {}", e),
         }
+
+        // Summary
+        output.push_str("---\n");
+        output.push_str(&format!(
+            "Validated {} spec/impl combination(s), {} total error(s)\n",
+            status.impls.len(),
+            total_errors
+        ));
+        output.push_str(
+            "→ Use spec_impl parameter to validate a specific one (e.g., \"my-spec/rust\")\n",
+        );
+
+        output
     }
 
     async fn handle_config_exclude(&self, spec_impl: Option<&str>, pattern: &str) -> String {
@@ -676,6 +691,43 @@ fn parse_spec_impl(spec_impl: Option<&str>) -> (Option<String>, Option<String>) 
         }
         Some(s) => (Some(s.to_string()), None),
         None => (None, None),
+    }
+}
+
+/// Format a validation result for display.
+fn format_validation_result(result: &tracey_proto::ValidationResult) -> String {
+    if result.errors.is_empty() {
+        format!(
+            "✓ {}/{}: No validation errors found",
+            result.spec, result.impl_name
+        )
+    } else {
+        let mut output = format!(
+            "✗ {}/{}: {} error(s) found\n",
+            result.spec, result.impl_name, result.error_count
+        );
+
+        for error in &result.errors {
+            let location = match (&error.file, error.line) {
+                (Some(f), Some(l)) => format!(" at {}:{}", f, l),
+                (Some(f), None) => format!(" in {}", f),
+                _ => String::new(),
+            };
+
+            output.push_str(&format!(
+                "  - [{:?}] {}{}\n",
+                error.code, error.message, location
+            ));
+
+            if !error.related_rules.is_empty() {
+                output.push_str(&format!(
+                    "    Related rules: {}\n",
+                    error.related_rules.join(", ")
+                ));
+            }
+        }
+
+        output
     }
 }
 
