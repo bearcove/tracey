@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{RwLock, watch};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::config::Config;
 use crate::data::{DashboardData, FileOverlay, build_dashboard_data_with_overlay};
@@ -40,31 +40,36 @@ pub struct Engine {
     config: Arc<RwLock<Config>>,
     /// Version counter
     version: Arc<std::sync::atomic::AtomicU64>,
+    /// Current config error (if config file has errors)
+    config_error: Arc<RwLock<Option<String>>>,
 }
 
 impl Engine {
     /// Create a new engine for the given project root.
     pub async fn new(project_root: PathBuf, config_path: PathBuf) -> Result<Self> {
-        // Load initial config - use empty config if file doesn't exist or can't be read
-        let config = match tokio::fs::read_to_string(&config_path).await {
+        // Load initial config - record errors but continue with empty config
+        let (config, config_error) = match tokio::fs::read_to_string(&config_path).await {
             Ok(content) => match facet_yaml::from_str(&content) {
-                Ok(config) => config,
+                Ok(config) => (config, None),
                 Err(e) => {
-                    info!(
-                        "Config file {} has errors, starting with empty config: {}",
-                        config_path.display(),
-                        e
-                    );
-                    Config::default()
+                    let error_msg =
+                        format!("Config file {} has errors: {}", config_path.display(), e);
+                    warn!("{}", error_msg);
+                    (Config::default(), Some(error_msg))
                 }
             },
-            Err(e) => {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 info!(
-                    "Config file {} not readable, starting with empty config: {}",
-                    config_path.display(),
-                    e
+                    "Config file {} not found, starting with empty config",
+                    config_path.display()
                 );
-                Config::default()
+                (Config::default(), None)
+            }
+            Err(e) => {
+                let error_msg =
+                    format!("Config file {} not readable: {}", config_path.display(), e);
+                warn!("{}", error_msg);
+                (Config::default(), Some(error_msg))
             }
         };
 
@@ -86,6 +91,7 @@ impl Engine {
             config_path,
             config: Arc::new(RwLock::new(config)),
             version: Arc::new(std::sync::atomic::AtomicU64::new(1)),
+            config_error: Arc::new(RwLock::new(config_error)),
         })
     }
 
@@ -152,12 +158,55 @@ impl Engine {
     /// Force a rebuild of the dashboard data.
     ///
     /// This acquires a write lock, blocking all reads until complete.
+    /// Config errors are recorded but don't fail the rebuild - the previous
+    /// config is retained.
     pub async fn rebuild(&self) -> Result<(u64, Duration)> {
         let start = Instant::now();
 
-        // Reload config
-        let config_content = tokio::fs::read_to_string(&self.config_path).await?;
-        let config: Config = facet_yaml::from_str(&config_content)?;
+        // Reload config - record errors but continue with current config
+        let (config, new_config_error) = match tokio::fs::read_to_string(&self.config_path).await {
+            Ok(content) => match facet_yaml::from_str(&content) {
+                Ok(config) => (Some(config), None),
+                Err(e) => {
+                    let error_msg = format!(
+                        "Config file {} has errors: {}",
+                        self.config_path.display(),
+                        e
+                    );
+                    warn!("{}", error_msg);
+                    (None, Some(error_msg))
+                }
+            },
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                // Config file was deleted - use empty config
+                info!(
+                    "Config file {} not found, using empty config",
+                    self.config_path.display()
+                );
+                (Some(Config::default()), None)
+            }
+            Err(e) => {
+                let error_msg = format!(
+                    "Config file {} not readable: {}",
+                    self.config_path.display(),
+                    e
+                );
+                warn!("{}", error_msg);
+                (None, Some(error_msg))
+            }
+        };
+
+        // Use new config if valid, otherwise keep the current one
+        let config = match config {
+            Some(cfg) => cfg,
+            None => self.config.read().await.clone(),
+        };
+
+        // Update config error state
+        {
+            let mut err = self.config_error.write().await;
+            *err = new_config_error;
+        }
 
         // Get current VFS overlay
         let overlay = self.vfs.read().await.clone();
@@ -219,5 +268,10 @@ impl Engine {
     #[allow(dead_code)]
     pub async fn config(&self) -> Config {
         self.config.read().await.clone()
+    }
+
+    /// Get the current config error, if any.
+    pub async fn config_error(&self) -> Option<String> {
+        self.config_error.read().await.clone()
     }
 }

@@ -432,6 +432,9 @@ impl TraceyDaemon for TraceyService {
         let version = self.inner.engine.version();
         let uptime_secs = self.inner.start_time.elapsed().as_secs();
 
+        // Get config error if any
+        let config_error = self.inner.engine.config_error().await;
+
         // Get watcher state if available
         let (
             watcher_active,
@@ -460,6 +463,7 @@ impl TraceyDaemon for TraceyService {
             version,
             watcher_active,
             watcher_error,
+            config_error,
             watcher_last_event_ms,
             watcher_event_count,
             watched_directories,

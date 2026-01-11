@@ -228,33 +228,72 @@ impl Backend {
     async fn publish_workspace_diagnostics(&self) {
         let project_root = self.state().await.project_root.clone();
 
-        let mut state = self.state().await;
-        let Ok(client) = state.get_daemon_client().await else {
-            return;
+        // First, gather all data we need from daemon while holding lock
+        let (config_error, all_diagnostics, files_to_clear) = {
+            let mut state = self.state().await;
+            let Ok(client) = state.get_daemon_client().await else {
+                return;
+            };
+
+            // Check for config errors
+            let config_error = client.health().await.ok().and_then(|h| h.config_error);
+
+            // Get workspace diagnostics
+            let all_diagnostics = match client.lsp_workspace_diagnostics().await {
+                Ok(d) => d,
+                Err(_) => return,
+            };
+
+            // Collect paths that currently have diagnostics
+            let current_paths_with_diagnostics: std::collections::HashSet<String> = all_diagnostics
+                .iter()
+                .map(|fd| project_root.join(&fd.path).to_string_lossy().into_owned())
+                .collect();
+
+            // Find files that previously had diagnostics but no longer do
+            let files_to_clear: Vec<String> = state
+                .files_with_diagnostics
+                .iter()
+                .filter(|path| !current_paths_with_diagnostics.contains(*path))
+                .cloned()
+                .collect();
+
+            // Update tracked files
+            state.files_with_diagnostics = current_paths_with_diagnostics;
+
+            (config_error, all_diagnostics, files_to_clear)
         };
+        // Lock is now released
 
-        let Ok(all_diagnostics) = client.lsp_workspace_diagnostics().await else {
-            return;
-        };
-
-        // Collect paths that currently have diagnostics
-        let current_paths_with_diagnostics: std::collections::HashSet<String> = all_diagnostics
-            .iter()
-            .map(|fd| project_root.join(&fd.path).to_string_lossy().into_owned())
-            .collect();
-
-        // Find files that previously had diagnostics but no longer do
-        let files_to_clear: Vec<String> = state
-            .files_with_diagnostics
-            .iter()
-            .filter(|path| !current_paths_with_diagnostics.contains(*path))
-            .cloned()
-            .collect();
-
-        // Update tracked files
-        state.files_with_diagnostics = current_paths_with_diagnostics.clone();
-
-        drop(state); // Release lock before async calls
+        // Publish config error diagnostic on config file
+        let config_path = project_root.join(".config/tracey/config.yaml");
+        if let Ok(uri) = Url::from_file_path(&config_path) {
+            if let Some(error_msg) = config_error {
+                let diagnostic = Diagnostic {
+                    range: Range {
+                        start: Position {
+                            line: 0,
+                            character: 0,
+                        },
+                        end: Position {
+                            line: 0,
+                            character: 0,
+                        },
+                    },
+                    severity: Some(DiagnosticSeverity::ERROR),
+                    code: Some(NumberOrString::String("config-error".into())),
+                    source: Some("tracey".into()),
+                    message: error_msg,
+                    ..Default::default()
+                };
+                self.client
+                    .publish_diagnostics(uri, vec![diagnostic], None)
+                    .await;
+            } else {
+                // Clear config diagnostics if no error
+                self.client.publish_diagnostics(uri, vec![], None).await;
+            }
+        }
 
         // Clear diagnostics for files that no longer have issues
         for path in files_to_clear {

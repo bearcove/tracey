@@ -620,9 +620,29 @@ function showRefsPopup(
 // App with preact-iso Router
 // ========================================================================
 
+// Config error banner component
+function ConfigErrorBanner({ error, onDismiss }: { error: string; onDismiss?: () => void }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return html`
+    <div class="config-error-banner">
+      <div class="config-error-banner-inner">
+        <${LucideIcon} name="alert-triangle" className="config-error-icon" />
+        <div class="config-error-content">
+          <strong>Configuration Error</strong>
+          <button class="config-error-toggle" onClick=${() => setExpanded(!expanded)}>
+            ${expanded ? "Hide details" : "Show details"}
+          </button>
+        </div>
+      </div>
+      ${expanded && html` <pre class="config-error-details">${error}</pre> `}
+    </div>
+  `;
+}
+
 function App() {
   const apiResult = useApi();
-  const { data, error } = apiResult;
+  const { data, error, configError } = apiResult;
   const { route } = useLocation();
   const [searchOpen, setSearchOpen] = useState(false);
 
@@ -757,6 +777,7 @@ function App() {
   return html`
     <${ApiContext.Provider} value=${apiResult}>
       <div class="layout">
+        ${configError && html`<${ConfigErrorBanner} error=${configError} />`}
         <${Header}
           view=${currentView}
           spec=${currentSpec}

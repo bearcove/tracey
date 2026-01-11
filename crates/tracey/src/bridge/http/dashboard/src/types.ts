@@ -1,14 +1,14 @@
 // Import auto-generated API types
 import type {
-	ApiCodeUnit,
-	ApiConfig,
-	ApiFileData,
-	ApiForwardData,
-	ApiReverseData,
-	ApiSpecData,
-	OutlineCoverage,
-	OutlineEntry,
-	SpecSection,
+  ApiCodeUnit,
+  ApiConfig,
+  ApiFileData,
+  ApiForwardData,
+  ApiReverseData,
+  ApiSpecData,
+  OutlineCoverage,
+  OutlineEntry,
+  SpecSection,
 } from "./api-types";
 import type { ComponentChildren } from "preact";
 
@@ -20,6 +20,18 @@ export type FileContent = ApiFileData;
 export type CodeUnit = ApiCodeUnit;
 export type SpecContent = ApiSpecData;
 export type { OutlineCoverage, OutlineEntry, SpecSection };
+
+// Health data from daemon
+export interface HealthData {
+  version: number;
+  watcherActive: boolean;
+  watcherError?: string | null;
+  configError?: string | null;
+  watcherLastEventMs?: number | null;
+  watcherEventCount: number;
+  watchedDirectories: string[];
+  uptimeSecs: number;
+}
 
 // Route types
 export type ViewType = "sources" | "spec" | "coverage";

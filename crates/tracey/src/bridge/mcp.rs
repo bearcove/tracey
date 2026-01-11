@@ -35,6 +35,14 @@ fn handle_error(guard: &mut ReconnectingClient, e: eyre::Report) -> String {
     format!("Error: {}", e)
 }
 
+/// Format config error as a warning banner to prepend to responses
+fn format_config_error_banner(error: &str) -> String {
+    format!(
+        "⚠️  CONFIG ERROR ⚠️\n{}\n\nFix the config file and the daemon will automatically reload.\n\n---\n\n",
+        error
+    )
+}
+
 // ============================================================================
 // Tool Definitions (same as mcp.rs)
 // ============================================================================
@@ -186,6 +194,19 @@ struct TraceyHandler {
 }
 
 impl TraceyHandler {
+    /// Check for config errors and return a warning banner if present.
+    async fn get_config_error_banner(&self) -> Option<String> {
+        let mut guard = self.client.lock().await;
+        let client = match guard.get_client().await {
+            Ok(c) => c,
+            Err(_) => return None,
+        };
+        match client.health().await {
+            Ok(health) => health.config_error.map(|e| format_config_error_banner(&e)),
+            Err(_) => None,
+        }
+    }
+
     /// r[impl mcp.tool.status]
     /// r[impl mcp.response.hints]
     async fn handle_status(&self) -> String {
@@ -620,6 +641,9 @@ impl ServerHandler for TraceyHandler {
     ) -> std::result::Result<CallToolResult, CallToolError> {
         let args = params.arguments.unwrap_or_default();
 
+        // Check for config errors to prepend to response
+        let config_error_banner = self.get_config_error_banner().await;
+
         let response = match params.name.as_str() {
             "tracey_status" => self.handle_status().await,
             "tracey_uncovered" => {
@@ -669,7 +693,13 @@ impl ServerHandler for TraceyHandler {
             other => format!("Unknown tool: {}", other),
         };
 
-        Ok(CallToolResult::text_content(vec![response.into()]))
+        // Prepend config error banner if present
+        let final_response = match config_error_banner {
+            Some(banner) => format!("{}{}", banner, response),
+            None => response,
+        };
+
+        Ok(CallToolResult::text_content(vec![final_response.into()]))
     }
 }
 

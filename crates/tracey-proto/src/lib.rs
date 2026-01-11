@@ -267,6 +267,10 @@ pub struct HealthResponse {
     #[facet(default)]
     pub watcher_error: Option<String>,
 
+    /// Error message if config file has errors (None if healthy)
+    #[facet(default)]
+    pub config_error: Option<String>,
+
     /// Timestamp of last file change event (millis since epoch)
     #[facet(default)]
     pub watcher_last_event_ms: Option<u64>,
