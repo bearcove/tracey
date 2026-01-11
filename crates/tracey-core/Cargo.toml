@@ -27,6 +27,7 @@ reverse = [
     "dep:arborium-java",
     "dep:arborium-python",
     "dep:arborium-typescript",
+    "dep:arborium-php",
 ]
 
 [dependencies]
@@ -44,3 +45,4 @@ arborium-go = { workspace = true, optional = true }
 arborium-java = { workspace = true, optional = true }
 arborium-python = { workspace = true, optional = true }
 arborium-typescript = { workspace = true, optional = true }
+arborium-php = { workspace = true, optional = true }

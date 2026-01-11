@@ -154,6 +154,7 @@ pub fn extract(path: &Path, source: &str) -> CodeUnits {
         "java" => extract_java(path, source),
         "py" => extract_python(path, source),
         "ts" | "tsx" | "js" | "jsx" | "mts" | "cts" => extract_typescript(path, source),
+        "php" => extract_php(path, source),
         _ => CodeUnits::new(),
     }
 }
@@ -331,6 +332,35 @@ fn typescript_node_kind(kind: &str) -> Option<CodeUnitKind> {
         "enum_declaration" => Some(CodeUnitKind::Enum),
         _ => None,
     }
+}
+
+fn php_node_kind(kind: &str) -> Option<CodeUnitKind> {
+    match kind {
+        "function_definition" => Some(CodeUnitKind::Function),
+        "method_declaration" => Some(CodeUnitKind::Function),
+        "class_declaration" => Some(CodeUnitKind::Struct),
+        "interface_declaration" => Some(CodeUnitKind::Trait),
+        "trait_declaration" => Some(CodeUnitKind::Trait),
+        "enum_declaration" => Some(CodeUnitKind::Enum),
+        _ => None,
+    }
+}
+
+/// Extract code units from PHP source code
+pub fn extract_php(path: &Path, source: &str) -> CodeUnits {
+    let mut parser = Parser::new();
+    parser
+        .set_language(&arborium_php::language().into())
+        .expect("Failed to load PHP grammar");
+
+    let Some(tree) = parser.parse(source, None) else {
+        return CodeUnits::new();
+    };
+
+    let mut units = CodeUnits::new();
+    let root = tree.root_node();
+    extract_units_recursive(path, source, root, &mut units, php_node_kind);
+    units
 }
 
 fn extract_units_recursive<F>(
@@ -603,6 +633,7 @@ pub fn extract_refs(path: &Path, source: &str) -> Vec<FullReqRef> {
         "java" => arborium_java::language(),
         "py" => arborium_python::language(),
         "ts" | "tsx" | "js" | "jsx" | "mts" | "cts" => arborium_typescript::language(),
+        "php" => arborium_php::language(),
         _ => return Vec::new(),
     };
 

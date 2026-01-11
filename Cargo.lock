@@ -4518,6 +4518,7 @@ dependencies = [
  "arborium",
  "arborium-go",
  "arborium-java",
+ "arborium-php",
  "arborium-python",
  "arborium-rust",
  "arborium-swift",

@@ -477,9 +477,9 @@ mod tests {
     fn test_memory_sources_php() {
         let result = Reqs::extract(
             MemorySources::new()
-                .add("Foo.php", "// r[impl php.req.one]")
-                .add("Bar.php", "/* r[verify php.req.two] */")
-                .add("Baz.php", "/** r[verify php.req.three] */"),
+                .add("Foo.php", "<?php\n// r[impl php.req.one]")
+                .add("Bar.php", "<?php\n/* r[verify php.req.two] */")
+                .add("Baz.php", "<?php\n/** r[verify php.req.three] */"),
         )
         .unwrap();
 

@@ -616,9 +616,9 @@ pub async fn build_dashboard_data_with_overlay(
             let include: Vec<String> = if impl_config.include.is_empty() {
                 vec!["**/*.rs".to_string()]
             } else {
-                impl_config.include.iter().map(|inc| inc.clone()).collect()
+                impl_config.include.to_vec()
             };
-            let exclude: Vec<String> = impl_config.exclude.iter().map(|exc| exc.clone()).collect();
+            let exclude: Vec<String> = impl_config.exclude.to_vec();
 
             // r[impl ref.cross-workspace.paths]
             // Extract requirement references from this impl's source files
