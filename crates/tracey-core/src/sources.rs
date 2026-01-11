@@ -38,6 +38,7 @@ pub const SUPPORTED_EXTENSIONS: &[&str] = &[
     "groovy", // Groovy
     "cs",     // C#
     "zig",    // Zig
+    "php",    // PHP
 ];
 
 /// Check if a file extension is supported for scanning
@@ -473,6 +474,23 @@ mod tests {
     }
 
     #[test]
+    fn test_memory_sources_php() {
+        let result = Reqs::extract(
+            MemorySources::new()
+                .add("Foo.php", "// r[impl php.req.one]")
+                .add("Bar.php", "/* r[verify php.req.two] */")
+                .add("Baz.php", "/** r[verify php.req.three] */"),
+        )
+        .unwrap();
+
+        assert_eq!(result.reqs.len(), 3);
+        assert_eq!(result.reqs.references[0].req_id, "php.req.one");
+        assert_eq!(result.reqs.references[1].req_id, "php.req.two");
+        assert_eq!(result.reqs.references[2].req_id, "php.req.three");
+        assert!(result.warnings.is_empty());
+    }
+
+    #[test]
     fn test_memory_sources_mixed_languages() {
         let result = Reqs::extract(
             MemorySources::new()
@@ -495,6 +513,7 @@ mod tests {
         assert!(is_supported_extension(OsStr::new("tsx")));
         assert!(is_supported_extension(OsStr::new("js")));
         assert!(is_supported_extension(OsStr::new("go")));
+        assert!(is_supported_extension(OsStr::new("php")));
 
         assert!(!is_supported_extension(OsStr::new("md")));
         assert!(!is_supported_extension(OsStr::new("txt")));
