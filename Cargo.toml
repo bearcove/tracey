@@ -73,7 +73,7 @@ notify-debouncer-mini = "0.7"
 tantivy = "0.22"
 
 # Markdown processing (with syntax highlighting and diagram handlers)
-marq = { path = "../marq", features = ["highlight", "aasvg", "pikru"] }
+marq = { git = "https://github.com/bearcove/marq", branch = "main", features = ["highlight", "aasvg", "pikru"] }
 
 # The profile that 'dist' will build with
 [profile.dist]

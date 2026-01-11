@@ -58,6 +58,7 @@ async fn run_lsp_server(project_root: PathBuf) -> Result<()> {
             documents: HashMap::new(),
             project_root: project_root.clone(),
             daemon_client: None,
+            files_with_diagnostics: std::collections::HashSet::new(),
         }),
     });
     Server::new(stdin, stdout, socket).serve(service).await;
@@ -77,6 +78,9 @@ struct LspState {
     project_root: PathBuf,
     /// Client connection to daemon (lazy-initialized)
     daemon_client: Option<DaemonClient>,
+    /// Files that have been published with non-empty diagnostics.
+    /// Used to clear diagnostics when issues are fixed.
+    files_with_diagnostics: std::collections::HashSet<String>,
 }
 
 impl LspState {
@@ -135,7 +139,10 @@ impl Backend {
             return;
         };
 
-        let req = LspDocumentRequest { path, content };
+        let req = LspDocumentRequest {
+            path: path.clone(),
+            content,
+        };
         let Ok(daemon_diagnostics) = client.lsp_diagnostics(req).await else {
             return;
         };
@@ -166,6 +173,13 @@ impl Backend {
                 ..Default::default()
             })
             .collect();
+
+        // Track files with non-empty diagnostics for clearing later
+        if diagnostics.is_empty() {
+            state.files_with_diagnostics.remove(&path);
+        } else {
+            state.files_with_diagnostics.insert(path);
+        }
 
         drop(state); // Release lock before async call
         self.client
@@ -210,6 +224,7 @@ impl Backend {
     /// Publish diagnostics for all files in the workspace.
     ///
     /// r[impl lsp.diagnostics.workspace]
+    /// r[impl lsp.diagnostics.clear-fixed]
     async fn publish_workspace_diagnostics(&self) {
         let project_root = self.state().await.project_root.clone();
 
@@ -222,8 +237,34 @@ impl Backend {
             return;
         };
 
+        // Collect paths that currently have diagnostics
+        let current_paths_with_diagnostics: std::collections::HashSet<String> = all_diagnostics
+            .iter()
+            .map(|fd| project_root.join(&fd.path).to_string_lossy().into_owned())
+            .collect();
+
+        // Find files that previously had diagnostics but no longer do
+        let files_to_clear: Vec<String> = state
+            .files_with_diagnostics
+            .iter()
+            .filter(|path| !current_paths_with_diagnostics.contains(*path))
+            .cloned()
+            .collect();
+
+        // Update tracked files
+        state.files_with_diagnostics = current_paths_with_diagnostics.clone();
+
         drop(state); // Release lock before async calls
 
+        // Clear diagnostics for files that no longer have issues
+        for path in files_to_clear {
+            let Ok(uri) = Url::from_file_path(&path) else {
+                continue;
+            };
+            self.client.publish_diagnostics(uri, vec![], None).await;
+        }
+
+        // Publish diagnostics for files that currently have issues
         for file_diag in all_diagnostics {
             // Convert relative path to absolute and then to URI
             let abs_path = project_root.join(&file_diag.path);
@@ -359,7 +400,9 @@ impl LanguageServer for Backend {
         let uri = params.text_document.uri.clone();
         self.state().await.document_closed(&uri);
         self.notify_vfs_close(&uri).await;
-        self.client.publish_diagnostics(uri, vec![], None).await;
+        // Don't clear diagnostics on close - workspace diagnostics should persist
+        // for all files, not just open ones. The next publish_workspace_diagnostics
+        // call will update diagnostics based on current file state on disk.
     }
 
     /// r[impl lsp.completions.verb]

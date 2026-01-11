@@ -9,11 +9,11 @@ use eyre::Result;
 use owo_colors::OwoColorize;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
+use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::future::Future;
-use std::pin::Pin;
 use tracey_core::code_units::CodeUnit;
 use tracey_core::is_supported_extension;
 use tracey_core::{RefVerb, ReqDefinition, Reqs};
@@ -693,7 +693,7 @@ pub async fn build_dashboard_data_with_overlay(
 
                 api_rules.push(ApiRule {
                     id: extracted.def.id.clone(),
-                    raw: extracted.def.raw.clone(),
+                    raw: extracted.def.text.clone(),
                     html: extracted.def.html.clone(),
                     status: extracted
                         .def
@@ -1168,4 +1168,3 @@ pub fn glob_match(path: &str, pattern: &str) -> bool {
     // Fallback
     true
 }
-
