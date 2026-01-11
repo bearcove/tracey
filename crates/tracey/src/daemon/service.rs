@@ -1,0 +1,2442 @@
+//! TraceyDaemon service implementation.
+//!
+//! Implements the roam RPC service by delegating to the Engine.
+
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
+use tracey_proto::*;
+
+use super::engine::Engine;
+use super::watcher::WatcherState;
+use crate::server::QueryEngine;
+use roam::Push;
+
+// Include generated code (TraceyDaemonHandler trait, TraceyDaemonDispatcher)
+// The generated file has both caller and handler code - we only use handler
+mod generated {
+    #![allow(dead_code)]
+    pub use tracey_proto::*;
+    include!(concat!(env!("OUT_DIR"), "/tracey_daemon_generated.rs"));
+}
+pub use generated::{TraceyDaemonDispatcher, TraceyDaemonHandler};
+
+/// Handler error type (we never fail, so this is just for the trait)
+type HandlerResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+/// Service implementation wrapping the Engine.
+pub struct TraceyService {
+    engine: Arc<Engine>,
+    /// Syntax highlighter for source files
+    highlighter: Mutex<arborium::Highlighter>,
+    /// Watcher state for health monitoring
+    watcher_state: Option<Arc<WatcherState>>,
+    /// Start time for uptime calculation
+    start_time: Instant,
+}
+
+/// Blanket impl: `Arc<TraceyService>` delegates to `TraceyService`
+impl TraceyDaemonHandler for Arc<TraceyService> {
+    async fn status(&self) -> HandlerResult<StatusResponse> {
+        (**self).status().await
+    }
+    async fn uncovered(&self, req: UncoveredRequest) -> HandlerResult<UncoveredResponse> {
+        (**self).uncovered(req).await
+    }
+    async fn untested(&self, req: UntestedRequest) -> HandlerResult<UntestedResponse> {
+        (**self).untested(req).await
+    }
+    async fn unmapped(&self, req: UnmappedRequest) -> HandlerResult<UnmappedResponse> {
+        (**self).unmapped(req).await
+    }
+    async fn rule(&self, rule_id: String) -> HandlerResult<Option<RuleInfo>> {
+        (**self).rule(rule_id).await
+    }
+    async fn config(&self) -> HandlerResult<ApiConfig> {
+        (**self).config().await
+    }
+    async fn vfs_open(&self, path: String, content: String) -> HandlerResult<()> {
+        (**self).vfs_open(path, content).await
+    }
+    async fn vfs_change(&self, path: String, content: String) -> HandlerResult<()> {
+        (**self).vfs_change(path, content).await
+    }
+    async fn vfs_close(&self, path: String) -> HandlerResult<()> {
+        (**self).vfs_close(path).await
+    }
+    async fn reload(&self) -> HandlerResult<ReloadResponse> {
+        (**self).reload().await
+    }
+    async fn version(&self) -> HandlerResult<u64> {
+        (**self).version().await
+    }
+    async fn health(&self) -> HandlerResult<HealthResponse> {
+        (**self).health().await
+    }
+    async fn subscribe(&self, updates: Push<DataUpdate>) -> HandlerResult<()> {
+        (**self).subscribe(updates).await
+    }
+    async fn forward(
+        &self,
+        spec: String,
+        impl_name: String,
+    ) -> HandlerResult<Option<ApiSpecForward>> {
+        (**self).forward(spec, impl_name).await
+    }
+    async fn reverse(
+        &self,
+        spec: String,
+        impl_name: String,
+    ) -> HandlerResult<Option<ApiReverseData>> {
+        (**self).reverse(spec, impl_name).await
+    }
+    async fn file(&self, req: FileRequest) -> HandlerResult<Option<ApiFileData>> {
+        (**self).file(req).await
+    }
+    async fn spec_content(
+        &self,
+        spec: String,
+        impl_name: String,
+    ) -> HandlerResult<Option<ApiSpecData>> {
+        (**self).spec_content(spec, impl_name).await
+    }
+    async fn search(&self, query: String, limit: u64) -> HandlerResult<Vec<SearchResult>> {
+        (**self).search(query, limit).await
+    }
+    async fn update_file_range(
+        &self,
+        req: UpdateFileRangeRequest,
+    ) -> HandlerResult<Result<(), UpdateError>> {
+        (**self).update_file_range(req).await
+    }
+    async fn is_test_file(&self, path: String) -> HandlerResult<bool> {
+        (**self).is_test_file(path).await
+    }
+    async fn validate(&self, req: ValidateRequest) -> HandlerResult<ValidationResult> {
+        (**self).validate(req).await
+    }
+    async fn lsp_hover(&self, req: LspPositionRequest) -> HandlerResult<Option<HoverInfo>> {
+        (**self).lsp_hover(req).await
+    }
+    async fn lsp_definition(&self, req: LspPositionRequest) -> HandlerResult<Vec<LspLocation>> {
+        (**self).lsp_definition(req).await
+    }
+    async fn lsp_implementation(&self, req: LspPositionRequest) -> HandlerResult<Vec<LspLocation>> {
+        (**self).lsp_implementation(req).await
+    }
+    async fn lsp_references(&self, req: LspReferencesRequest) -> HandlerResult<Vec<LspLocation>> {
+        (**self).lsp_references(req).await
+    }
+    async fn lsp_completions(
+        &self,
+        req: LspPositionRequest,
+    ) -> HandlerResult<Vec<LspCompletionItem>> {
+        (**self).lsp_completions(req).await
+    }
+    async fn lsp_diagnostics(&self, req: LspDocumentRequest) -> HandlerResult<Vec<LspDiagnostic>> {
+        (**self).lsp_diagnostics(req).await
+    }
+    async fn lsp_workspace_diagnostics(&self) -> HandlerResult<Vec<LspFileDiagnostics>> {
+        (**self).lsp_workspace_diagnostics().await
+    }
+    async fn lsp_document_symbols(&self, req: LspDocumentRequest) -> HandlerResult<Vec<LspSymbol>> {
+        (**self).lsp_document_symbols(req).await
+    }
+    async fn lsp_workspace_symbols(&self, query: String) -> HandlerResult<Vec<LspSymbol>> {
+        (**self).lsp_workspace_symbols(query).await
+    }
+    async fn lsp_semantic_tokens(
+        &self,
+        req: LspDocumentRequest,
+    ) -> HandlerResult<Vec<LspSemanticToken>> {
+        (**self).lsp_semantic_tokens(req).await
+    }
+    async fn lsp_code_lens(&self, req: LspDocumentRequest) -> HandlerResult<Vec<LspCodeLens>> {
+        (**self).lsp_code_lens(req).await
+    }
+    async fn lsp_inlay_hints(&self, req: InlayHintsRequest) -> HandlerResult<Vec<LspInlayHint>> {
+        (**self).lsp_inlay_hints(req).await
+    }
+    async fn lsp_prepare_rename(
+        &self,
+        req: LspPositionRequest,
+    ) -> HandlerResult<Option<PrepareRenameResult>> {
+        (**self).lsp_prepare_rename(req).await
+    }
+    async fn lsp_rename(&self, req: LspRenameRequest) -> HandlerResult<Vec<LspTextEdit>> {
+        (**self).lsp_rename(req).await
+    }
+    async fn lsp_code_actions(&self, req: LspPositionRequest) -> HandlerResult<Vec<LspCodeAction>> {
+        (**self).lsp_code_actions(req).await
+    }
+    async fn lsp_document_highlight(
+        &self,
+        req: LspPositionRequest,
+    ) -> HandlerResult<Vec<LspLocation>> {
+        (**self).lsp_document_highlight(req).await
+    }
+    async fn config_add_exclude(
+        &self,
+        req: ConfigPatternRequest,
+    ) -> HandlerResult<Result<(), String>> {
+        (**self).config_add_exclude(req).await
+    }
+    async fn config_add_include(
+        &self,
+        req: ConfigPatternRequest,
+    ) -> HandlerResult<Result<(), String>> {
+        (**self).config_add_include(req).await
+    }
+}
+
+impl TraceyService {
+    /// Create a new service wrapping the given engine.
+    pub fn new(engine: Arc<Engine>) -> Self {
+        Self {
+            engine,
+            highlighter: Mutex::new(arborium::Highlighter::new()),
+            watcher_state: None,
+            start_time: Instant::now(),
+        }
+    }
+
+    /// Create a new service with watcher state for health monitoring.
+    pub fn new_with_watcher(engine: Arc<Engine>, watcher_state: Arc<WatcherState>) -> Self {
+        Self {
+            engine,
+            highlighter: Mutex::new(arborium::Highlighter::new()),
+            watcher_state: Some(watcher_state),
+            start_time: Instant::now(),
+        }
+    }
+
+    /// Set the watcher state (for lazy initialization).
+    pub fn set_watcher_state(&mut self, state: Arc<WatcherState>) {
+        self.watcher_state = Some(state);
+    }
+
+    // Helper: resolve spec/impl from optional parameters
+    fn resolve_spec_impl(
+        &self,
+        spec: Option<&str>,
+        impl_name: Option<&str>,
+        config: &ApiConfig,
+    ) -> (String, String) {
+        // If spec not provided, use first spec
+        let spec_name = spec.map(String::from).unwrap_or_else(|| {
+            config
+                .specs
+                .first()
+                .map(|s| s.name.clone())
+                .unwrap_or_default()
+        });
+
+        // If impl not provided, use first impl for that spec
+        let impl_name = impl_name.map(String::from).unwrap_or_else(|| {
+            config
+                .specs
+                .iter()
+                .find(|s| s.name == spec_name)
+                .and_then(|s| s.implementations.first().cloned())
+                .unwrap_or_default()
+        });
+
+        (spec_name, impl_name)
+    }
+}
+
+/// Escape HTML special characters.
+fn html_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// Get arborium language name from file extension.
+fn arborium_language(path: &str) -> Option<&'static str> {
+    let ext = path.rsplit('.').next()?;
+    match ext {
+        // Rust
+        "rs" => Some("rust"),
+        // Go
+        "go" => Some("go"),
+        // C/C++
+        "c" | "h" => Some("c"),
+        "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => Some("cpp"),
+        // Web
+        "js" | "mjs" | "cjs" => Some("javascript"),
+        "ts" | "mts" | "cts" => Some("typescript"),
+        "jsx" => Some("javascript"),
+        "tsx" => Some("tsx"),
+        // Python
+        "py" => Some("python"),
+        // Ruby
+        "rb" => Some("ruby"),
+        // Java/JVM
+        "java" => Some("java"),
+        "kt" | "kts" => Some("kotlin"),
+        "scala" => Some("scala"),
+        // Shell
+        "sh" | "bash" | "zsh" => Some("bash"),
+        // Config
+        "json" => Some("json"),
+        "yaml" | "yml" => Some("yaml"),
+        "toml" => Some("toml"),
+        "xml" => Some("xml"),
+        // Web markup
+        "html" | "htm" => Some("html"),
+        "css" => Some("css"),
+        "scss" | "sass" => Some("scss"),
+        // Markdown
+        "md" | "markdown" => Some("markdown"),
+        // SQL
+        "sql" => Some("sql"),
+        // Zig
+        "zig" => Some("zig"),
+        // Swift
+        "swift" => Some("swift"),
+        // Elixir
+        "ex" | "exs" => Some("elixir"),
+        // Haskell
+        "hs" | "lhs" => Some("haskell"),
+        // OCaml
+        "ml" | "mli" => Some("ocaml"),
+        // Lua
+        "lua" => Some("lua"),
+        // PHP
+        "php" => Some("php"),
+        // R
+        "r" | "R" => Some("r"),
+        _ => None,
+    }
+}
+
+/// Implementation of the TraceyDaemonHandler trait (generated by roam-codegen).
+impl TraceyDaemonHandler for TraceyService {
+    /// Get coverage status for all specs/impls
+    async fn status(&self) -> HandlerResult<StatusResponse> {
+        let data = self.engine.data().await;
+        let query = QueryEngine::new(&data);
+        let stats = query.status();
+
+        Ok(StatusResponse {
+            impls: stats
+                .into_iter()
+                .map(|(spec, impl_name, s)| ImplStatus {
+                    spec,
+                    impl_name,
+                    total_rules: s.total_rules,
+                    covered_rules: s.impl_covered,
+                    verified_rules: s.verify_covered,
+                })
+                .collect(),
+        })
+    }
+
+    /// Get uncovered rules
+    async fn uncovered(&self, req: UncoveredRequest) -> HandlerResult<UncoveredResponse> {
+        let data = self.engine.data().await;
+        let query = QueryEngine::new(&data);
+
+        // Find the spec/impl to query
+        let (spec, impl_name) =
+            self.resolve_spec_impl(req.spec.as_deref(), req.impl_name.as_deref(), &data.config);
+
+        if let Some(result) = query.uncovered(&spec, &impl_name, req.prefix.as_deref()) {
+            Ok(UncoveredResponse {
+                spec: result.spec,
+                impl_name: result.impl_name,
+                total_rules: result.stats.total_rules,
+                uncovered_count: result.total_uncovered,
+                by_section: result
+                    .by_section
+                    .into_iter()
+                    .map(|(section, rules)| SectionRules {
+                        section,
+                        rules: rules
+                            .into_iter()
+                            .map(|r| tracey_proto::RuleRef {
+                                id: r.id,
+                                text: None, // RuleRef in server.rs doesn't have text
+                            })
+                            .collect(),
+                    })
+                    .collect(),
+            })
+        } else {
+            Ok(UncoveredResponse {
+                spec,
+                impl_name,
+                total_rules: 0,
+                uncovered_count: 0,
+                by_section: vec![],
+            })
+        }
+    }
+
+    /// Get untested rules
+    async fn untested(&self, req: UntestedRequest) -> HandlerResult<UntestedResponse> {
+        let data = self.engine.data().await;
+        let query = QueryEngine::new(&data);
+
+        let (spec, impl_name) =
+            self.resolve_spec_impl(req.spec.as_deref(), req.impl_name.as_deref(), &data.config);
+
+        if let Some(result) = query.untested(&spec, &impl_name, req.prefix.as_deref()) {
+            Ok(UntestedResponse {
+                spec: result.spec,
+                impl_name: result.impl_name,
+                total_rules: result.stats.total_rules,
+                untested_count: result.total_untested,
+                by_section: result
+                    .by_section
+                    .into_iter()
+                    .map(|(section, rules)| SectionRules {
+                        section,
+                        rules: rules
+                            .into_iter()
+                            .map(|r| tracey_proto::RuleRef {
+                                id: r.id,
+                                text: None,
+                            })
+                            .collect(),
+                    })
+                    .collect(),
+            })
+        } else {
+            Ok(UntestedResponse {
+                spec,
+                impl_name,
+                total_rules: 0,
+                untested_count: 0,
+                by_section: vec![],
+            })
+        }
+    }
+
+    /// Get unmapped code
+    async fn unmapped(&self, req: UnmappedRequest) -> HandlerResult<UnmappedResponse> {
+        let data = self.engine.data().await;
+        let query = QueryEngine::new(&data);
+
+        let (spec, impl_name) =
+            self.resolve_spec_impl(req.spec.as_deref(), req.impl_name.as_deref(), &data.config);
+
+        if let Some(result) = query.unmapped(&spec, &impl_name, req.path.as_deref()) {
+            // Convert tree nodes to flat entries
+            let mut entries = Vec::new();
+            fn flatten_tree(node: &crate::server::FileTreeNode, entries: &mut Vec<UnmappedEntry>) {
+                entries.push(UnmappedEntry {
+                    path: node.path.clone(),
+                    is_dir: node.is_dir,
+                    total_units: node.total_units,
+                    unmapped_units: node.total_units.saturating_sub(node.covered_units),
+                    units: vec![], // Tree nodes don't have unit details
+                });
+                for child in &node.children {
+                    flatten_tree(child, entries);
+                }
+            }
+            for node in &result.tree {
+                flatten_tree(node, &mut entries);
+            }
+
+            // If we have file details, add those units
+            if let Some(details) = &result.file_details {
+                // Find the entry for this file and update its units
+                if let Some(entry) = entries.iter_mut().find(|e| e.path == details.path) {
+                    entry.units = details
+                        .units
+                        .iter()
+                        .filter(|u| !u.is_covered)
+                        .map(|u| UnmappedUnit {
+                            kind: u.kind.clone(),
+                            name: u.name.clone(),
+                            start_line: u.start_line,
+                            end_line: u.end_line,
+                        })
+                        .collect();
+                }
+            }
+
+            Ok(UnmappedResponse {
+                spec: result.spec,
+                impl_name: result.impl_name,
+                total_units: result.total_units,
+                unmapped_count: result.total_units.saturating_sub(result.covered_units),
+                entries,
+            })
+        } else {
+            Ok(UnmappedResponse {
+                spec,
+                impl_name,
+                total_units: 0,
+                unmapped_count: 0,
+                entries: vec![],
+            })
+        }
+    }
+
+    /// Get details for a specific rule
+    async fn rule(&self, rule_id: String) -> HandlerResult<Option<RuleInfo>> {
+        let data = self.engine.data().await;
+        let query = QueryEngine::new(&data);
+
+        Ok(query.rule(&rule_id).map(|info| RuleInfo {
+            id: info.id,
+            raw: info.raw,
+            html: info.html,
+            source_file: info.source_file,
+            source_line: info.source_line,
+            coverage: info
+                .coverage
+                .into_iter()
+                .map(|c| RuleCoverage {
+                    spec: c.spec,
+                    impl_name: c.impl_name,
+                    impl_refs: c.impl_refs,
+                    verify_refs: c.verify_refs,
+                })
+                .collect(),
+        }))
+    }
+
+    /// Get current configuration
+    async fn config(&self) -> HandlerResult<ApiConfig> {
+        let data = self.engine.data().await;
+        Ok(data.config.clone())
+    }
+
+    /// VFS: file opened
+    async fn vfs_open(&self, path: String, content: String) -> HandlerResult<()> {
+        self.engine
+            .vfs_open(std::path::PathBuf::from(path), content)
+            .await;
+        Ok(())
+    }
+
+    /// VFS: file changed
+    async fn vfs_change(&self, path: String, content: String) -> HandlerResult<()> {
+        self.engine
+            .vfs_change(std::path::PathBuf::from(path), content)
+            .await;
+        Ok(())
+    }
+
+    /// VFS: file closed
+    async fn vfs_close(&self, path: String) -> HandlerResult<()> {
+        self.engine.vfs_close(std::path::PathBuf::from(path)).await;
+        Ok(())
+    }
+
+    /// Force a rebuild
+    async fn reload(&self) -> HandlerResult<ReloadResponse> {
+        match self.engine.rebuild().await {
+            Ok((version, duration)) => Ok(ReloadResponse {
+                version,
+                rebuild_time_ms: duration.as_millis() as u64,
+            }),
+            Err(e) => {
+                tracing::error!("Reload failed: {}", e);
+                Ok(ReloadResponse {
+                    version: self.engine.version(),
+                    rebuild_time_ms: 0,
+                })
+            }
+        }
+    }
+
+    /// Get current version
+    async fn version(&self) -> HandlerResult<u64> {
+        Ok(self.engine.version())
+    }
+
+    /// Get daemon health status
+    ///
+    /// r[impl daemon.health]
+    async fn health(&self) -> HandlerResult<HealthResponse> {
+        let version = self.engine.version();
+        let uptime_secs = self.start_time.elapsed().as_secs();
+
+        // Get watcher state if available
+        let (
+            watcher_active,
+            watcher_error,
+            watcher_last_event_ms,
+            watcher_event_count,
+            watched_directories,
+        ) = if let Some(ref state) = self.watcher_state {
+            (
+                state.is_active(),
+                state.error(),
+                state.last_event_ms(),
+                state.event_count(),
+                state
+                    .watched_dirs()
+                    .into_iter()
+                    .map(|p| p.display().to_string())
+                    .collect(),
+            )
+        } else {
+            // No watcher state - return defaults
+            (false, None, None, 0, vec![])
+        };
+
+        Ok(HealthResponse {
+            version,
+            watcher_active,
+            watcher_error,
+            watcher_last_event_ms,
+            watcher_event_count,
+            watched_directories,
+            uptime_secs,
+        })
+    }
+
+    /// Subscribe to data updates
+    async fn subscribe(&self, updates: Push<DataUpdate>) -> HandlerResult<()> {
+        // Get a watch receiver from the engine
+        let mut rx = self.engine.subscribe();
+
+        // Loop until the client disconnects or an error occurs
+        loop {
+            // Wait for a change in the data
+            if rx.changed().await.is_err() {
+                // Engine dropped the sender - shutting down
+                break;
+            }
+
+            // Build the update message (clone to avoid holding the guard across await)
+            let update = {
+                let data = rx.borrow_and_update();
+
+                // Convert server::Delta to proto::DeltaSummary
+                // Flatten all impl deltas into a single summary
+                let delta = if data.delta.is_empty() {
+                    None
+                } else {
+                    let mut newly_covered = Vec::new();
+                    let mut newly_uncovered = Vec::new();
+
+                    for impl_delta in data.delta.by_impl.values() {
+                        for change in &impl_delta.newly_covered {
+                            newly_covered.push(CoverageChange {
+                                rule_id: change.rule_id.clone(),
+                                file: change.file.clone(),
+                                line: change.line,
+                            });
+                        }
+                        newly_uncovered.extend(impl_delta.newly_uncovered.iter().cloned());
+                    }
+
+                    Some(DeltaSummary {
+                        newly_covered,
+                        newly_uncovered,
+                    })
+                };
+
+                DataUpdate {
+                    version: data.version,
+                    delta,
+                }
+            }; // Guard dropped here before the await
+
+            // Send the update - if this fails, the client disconnected
+            if updates.send(&update).await.is_err() {
+                break;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Get forward traceability data
+    async fn forward(
+        &self,
+        spec: String,
+        impl_name: String,
+    ) -> HandlerResult<Option<ApiSpecForward>> {
+        let data = self.engine.data().await;
+        Ok(data.forward_by_impl.get(&(spec, impl_name)).cloned())
+    }
+
+    /// Get reverse traceability data
+    async fn reverse(
+        &self,
+        spec: String,
+        impl_name: String,
+    ) -> HandlerResult<Option<ApiReverseData>> {
+        let data = self.engine.data().await;
+        Ok(data.reverse_by_impl.get(&(spec, impl_name)).cloned())
+    }
+
+    /// Get file with syntax highlighting
+    async fn file(&self, req: FileRequest) -> HandlerResult<Option<ApiFileData>> {
+        let data = self.engine.data().await;
+        let project_root = self.engine.project_root();
+
+        let impl_key = (req.spec, req.impl_name);
+
+        // Get the code units map for this impl
+        let Some(code_units_by_file) = data.code_units_by_impl.get(&impl_key) else {
+            return Ok(None);
+        };
+
+        // Resolve the file path - it may be relative or absolute
+        let file_path = PathBuf::from(&req.path);
+        let full_path = if file_path.is_absolute() {
+            file_path
+        } else {
+            project_root.join(&file_path)
+        };
+        // Canonicalize to handle cross-workspace paths like ../marq/...
+        let full_path = full_path.canonicalize().unwrap_or(full_path);
+
+        // Look up code units for this file
+        let Some(units) = code_units_by_file.get(&full_path) else {
+            return Ok(None);
+        };
+
+        // Read file content
+        let content = match std::fs::read_to_string(&full_path) {
+            Ok(c) => c,
+            Err(_) => return Ok(None),
+        };
+
+        // Get relative path for display
+        let relative = full_path
+            .strip_prefix(project_root)
+            .unwrap_or(&full_path)
+            .display()
+            .to_string();
+
+        // Syntax highlight the content
+        let html = if let Some(lang) = arborium_language(&relative) {
+            let mut hl = self.highlighter.lock().unwrap();
+            match hl.highlight(lang, &content) {
+                Ok(highlighted) => highlighted,
+                Err(_) => html_escape(&content),
+            }
+        } else {
+            html_escape(&content)
+        };
+
+        // Convert code units to API format
+        let api_units: Vec<ApiCodeUnit> = units
+            .iter()
+            .map(|u| ApiCodeUnit {
+                kind: format!("{:?}", u.kind).to_lowercase(),
+                name: u.name.clone(),
+                start_line: u.start_line,
+                end_line: u.end_line,
+                rule_refs: u.req_refs.clone(),
+            })
+            .collect();
+
+        Ok(Some(ApiFileData {
+            path: relative,
+            content,
+            html,
+            units: api_units,
+        }))
+    }
+
+    /// Get rendered spec content
+    async fn spec_content(
+        &self,
+        spec: String,
+        impl_name: String,
+    ) -> HandlerResult<Option<ApiSpecData>> {
+        let data = self.engine.data().await;
+        Ok(data.specs_content_by_impl.get(&(spec, impl_name)).cloned())
+    }
+
+    /// Search rules and files
+    async fn search(&self, query: String, limit: u64) -> HandlerResult<Vec<SearchResult>> {
+        let data = self.engine.data().await;
+        let raw_results: Vec<_> = data
+            .search_index
+            .search(&query, limit as usize)
+            .into_iter()
+            .collect();
+
+        let mut results = Vec::with_capacity(raw_results.len());
+        for r in raw_results {
+            use crate::search::ResultKind;
+            let kind = match r.kind {
+                ResultKind::Rule => "rule",
+                ResultKind::Source => "source",
+            };
+
+            // For rules, render the markdown snippet to HTML
+            let highlighted = if r.kind == ResultKind::Rule {
+                let opts = marq::RenderOptions::default();
+                match marq::render(&r.highlighted, &opts).await {
+                    Ok(doc) => doc.html,
+                    Err(_) => r.highlighted.clone(),
+                }
+            } else {
+                r.highlighted.clone()
+            };
+
+            results.push(SearchResult {
+                kind: kind.to_string(),
+                id: r.id,
+                line: r.line,
+                content: Some(r.content),
+                highlighted: Some(highlighted),
+                score: r.score,
+            });
+        }
+
+        Ok(results)
+    }
+
+    /// Update a file range
+    async fn update_file_range(
+        &self,
+        req: UpdateFileRangeRequest,
+    ) -> HandlerResult<Result<(), UpdateError>> {
+        let project_root = self.engine.project_root();
+
+        // Resolve the file path
+        let file_path = PathBuf::from(&req.path);
+        let full_path = if file_path.is_absolute() {
+            file_path
+        } else {
+            project_root.join(&file_path)
+        };
+
+        // Read current file content
+        let content = match std::fs::read_to_string(&full_path) {
+            Ok(c) => c,
+            Err(e) => {
+                return Ok(Err(UpdateError {
+                    message: format!("Failed to read file: {}", e),
+                }));
+            }
+        };
+
+        // Compute hash and compare
+        let current_hash = blake3::hash(content.as_bytes()).to_hex().to_string();
+        if current_hash != req.file_hash {
+            return Ok(Err(UpdateError {
+                message: format!(
+                    "File has been modified (expected hash {}, got {})",
+                    req.file_hash, current_hash
+                ),
+            }));
+        }
+
+        // Validate range
+        if req.start > req.end || req.end > content.len() {
+            return Ok(Err(UpdateError {
+                message: format!(
+                    "Invalid range: {}..{} (file length: {})",
+                    req.start,
+                    req.end,
+                    content.len()
+                ),
+            }));
+        }
+
+        // Replace the range
+        let mut new_content =
+            String::with_capacity(content.len() - (req.end - req.start) + req.content.len());
+        new_content.push_str(&content[..req.start]);
+        new_content.push_str(&req.content);
+        new_content.push_str(&content[req.end..]);
+
+        // Write back
+        if let Err(e) = std::fs::write(&full_path, &new_content) {
+            return Ok(Err(UpdateError {
+                message: format!("Failed to write file: {}", e),
+            }));
+        }
+
+        Ok(Ok(()))
+    }
+
+    /// Check if a path is a test file
+    async fn is_test_file(&self, path: String) -> HandlerResult<bool> {
+        let data = self.engine.data().await;
+        let path = std::path::PathBuf::from(path);
+        Ok(data.test_files.contains(&path))
+    }
+
+    /// Validate the spec and implementation
+    ///
+    /// r[impl mcp.validation.check]
+    async fn validate(&self, req: ValidateRequest) -> HandlerResult<ValidationResult> {
+        let data = self.engine.data().await;
+        let project_root = self.engine.project_root();
+
+        let (spec, impl_name) =
+            self.resolve_spec_impl(req.spec.as_deref(), req.impl_name.as_deref(), &data.config);
+
+        let mut errors = Vec::new();
+
+        // Get all rules for this spec/impl
+        if let Some(forward_data) = data.forward_by_impl.get(&(spec.clone(), impl_name.clone())) {
+            // Build a map of rule IDs for quick lookup
+            let rule_ids: std::collections::HashSet<_> =
+                forward_data.rules.iter().map(|r| r.id.as_str()).collect();
+
+            // r[impl config.multi-spec.unique-within-spec]
+            // Check for duplicate rule IDs (within this spec)
+            let mut seen_ids: std::collections::HashMap<&str, (&Option<String>, Option<usize>)> =
+                std::collections::HashMap::new();
+            for rule in &forward_data.rules {
+                if let Some((prev_file, prev_line)) = seen_ids.get(rule.id.as_str()) {
+                    errors.push(ValidationError {
+                        code: ValidationErrorCode::DuplicateRequirement,
+                        message: format!(
+                            "Duplicate rule ID '{}' (first defined at {}:{})",
+                            rule.id,
+                            prev_file.as_deref().unwrap_or("?"),
+                            prev_line.unwrap_or(0)
+                        ),
+                        file: rule.source_file.clone(),
+                        line: rule.source_line,
+                        column: rule.source_column,
+                        related_rules: vec![rule.id.clone()],
+                    });
+                } else {
+                    seen_ids.insert(&rule.id, (&rule.source_file, rule.source_line));
+                }
+            }
+
+            // Check each rule
+            for rule in &forward_data.rules {
+                // Check naming convention (dot-separated segments)
+                if !is_valid_rule_id(&rule.id) {
+                    errors.push(ValidationError {
+                        code: ValidationErrorCode::InvalidNaming,
+                        message: format!(
+                            "Rule ID '{}' doesn't follow naming convention (use dot-separated lowercase segments)",
+                            rule.id
+                        ),
+                        file: rule.source_file.clone(),
+                        line: rule.source_line,
+                        column: rule.source_column,
+                        related_rules: vec![],
+                    });
+                }
+
+                // r[impl config.impl.test_include.verify-only]
+                // Check that impl references are not in test files
+                for impl_ref in &rule.impl_refs {
+                    let ref_path = project_root.join(&impl_ref.file);
+                    if data.test_files.contains(&ref_path) {
+                        errors.push(ValidationError {
+                            code: ValidationErrorCode::ImplInTestFile,
+                            message: format!(
+                                "Test file contains impl annotation for '{}' - test files may only contain verify annotations",
+                                rule.id
+                            ),
+                            file: Some(impl_ref.file.clone()),
+                            line: Some(impl_ref.line),
+                            column: None,
+                            related_rules: vec![rule.id.clone()],
+                        });
+                    }
+                }
+
+                // Check depends references exist
+                for dep_ref in &rule.depends_refs {
+                    // Extract rule ID from the file path (this is a simplification)
+                    // In a full implementation, we'd track what rule ID each depends ref points to
+                    // For now, we just note that depends references exist
+                    let _ = dep_ref;
+                }
+            }
+
+            // r[impl ref.prefix.unknown]
+            // Check for references with unknown prefixes
+            // This requires checking the reverse data for any files that have
+            // references to rules not in the rule_ids set
+            if let Some(reverse_data) = data.reverse_by_impl.get(&(spec.clone(), impl_name.clone()))
+            {
+                // Get all prefixes from the config
+                let known_prefixes: std::collections::HashSet<&str> = data
+                    .config
+                    .specs
+                    .iter()
+                    .map(|s| s.prefix.as_str())
+                    .collect();
+
+                // r[impl ref.prefix.filter]
+                // Find the prefix for the current spec being validated
+                let current_spec_prefix: Option<&str> = data
+                    .config
+                    .specs
+                    .iter()
+                    .find(|s| s.name == spec)
+                    .map(|s| s.prefix.as_str());
+
+                // Check files for unknown references
+                for file_entry in &reverse_data.files {
+                    let file_path = project_root.join(&file_entry.path);
+                    if let Ok(content) = std::fs::read_to_string(&file_path) {
+                        let reqs = tracey_core::Reqs::extract_from_content(&file_path, &content);
+                        for reference in &reqs.references {
+                            // Check if prefix is known
+                            if !known_prefixes.contains(reference.prefix.as_str()) {
+                                let available: Vec<_> = known_prefixes.iter().copied().collect();
+                                errors.push(ValidationError {
+                                    code: ValidationErrorCode::UnknownPrefix,
+                                    message: format!(
+                                        "Unknown prefix '{}' - available prefixes: {}",
+                                        reference.prefix,
+                                        available.join(", ")
+                                    ),
+                                    file: Some(file_entry.path.clone()),
+                                    line: Some(reference.line),
+                                    column: None,
+                                    related_rules: vec![],
+                                });
+                            }
+                            // r[impl ref.prefix.filter]
+                            // Only validate references whose prefix matches the current spec
+                            // Skip references that belong to a different spec (different prefix)
+                            else if current_spec_prefix == Some(reference.prefix.as_str()) {
+                                // Check if rule ID exists (for matching prefix only)
+                                if !rule_ids.contains(reference.req_id.as_str()) {
+                                    errors.push(ValidationError {
+                                        code: ValidationErrorCode::UnknownRequirement,
+                                        message: format!(
+                                            "Reference to unknown rule '{}'",
+                                            reference.req_id
+                                        ),
+                                        file: Some(file_entry.path.clone()),
+                                        line: Some(reference.line),
+                                        column: None,
+                                        related_rules: vec![],
+                                    });
+                                }
+                            }
+                            // References with different known prefixes are intentionally skipped
+                            // They belong to a different spec and will be validated when that spec is checked
+                        }
+                    }
+                }
+            }
+
+            // Check for circular dependencies
+            // Build dependency graph and detect cycles
+            let cycles = detect_circular_dependencies(forward_data);
+            for cycle in cycles {
+                errors.push(ValidationError {
+                    code: ValidationErrorCode::CircularDependency,
+                    message: format!("Circular dependency detected: {}", cycle.join(" → ")),
+                    file: None,
+                    line: None,
+                    column: None,
+                    related_rules: cycle,
+                });
+            }
+        }
+
+        let error_count = errors.len();
+
+        Ok(ValidationResult {
+            spec,
+            impl_name,
+            errors,
+            warning_count: 0,
+            error_count,
+        })
+    }
+
+    // =========================================================================
+    // LSP Support Methods
+    // =========================================================================
+
+    /// Get hover info for a position in a file
+    ///
+    /// r[impl lsp.hover.prefix]
+    /// r[impl lsp.hover.req-info]
+    async fn lsp_hover(&self, req: LspPositionRequest) -> HandlerResult<Option<HoverInfo>> {
+        let data = self.engine.data().await;
+        let path = PathBuf::from(&req.path);
+
+        // Find the rule at cursor position (works for both spec and source files)
+        let Some(rule_at_pos) =
+            find_rule_at_position(&path, &req.content, req.line, req.character).await
+        else {
+            return Ok(None);
+        };
+
+        // Look up the rule in our data
+        let Some((spec_name, rule)) = find_rule_in_data(&data, &rule_at_pos.req_id) else {
+            return Ok(None);
+        };
+
+        // Get spec info for the prefix
+        let spec_info = data.config.specs.iter().find(|s| &s.name == spec_name);
+        let spec_url = spec_info.and_then(|s| s.source_url.clone());
+
+        // Collect references
+        let impl_refs: Vec<HoverRef> = rule
+            .impl_refs
+            .iter()
+            .map(|r| HoverRef {
+                file: r.file.clone(),
+                line: r.line,
+            })
+            .collect();
+        let verify_refs: Vec<HoverRef> = rule
+            .verify_refs
+            .iter()
+            .map(|r| HoverRef {
+                file: r.file.clone(),
+                line: r.line,
+            })
+            .collect();
+
+        let impl_count = impl_refs.len();
+        let verify_count = verify_refs.len();
+
+        // Calculate the range of the reference
+        let (start_line, start_char, end_line, end_char) = span_to_range(
+            &req.content,
+            rule_at_pos.span_offset,
+            rule_at_pos.span_length,
+        );
+
+        Ok(Some(HoverInfo {
+            rule_id: rule.id.clone(),
+            raw: rule.raw.clone(),
+            spec_name: spec_name.clone(),
+            spec_url,
+            source_file: rule.source_file.clone(),
+            impl_count,
+            verify_count,
+            impl_refs,
+            verify_refs,
+            range_start_line: start_line,
+            range_start_char: start_char,
+            range_end_line: end_line,
+            range_end_char: end_char,
+        }))
+    }
+
+    /// Get definition location for a reference at a position
+    ///
+    /// r[impl lsp.goto.ref-to-def]
+    async fn lsp_definition(&self, req: LspPositionRequest) -> HandlerResult<Vec<LspLocation>> {
+        let data = self.engine.data().await;
+        let path = PathBuf::from(&req.path);
+
+        // Find the rule at cursor position (works for both spec and source files)
+        let Some(rule_at_pos) =
+            find_rule_at_position(&path, &req.content, req.line, req.character).await
+        else {
+            return Ok(vec![]);
+        };
+
+        let Some((_, rule)) = find_rule_in_data(&data, &rule_at_pos.req_id) else {
+            return Ok(vec![]);
+        };
+
+        // Return the definition location (where the rule is defined in the spec)
+        if let (Some(file), Some(line)) = (&rule.source_file, rule.source_line) {
+            Ok(vec![LspLocation {
+                path: file.clone(),
+                line: line.saturating_sub(1) as u32, // Convert to 0-indexed
+                character: rule.source_column.unwrap_or(0) as u32,
+            }])
+        } else {
+            Ok(vec![])
+        }
+    }
+
+    /// Get implementation locations for a reference at a position
+    ///
+    /// r[impl lsp.impl.from-def]
+    /// r[impl lsp.impl.from-ref]
+    /// r[impl lsp.impl.multiple]
+    async fn lsp_implementation(&self, req: LspPositionRequest) -> HandlerResult<Vec<LspLocation>> {
+        let data = self.engine.data().await;
+        let path = PathBuf::from(&req.path);
+
+        // Find the rule at cursor position (works for both spec and source files)
+        let Some(rule_at_pos) =
+            find_rule_at_position(&path, &req.content, req.line, req.character).await
+        else {
+            return Ok(vec![]);
+        };
+
+        let Some((_, rule)) = find_rule_in_data(&data, &rule_at_pos.req_id) else {
+            return Ok(vec![]);
+        };
+
+        // Return all impl reference locations
+        Ok(rule
+            .impl_refs
+            .iter()
+            .map(|r| LspLocation {
+                path: r.file.clone(),
+                line: r.line.saturating_sub(1) as u32,
+                character: 0,
+            })
+            .collect())
+    }
+
+    /// Get all references to a requirement
+    ///
+    /// r[impl lsp.references.from-definition]
+    /// r[impl lsp.references.from-reference]
+    /// r[impl lsp.references.include-type]
+    async fn lsp_references(&self, req: LspReferencesRequest) -> HandlerResult<Vec<LspLocation>> {
+        let data = self.engine.data().await;
+        let path = PathBuf::from(&req.path);
+
+        // Find the rule at cursor position (works for both spec and source files)
+        let Some(rule_at_pos) =
+            find_rule_at_position(&path, &req.content, req.line, req.character).await
+        else {
+            return Ok(vec![]);
+        };
+
+        let Some((_, rule)) = find_rule_in_data(&data, &rule_at_pos.req_id) else {
+            return Ok(vec![]);
+        };
+
+        let mut locations = Vec::new();
+
+        // Include declaration (definition) if requested
+        if req.include_declaration
+            && let (Some(file), Some(line)) = (&rule.source_file, rule.source_line)
+        {
+            locations.push(LspLocation {
+                path: file.clone(),
+                line: line.saturating_sub(1) as u32,
+                character: rule.source_column.unwrap_or(0) as u32,
+            });
+        }
+
+        // Add all impl refs
+        for r in &rule.impl_refs {
+            locations.push(LspLocation {
+                path: r.file.clone(),
+                line: r.line.saturating_sub(1) as u32,
+                character: 0,
+            });
+        }
+
+        // Add all verify refs
+        for r in &rule.verify_refs {
+            locations.push(LspLocation {
+                path: r.file.clone(),
+                line: r.line.saturating_sub(1) as u32,
+                character: 0,
+            });
+        }
+
+        // Add all depends refs
+        for r in &rule.depends_refs {
+            locations.push(LspLocation {
+                path: r.file.clone(),
+                line: r.line.saturating_sub(1) as u32,
+                character: 0,
+            });
+        }
+
+        Ok(locations)
+    }
+
+    /// Get completions for a position
+    ///
+    /// r[impl lsp.completion.prefix]
+    /// r[impl lsp.completion.verb]
+    /// r[impl lsp.completion.req-id]
+    /// r[impl lsp.completion.fuzzy]
+    async fn lsp_completions(
+        &self,
+        req: LspPositionRequest,
+    ) -> HandlerResult<Vec<LspCompletionItem>> {
+        let data = self.engine.data().await;
+
+        // Get the text before cursor to determine completion context
+        let lines: Vec<&str> = req.content.lines().collect();
+        let Some(line) = lines.get(req.line as usize) else {
+            return Ok(vec![]);
+        };
+
+        let col = req.character as usize;
+        let before_cursor = &line[..col.min(line.len())];
+
+        // Check if we're inside a bracket pattern like r[...
+        let mut completions = Vec::new();
+
+        // Find the last prefix[ before cursor
+        for prefix in &data.config.specs {
+            let pattern = format!("{}[", prefix.prefix);
+            if let Some(bracket_pos) = before_cursor.rfind(&pattern) {
+                let after_bracket = &before_cursor[bracket_pos + pattern.len()..];
+
+                // If we haven't closed the bracket and there's no space yet, suggest verbs
+                if !after_bracket.contains(']') {
+                    if !after_bracket.contains(' ') {
+                        // Suggest verbs
+                        for (verb, desc) in [
+                            ("impl ", "Implementation of a requirement"),
+                            ("verify ", "Test/verification of a requirement"),
+                            ("depends ", "Dependency on another requirement"),
+                            ("related ", "Related requirement"),
+                        ] {
+                            if verb.starts_with(after_bracket) || after_bracket.is_empty() {
+                                completions.push(LspCompletionItem {
+                                    label: verb.trim().to_string(),
+                                    kind: "verb".to_string(),
+                                    detail: Some(desc.to_string()),
+                                    documentation: None,
+                                    insert_text: Some(verb.to_string()),
+                                });
+                            }
+                        }
+                    }
+
+                    // Also suggest rule IDs (after verb or directly)
+                    let query = if let Some(space_pos) = after_bracket.find(' ') {
+                        &after_bracket[space_pos + 1..]
+                    } else {
+                        after_bracket
+                    };
+
+                    // Find matching rules
+                    for ((spec, _), forward_data) in &data.forward_by_impl {
+                        for rule in &forward_data.rules {
+                            if rule.id.starts_with(query) || query.is_empty() {
+                                completions.push(LspCompletionItem {
+                                    label: rule.id.clone(),
+                                    kind: "rule".to_string(),
+                                    detail: Some(spec.clone()),
+                                    documentation: Some(rule.raw.clone()),
+                                    insert_text: None,
+                                });
+                            }
+                        }
+                    }
+                }
+                break;
+            }
+        }
+
+        Ok(completions)
+    }
+
+    /// Get diagnostics for a file
+    ///
+    /// r[impl lsp.diagnostics.orphaned]
+    /// r[impl lsp.diagnostics.duplicate-definition]
+    /// r[impl lsp.diagnostics.impl-in-test]
+    async fn lsp_diagnostics(&self, req: LspDocumentRequest) -> HandlerResult<Vec<LspDiagnostic>> {
+        let data = self.engine.data().await;
+        let path = PathBuf::from(&req.path);
+
+        let mut diagnostics = Vec::new();
+
+        // For markdown spec files, show coverage diagnostics for definitions
+        if path.extension().is_some_and(|ext| ext == "md") {
+            let options = marq::RenderOptions::default();
+            if let Ok(doc) = marq::render(&req.content, &options).await {
+                for def in &doc.reqs {
+                    // Use marker_span for diagnostics (only squiggle the marker, not content)
+                    let (start_line, start_char, end_line, end_char) =
+                        span_to_range(&req.content, def.marker_span.offset, def.marker_span.length);
+
+                    // Look up the rule to check coverage
+                    if let Some((_, rule)) = find_rule_in_data(&data, &def.id) {
+                        let impl_count = rule.impl_refs.len();
+                        let verify_count = rule.verify_refs.len();
+
+                        if impl_count == 0 {
+                            diagnostics.push(LspDiagnostic {
+                                severity: "hint".to_string(),
+                                code: "uncovered".to_string(),
+                                message: "Requirement has no implementations".to_string(),
+                                start_line,
+                                start_char,
+                                end_line,
+                                end_char,
+                            });
+                        } else if verify_count == 0 {
+                            diagnostics.push(LspDiagnostic {
+                                severity: "hint".to_string(),
+                                code: "untested".to_string(),
+                                message: format!(
+                                    "Requirement has {} impl but no verification",
+                                    impl_count
+                                ),
+                                start_line,
+                                start_char,
+                                end_line,
+                                end_char,
+                            });
+                        }
+                    }
+                }
+            }
+            return Ok(diagnostics);
+        }
+
+        // For source files, check references
+        let reqs = tracey_core::Reqs::extract_from_content(&path, &req.content);
+
+        // Check if this is a test file
+        let is_test = data.test_files.contains(&path);
+
+        // Build set of known rule IDs
+        let known_rules: std::collections::HashSet<_> = data
+            .forward_by_impl
+            .values()
+            .flat_map(|f| f.rules.iter().map(|r| r.id.as_str()))
+            .collect();
+
+        // Build set of known prefixes
+        let known_prefixes: std::collections::HashSet<_> = data
+            .config
+            .specs
+            .iter()
+            .map(|s| s.prefix.as_str())
+            .collect();
+
+        for reference in &reqs.references {
+            let (start_line, start_char, end_line, end_char) =
+                span_to_range(&req.content, reference.span.offset, reference.span.length);
+
+            // Check for unknown prefix
+            if !known_prefixes.contains(reference.prefix.as_str()) {
+                diagnostics.push(LspDiagnostic {
+                    severity: "error".to_string(),
+                    code: "unknown-prefix".to_string(),
+                    message: format!("Unknown prefix: '{}'", reference.prefix),
+                    start_line,
+                    start_char,
+                    end_line,
+                    end_char,
+                });
+                continue;
+            }
+
+            // Check for unknown rule ID (orphaned reference)
+            if !known_rules.contains(reference.req_id.as_str()) {
+                diagnostics.push(LspDiagnostic {
+                    severity: "warning".to_string(),
+                    code: "orphaned".to_string(),
+                    message: format!("Unknown requirement: '{}'", reference.req_id),
+                    start_line,
+                    start_char,
+                    end_line,
+                    end_char,
+                });
+            }
+
+            // Check for impl in test file
+            if is_test && reference.verb == tracey_core::RefVerb::Impl {
+                diagnostics.push(LspDiagnostic {
+                    severity: "warning".to_string(),
+                    code: "impl-in-test".to_string(),
+                    message: "Implementation reference in test file (use 'verify' instead)"
+                        .to_string(),
+                    start_line,
+                    start_char,
+                    end_line,
+                    end_char,
+                });
+            }
+        }
+
+        // Check warnings from parsing
+        for warning in &reqs.warnings {
+            let (start_line, start_char, end_line, end_char) =
+                span_to_range(&req.content, warning.span.offset, warning.span.length);
+
+            let message = match &warning.kind {
+                tracey_core::WarningKind::UnknownVerb(verb) => {
+                    format!("Unknown verb: '{}'", verb)
+                }
+                tracey_core::WarningKind::MalformedReference => "Malformed reference".to_string(),
+            };
+
+            diagnostics.push(LspDiagnostic {
+                severity: "warning".to_string(),
+                code: "parse-warning".to_string(),
+                message,
+                start_line,
+                start_char,
+                end_line,
+                end_char,
+            });
+        }
+
+        Ok(diagnostics)
+    }
+
+    /// Get diagnostics for all files in the workspace
+    ///
+    /// r[impl lsp.diagnostics.workspace]
+    async fn lsp_workspace_diagnostics(&self) -> HandlerResult<Vec<LspFileDiagnostics>> {
+        let data = self.engine.data().await;
+        let project_root = self.engine.project_root();
+        let mut results = Vec::new();
+
+        // Collect unique spec files from forward data
+        let mut spec_files: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for forward_data in data.forward_by_impl.values() {
+            for rule in &forward_data.rules {
+                if let Some(source_file) = &rule.source_file {
+                    spec_files.insert(source_file.clone());
+                }
+            }
+        }
+
+        // Process spec files
+        for spec_file in &spec_files {
+            let abs_path = project_root.join(spec_file);
+            if let Ok(content) = tokio::fs::read_to_string(&abs_path).await {
+                let req = LspDocumentRequest {
+                    path: abs_path.to_string_lossy().to_string(),
+                    content,
+                };
+                if let Ok(diagnostics) = self.lsp_diagnostics(req).await
+                    && !diagnostics.is_empty()
+                {
+                    results.push(LspFileDiagnostics {
+                        path: spec_file.clone(),
+                        diagnostics,
+                    });
+                }
+            }
+        }
+
+        // Collect unique implementation files from code_units
+        let mut impl_files: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+        for code_units_by_file in data.code_units_by_impl.values() {
+            for file_path in code_units_by_file.keys() {
+                impl_files.insert(file_path.clone());
+            }
+        }
+
+        // Process implementation files
+        for impl_file in &impl_files {
+            if let Ok(content) = tokio::fs::read_to_string(impl_file).await {
+                let req = LspDocumentRequest {
+                    path: impl_file.to_string_lossy().to_string(),
+                    content,
+                };
+                if let Ok(diagnostics) = self.lsp_diagnostics(req).await
+                    && !diagnostics.is_empty()
+                {
+                    // Convert to relative path for consistency
+                    let rel_path = impl_file
+                        .strip_prefix(project_root)
+                        .map(|p| p.to_string_lossy().to_string())
+                        .unwrap_or_else(|_| impl_file.to_string_lossy().to_string());
+                    results.push(LspFileDiagnostics {
+                        path: rel_path,
+                        diagnostics,
+                    });
+                }
+            }
+        }
+
+        Ok(results)
+    }
+
+    /// Get document symbols (requirement references) in a file
+    ///
+    /// r[impl lsp.symbols.references]
+    /// r[impl lsp.symbols.requirements]
+    async fn lsp_document_symbols(&self, req: LspDocumentRequest) -> HandlerResult<Vec<LspSymbol>> {
+        let path = PathBuf::from(&req.path);
+        let mut symbols = Vec::new();
+
+        // For spec files (markdown), return requirement definitions
+        if path.extension().is_some_and(|ext| ext == "md") {
+            let data = self.engine.data().await;
+            let project_root = self.engine.project_root();
+
+            // Get relative path for matching
+            let relative_path = path
+                .strip_prefix(project_root)
+                .ok()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|| req.path.clone());
+
+            // Find rules defined in this file
+            for ((_, _), forward_data) in &data.forward_by_impl {
+                for rule in &forward_data.rules {
+                    if let Some(source_file) = &rule.source_file
+                        && source_file == &relative_path
+                    {
+                        let line = rule.source_line.unwrap_or(1).saturating_sub(1) as u32;
+                        let col = rule.source_column.unwrap_or(1).saturating_sub(1) as u32;
+                        symbols.push(LspSymbol {
+                            name: rule.id.clone(),
+                            kind: "requirement".to_string(),
+                            start_line: line,
+                            start_char: col,
+                            end_line: line,
+                            end_char: col + rule.id.len() as u32,
+                        });
+                    }
+                }
+            }
+        } else {
+            // For implementation files, extract references
+            let reqs = tracey_core::Reqs::extract_from_content(&path, &req.content);
+            for r in &reqs.references {
+                let (start_line, start_char, end_line, end_char) =
+                    span_to_range(&req.content, r.span.offset, r.span.length);
+                symbols.push(LspSymbol {
+                    name: r.req_id.clone(),
+                    kind: format!("{:?}", r.verb).to_lowercase(),
+                    start_line,
+                    start_char,
+                    end_line,
+                    end_char,
+                });
+            }
+        }
+
+        Ok(symbols)
+    }
+
+    /// Search workspace for requirement IDs
+    ///
+    /// r[impl lsp.workspace-symbols.requirements]
+    async fn lsp_workspace_symbols(&self, query: String) -> HandlerResult<Vec<LspSymbol>> {
+        let data = self.engine.data().await;
+        let query_lower = query.to_lowercase();
+
+        let mut symbols = Vec::new();
+        for ((_, _), forward_data) in &data.forward_by_impl {
+            for rule in &forward_data.rules {
+                if rule.id.to_lowercase().contains(&query_lower) {
+                    let (line, char) = if let Some(l) = rule.source_line {
+                        (
+                            l.saturating_sub(1) as u32,
+                            rule.source_column.unwrap_or(0) as u32,
+                        )
+                    } else {
+                        (0, 0)
+                    };
+
+                    symbols.push(LspSymbol {
+                        name: rule.id.clone(),
+                        kind: "requirement".to_string(),
+                        start_line: line,
+                        start_char: char,
+                        end_line: line,
+                        end_char: char + rule.id.len() as u32,
+                    });
+                }
+            }
+        }
+
+        Ok(symbols)
+    }
+
+    /// Get semantic tokens for syntax highlighting
+    ///
+    /// r[impl lsp.semantic-tokens.prefix]
+    /// r[impl lsp.semantic-tokens.verb]
+    async fn lsp_semantic_tokens(
+        &self,
+        req: LspDocumentRequest,
+    ) -> HandlerResult<Vec<LspSemanticToken>> {
+        let path = PathBuf::from(&req.path);
+        let data = self.engine.data().await;
+
+        // Build set of known rule IDs
+        let known_rules: std::collections::HashSet<_> = data
+            .forward_by_impl
+            .values()
+            .flat_map(|f| f.rules.iter().map(|r| r.id.as_str()))
+            .collect();
+
+        let mut tokens = Vec::new();
+
+        // For markdown spec files, tokenize requirement definitions
+        if path.extension().is_some_and(|ext| ext == "md") {
+            let options = marq::RenderOptions::default();
+            if let Ok(doc) = marq::render(&req.content, &options).await {
+                for def in &doc.reqs {
+                    // Use marker_span for semantic tokens (only color the marker)
+                    let (start_line, start_char, _, _) =
+                        span_to_range(&req.content, def.marker_span.offset, def.marker_span.length);
+
+                    // Definitions are always the DEFINITION modifier
+                    tokens.push(LspSemanticToken {
+                        line: start_line,
+                        start_char,
+                        length: def.marker_span.length as u32,
+                        token_type: 2, // variable (req_id)
+                        modifiers: 1,  // DEFINITION modifier
+                    });
+                }
+            }
+        } else {
+            // For source files, tokenize references in comments
+            let reqs = tracey_core::Reqs::extract_from_content(&path, &req.content);
+
+            for reference in &reqs.references {
+                let (start_line, start_char, _, _) =
+                    span_to_range(&req.content, reference.span.offset, reference.span.length);
+
+                // Token for the entire reference
+                // Token type 0 = namespace (prefix), 1 = keyword (verb), 2 = variable (req_id)
+                let is_valid = known_rules.contains(reference.req_id.as_str());
+                let modifier = if reference.verb == tracey_core::RefVerb::Define {
+                    1 // DEFINITION modifier
+                } else if is_valid {
+                    2 // DECLARATION modifier
+                } else {
+                    0
+                };
+
+                tokens.push(LspSemanticToken {
+                    line: start_line,
+                    start_char,
+                    length: reference.span.length as u32,
+                    token_type: 2, // variable (req_id)
+                    modifiers: modifier,
+                });
+            }
+        }
+
+        Ok(tokens)
+    }
+
+    /// Get code lens items
+    ///
+    /// r[impl lsp.codelens.coverage]
+    /// r[impl lsp.codelens.clickable]
+    /// r[impl lsp.codelens.run-test]
+    async fn lsp_code_lens(&self, req: LspDocumentRequest) -> HandlerResult<Vec<LspCodeLens>> {
+        let data = self.engine.data().await;
+        let path = PathBuf::from(&req.path);
+
+        let mut lenses = Vec::new();
+
+        // For markdown spec files, show code lenses for requirement definitions
+        if path.extension().is_some_and(|ext| ext == "md") {
+            let options = marq::RenderOptions::default();
+            if let Ok(doc) = marq::render(&req.content, &options).await {
+                for def in &doc.reqs {
+                    // Use marker_span for code lens positioning
+                    let (start_line, start_char, _, end_char) =
+                        span_to_range(&req.content, def.marker_span.offset, def.marker_span.length);
+
+                    // Look up coverage for this rule
+                    if let Some((_, rule)) = find_rule_in_data(&data, &def.id) {
+                        let impl_count = rule.impl_refs.len();
+                        let verify_count = rule.verify_refs.len();
+
+                        let title = if impl_count == 0 && verify_count == 0 {
+                            "⚪ not implemented".to_string()
+                        } else if verify_count == 0 {
+                            format!("🟡 {} impl, no verify", impl_count)
+                        } else {
+                            format!("🟢 {} impl, {} verify", impl_count, verify_count)
+                        };
+
+                        lenses.push(LspCodeLens {
+                            line: start_line,
+                            start_char,
+                            end_char,
+                            title,
+                            command: "tracey.showReferences".to_string(),
+                            arguments: vec![def.id.clone()],
+                        });
+                    }
+                }
+            }
+        } else {
+            // For source files, show code lenses for definition references
+            let reqs = tracey_core::Reqs::extract_from_content(&path, &req.content);
+
+            for reference in &reqs.references {
+                // Only show code lens for definitions
+                if reference.verb != tracey_core::RefVerb::Define {
+                    continue;
+                }
+
+                let (start_line, start_char, _, end_char) =
+                    span_to_range(&req.content, reference.span.offset, reference.span.length);
+
+                // Look up coverage for this rule
+                if let Some((_, rule)) = find_rule_in_data(&data, &reference.req_id) {
+                    let impl_count = rule.impl_refs.len();
+                    let verify_count = rule.verify_refs.len();
+
+                    let title = if impl_count == 0 && verify_count == 0 {
+                        "⚪ not implemented".to_string()
+                    } else if verify_count == 0 {
+                        format!("🟡 {} impl, no verify", impl_count)
+                    } else {
+                        format!("🟢 {} impl, {} verify", impl_count, verify_count)
+                    };
+
+                    lenses.push(LspCodeLens {
+                        line: start_line,
+                        start_char,
+                        end_char,
+                        title,
+                        command: "tracey.showReferences".to_string(),
+                        arguments: vec![reference.req_id.clone()],
+                    });
+                }
+            }
+        }
+
+        Ok(lenses)
+    }
+
+    /// Get inlay hints for a range
+    ///
+    /// r[impl lsp.inlay.coverage-status]
+    /// r[impl lsp.inlay.impl-count]
+    async fn lsp_inlay_hints(&self, req: InlayHintsRequest) -> HandlerResult<Vec<LspInlayHint>> {
+        let data = self.engine.data().await;
+        let path = PathBuf::from(&req.path);
+
+        let mut hints = Vec::new();
+
+        // For markdown spec files, show hints for requirement definitions
+        if path.extension().is_some_and(|ext| ext == "md") {
+            let options = marq::RenderOptions::default();
+            if let Ok(doc) = marq::render(&req.content, &options).await {
+                for def in &doc.reqs {
+                    // Use marker_span for inlay hint positioning (after the marker)
+                    let (line, _, _, end_char) =
+                        span_to_range(&req.content, def.marker_span.offset, def.marker_span.length);
+
+                    // Only show hints in the requested range
+                    if line < req.start_line || line > req.end_line {
+                        continue;
+                    }
+
+                    // Look up the rule to get impl/verify counts
+                    if let Some((_, rule)) = find_rule_in_data(&data, &def.id) {
+                        let impl_count = rule.impl_refs.len();
+                        let verify_count = rule.verify_refs.len();
+
+                        let label = format!(" [{} impl, {} verify]", impl_count, verify_count);
+
+                        hints.push(LspInlayHint {
+                            line,
+                            character: end_char,
+                            label,
+                        });
+                    }
+                }
+            }
+        } else {
+            // For source files, show hints for references in comments
+            let reqs = tracey_core::Reqs::extract_from_content(&path, &req.content);
+
+            for reference in &reqs.references {
+                let (line, _, _, end_char) =
+                    span_to_range(&req.content, reference.span.offset, reference.span.length);
+
+                // Only show hints in the requested range
+                if line < req.start_line || line > req.end_line {
+                    continue;
+                }
+
+                // Look up the rule
+                if let Some((_, rule)) = find_rule_in_data(&data, &reference.req_id) {
+                    let impl_count = rule.impl_refs.len();
+                    let verify_count = rule.verify_refs.len();
+
+                    let label = format!(" [{} impl, {} verify]", impl_count, verify_count);
+
+                    hints.push(LspInlayHint {
+                        line,
+                        character: end_char,
+                        label,
+                    });
+                }
+            }
+        }
+
+        Ok(hints)
+    }
+
+    /// Prepare rename (check if renaming is valid)
+    ///
+    /// r[impl lsp.rename.prepare]
+    async fn lsp_prepare_rename(
+        &self,
+        req: LspPositionRequest,
+    ) -> HandlerResult<Option<PrepareRenameResult>> {
+        let data = self.engine.data().await;
+        let path = PathBuf::from(&req.path);
+
+        // Find the rule at cursor position (works for both spec and source files)
+        let Some(rule_at_pos) =
+            find_rule_at_position(&path, &req.content, req.line, req.character).await
+        else {
+            return Ok(None);
+        };
+
+        // Check if the rule exists
+        if find_rule_in_data(&data, &rule_at_pos.req_id).is_none() {
+            return Ok(None);
+        }
+
+        // Calculate the range of just the rule ID within the reference
+        // This is a simplification - we return the whole reference range
+        let (start_line, start_char, end_line, end_char) = span_to_range(
+            &req.content,
+            rule_at_pos.span_offset,
+            rule_at_pos.span_length,
+        );
+
+        Ok(Some(PrepareRenameResult {
+            start_line,
+            start_char,
+            end_line,
+            end_char,
+            placeholder: rule_at_pos.req_id,
+        }))
+    }
+
+    /// Execute rename
+    ///
+    /// r[impl lsp.rename.req-id]
+    /// r[impl lsp.rename.validation]
+    async fn lsp_rename(&self, req: LspRenameRequest) -> HandlerResult<Vec<LspTextEdit>> {
+        let data = self.engine.data().await;
+        let path = PathBuf::from(&req.path);
+
+        // Find the rule at cursor position (works for both spec and source files)
+        let Some(rule_at_pos) =
+            find_rule_at_position(&path, &req.content, req.line, req.character).await
+        else {
+            return Ok(vec![]);
+        };
+
+        // Validate the new name follows naming convention
+        if !is_valid_rule_id(&req.new_name) {
+            return Ok(vec![]);
+        }
+
+        let Some((_, rule)) = find_rule_in_data(&data, &rule_at_pos.req_id) else {
+            return Ok(vec![]);
+        };
+
+        let mut edits = Vec::new();
+
+        // Edit in the definition
+        if let (Some(file), Some(line)) = (&rule.source_file, rule.source_line) {
+            edits.push(LspTextEdit {
+                path: file.clone(),
+                start_line: line.saturating_sub(1) as u32,
+                start_char: rule.source_column.unwrap_or(0) as u32,
+                end_line: line.saturating_sub(1) as u32,
+                end_char: (rule.source_column.unwrap_or(0) + rule_at_pos.req_id.len()) as u32,
+                new_text: req.new_name.clone(),
+            });
+        }
+
+        // Edit in all impl refs
+        for r in &rule.impl_refs {
+            // We'd need to read these files and find the exact position
+            // For now, just note the location
+            edits.push(LspTextEdit {
+                path: r.file.clone(),
+                start_line: r.line.saturating_sub(1) as u32,
+                start_char: 0, // Would need file content to calculate
+                end_line: r.line.saturating_sub(1) as u32,
+                end_char: 0,
+                new_text: req.new_name.clone(),
+            });
+        }
+
+        // Similar for verify_refs and depends_refs...
+
+        Ok(edits)
+    }
+
+    /// Get code actions for a position
+    ///
+    /// r[impl lsp.actions.create-requirement]
+    /// r[impl lsp.actions.open-dashboard]
+    async fn lsp_code_actions(&self, req: LspPositionRequest) -> HandlerResult<Vec<LspCodeAction>> {
+        let data = self.engine.data().await;
+        let path = PathBuf::from(&req.path);
+
+        let mut actions = Vec::new();
+
+        // Check if we're on a rule (works for both spec and source files)
+        if let Some(rule_at_pos) =
+            find_rule_at_position(&path, &req.content, req.line, req.character).await
+        {
+            // Check if it's an orphaned reference
+            if find_rule_in_data(&data, &rule_at_pos.req_id).is_none() {
+                actions.push(LspCodeAction {
+                    title: format!("Create requirement '{}'", rule_at_pos.req_id),
+                    kind: "quickfix".to_string(),
+                    command: "tracey.createRequirement".to_string(),
+                    arguments: vec![rule_at_pos.req_id.clone()],
+                    is_preferred: true,
+                });
+            } else {
+                // Open dashboard for this requirement
+                actions.push(LspCodeAction {
+                    title: "Open in dashboard".to_string(),
+                    kind: "source".to_string(),
+                    command: "tracey.openDashboard".to_string(),
+                    arguments: vec![rule_at_pos.req_id],
+                    is_preferred: false,
+                });
+            }
+        }
+
+        Ok(actions)
+    }
+
+    /// Get document highlight ranges (same requirement references)
+    ///
+    /// r[impl lsp.highlight.full-range]
+    /// r[impl lsp.highlight.consistent]
+    async fn lsp_document_highlight(
+        &self,
+        req: LspPositionRequest,
+    ) -> HandlerResult<Vec<LspLocation>> {
+        let path = PathBuf::from(&req.path);
+
+        // Find the rule at cursor position (works for both spec and source files)
+        let Some(rule_at_pos) =
+            find_rule_at_position(&path, &req.content, req.line, req.character).await
+        else {
+            return Ok(vec![]);
+        };
+
+        // For markdown files, highlight all definitions of the same rule (typically just one)
+        if path.extension().is_some_and(|ext| ext == "md") {
+            let options = marq::RenderOptions::default();
+            if let Ok(doc) = marq::render(&req.content, &options).await {
+                return Ok(doc
+                    .reqs
+                    .iter()
+                    .filter(|r| r.id == rule_at_pos.req_id)
+                    .map(|r| {
+                        let (start_line, start_char, _, _) =
+                            span_to_range(&req.content, r.span.offset, r.span.length);
+                        LspLocation {
+                            path: req.path.clone(),
+                            line: start_line,
+                            character: start_char,
+                        }
+                    })
+                    .collect());
+            }
+            return Ok(vec![]);
+        }
+
+        // For source files, find all references to the same rule in this document
+        let reqs = tracey_core::Reqs::extract_from_content(&path, &req.content);
+        Ok(reqs
+            .references
+            .iter()
+            .filter(|r| r.req_id == rule_at_pos.req_id)
+            .map(|r| {
+                let (start_line, start_char, _, _) =
+                    span_to_range(&req.content, r.span.offset, r.span.length);
+                LspLocation {
+                    path: req.path.clone(),
+                    line: start_line,
+                    character: start_char,
+                }
+            })
+            .collect())
+    }
+
+    // =========================================================================
+    // Config Modification Methods (for MCP)
+    // =========================================================================
+
+    /// Add an exclude pattern to an implementation
+    ///
+    /// r[impl mcp.config.exclude]
+    /// r[impl mcp.config.persist]
+    async fn config_add_exclude(
+        &self,
+        req: ConfigPatternRequest,
+    ) -> HandlerResult<Result<(), String>> {
+        let data = self.engine.data().await;
+        let (spec_name, impl_name) =
+            self.resolve_spec_impl(req.spec.as_deref(), req.impl_name.as_deref(), &data.config);
+
+        // Load current config
+        let config_path = self.engine.config_path().to_path_buf();
+        let mut config = match crate::load_config(&config_path) {
+            Ok(c) => c,
+            Err(e) => return Ok(Err(format!("Error loading config: {}", e))),
+        };
+
+        // Find the spec and impl
+        let mut found = false;
+        for spec in &mut config.specs {
+            if spec.name.value == spec_name {
+                for impl_ in &mut spec.impls {
+                    if impl_.name.value == impl_name {
+                        impl_.exclude.push(crate::config::Exclude {
+                            pattern: req.pattern.clone(),
+                        });
+                        found = true;
+                        break;
+                    }
+                }
+                break;
+            }
+        }
+
+        if !found {
+            return Ok(Err(format!(
+                "Spec/impl '{}/{}' not found",
+                spec_name, impl_name
+            )));
+        }
+
+        // Save config
+        if let Err(e) = save_config(&config_path, &config) {
+            return Ok(Err(format!("Error saving config: {}", e)));
+        }
+
+        Ok(Ok(()))
+    }
+
+    /// Add an include pattern to an implementation
+    ///
+    /// r[impl mcp.config.include]
+    /// r[impl mcp.config.persist]
+    async fn config_add_include(
+        &self,
+        req: ConfigPatternRequest,
+    ) -> HandlerResult<Result<(), String>> {
+        let data = self.engine.data().await;
+        let (spec_name, impl_name) =
+            self.resolve_spec_impl(req.spec.as_deref(), req.impl_name.as_deref(), &data.config);
+
+        // Load current config
+        let config_path = self.engine.config_path().to_path_buf();
+        let mut config = match crate::load_config(&config_path) {
+            Ok(c) => c,
+            Err(e) => return Ok(Err(format!("Error loading config: {}", e))),
+        };
+
+        // Find the spec and impl
+        let mut found = false;
+        for spec in &mut config.specs {
+            if spec.name.value == spec_name {
+                for impl_ in &mut spec.impls {
+                    if impl_.name.value == impl_name {
+                        impl_.include.push(crate::config::Include {
+                            pattern: req.pattern.clone(),
+                        });
+                        found = true;
+                        break;
+                    }
+                }
+                break;
+            }
+        }
+
+        if !found {
+            return Ok(Err(format!(
+                "Spec/impl '{}/{}' not found",
+                spec_name, impl_name
+            )));
+        }
+
+        // Save config
+        if let Err(e) = save_config(&config_path, &config) {
+            return Ok(Err(format!("Error saving config: {}", e)));
+        }
+
+        Ok(Ok(()))
+    }
+}
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+/// Information about a rule reference or definition at a cursor position
+struct RuleAtPosition {
+    /// The rule ID
+    req_id: String,
+    /// Byte offset in the content
+    span_offset: usize,
+    /// Length in bytes
+    span_length: usize,
+}
+
+/// Find a rule (reference or definition) at the given position.
+///
+/// For markdown spec files, uses marq to extract requirement definitions.
+/// For source files, uses the lexer to extract references from comments.
+async fn find_rule_at_position(
+    path: &Path,
+    content: &str,
+    line: u32,
+    character: u32,
+) -> Option<RuleAtPosition> {
+    if path.extension().is_some_and(|ext| ext == "md") {
+        // Parse markdown to find requirement definitions
+        let options = marq::RenderOptions::default();
+        let doc = marq::render(content, &options).await.ok()?;
+
+        let target_offset = line_col_to_offset(content, line, character)?;
+
+        doc.reqs.iter().find_map(|r| {
+            let start = r.span.offset;
+            let end = r.span.offset + r.span.length;
+            if target_offset >= start && target_offset < end {
+                Some(RuleAtPosition {
+                    req_id: r.id.clone(),
+                    span_offset: r.span.offset,
+                    span_length: r.span.length,
+                })
+            } else {
+                None
+            }
+        })
+    } else {
+        // Parse source file to find references in comments
+        let reqs = tracey_core::Reqs::extract_from_content(path, content);
+        let ref_at_pos = find_ref_at_position(&reqs, content, line, character)?;
+
+        Some(RuleAtPosition {
+            req_id: ref_at_pos.req_id.clone(),
+            span_offset: ref_at_pos.span.offset,
+            span_length: ref_at_pos.span.length,
+        })
+    }
+}
+
+/// Find a reference at the given position in the content (for source files only)
+fn find_ref_at_position<'a>(
+    reqs: &'a tracey_core::Reqs,
+    content: &str,
+    line: u32,
+    character: u32,
+) -> Option<&'a tracey_core::ReqReference> {
+    let target_offset = line_col_to_offset(content, line, character)?;
+
+    reqs.references.iter().find(|r| {
+        let start = r.span.offset;
+        let end = r.span.offset + r.span.length;
+        target_offset >= start && target_offset < end
+    })
+}
+
+/// Convert line/column (0-indexed) to byte offset
+fn line_col_to_offset(content: &str, line: u32, col: u32) -> Option<usize> {
+    let mut current_line = 0u32;
+    let mut offset = 0usize;
+
+    for (i, c) in content.char_indices() {
+        if current_line == line {
+            let line_start = offset;
+            // Find the column within this line
+            for (current_col, (j, ch)) in content[line_start..].char_indices().enumerate() {
+                if ch == '\n' {
+                    break;
+                }
+                if current_col as u32 == col {
+                    return Some(line_start + j);
+                }
+            }
+            // If col is at or past end of line, return end of line
+            return Some(i);
+        }
+        if c == '\n' {
+            current_line += 1;
+        }
+        offset = i + c.len_utf8();
+    }
+
+    // Handle last line
+    if current_line == line {
+        Some(offset)
+    } else {
+        None
+    }
+}
+
+/// Convert byte offset and length to line/column range (0-indexed)
+fn span_to_range(content: &str, offset: usize, length: usize) -> (u32, u32, u32, u32) {
+    let mut line = 0u32;
+    let mut col = 0u32;
+    let mut start_line = 0u32;
+    let mut start_col = 0u32;
+    let mut found_start = false;
+
+    for (i, c) in content.char_indices() {
+        if i == offset {
+            start_line = line;
+            start_col = col;
+            found_start = true;
+        }
+        if i == offset + length {
+            return (start_line, start_col, line, col);
+        }
+        if c == '\n' {
+            line += 1;
+            col = 0;
+        } else {
+            col += 1;
+        }
+    }
+
+    // Handle end of file
+    if !found_start {
+        (line, col, line, col)
+    } else {
+        (start_line, start_col, line, col)
+    }
+}
+
+/// Find a rule by ID in the engine data
+fn find_rule_in_data<'a>(
+    data: &'a crate::data::DashboardData,
+    rule_id: &str,
+) -> Option<(&'a String, &'a ApiRule)> {
+    for ((spec, _), forward_data) in &data.forward_by_impl {
+        for rule in &forward_data.rules {
+            if rule.id == rule_id {
+                return Some((spec, rule));
+            }
+        }
+    }
+    None
+}
+
+/// Save config to file
+fn save_config(path: &Path, config: &crate::config::Config) -> eyre::Result<()> {
+    use std::io::Write;
+    let kdl_string = facet_kdl::to_string(config)?;
+    let mut file = std::fs::File::create(path)?;
+    file.write_all(kdl_string.as_bytes())?;
+    Ok(())
+}
+
+/// Check if a rule ID follows the naming convention
+fn is_valid_rule_id(id: &str) -> bool {
+    // Must have at least one segment
+    if id.is_empty() {
+        return false;
+    }
+
+    // Split by dots and check each segment
+    for segment in id.split('.') {
+        if segment.is_empty() {
+            return false;
+        }
+        // Each segment must contain only lowercase letters, digits, or hyphens
+        if !segment
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        {
+            return false;
+        }
+        // Segment must start with a letter
+        if !segment
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_lowercase())
+        {
+            return false;
+        }
+    }
+
+    true
+}
+
+/// Detect circular dependencies in the rule dependency graph
+fn detect_circular_dependencies(forward_data: &ApiSpecForward) -> Vec<Vec<String>> {
+    use std::collections::{HashMap, HashSet};
+
+    // Build adjacency list from depends_refs
+    // Note: This is a simplified version - in a full implementation,
+    // we'd need to track which rule ID each depends ref points to
+    let mut graph: HashMap<&str, Vec<&str>> = HashMap::new();
+
+    for rule in &forward_data.rules {
+        // Initialize empty adjacency list for each rule
+        graph.entry(rule.id.as_str()).or_default();
+
+        // For now, we can't easily extract dependency targets from depends_refs
+        // since they only contain file:line references, not rule IDs.
+        // A proper implementation would require parsing the depends comments
+        // to extract the target rule IDs.
+    }
+
+    // Detect cycles using DFS
+    let mut cycles = Vec::new();
+    let mut visited = HashSet::new();
+    let mut rec_stack = HashSet::new();
+    let mut path = Vec::new();
+
+    fn dfs<'a>(
+        node: &'a str,
+        graph: &HashMap<&'a str, Vec<&'a str>>,
+        visited: &mut HashSet<&'a str>,
+        rec_stack: &mut HashSet<&'a str>,
+        path: &mut Vec<String>,
+        cycles: &mut Vec<Vec<String>>,
+    ) {
+        visited.insert(node);
+        rec_stack.insert(node);
+        path.push(node.to_string());
+
+        if let Some(neighbors) = graph.get(node) {
+            for &neighbor in neighbors {
+                if !visited.contains(neighbor) {
+                    dfs(neighbor, graph, visited, rec_stack, path, cycles);
+                } else if rec_stack.contains(neighbor) {
+                    // Found a cycle
+                    let cycle_start = path.iter().position(|n| n == neighbor).unwrap();
+                    let mut cycle: Vec<String> = path[cycle_start..].to_vec();
+                    cycle.push(neighbor.to_string());
+                    cycles.push(cycle);
+                }
+            }
+        }
+
+        path.pop();
+        rec_stack.remove(node);
+    }
+
+    for &node in graph.keys() {
+        if !visited.contains(node) {
+            dfs(
+                node,
+                &graph,
+                &mut visited,
+                &mut rec_stack,
+                &mut path,
+                &mut cycles,
+            );
+        }
+    }
+
+    cycles
+}

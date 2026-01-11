@@ -294,6 +294,9 @@ When extracting references from source code, tracey MUST match the prefix agains
 r[ref.prefix.coverage]
 When computing coverage, a reference MUST only be counted as covering a requirement if the reference's prefix matches the spec's configured prefix. References with non-matching prefixes MUST be ignored for that spec's coverage computation.
 
+r[ref.prefix.filter]
+When validating a spec/implementation pair, tracey MUST only report "unknown requirement" errors for references whose prefix matches the spec being validated. References with prefixes that belong to other configured specs MUST be silently skipped, as they will be validated when those respective specs are checked.
+
 ## Cross-Workspace Implementation References
 
 r[ref.cross-workspace.paths]
@@ -316,8 +319,8 @@ Implementation references MAY be located in different crates or workspaces outsi
 >   Referenced by spec 'tracey' implementation 'rust'
 > ```
 
-> r[ref.cross-workspace.dashboard-warnings]
-> Missing implementation file paths MUST be displayed as warnings in the dashboard UI, with visual indicators (warning badges, error states) on affected requirements or source file listings.
+> r[ref.cross-workspace.graceful]
+> The dashboard SHOULD handle missing implementation files gracefully, displaying available data rather than failing.
 
 > r[ref.cross-workspace.graceful-degradation]
 > When implementation files are missing, tracey MUST still display available data (requirement definitions, other implementations) and MUST NOT crash or fail to start.
@@ -443,18 +446,19 @@ Each impl configuration MAY have one or more `test_include` child nodes specifyi
 r[config.impl.test_include.verify-only]
 Files matched by `test_include` patterns MUST only contain `verify` annotations. Any `impl` annotation in a test file is a hard error.
 
-> r[config.impl.test_include.example]
-> Example configuration separating implementation and test files:
-> ```kdl
-> impl {
->     name "rust"
->     include "src/**/*.rs"
->     test_include "tests/**/*.rs"
-> }
-> ```
-> In this example, `src/auth.rs` may contain `r[impl auth.token]` but `tests/auth_test.rs` may only contain `r[verify auth.token]`.
+Example configuration separating implementation and test files:
 
-### Multiple Specs and Remote Specs
+```kdl
+impl {
+    name "rust"
+    include "src/**/*.rs"
+    test_include "tests/**/*.rs"
+}
+```
+
+In this example, `src/auth.rs` may contain `r[impl auth.token]` but `tests/auth_test.rs` may only contain `r[verify auth.token]`.
+
+### Multiple Specs
 
 r[config.multi-spec.prefix-namespace]
 When multiple specs are configured, the prefix serves as the namespace to disambiguate which spec a requirement belongs to.
@@ -462,31 +466,39 @@ When multiple specs are configured, the prefix serves as the namespace to disamb
 r[config.multi-spec.unique-within-spec]
 Requirement IDs MUST be unique within a single spec, but MAY be duplicated across different specs (since they use different prefixes).
 
-r[config.remote-spec.local-files]
-Remote specifications MUST be obtained as local files before tracey can process them. Users can use git submodules, manual downloads, or any other method to obtain spec files locally.
+Example: implementing both your own spec and an external specification:
 
-> r[config.remote-spec.workflow]
-> The recommended workflow for implementing a remote specification is:
->
-> 1. Obtain the spec files locally (e.g., via git submodule or download)
-> 2. Configure the spec with `include` pointing to the local files
-> 3. Set `source_url` to the canonical spec location for attribution
-> 4. Use the spec's configured prefix in source code annotations
->
-> Example:
-> ```kdl
-> spec {
->     name "http2"
->     prefix "h2"
->     include "vendor/http2-spec/docs/**/*.md"
->     source_url "https://github.com/http2/spec"
->
->     impl {
->         name "rust"
->         include "crates/http2/**/*.rs"
->     }
-> }
-> ```
+```kdl
+// Your project's internal specification
+spec {
+    name "myapp"
+    prefix "r"
+    include "docs/spec/**/*.md"
+
+    impl {
+        name "rust"
+        include "src/**/*.rs"
+        test_include "tests/**/*.rs"
+    }
+}
+
+// External HTTP/2 specification (obtained via git submodule)
+spec {
+    name "http2"
+    prefix "h2"
+    source_url "https://github.com/http2/spec"
+    include "vendor/http2-spec/docs/**/*.md"
+
+    impl {
+        name "rust"
+        include "src/http2/**/*.rs"
+    }
+}
+```
+
+With this configuration:
+- `r[impl auth.login]` refers to `myapp` spec's `auth.login` requirement
+- `h2[impl stream.priority]` refers to `http2` spec's `stream.priority` requirement
 
 ## File Walking
 
@@ -543,11 +555,8 @@ The `/api/file?spec={specName}&impl={impl}&path={filePath}` endpoint MUST return
 r[dashboard.api.version]
 The `/api/version` endpoint MUST return a version string that changes when any source data changes.
 
-r[dashboard.api.websocket]
-The server MUST provide a WebSocket endpoint that notifies connected clients when source data changes, sending the new version identifier.
-
-r[dashboard.api.websocket-reconnect]
-The dashboard MUST automatically reconnect to the WebSocket if the connection is lost, with exponential backoff.
+r[dashboard.api.live-updates]
+The dashboard MUST receive live updates when source data changes, either through WebSocket notifications or version polling via the `/api/version` endpoint.
 
 ### Link Generation
 
@@ -687,8 +696,8 @@ Tracey provides a minimal command-line interface focused on serving.
 r[cli.no-args]
 When invoked with no subcommand, tracey MUST display help text listing available commands.
 
-r[cli.serve]
-The `tracey serve` command MUST start the HTTP dashboard server.
+r[cli.web]
+The `tracey web` command MUST start the HTTP dashboard server.
 
 r[cli.mcp]
 The `tracey mcp` command MUST start an MCP (Model Context Protocol) server over stdio.
@@ -729,6 +738,100 @@ Both HTTP and MCP modes MUST use the same underlying coverage computation and st
 
 r[server.state.version]
 The server MUST maintain a version identifier that changes when any source data changes.
+
+## Daemon Architecture
+
+Tracey uses a daemon architecture where a single persistent daemon per workspace owns all state and computation. Protocol bridges (HTTP, LSP, MCP) connect as clients to the daemon via roam RPC over Unix sockets.
+
+### Daemon Lifecycle
+
+r[daemon.lifecycle.socket]
+The daemon MUST listen on `.tracey/daemon.sock` in the workspace root directory for client connections.
+
+r[daemon.lifecycle.auto-start]
+Protocol bridges MUST auto-start the daemon if it is not already running when they need to connect.
+
+r[daemon.lifecycle.stale-socket]
+When connecting to the daemon, bridges MUST detect stale socket files (left over from crashed daemons) and remove them before attempting to start a new daemon.
+
+r[daemon.lifecycle.idle-timeout]
+The daemon MAY exit after a configurable idle period with no active connections to conserve resources.
+
+### Daemon State
+
+r[daemon.state.single-source]
+The daemon MUST own a single `DashboardData` instance that serves as the source of truth for all coverage data.
+
+r[daemon.state.file-watcher]
+The daemon MUST run a file watcher that monitors all files matching the configuration's include/exclude patterns and triggers rebuilds on changes.
+
+r[daemon.state.vfs-overlay]
+The daemon MUST maintain a virtual filesystem (VFS) overlay that stores in-memory content for files opened in editors, allowing coverage computation on unsaved changes.
+
+r[daemon.state.blocking-rebuild]
+On file changes, the daemon MUST block all incoming requests until the rebuild completes. This ensures clients never see stale or inconsistent data.
+
+### roam Service
+
+r[daemon.roam.protocol]
+The daemon MUST expose a `TraceyDaemon` service via the roam RPC protocol.
+
+r[daemon.roam.unix-socket]
+Communication between the daemon and bridges MUST occur over Unix domain sockets.
+
+r[daemon.roam.framing]
+Messages on the Unix socket MUST use COBS framing for reliable message boundary detection.
+
+### VFS Overlay
+
+r[daemon.vfs.open]
+The `vfs_open(path, content)` method MUST register a file in the VFS overlay with the provided content.
+
+r[daemon.vfs.change]
+The `vfs_change(path, content)` method MUST update the content of a file in the VFS overlay.
+
+r[daemon.vfs.close]
+The `vfs_close(path)` method MUST remove a file from the VFS overlay.
+
+r[daemon.vfs.priority]
+When computing coverage, VFS overlay content MUST take precedence over disk content for files that exist in the overlay.
+
+### Protocol Bridges
+
+r[daemon.bridge.http]
+The HTTP bridge MUST translate REST API requests to roam RPC calls and serve the dashboard frontend.
+
+r[daemon.bridge.mcp]
+The MCP bridge MUST translate MCP tool calls to roam RPC calls, providing AI assistants access to coverage data.
+
+r[daemon.bridge.lsp]
+The LSP bridge MUST translate LSP protocol messages to roam RPC calls and feed the VFS overlay with document open/change/close events.
+
+### CLI Commands
+
+r[daemon.cli.daemon]
+The `tracey daemon` command MUST start the daemon in the foreground for the current workspace.
+
+r[daemon.cli.web]
+The `tracey web` command MUST start the HTTP bridge, auto-starting the daemon if needed.
+
+r[daemon.cli.mcp]
+The `tracey mcp` command MUST start the MCP bridge, auto-starting the daemon if needed.
+
+r[daemon.cli.lsp]
+The `tracey lsp` command MUST start the LSP bridge, auto-starting the daemon if needed.
+
+r[daemon.cli.logs]
+The `tracey logs` command MUST display the daemon's log output from `.tracey/daemon.log`.
+
+> r[daemon.cli.logs.follow]
+> The `--follow` flag MUST stream new log entries as they are written, similar to `tail -f`.
+
+> r[daemon.cli.logs.lines]
+> The `--lines` flag MUST control how many historical lines to display (default: 50).
+
+r[daemon.logs.file]
+The daemon MUST write all log output to `.tracey/daemon.log` in the workspace root.
 
 ## Validation
 
@@ -807,14 +910,8 @@ The `tracey_status` tool MUST return a coverage overview and list available quer
 r[mcp.tool.uncovered]
 The `tracey_uncovered` tool MUST return requirements without `impl` references, grouped by markdown section.
 
-r[mcp.tool.uncovered-section]
-The `tracey_uncovered` tool MUST support a `--section` parameter to filter to a specific section.
-
 r[mcp.tool.untested]
 The `tracey_untested` tool MUST return requirements without `verify` references, grouped by markdown section.
-
-r[mcp.tool.untested-section]
-The `tracey_untested` tool MUST support a `--section` parameter to filter to a specific section.
 
 r[mcp.tool.unmapped]
 The `tracey_unmapped` tool MUST return a tree view of source files with coverage percentages.
@@ -872,28 +969,8 @@ Large result sets SHOULD be paginated with hints showing how to retrieve more re
 r[mcp.validation.check]
 The `tracey_validate` tool MUST run all validation checks and return a report of issues found (broken refs, naming violations, circular deps, orphaned requirements, duplicates).
 
-r[dashboard.validation.display]
-The dashboard MUST display validation errors prominently, with links to the problematic locations.
-
-r[dashboard.validation.continuous]
-The dashboard SHOULD run validation continuously and update the UI when new issues are detected.
-
-### Query Tools
-
-r[mcp.query.search]
-The `tracey_search` tool MUST support keyword search across requirement text and IDs, returning matching requirements with their definitions and references.
-
-r[mcp.query.file-reqs]
-The `tracey_file_reqs` tool MUST return all requirements referenced in a specific source file, grouped by reference type (impl/verify).
-
-r[mcp.query.priority]
-The `tracey_priority` tool MUST suggest which uncovered requirements to implement next, prioritizing by section completeness and requirement dependencies.
-
 r[dashboard.query.search]
 The dashboard MUST provide a search interface for finding requirements by keyword in their text or ID.
-
-r[dashboard.query.file-reqs]
-The dashboard MUST show all requirements referenced by a specific file when viewing file details.
 
 ## Dashboard In-Browser Editing
 
@@ -953,7 +1030,6 @@ The modal MUST include an "Open in sources" button that navigates to the full so
 r[dashboard.impl-preview.stay-in-spec]
 Clicking an implementation reference badge MUST NOT automatically switch to the sources tab - it MUST show the preview modal while keeping the user in the specification view.
 
-r[dashboard.impl-preview.rationale]
 The preview modal allows quick inspection of implementation code without losing context in the specification, reducing cognitive load when reviewing how requirements are implemented.
 
 ### Inline Editor Interface
@@ -984,7 +1060,6 @@ The server MUST provide a `GET /api/check-git?path=X` endpoint that returns `{in
 r[dashboard.editing.git.error-message]
 When a user attempts to edit a file not in a git repository, the dashboard MUST display a clear error message: "This file is not in a git repository. Tracey requires git for safe editing."
 
-r[dashboard.editing.git.rationale]
 Git requirement provides a safety net for inline editing: users can review changes with `git diff`, revert mistakes with `git checkout`, and maintain edit history without additional undo/redo implementation.
 
 ### Byte Range Operations
@@ -1010,7 +1085,6 @@ The byte range endpoints MUST validate that `start < end` and `end <= file_lengt
 r[dashboard.editing.api.utf8-validation]
 The fetch-range endpoint MUST validate that the extracted bytes form valid UTF-8 text, returning an error if the range splits a multi-byte character.
 
-r[dashboard.editing.hash.rationale]
 Hash-based conflict detection prevents race conditions where the file changes between loading the editor and saving, ensuring users don't accidentally overwrite concurrent modifications.
 
 ### Save and Cancel Workflow
@@ -1024,8 +1098,8 @@ Save errors MUST be displayed inline in the editor footer without closing the ed
 r[dashboard.editing.cancel.discard]
 Clicking Cancel MUST discard all changes and close the inline editor without modifying the file.
 
-r[dashboard.editing.cancel.escape]
-Pressing Escape MUST cancel editing and close the inline editor (when not in vim insert mode).
+r[dashboard.editing.cancel.vim]
+The inline editor MUST support vim's `:q` command to cancel editing and close the editor.
 
 ### File Watching and Reload
 
@@ -1079,23 +1153,6 @@ The specification view MUST support keyboard navigation between requirements usi
 > r[dashboard.editing.keyboard.yank-link]
 > Pressing `yl` on a focused requirement MUST copy only the requirement ID to the clipboard (e.g., `rule.id.here`), and display a brief "Copied" notification.
 
-### Future: Add Requirement
-
-r[dashboard.editing.add.button status=draft]
-The dashboard SHOULD provide an "Add Requirement" button that inserts a new requirement template at appropriate locations (end of sections, after existing requirements).
-
-> r[dashboard.editing.add.template status=draft]
-> The template MUST be pre-filled as a blockquote with `r[|]` where `|` represents the cursor position, ready for the user to type the requirement ID.
-> 
-> Example template:
-> ```markdown
-> > r[|]
-> >
-> ```
-
-r[dashboard.editing.add.cursor-position status=draft]
-The cursor MUST be positioned inside the brackets after `r[` to enable immediate typing of the requirement ID, followed by tab to move to the content line.
-
 ## LSP Server
 
 Tracey provides a Language Server Protocol (LSP) server for editor integration, enabling real-time feedback on requirement references directly in source code and specification files.
@@ -1108,11 +1165,8 @@ The `tracey lsp` command MUST start an LSP server communicating over stdio.
 r[lsp.lifecycle.initialize]
 The server MUST respond to the `initialize` request with supported capabilities including diagnostics, hover, go-to-definition, and code actions.
 
-r[lsp.lifecycle.workspace-folders]
-The server MUST support workspace folders, using the workspace root to locate the tracey configuration file.
-
-r[lsp.lifecycle.config-watch]
-The server MUST watch the configuration file for changes and reload configuration when it changes.
+r[lsp.lifecycle.project-root]
+The server MUST use the project root (typically where `.config/tracey/config.kdl` is found) to locate the tracey configuration file.
 
 ### Diagnostics
 
@@ -1167,7 +1221,7 @@ Hovering over a requirement reference in source code MUST display the requiremen
 > ```
 
 r[lsp.hover.prefix]
-Hovering over a prefix (e.g., `r` in `r[impl auth.token]`) MUST display the spec name and source URL if configured.
+Hovering over a requirement reference MUST include the spec name and source URL (if configured) alongside the requirement info, allowing users to see which specification the prefix maps to.
 
 ### Document Highlight
 
@@ -1208,7 +1262,7 @@ r[lsp.references.from-reference]
 Find-references on a requirement reference MUST return the definition location plus all other references to the same requirement.
 
 r[lsp.references.include-type]
-Reference results MUST indicate the reference type (impl, verify, depends, related) in the reference context.
+Reference results MUST be grouped by type: implementation references first, then verification references, then dependency references. This ordering allows users to understand the reference type based on position in the list.
 
 ### Code Actions
 
@@ -1284,8 +1338,6 @@ The server MUST support renaming requirement IDs, updating the definition in the
 r[lsp.rename.prepare]
 The server MUST support prepare-rename to indicate whether rename is available at the cursor position and provide the current identifier range.
 
-r[lsp.rename.preview]
-The server SHOULD support workspace edit previews, allowing users to review all changes before applying.
 
 ### Inlay Hints
 
@@ -1323,55 +1375,6 @@ The extension MUST activate for markdown files matching the spec patterns in the
 
 r[zed.filetypes.config]
 The extension SHOULD activate for the tracey configuration file (`.config/tracey/config.kdl`).
-
-### LSP Feature Integration
-
-r[zed.lsp.diagnostics]
-Diagnostics from the tracey LSP MUST appear in Zed's diagnostics panel and inline in the editor.
-
-r[zed.lsp.hover]
-Hover information from the tracey LSP MUST appear in Zed's hover popover.
-
-r[zed.lsp.goto]
-Go-to-definition from the tracey LSP MUST work with Zed's standard go-to-definition keybinding.
-
-r[zed.lsp.references]
-Find-references from the tracey LSP MUST appear in Zed's references panel.
-
-r[zed.lsp.completions]
-Completions from the tracey LSP MUST appear in Zed's autocomplete menu.
-
-r[zed.lsp.actions]
-Code actions from the tracey LSP MUST appear in Zed's code actions menu.
-
-r[zed.lsp.highlight]
-Document highlight from the tracey LSP MUST highlight the full requirement reference range when the cursor is positioned within it.
-
-r[zed.lsp.implementation]
-Go-to-implementation from the tracey LSP MUST work with Zed's standard go-to-implementation keybinding, showing a picker when multiple implementations exist.
-
-r[zed.lsp.rename]
-Rename from the tracey LSP MUST work with Zed's rename functionality, updating all references across the workspace.
-
-r[zed.lsp.codelens]
-Code lens from the tracey LSP MUST appear inline in Zed above requirement definitions.
-
-r[zed.lsp.inlay-hints]
-Inlay hints from the tracey LSP MUST appear inline in Zed, respecting Zed's inlay hint settings.
-
-### Zed-Specific Features
-
-r[zed.outline.requirements]
-The extension SHOULD contribute to Zed's outline panel, showing requirement definitions in spec files as navigable symbols.
-
-r[zed.status.coverage]
-The extension MAY display coverage information in Zed's status bar for the current file or project.
-
-r[zed.commands.dashboard]
-The extension SHOULD provide a command to open the tracey dashboard for the current project.
-
-r[zed.commands.goto-requirement]
-The extension SHOULD provide a command to fuzzy-search and navigate to any requirement by ID.
 
 ### Installation
 

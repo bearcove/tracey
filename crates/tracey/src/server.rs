@@ -8,11 +8,9 @@
 //! The actual data building happens in `serve.rs`. This module wraps that
 //! data and provides query methods + formatting.
 
-#![allow(dead_code)] // TODO: Remove once wired up
-
 use std::collections::BTreeMap;
 
-use crate::serve::{ApiCodeRef, ApiFileEntry, ApiRule, DashboardData, ImplKey, OutlineEntry};
+use crate::data::{ApiCodeRef, ApiFileEntry, ApiRule, DashboardData, ImplKey, OutlineEntry};
 
 // ============================================================================
 // Delta Tracking
@@ -415,7 +413,7 @@ impl<'a> QueryEngine<'a> {
                 if result.is_none() {
                     result = Some(RuleInfo {
                         id: rule_id.to_string(),
-                        text: rule.text.clone(),
+                        raw: rule.raw.clone(),
                         html: rule.html.clone(),
                         source_file: rule.source_file.clone(),
                         source_line: rule.source_line,
@@ -531,7 +529,8 @@ pub struct ImplCoverage {
 #[derive(Debug, Clone)]
 pub struct RuleInfo {
     pub id: String,
-    pub text: String,
+    /// Raw markdown source (without r[...] marker)
+    pub raw: String,
     pub html: String,
     pub source_file: Option<String>,
     pub source_line: Option<usize>,
@@ -566,19 +565,19 @@ fn group_rules_by_section(
     rules: &[&ApiRule],
     _outline: &[OutlineEntry],
 ) -> BTreeMap<String, Vec<RuleRef>> {
-    // For now, just group all under "All Rules"
-    // TODO: Use outline to determine which section each rule belongs to
-    let mut result = BTreeMap::new();
+    let mut result: BTreeMap<String, Vec<RuleRef>> = BTreeMap::new();
 
-    if !rules.is_empty() {
-        let refs: Vec<RuleRef> = rules
-            .iter()
-            .map(|r| RuleRef {
-                id: r.id.clone(),
-                impl_refs: r.impl_refs.clone(),
-            })
-            .collect();
-        result.insert("All Rules".to_string(), refs);
+    for rule in rules {
+        let section = rule
+            .section_title
+            .as_ref()
+            .cloned()
+            .unwrap_or_else(|| "Uncategorized".to_string());
+
+        result.entry(section).or_default().push(RuleRef {
+            id: rule.id.clone(),
+            impl_refs: rule.impl_refs.clone(),
+        });
     }
 
     result
@@ -1077,7 +1076,7 @@ fn do_foo_baz() {}
         let config = crate::load_config(&config_path).unwrap();
 
         // Build dashboard data
-        let data = crate::serve::build_dashboard_data(&root, &config, 1, true)
+        let data = crate::data::build_dashboard_data(&root, &config, 1, true)
             .await
             .unwrap();
 
@@ -1124,7 +1123,7 @@ fn do_foo_baz() {}
         let config_path = root.join(".config/tracey/config.kdl");
         let config = crate::load_config(&config_path).unwrap();
 
-        let data = crate::serve::build_dashboard_data(&root, &config, 1, true)
+        let data = crate::data::build_dashboard_data(&root, &config, 1, true)
             .await
             .unwrap();
 
@@ -1221,7 +1220,7 @@ fn only_b() {}
         let config_path = root.join(".config/tracey/config.kdl");
         let config = crate::load_config(&config_path).unwrap();
 
-        let data = crate::serve::build_dashboard_data(&root, &config, 1, true)
+        let data = crate::data::build_dashboard_data(&root, &config, 1, true)
             .await
             .unwrap();
 

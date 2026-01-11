@@ -1,0 +1,23 @@
+[package]
+name = "tracey-proto"
+version = "1.0.0"
+description = "Protocol definitions for tracey daemon RPC"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
+[dependencies]
+# roam RPC framework
+roam = { git = "https://github.com/bearcove/roam", rev = "4250a30e7064607d2288aed1504c3dddeaaa8a3b" }
+
+# API types (re-exported for convenience)
+tracey-api = { path = "../tracey-api" }
+
+# facet for Facet derives on request/response types
+facet = { workspace = true }

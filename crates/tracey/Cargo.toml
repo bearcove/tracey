@@ -21,6 +21,10 @@ ignored = ["facet-error", "serde_json", "url"]
 [package.metadata."docs.rs"]
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
+[lib]
+name = "tracey"
+path = "src/lib.rs"
+
 [[bin]]
 name = "tracey"
 path = "src/main.rs"
@@ -28,6 +32,7 @@ path = "src/main.rs"
 [dependencies]
 tracey-core = { workspace = true, features = ["walk", "parallel", "reverse"] }
 tracey-api = { path = "../tracey-api" }
+tracey-proto = { path = "../tracey-proto" }
 
 # Facet ecosystem for config parsing and CLI
 facet = { workspace = true }
@@ -52,9 +57,6 @@ marq = { workspace = true }
 # Syntax highlighting for source files
 arborium = { workspace = true }
 
-# Open files in browser
-open = "5"
-
 # HTTP server for serve command
 axum = { workspace = true }
 tokio = { workspace = true }
@@ -64,9 +66,6 @@ futures-util = { workspace = true }
 tokio-tungstenite = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-
-# File watching for live reload
-notify = { workspace = true }
 notify-debouncer-mini = { workspace = true }
 
 # URL decoding for API
@@ -88,9 +87,23 @@ url = { version = "*", features = ["serde"] }
 # LSP server
 tower-lsp = "0.20"
 
+# Open URLs in browser
+open = "5"
+
+# roam RPC framework (for daemon architecture)
+roam = { git = "https://github.com/bearcove/roam", rev = "4250a30e7064607d2288aed1504c3dddeaaa8a3b" }
+roam-stream = { git = "https://github.com/bearcove/roam", rev = "4250a30e7064607d2288aed1504c3dddeaaa8a3b" }
+miette = { version = "7.6.0", default-features = false, features = ["fancy-no-backtrace"] }
+
 [features]
 default = ["search"]
 search = ["dep:tantivy"]
+
+[build-dependencies]
+roam-codegen = { git = "https://github.com/bearcove/roam", rev = "4250a30e7064607d2288aed1504c3dddeaaa8a3b" }
+tracey-proto = { path = "../tracey-proto" }
+tracey-api = { path = "../tracey-api" }
+facet-typescript = { git = "https://github.com/facet-rs/facet", branch = "main" }
 
 [dev-dependencies]
 tempfile = "3.24.0"

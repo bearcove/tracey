@@ -28,7 +28,6 @@ impl SourceSpan {
 
 /// The relationship type between code and a spec rule
 ///
-/// r[impl ref.verb.define]
 /// r[impl ref.verb.impl]
 /// r[impl ref.verb.verify]
 /// r[impl ref.verb.depends]

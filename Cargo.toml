@@ -15,6 +15,8 @@ authors = ["Amos Wenger <amos@bearcove.eu>"]
 [workspace.dependencies]
 # Internal
 tracey-core = { path = "crates/tracey-core", version = "1.0.0" }
+tracey-api = { path = "crates/tracey-api", version = "1.0.0" }
+tracey-proto = { path = "crates/tracey-proto", version = "1.0.0" }
 
 # Facet ecosystem (from git for facet-miette support)
 facet = { git = "https://github.com/facet-rs/facet", branch = "main", version = "0.42.0" }
@@ -65,16 +67,13 @@ futures-util = "0.3"
 tokio-tungstenite = "0.28"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-
-# File watching for live reload
-notify = "8"
 notify-debouncer-mini = "0.7"
 
 # Full-text search
 tantivy = "0.22"
 
 # Markdown processing (with syntax highlighting and diagram handlers)
-marq = { git = "https://github.com/bearcove/marq", features = ["highlight", "aasvg", "pikru"] }
+marq = { git = "https://github.com/bearcove/marq", branch = "main", features = ["highlight", "aasvg", "pikru"] }
 
 # The profile that 'dist' will build with
 [profile.dist]
