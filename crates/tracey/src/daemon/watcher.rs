@@ -212,8 +212,9 @@ pub fn extract_watch_dirs_from_config(config: &Config, project_root: &Path) -> H
         for include in &spec.include {
             let dir = glob_to_watch_dir(include);
             let full_path = project_root.join(&dir);
-            if full_path.exists() {
-                dirs.insert(full_path);
+            // Canonicalize to resolve .. components and get clean absolute paths
+            if let Ok(canonical) = full_path.canonicalize() {
+                dirs.insert(canonical);
             } else {
                 debug!(
                     "Watch directory does not exist (yet): {}",
@@ -227,16 +228,16 @@ pub fn extract_watch_dirs_from_config(config: &Config, project_root: &Path) -> H
             for include in &impl_.include {
                 let dir = glob_to_watch_dir(include);
                 let full_path = project_root.join(&dir);
-                if full_path.exists() {
-                    dirs.insert(full_path);
+                if let Ok(canonical) = full_path.canonicalize() {
+                    dirs.insert(canonical);
                 }
             }
 
             for test_include in &impl_.test_include {
                 let dir = glob_to_watch_dir(test_include);
                 let full_path = project_root.join(&dir);
-                if full_path.exists() {
-                    dirs.insert(full_path);
+                if let Ok(canonical) = full_path.canonicalize() {
+                    dirs.insert(canonical);
                 }
             }
         }

@@ -86,6 +86,17 @@ export function useApi(): UseApiResult {
       // Update config error state
       setConfigError(health?.configError || null);
 
+      // If there are no specs configured, show empty state with config error
+      if (!config.specs?.length) {
+        setData({
+          config,
+          forward: { specs: [] },
+          reverse: { files: [], totalUnits: 0, coveredUnits: 0 },
+        });
+        setError(null);
+        return;
+      }
+
       // Get spec/impl from URL, falling back to first available
       let { spec, impl } = getImplFromUrl();
       if (!spec && config.specs?.[0]) {
