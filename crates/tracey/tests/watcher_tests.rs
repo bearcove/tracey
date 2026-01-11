@@ -142,7 +142,7 @@ async fn create_test_service() -> tracey::daemon::TraceyService {
     use tracey::daemon::{Engine, TraceyService};
 
     let fixtures = common::fixtures_dir();
-    let config_path = fixtures.join("config.kdl");
+    let config_path = fixtures.join("config.yaml");
 
     let engine = Arc::new(
         Engine::new(fixtures, config_path)
@@ -158,7 +158,7 @@ async fn create_test_service_with_watcher() -> (tracey::daemon::TraceyService, A
     use tracey::daemon::{Engine, TraceyService};
 
     let fixtures = common::fixtures_dir();
-    let config_path = fixtures.join("config.kdl");
+    let config_path = fixtures.join("config.yaml");
 
     let engine = Arc::new(
         Engine::new(fixtures, config_path)
@@ -233,7 +233,7 @@ async fn test_engine_rebuild_increments_version() {
     use tracey::daemon::Engine;
 
     let fixtures = common::fixtures_dir();
-    let config_path = fixtures.join("config.kdl");
+    let config_path = fixtures.join("config.yaml");
 
     let engine = Arc::new(
         Engine::new(fixtures, config_path)

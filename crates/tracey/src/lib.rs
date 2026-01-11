@@ -269,7 +269,7 @@ pub fn load_config(path: &PathBuf) -> Result<Config> {
     let content = std::fs::read_to_string(path)
         .wrap_err_with(|| format!("Failed to read config file: {}", path.display()))?;
 
-    let config: Config = facet_kdl::from_str(&content)
+    let config: Config = facet_yaml::from_str(&content)
         .wrap_err_with(|| format!("Failed to parse config file: {}", path.display()))?;
 
     Ok(config)
@@ -284,7 +284,7 @@ pub fn load_config_or_default(path: &PathBuf) -> Config {
     }
 
     match std::fs::read_to_string(path) {
-        Ok(content) => facet_kdl::from_str(&content).unwrap_or_default(),
+        Ok(content) => facet_yaml::from_str(&content).unwrap_or_default(),
         Err(_) => Config::default(),
     }
 }

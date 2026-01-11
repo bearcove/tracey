@@ -22,9 +22,12 @@ pub fn create_temp_project() -> tempfile::TempDir {
     std::fs::copy(fixtures.join("spec.md"), temp.path().join("spec.md"))
         .expect("Failed to copy spec.md");
 
-    // Copy config.kdl
-    std::fs::copy(fixtures.join("config.kdl"), temp.path().join("config.kdl"))
-        .expect("Failed to copy config.kdl");
+    // Copy config.yaml
+    std::fs::copy(
+        fixtures.join("config.yaml"),
+        temp.path().join("config.yaml"),
+    )
+    .expect("Failed to copy config.yaml");
 
     // Create src directory and copy source files
     std::fs::create_dir_all(temp.path().join("src")).expect("Failed to create src dir");

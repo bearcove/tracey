@@ -378,11 +378,11 @@ Requirement references in comments associated with a code unit MUST be extracted
 
 ## Configuration
 
-r[config.format.kdl]
-The configuration file MUST be in KDL format.
+r[config.format.yaml]
+The configuration file MUST be in YAML format.
 
 r[config.path.default]
-The default configuration path MUST be `.config/tracey/config.kdl` relative to the project root.
+The default configuration path MUST be `.config/tracey/config.yaml` relative to the project root.
 
 r[config.optional]
 The configuration file MUST be optional. The MCP server, HTTP server, and LSP MUST start correctly even when no configuration file exists, providing empty/default responses until a configuration is available.
@@ -726,7 +726,7 @@ r[server.watch.respect-excludes]
 The file watcher MUST respect `exclude` patterns from the configuration, not triggering rebuilds for files matching exclude patterns even if they match include patterns.
 
 r[server.watch.config-file]
-The file watcher MUST watch the configuration file itself (`.config/tracey/config.kdl`) for changes, triggering a rebuild when configuration changes.
+The file watcher MUST watch the configuration file itself (`.config/tracey/config.yaml`) for changes, triggering a rebuild when configuration changes.
 
 r[server.watch.debounce]
 File change events MUST be debounced (default: 200ms) to avoid excessive recomputation during rapid edits.
@@ -1166,7 +1166,7 @@ r[lsp.lifecycle.initialize]
 The server MUST respond to the `initialize` request with supported capabilities including diagnostics, hover, go-to-definition, and code actions.
 
 r[lsp.lifecycle.project-root]
-The server MUST use the project root (typically where `.config/tracey/config.kdl` is found) to locate the tracey configuration file.
+The server MUST use the project root (typically where `.config/tracey/config.yaml` is found) to locate the tracey configuration file.
 
 ### Diagnostics
 
@@ -1374,7 +1374,7 @@ r[zed.filetypes.spec]
 The extension MUST activate for markdown files matching the spec patterns in the tracey configuration.
 
 r[zed.filetypes.config]
-The extension SHOULD activate for the tracey configuration file (`.config/tracey/config.kdl`).
+The extension SHOULD activate for the tracey configuration file (`.config/tracey/config.yaml`).
 
 ### Installation
 

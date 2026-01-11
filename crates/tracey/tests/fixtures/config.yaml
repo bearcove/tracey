@@ -1,0 +1,25 @@
+# Tracey configuration for integration tests
+
+specs:
+  - name: test
+    prefix: r
+    include:
+      - "spec.md"
+    impls:
+      - name: rust
+        include:
+          - "src/**/*.rs"
+        test_include:
+          - "src/tests.rs"
+
+  # Second spec with a different prefix, for testing multi-spec prefix filtering
+  # r[verify ref.prefix.filter]
+  - name: other
+    prefix: o
+    include:
+      - "other-spec.md"
+    impls:
+      - name: rust
+        # Same source files as test/rust - exercises the prefix filtering
+        include:
+          - "src/**/*.rs"

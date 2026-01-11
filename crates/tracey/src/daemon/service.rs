@@ -2332,9 +2332,9 @@ fn find_rule_in_data<'a>(
 /// Save config to file
 fn save_config(path: &Path, config: &crate::config::Config) -> eyre::Result<()> {
     use std::io::Write;
-    let kdl_string = facet_kdl::to_string(config)?;
+    let yaml_string = facet_yaml::to_string(config)?;
     let mut file = std::fs::File::create(path)?;
-    file.write_all(kdl_string.as_bytes())?;
+    file.write_all(yaml_string.as_bytes())?;
     Ok(())
 }
 

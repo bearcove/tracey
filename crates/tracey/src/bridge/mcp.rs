@@ -736,7 +736,7 @@ fn format_validation_result(result: &tracey_proto::ValidationResult) -> String {
 // ============================================================================
 
 /// Run the MCP bridge server over stdio.
-pub async fn run(root: Option<PathBuf>, _config_path: Option<PathBuf>) -> Result<()> {
+pub async fn run(root: Option<PathBuf>, _config_path: PathBuf) -> Result<()> {
     // Determine project root
     let project_root = match root {
         Some(r) => r,

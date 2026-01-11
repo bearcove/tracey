@@ -16,7 +16,7 @@
 //!
 //! r[impl daemon.watcher.reconfigure]
 //!
-//! When config.kdl or .gitignore changes, the watcher sends a
+//! When config.yaml or .gitignore changes, the watcher sends a
 //! `Reconfigure` event. The rebuild loop then:
 //! 1. Rebuilds the gitignore matcher
 //! 2. Calls `WatcherManager::reconfigure()` to update watches

@@ -47,7 +47,7 @@ impl Engine {
     pub async fn new(project_root: PathBuf, config_path: PathBuf) -> Result<Self> {
         // Load initial config - use empty config if file doesn't exist or can't be read
         let config = match tokio::fs::read_to_string(&config_path).await {
-            Ok(content) => match facet_kdl::from_str(&content) {
+            Ok(content) => match facet_yaml::from_str(&content) {
                 Ok(config) => config,
                 Err(e) => {
                     info!(
@@ -157,7 +157,7 @@ impl Engine {
 
         // Reload config
         let config_content = tokio::fs::read_to_string(&self.config_path).await?;
-        let config: Config = facet_kdl::from_str(&config_content)?;
+        let config: Config = facet_yaml::from_str(&config_content)?;
 
         // Get current VFS overlay
         let overlay = self.vfs.read().await.clone();

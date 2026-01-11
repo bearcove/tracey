@@ -598,7 +598,7 @@ mod tests {
                 return;
             }
 
-            // Create WalkSources with the same patterns as config.kdl
+            // Create WalkSources with the same patterns as config.yaml
             let result = Reqs::extract(
                 WalkSources::new(project_root)
                     .include([

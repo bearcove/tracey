@@ -18,7 +18,7 @@ fn fixtures_dir() -> PathBuf {
 /// Helper to create an engine for testing.
 async fn create_test_engine() -> Arc<tracey::daemon::Engine> {
     let project_root = fixtures_dir();
-    let config_path = project_root.join("config.kdl");
+    let config_path = project_root.join("config.yaml");
 
     Arc::new(
         tracey::daemon::Engine::new(project_root, config_path)

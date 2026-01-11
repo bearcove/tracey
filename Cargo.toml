@@ -22,7 +22,7 @@ tracey-proto = { path = "crates/tracey-proto", version = "1.0.0" }
 facet = { git = "https://github.com/facet-rs/facet", branch = "main", version = "0.42.0" }
 facet-args = { git = "https://github.com/facet-rs/facet", branch = "main", version = "0.42.0" }
 facet-axum = { git = "https://github.com/facet-rs/facet", branch = "main", version = "0.42.0" }
-facet-kdl = { git = "https://github.com/facet-rs/facet", branch = "main", version = "0.42.0" }
+facet-yaml = { git = "https://github.com/facet-rs/facet", branch = "main", version = "0.42.0" }
 facet-json = { git = "https://github.com/facet-rs/facet", branch = "main", version = "0.42.0" }
 facet-error = { git = "https://github.com/facet-rs/facet", branch = "main", version = "0.42.0" }
 

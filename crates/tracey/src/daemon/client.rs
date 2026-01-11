@@ -120,7 +120,7 @@ impl DaemonClient {
         let exe = std::env::current_exe().wrap_err("Failed to get current executable path")?;
 
         // Determine config path
-        let config_path = project_root.join(".config/tracey/config.kdl");
+        let config_path = project_root.join(".config/tracey/config.yaml");
 
         info!("Auto-starting daemon for {}", project_root.display());
 

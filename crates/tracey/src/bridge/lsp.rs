@@ -36,7 +36,7 @@ const SEMANTIC_TOKEN_MODIFIERS: &[SemanticTokenModifier] = &[
 ///
 /// r[impl lsp.lifecycle.stdio]
 /// r[impl lsp.lifecycle.project-root]
-pub async fn run(root: Option<PathBuf>, _config_path: Option<PathBuf>) -> Result<()> {
+pub async fn run(root: Option<PathBuf>, _config_path: PathBuf) -> Result<()> {
     // Determine project root
     let project_root = match root {
         Some(r) => r,

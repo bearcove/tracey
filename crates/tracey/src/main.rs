@@ -34,9 +34,9 @@ enum Command {
         #[facet(args::positional, default)]
         root: Option<PathBuf>,
 
-        /// Path to config file (default: .config/tracey/config.kdl)
-        #[facet(args::named, args::short = 'c', default)]
-        config: Option<PathBuf>,
+        /// Path to config file
+        #[facet(args::named, args::short = 'c', default = ".config/tracey/config.yaml")]
+        config: PathBuf,
 
         /// Port to listen on (default: 3000)
         #[facet(args::named, args::short = 'p', default)]
@@ -57,9 +57,9 @@ enum Command {
         #[facet(args::positional, default)]
         root: Option<PathBuf>,
 
-        /// Path to config file (default: .config/tracey/config.kdl)
-        #[facet(args::named, args::short = 'c', default)]
-        config: Option<PathBuf>,
+        /// Path to config file
+        #[facet(args::named, args::short = 'c', default = ".config/tracey/config.yaml")]
+        config: PathBuf,
     },
 
     /// Start the LSP server for editor integration
@@ -68,9 +68,9 @@ enum Command {
         #[facet(args::positional, default)]
         root: Option<PathBuf>,
 
-        /// Path to config file (default: .config/tracey/config.kdl)
-        #[facet(args::named, args::short = 'c', default)]
-        config: Option<PathBuf>,
+        /// Path to config file
+        #[facet(args::named, args::short = 'c', default = ".config/tracey/config.yaml")]
+        config: PathBuf,
     },
 
     /// Start the tracey daemon (persistent server for this workspace)
@@ -79,9 +79,9 @@ enum Command {
         #[facet(args::positional, default)]
         root: Option<PathBuf>,
 
-        /// Path to config file (default: .config/tracey/config.kdl)
-        #[facet(args::named, args::short = 'c', default)]
-        config: Option<PathBuf>,
+        /// Path to config file
+        #[facet(args::named, args::short = 'c', default = ".config/tracey/config.yaml")]
+        config: PathBuf,
     },
 
     /// Show daemon logs
@@ -151,8 +151,10 @@ fn main() -> Result<()> {
 
             let project_root = root.unwrap_or_else(|| find_project_root().unwrap_or_default());
             // r[impl config.path.default]
-            let config_path =
-                config.unwrap_or_else(|| project_root.join(".config/tracey/config.kdl"));
+            let config_path = project_root.join(&config);
+
+            // Check for deprecated KDL config
+            check_kdl_deprecation(&project_root)?;
 
             // Ensure .tracey directory exists for log file
             let tracey_dir = project_root.join(".tracey");
@@ -300,5 +302,33 @@ fn show_logs(root: Option<PathBuf>, follow: bool, lines: usize) -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+/// Check for deprecated KDL config file and error if found
+fn check_kdl_deprecation(project_root: &std::path::Path) -> Result<()> {
+    let kdl_config = project_root.join(".config/tracey/config.kdl");
+    if kdl_config.exists() {
+        eyre::bail!(
+            "Found deprecated config file: {}\n\n\
+             Tracey now uses YAML configuration. Please:\n\
+             1. Rename {} to {}\n\
+             2. Convert the contents from KDL to YAML format\n\n\
+             Example YAML config:\n\
+             \n\
+             specs:\n\
+               - name: my-spec\n\
+                 prefix: r\n\
+                 include:\n\
+                   - \"docs/**/*.md\"\n\
+                 impls:\n\
+                   - name: rust\n\
+                     include:\n\
+                       - \"src/**/*.rs\"\n",
+            kdl_config.display(),
+            "config.kdl".red(),
+            "config.yaml".green(),
+        );
+    }
     Ok(())
 }

@@ -56,19 +56,18 @@ Supported verbs: `impl`, `verify`, `depends`, `related` (defaults to `impl` if o
 
 ### 3. Configure tracey
 
-Create `.config/tracey/config.kdl`:
+Create `.config/tracey/config.yaml`:
 
-```kdl
-spec {
-    name "my-spec"
-    prefix "r"
-    include "docs/spec/**/*.md"
-
-    impl {
-        name "main"
-        include "src/**/*.rs"
-    }
-}
+```yaml
+specs:
+  - name: my-spec
+    prefix: r
+    include:
+      - "docs/spec/**/*.md"
+    impls:
+      - name: main
+        include:
+          - "src/**/*.rs"
 ```
 
 ### 4. Launch the dashboard

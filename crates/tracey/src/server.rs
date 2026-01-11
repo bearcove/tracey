@@ -1053,18 +1053,17 @@ fn do_foo_baz() {}
         fs::write(root.join("src/lib.rs"), impl_content).unwrap();
 
         // Write config
-        let config_content = r#"spec {
-    name "test-spec"
-    prefix "r"
-    include "docs/spec/**/*.md"
-
-    impl {
-        name "main"
-        include "src/**/*.rs"
-    }
-}
+        let config_content = r#"specs:
+  - name: test-spec
+    prefix: r
+    include:
+      - "docs/spec/**/*.md"
+    impls:
+      - name: main
+        include:
+          - "src/**/*.rs"
 "#;
-        fs::write(root.join(".config/tracey/config.kdl"), config_content).unwrap();
+        fs::write(root.join(".config/tracey/config.yaml"), config_content).unwrap();
 
         (tmp, root)
     }
@@ -1072,7 +1071,7 @@ fn do_foo_baz() {}
     #[tokio::test]
     async fn test_status_and_rule_consistency() {
         let (_tmp, root) = create_test_fixture().await;
-        let config_path = root.join(".config/tracey/config.kdl");
+        let config_path = root.join(".config/tracey/config.yaml");
         let config = crate::load_config(&config_path).unwrap();
 
         // Build dashboard data
@@ -1120,7 +1119,7 @@ fn do_foo_baz() {}
     #[tokio::test]
     async fn test_rule_lookup_finds_covered_rules() {
         let (_tmp, root) = create_test_fixture().await;
-        let config_path = root.join(".config/tracey/config.kdl");
+        let config_path = root.join(".config/tracey/config.yaml");
         let config = crate::load_config(&config_path).unwrap();
 
         let data = crate::data::build_dashboard_data(&root, &config, 1, true)
@@ -1199,25 +1198,22 @@ fn only_b() {}
         fs::write(root.join("impl-b/src/lib.rs"), impl_b_content).unwrap();
 
         // Write config with two impls
-        let config_content = r#"spec {
-    name "test-spec"
-    prefix "r"
-    include "docs/spec/**/*.md"
-
-    impl {
-        name "impl-a"
-        include "impl-a/**/*.rs"
-    }
-
-    impl {
-        name "impl-b"
-        include "impl-b/**/*.rs"
-    }
-}
+        let config_content = r#"specs:
+  - name: test-spec
+    prefix: r
+    include:
+      - "docs/spec/**/*.md"
+    impls:
+      - name: impl-a
+        include:
+          - "impl-a/**/*.rs"
+      - name: impl-b
+        include:
+          - "impl-b/**/*.rs"
 "#;
-        fs::write(root.join(".config/tracey/config.kdl"), config_content).unwrap();
+        fs::write(root.join(".config/tracey/config.yaml"), config_content).unwrap();
 
-        let config_path = root.join(".config/tracey/config.kdl");
+        let config_path = root.join(".config/tracey/config.yaml");
         let config = crate::load_config(&config_path).unwrap();
 
         let data = crate::data::build_dashboard_data(&root, &config, 1, true)

@@ -62,7 +62,7 @@ struct AppState {
 /// translates REST API requests to RPC calls.
 pub async fn run(
     root: Option<PathBuf>,
-    _config_path: Option<PathBuf>,
+    _config_path: PathBuf,
     port: u16,
     open: bool,
     dev: bool,

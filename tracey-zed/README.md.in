@@ -35,7 +35,7 @@ The extension will use the downloaded binary if available, otherwise fall back t
 
 ## Configuration
 
-The extension uses tracey's standard configuration at `.config/tracey/config.kdl` in your project root.
+The extension uses tracey's standard configuration at `.config/tracey/config.yaml` in your project root.
 
 ## Supported Languages
 
