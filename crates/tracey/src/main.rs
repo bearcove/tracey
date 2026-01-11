@@ -101,9 +101,7 @@ enum Command {
 }
 
 fn main() -> Result<()> {
-    let args: Args = args::from_std_args()
-        .map_err(miette::Report::new)
-        .expect("failed to parse arguments");
+    let args: Args = args::from_std_args().expect("failed to parse arguments");
 
     if args.version {
         println!("tracey {}", env!("CARGO_PKG_VERSION"));

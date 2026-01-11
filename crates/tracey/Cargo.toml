@@ -12,7 +12,6 @@ authors.workspace = true
 default-run = "tracey"
 
 [package.metadata.cargo-shear]
-# Used by #[facet(derive(Error, facet_miette::Diagnostic))] in errors.rs
 # Used by MCP tool macros in mcp.rs
 ignored = ["facet-error", "serde_json", "url"]
 
@@ -91,9 +90,8 @@ tower-lsp = "0.20"
 open = "5"
 
 # roam RPC framework (for daemon architecture)
-roam = { git = "https://github.com/bearcove/roam", rev = "4250a30e7064607d2288aed1504c3dddeaaa8a3b" }
-roam-stream = { git = "https://github.com/bearcove/roam", rev = "4250a30e7064607d2288aed1504c3dddeaaa8a3b" }
-miette = { version = "7.6.0", default-features = false, features = ["fancy-no-backtrace"] }
+roam = { git = "https://github.com/bearcove/roam", branch = "main" }
+roam-stream = { git = "https://github.com/bearcove/roam", branch = "main" }
 
 [features]
 default = ["search"]
