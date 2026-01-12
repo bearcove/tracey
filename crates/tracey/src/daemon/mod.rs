@@ -23,7 +23,7 @@ pub mod service;
 pub mod watcher;
 
 use eyre::{Result, WrapErr};
-use roam_stream::{CobsFramed, ConnectionError, Hello, hello_exchange_acceptor};
+use roam_stream::{ConnectionError, HandshakeConfig, accept};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -34,7 +34,7 @@ use tracing::{debug, error, info, warn};
 use service::TraceyDaemonDispatcher;
 use watcher::{WatcherEvent, WatcherManager, WatcherState};
 
-pub use client::{DaemonClient, ReconnectingClient};
+pub use client::{DaemonClient, DaemonConnector, new_client};
 pub use engine::Engine;
 pub use service::TraceyService;
 pub use watcher::WatcherState as DaemonWatcherState;
@@ -311,11 +311,8 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
 
     info!("Daemon listening on {}", sock_path.display());
 
-    // Default Hello configuration
-    let hello = Hello::V1 {
-        max_payload_size: 1024 * 1024,     // 1MB max payload
-        initial_channel_credit: 64 * 1024, // 64KB channel credit
-    };
+    // Default handshake configuration
+    let handshake_config = HandshakeConfig::default();
 
     // r[impl daemon.lifecycle.idle-timeout]
     // Track active connections and last activity for idle timeout
@@ -342,24 +339,20 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
                 );
 
                 let service = service.clone();
-                let hello = hello.clone();
+                let config = handshake_config.clone();
                 let active_connections = Arc::clone(&active_connections);
                 let last_activity = Arc::clone(&last_activity);
 
                 tokio::spawn(async move {
-                    // r[impl daemon.roam.framing]
-                    // Wrap in COBS framing (roam-stream is generic over any AsyncRead+AsyncWrite)
-                    let io = CobsFramed::new(stream);
-
                     // Create dispatcher (wraps service with generated dispatch + tracing)
                     let dispatcher = TraceyDaemonDispatcher::new(service);
 
-                    // Perform Hello exchange
-                    match hello_exchange_acceptor(io, hello).await {
-                        Ok(mut conn) => {
-                            info!("Hello exchange completed");
-                            // Run the message loop with the dispatcher
-                            if let Err(e) = conn.run(&dispatcher).await {
+                    // Accept connection with roam-stream (handles framing and hello exchange)
+                    match accept(stream, config, dispatcher).await {
+                        Ok((_handle, driver)) => {
+                            info!("Connection established");
+                            // Run the driver (handles all RPC dispatch)
+                            if let Err(e) = driver.run().await {
                                 match e {
                                     ConnectionError::Closed => {
                                         info!("Connection closed cleanly");
@@ -377,7 +370,7 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
                             }
                         }
                         Err(e) => {
-                            error!("Hello exchange failed: {:?}", e);
+                            error!("Connection setup failed: {:?}", e);
                         }
                     }
 

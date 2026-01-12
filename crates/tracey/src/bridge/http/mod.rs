@@ -29,7 +29,7 @@ use tokio::sync::{Mutex, broadcast};
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{debug, error, info, warn};
 
-use crate::daemon::DaemonClient;
+use crate::daemon::{DaemonClient, new_client};
 use tracey_api::*;
 
 /// Message sent to WebSocket clients when data changes.
@@ -73,8 +73,8 @@ pub async fn run(
         None => crate::find_project_root()?,
     };
 
-    // Connect to daemon (will error if not running)
-    let client = DaemonClient::connect(&project_root).await?;
+    // Create client (connects lazily, auto-reconnects)
+    let client = new_client(project_root.clone());
 
     // In dev mode, start Vite dev server
     let vite_server = if dev {
@@ -314,12 +314,26 @@ impl ApiError {
     }
 }
 
+/// Flatten double-Result from roam RPC calls into a simpler Result<T, Response>
+fn rpc<T>(
+    res: Result<
+        Result<T, roam::session::RoamError<roam::session::Never>>,
+        roam_stream::ConnectError,
+    >,
+) -> Result<T, Response> {
+    match res {
+        Ok(Ok(v)) => Ok(v),
+        Ok(Err(e)) => Err(ApiError::rpc_error(format!("{:?}", e))),
+        Err(e) => Err(ApiError::rpc_error(e)),
+    }
+}
+
 /// GET /api/config - Get configuration.
 async fn api_config(State(state): State<Arc<AppState>>) -> Response {
-    let mut client = state.client.lock().await;
-    match client.config().await {
+    let client = state.client.lock().await;
+    match rpc(client.config().await) {
         Ok(config) => Json(config).into_response(),
-        Err(e) => ApiError::rpc_error(e),
+        Err(e) => e,
     }
 }
 
@@ -328,20 +342,20 @@ async fn api_forward(
     State(state): State<Arc<AppState>>,
     Query(query): Query<ImplQuery>,
 ) -> Response {
-    let mut client = state.client.lock().await;
+    let client = state.client.lock().await;
 
     // Get config to resolve spec/impl if not provided
-    let config = match client.config().await {
+    let config = match rpc(client.config().await) {
         Ok(c) => c,
-        Err(e) => return ApiError::rpc_error(e),
+        Err(e) => return e,
     };
 
     let (spec, impl_name) = resolve_spec_impl(query.spec, query.impl_name, &config);
 
-    match client.forward(spec, impl_name).await {
+    match rpc(client.forward(spec, impl_name).await) {
         Ok(Some(data)) => Json(ApiForwardData { specs: vec![data] }).into_response(),
         Ok(None) => ApiError::not_found("Spec/impl not found"),
-        Err(e) => ApiError::rpc_error(e),
+        Err(e) => e,
     }
 }
 
@@ -350,28 +364,28 @@ async fn api_reverse(
     State(state): State<Arc<AppState>>,
     Query(query): Query<ImplQuery>,
 ) -> Response {
-    let mut client = state.client.lock().await;
+    let client = state.client.lock().await;
 
-    let config = match client.config().await {
+    let config = match rpc(client.config().await) {
         Ok(c) => c,
-        Err(e) => return ApiError::rpc_error(e),
+        Err(e) => return e,
     };
 
     let (spec, impl_name) = resolve_spec_impl(query.spec, query.impl_name, &config);
 
-    match client.reverse(spec, impl_name).await {
+    match rpc(client.reverse(spec, impl_name).await) {
         Ok(Some(data)) => Json(data).into_response(),
         Ok(None) => ApiError::not_found("Spec/impl not found"),
-        Err(e) => ApiError::rpc_error(e),
+        Err(e) => e,
     }
 }
 
 /// GET /api/version - Get current data version.
 async fn api_version(State(state): State<Arc<AppState>>) -> Response {
-    let mut client = state.client.lock().await;
-    match client.version().await {
+    let client = state.client.lock().await;
+    match rpc(client.version().await) {
         Ok(version) => Json(VersionResponse { version }).into_response(),
-        Err(e) => ApiError::rpc_error(e),
+        Err(e) => e,
     }
 }
 
@@ -379,38 +393,38 @@ async fn api_version(State(state): State<Arc<AppState>>) -> Response {
 ///
 /// r[impl daemon.health]
 async fn api_health(State(state): State<Arc<AppState>>) -> Response {
-    let mut client = state.client.lock().await;
-    match client.health().await {
+    let client = state.client.lock().await;
+    match rpc(client.health().await) {
         Ok(health) => Json(health).into_response(),
-        Err(e) => ApiError::rpc_error(e),
+        Err(e) => e,
     }
 }
 
 /// GET /api/spec - Get rendered spec content.
 async fn api_spec(State(state): State<Arc<AppState>>, Query(query): Query<SpecQuery>) -> Response {
-    let mut client = state.client.lock().await;
+    let client = state.client.lock().await;
 
-    let config = match client.config().await {
+    let config = match rpc(client.config().await) {
         Ok(c) => c,
-        Err(e) => return ApiError::rpc_error(e),
+        Err(e) => return e,
     };
 
     let (spec, impl_name) = resolve_spec_impl(query.spec, query.impl_name, &config);
 
-    match client.spec_content(spec, impl_name).await {
+    match rpc(client.spec_content(spec, impl_name).await) {
         Ok(Some(data)) => Json(data).into_response(),
         Ok(None) => ApiError::not_found("Spec not found"),
-        Err(e) => ApiError::rpc_error(e),
+        Err(e) => e,
     }
 }
 
 /// GET /api/file - Get file content with syntax highlighting.
 async fn api_file(State(state): State<Arc<AppState>>, Query(query): Query<FileQuery>) -> Response {
-    let mut client = state.client.lock().await;
+    let client = state.client.lock().await;
 
-    let config = match client.config().await {
+    let config = match rpc(client.config().await) {
         Ok(c) => c,
-        Err(e) => return ApiError::rpc_error(e),
+        Err(e) => return e,
     };
 
     let (spec, impl_name) = resolve_spec_impl(query.spec, query.impl_name, &config);
@@ -421,10 +435,10 @@ async fn api_file(State(state): State<Arc<AppState>>, Query(query): Query<FileQu
         path: query.path,
     };
 
-    match client.file(req).await {
+    match rpc(client.file(req).await) {
         Ok(Some(data)) => Json(data).into_response(),
         Ok(None) => ApiError::not_found("File not found"),
-        Err(e) => ApiError::rpc_error(e),
+        Err(e) => e,
     }
 }
 
@@ -436,24 +450,24 @@ async fn api_search(
     let q = query.q.unwrap_or_default();
     let limit = query.limit.unwrap_or(50);
 
-    let mut client = state.client.lock().await;
-    match client.search(q.clone(), limit).await {
+    let client = state.client.lock().await;
+    match rpc(client.search(q.clone(), limit as u32).await) {
         Ok(results) => Json(SearchResponse {
             query: q,
             results,
             available: true,
         })
         .into_response(),
-        Err(e) => ApiError::rpc_error(e),
+        Err(e) => e,
     }
 }
 
 /// GET /api/status - Get coverage status.
 async fn api_status(State(state): State<Arc<AppState>>) -> Response {
-    let mut client = state.client.lock().await;
-    match client.status().await {
+    let client = state.client.lock().await;
+    match rpc(client.status().await) {
         Ok(status) => Json(status).into_response(),
-        Err(e) => ApiError::rpc_error(e),
+        Err(e) => e,
     }
 }
 
@@ -462,11 +476,11 @@ async fn api_validate(
     State(state): State<Arc<AppState>>,
     Query(query): Query<ImplQuery>,
 ) -> Response {
-    let mut client = state.client.lock().await;
+    let client = state.client.lock().await;
 
-    let config = match client.config().await {
+    let config = match rpc(client.config().await) {
         Ok(c) => c,
-        Err(e) => return ApiError::rpc_error(e),
+        Err(e) => return e,
     };
 
     let (spec, impl_name) = resolve_spec_impl(query.spec, query.impl_name, &config);
@@ -476,9 +490,9 @@ async fn api_validate(
         impl_name: Some(impl_name),
     };
 
-    match client.validate(req).await {
+    match rpc(client.validate(req).await) {
         Ok(result) => Json(result).into_response(),
-        Err(e) => ApiError::rpc_error(e),
+        Err(e) => e,
     }
 }
 
@@ -487,11 +501,11 @@ async fn api_uncovered(
     State(state): State<Arc<AppState>>,
     Query(query): Query<CoverageQuery>,
 ) -> Response {
-    let mut client = state.client.lock().await;
+    let client = state.client.lock().await;
 
-    let config = match client.config().await {
+    let config = match rpc(client.config().await) {
         Ok(c) => c,
-        Err(e) => return ApiError::rpc_error(e),
+        Err(e) => return e,
     };
 
     let (spec, impl_name) = resolve_spec_impl(query.spec, query.impl_name, &config);
@@ -502,9 +516,9 @@ async fn api_uncovered(
         prefix: query.prefix,
     };
 
-    match client.uncovered(req).await {
+    match rpc(client.uncovered(req).await) {
         Ok(data) => Json(data).into_response(),
-        Err(e) => ApiError::rpc_error(e),
+        Err(e) => e,
     }
 }
 
@@ -513,11 +527,11 @@ async fn api_untested(
     State(state): State<Arc<AppState>>,
     Query(query): Query<CoverageQuery>,
 ) -> Response {
-    let mut client = state.client.lock().await;
+    let client = state.client.lock().await;
 
-    let config = match client.config().await {
+    let config = match rpc(client.config().await) {
         Ok(c) => c,
-        Err(e) => return ApiError::rpc_error(e),
+        Err(e) => return e,
     };
 
     let (spec, impl_name) = resolve_spec_impl(query.spec, query.impl_name, &config);
@@ -528,9 +542,9 @@ async fn api_untested(
         prefix: query.prefix,
     };
 
-    match client.untested(req).await {
+    match rpc(client.untested(req).await) {
         Ok(data) => Json(data).into_response(),
-        Err(e) => ApiError::rpc_error(e),
+        Err(e) => e,
     }
 }
 
@@ -539,11 +553,11 @@ async fn api_unmapped(
     State(state): State<Arc<AppState>>,
     Query(query): Query<UnmappedQuery>,
 ) -> Response {
-    let mut client = state.client.lock().await;
+    let client = state.client.lock().await;
 
-    let config = match client.config().await {
+    let config = match rpc(client.config().await) {
         Ok(c) => c,
-        Err(e) => return ApiError::rpc_error(e),
+        Err(e) => return e,
     };
 
     let (spec, impl_name) = resolve_spec_impl(query.spec, query.impl_name, &config);
@@ -554,29 +568,29 @@ async fn api_unmapped(
         path: query.path,
     };
 
-    match client.unmapped(req).await {
+    match rpc(client.unmapped(req).await) {
         Ok(data) => Json(data).into_response(),
-        Err(e) => ApiError::rpc_error(e),
+        Err(e) => e,
     }
 }
 
 /// GET /api/rule - Get details for a specific rule.
 async fn api_rule(State(state): State<Arc<AppState>>, Query(query): Query<RuleQuery>) -> Response {
-    let mut client = state.client.lock().await;
+    let client = state.client.lock().await;
 
-    match client.rule(query.id).await {
+    match rpc(client.rule(query.id).await) {
         Ok(Some(info)) => Json(info).into_response(),
         Ok(None) => ApiError::not_found("Rule not found"),
-        Err(e) => ApiError::rpc_error(e),
+        Err(e) => e,
     }
 }
 
 /// GET /api/reload - Force a rebuild.
 async fn api_reload(State(state): State<Arc<AppState>>) -> Response {
-    let mut client = state.client.lock().await;
-    match client.reload().await {
+    let client = state.client.lock().await;
+    match rpc(client.reload().await) {
         Ok(response) => Json(response).into_response(),
-        Err(e) => ApiError::rpc_error(e),
+        Err(e) => e,
     }
 }
 
@@ -598,8 +612,8 @@ async fn handle_ws_client(socket: ws::WebSocket, state: Arc<AppState>) {
 
     // Send initial version
     {
-        let mut client = state.client.lock().await;
-        if let Ok(version) = client.version().await {
+        let client = state.client.lock().await;
+        if let Ok(Ok(version)) = client.version().await {
             let msg = WsMessage {
                 msg_type: "version".to_string(),
                 version,
@@ -648,8 +662,8 @@ async fn version_poller(state: Arc<AppState>) {
         tokio::time::sleep(Duration::from_secs(1)).await;
 
         let version = {
-            let mut client = state.client.lock().await;
-            client.version().await.ok()
+            let client = state.client.lock().await;
+            client.version().await.ok().and_then(|r| r.ok())
         };
 
         if let Some(v) = version {

@@ -24,15 +24,18 @@ use rust_mcp_sdk::{McpServer, StdioTransport, ToMcpServerHandler, TransportOptio
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
-use crate::daemon::ReconnectingClient;
+use crate::daemon::{DaemonClient, new_client};
 use tracey_proto::*;
 
-/// Helper to handle errors and mark disconnected if needed
-fn handle_error(guard: &mut ReconnectingClient, e: eyre::Report) -> String {
-    if ReconnectingClient::is_connection_error(&e) {
-        guard.mark_disconnected();
+/// Flatten double-Result from roam RPC calls into Result<T, String>
+fn rpc<T, E: std::fmt::Debug>(
+    res: Result<Result<T, roam::session::RoamError<E>>, roam_stream::ConnectError>,
+) -> Result<T, String> {
+    match res {
+        Ok(Ok(v)) => Ok(v),
+        Ok(Err(e)) => Err(format!("RPC error: {:?}", e)),
+        Err(e) => Err(format!("Connection error: {}", e)),
     }
-    format!("Error: {}", e)
 }
 
 /// Format config error as a warning banner to prepend to responses
@@ -190,18 +193,14 @@ tool_box!(
 /// MCP handler that delegates to the daemon.
 /// r[impl daemon.bridge.reconnect]
 struct TraceyHandler {
-    client: Arc<Mutex<ReconnectingClient>>,
+    client: Arc<Mutex<DaemonClient>>,
 }
 
 impl TraceyHandler {
     /// Check for config errors and return a warning banner if present.
     async fn get_config_error_banner(&self) -> Option<String> {
-        let mut guard = self.client.lock().await;
-        let client = match guard.get_client().await {
-            Ok(c) => c,
-            Err(_) => return None,
-        };
-        match client.health().await {
+        let client = self.client.lock().await;
+        match rpc(client.health().await) {
             Ok(health) => health.config_error.map(|e| format_config_error_banner(&e)),
             Err(_) => None,
         }
@@ -210,12 +209,8 @@ impl TraceyHandler {
     /// r[impl mcp.tool.status]
     /// r[impl mcp.response.hints]
     async fn handle_status(&self) -> String {
-        let mut guard = self.client.lock().await;
-        let client = match guard.get_client().await {
-            Ok(c) => c,
-            Err(e) => return format!("Error: {}", e),
-        };
-        match client.status().await {
+        let client = self.client.lock().await;
+        match rpc(client.status().await) {
             Ok(status) => {
                 let mut output = String::new();
                 for impl_status in &status.impls {
@@ -249,18 +244,14 @@ impl TraceyHandler {
                     output
                 }
             }
-            Err(e) => handle_error(&mut guard, e),
+            Err(e) => format!("Error: {}", e),
         }
     }
 
     /// r[impl mcp.tool.uncovered]
     /// r[impl mcp.response.hints]
     async fn handle_uncovered(&self, spec_impl: Option<&str>, prefix: Option<&str>) -> String {
-        let mut guard = self.client.lock().await;
-        let client = match guard.get_client().await {
-            Ok(c) => c,
-            Err(e) => return format!("Error: {}", e),
-        };
+        let client = self.client.lock().await;
         let (spec, impl_name) = parse_spec_impl(spec_impl);
 
         let req = UncoveredRequest {
@@ -269,7 +260,7 @@ impl TraceyHandler {
             prefix: prefix.map(String::from),
         };
 
-        match client.uncovered(req).await {
+        match rpc(client.uncovered(req).await) {
             Ok(response) => {
                 let mut output = format!(
                     "{}/{}: {} uncovered out of {} rules\n\n",
@@ -302,11 +293,7 @@ impl TraceyHandler {
     /// r[impl mcp.tool.untested]
     /// r[impl mcp.response.hints]
     async fn handle_untested(&self, spec_impl: Option<&str>, prefix: Option<&str>) -> String {
-        let mut guard = self.client.lock().await;
-        let client = match guard.get_client().await {
-            Ok(c) => c,
-            Err(e) => return format!("Error: {}", e),
-        };
+        let client = self.client.lock().await;
         let (spec, impl_name) = parse_spec_impl(spec_impl);
 
         let req = UntestedRequest {
@@ -315,7 +302,7 @@ impl TraceyHandler {
             prefix: prefix.map(String::from),
         };
 
-        match client.untested(req).await {
+        match rpc(client.untested(req).await) {
             Ok(response) => {
                 let mut output = format!(
                     "{}/{}: {} untested (impl but no verify) out of {} rules\n\n",
@@ -350,11 +337,7 @@ impl TraceyHandler {
     /// r[impl mcp.tool.unmapped-tree]
     /// r[impl mcp.tool.unmapped-file]
     async fn handle_unmapped(&self, spec_impl: Option<&str>, path: Option<&str>) -> String {
-        let mut guard = self.client.lock().await;
-        let client = match guard.get_client().await {
-            Ok(c) => c,
-            Err(e) => return format!("Error: {}", e),
-        };
+        let client = self.client.lock().await;
         let (spec, impl_name) = parse_spec_impl(spec_impl);
 
         let req = UnmappedRequest {
@@ -363,7 +346,7 @@ impl TraceyHandler {
             path: path.map(String::from),
         };
 
-        match client.unmapped(req).await {
+        match rpc(client.unmapped(req).await) {
             Ok(response) => {
                 let mut output = format!(
                     "{}/{}: {} unmapped code units out of {} total\n\n",
@@ -428,12 +411,8 @@ impl TraceyHandler {
     }
 
     async fn handle_rule(&self, rule_id: &str) -> String {
-        let mut guard = self.client.lock().await;
-        let client = match guard.get_client().await {
-            Ok(c) => c,
-            Err(e) => return format!("Error: {}", e),
-        };
-        match client.rule(rule_id.to_string()).await {
+        let client = self.client.lock().await;
+        match rpc(client.rule(rule_id.to_string()).await) {
             Ok(Some(info)) => {
                 let mut output = format!("# {}\n\n{}\n\n", info.id, info.raw);
 
@@ -468,12 +447,8 @@ impl TraceyHandler {
 
     /// r[impl mcp.config.list]
     async fn handle_config(&self) -> String {
-        let mut guard = self.client.lock().await;
-        let client = match guard.get_client().await {
-            Ok(c) => c,
-            Err(e) => return format!("Error: {}", e),
-        };
-        match client.config().await {
+        let client = self.client.lock().await;
+        match rpc(client.config().await) {
             Ok(config) => {
                 let mut output = String::from("# Tracey Configuration\n\n");
 
@@ -496,12 +471,8 @@ impl TraceyHandler {
     }
 
     async fn handle_reload(&self) -> String {
-        let mut guard = self.client.lock().await;
-        let client = match guard.get_client().await {
-            Ok(c) => c,
-            Err(e) => return format!("Error: {}", e),
-        };
-        match client.reload().await {
+        let client = self.client.lock().await;
+        match rpc(client.reload().await) {
             Ok(response) => {
                 format!(
                     "Reload complete (version {}, took {}ms)",
@@ -513,24 +484,20 @@ impl TraceyHandler {
     }
 
     async fn handle_validate(&self, spec_impl: Option<&str>) -> String {
-        let mut guard = self.client.lock().await;
-        let client = match guard.get_client().await {
-            Ok(c) => c,
-            Err(e) => return format!("Error: {}", e),
-        };
+        let client = self.client.lock().await;
 
         // If a specific spec/impl was requested, validate just that one
         if spec_impl.is_some() {
             let (spec, impl_name) = parse_spec_impl(spec_impl);
             let req = ValidateRequest { spec, impl_name };
-            return match client.validate(req).await {
+            return match rpc(client.validate(req).await) {
                 Ok(result) => format_validation_result(&result),
                 Err(e) => format!("Error: {}", e),
             };
         }
 
         // No filter provided: validate ALL spec/impl combinations
-        let status = match client.status().await {
+        let status = match rpc(client.status().await) {
             Ok(s) => s,
             Err(e) => return format!("Error getting status: {}", e),
         };
@@ -548,7 +515,7 @@ impl TraceyHandler {
                 impl_name: Some(impl_status.impl_name.clone()),
             };
 
-            match client.validate(req).await {
+            match rpc(client.validate(req).await) {
                 Ok(result) => {
                     total_errors += result.error_count;
                     output.push_str(&format_validation_result(&result));
@@ -578,11 +545,7 @@ impl TraceyHandler {
     }
 
     async fn handle_config_exclude(&self, spec_impl: Option<&str>, pattern: &str) -> String {
-        let mut guard = self.client.lock().await;
-        let client = match guard.get_client().await {
-            Ok(c) => c,
-            Err(e) => return format!("Error: {}", e),
-        };
+        let client = self.client.lock().await;
         let (spec, impl_name) = parse_spec_impl(spec_impl);
 
         let req = ConfigPatternRequest {
@@ -591,19 +554,14 @@ impl TraceyHandler {
             pattern: pattern.to_string(),
         };
 
-        match client.config_add_exclude(req).await {
-            Ok(Ok(())) => format!("Added exclude pattern: {}", pattern),
-            Ok(Err(e)) => format!("Error: {}", e),
+        match rpc(client.config_add_exclude(req).await) {
+            Ok(()) => format!("Added exclude pattern: {}", pattern),
             Err(e) => format!("Error: {}", e),
         }
     }
 
     async fn handle_config_include(&self, spec_impl: Option<&str>, pattern: &str) -> String {
-        let mut guard = self.client.lock().await;
-        let client = match guard.get_client().await {
-            Ok(c) => c,
-            Err(e) => return format!("Error: {}", e),
-        };
+        let client = self.client.lock().await;
         let (spec, impl_name) = parse_spec_impl(spec_impl);
 
         let req = ConfigPatternRequest {
@@ -612,9 +570,8 @@ impl TraceyHandler {
             pattern: pattern.to_string(),
         };
 
-        match client.config_add_include(req).await {
-            Ok(Ok(())) => format!("Added include pattern: {}", pattern),
-            Ok(Err(e)) => format!("Error: {}", e),
+        match rpc(client.config_add_include(req).await) {
+            Ok(()) => format!("Added include pattern: {}", pattern),
             Err(e) => format!("Error: {}", e),
         }
     }
@@ -773,9 +730,9 @@ pub async fn run(root: Option<PathBuf>, _config_path: PathBuf) -> Result<()> {
         None => crate::find_project_root()?,
     };
 
-    // Create reconnecting client (connects lazily on first request)
+    // Create client (connects lazily, auto-reconnects)
     // r[impl daemon.bridge.reconnect]
-    let client = ReconnectingClient::new(project_root);
+    let client = new_client(project_root);
 
     // Create handler
     let handler = TraceyHandler {
