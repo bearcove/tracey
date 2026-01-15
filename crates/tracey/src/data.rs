@@ -160,7 +160,9 @@ impl InlineCodeHandler for TraceyInlineCodeHandler {
             return None;
         }
 
-        let rule_id = &code[2..code.len() - 1]; // Extract rule.id from r[rule.id]
+        // @tracey:ignore-next-line
+        // Extract rule.id from r[rule.id]
+        let rule_id = &code[2..code.len() - 1];
 
         // Validate it looks like a rule ID (alphanumeric, dots, dashes, underscores)
         if rule_id.is_empty()

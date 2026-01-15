@@ -33,15 +33,19 @@ pub struct ApiConfig {
 #[facet(rename_all = "camelCase")]
 pub struct ApiSpecInfo {
     pub name: String,
-    // @tracey:ignore-next-line
+
+    /// @tracey:ignore-next-line
     /// Prefix used in annotations (e.g., "r" for r[req.id])
     pub prefix: String,
+
     /// Path to spec file(s) if local
     #[facet(default)]
     pub source: Option<String>,
+
     /// Canonical URL for the specification (e.g., a GitHub repository)
     #[facet(default)]
     pub source_url: Option<String>,
+
     /// Available implementations for this spec
     pub implementations: Vec<String>,
 }

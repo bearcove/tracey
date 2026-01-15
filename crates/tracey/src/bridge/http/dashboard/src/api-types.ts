@@ -247,6 +247,7 @@ export interface ApiForwardData {
 export interface ApiSpecInfo {
   name: string;
   /**
+   * @tracey:ignore-next-line
    * Prefix used in annotations (e.g., "r" for r[req.id])
    */
   prefix: string;

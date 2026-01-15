@@ -213,14 +213,14 @@ pub fn extract_watch_dirs_from_config(config: &Config, project_root: &Path) -> H
             // Canonicalize to resolve .. components and get clean absolute paths
             if let Ok(canonical) = full_path.canonicalize() {
                 // Double-check it's inside the project root
-                if let Some(ref root) = canonical_project_root {
-                    if !canonical.starts_with(root) {
-                        debug!(
-                            "Skipping path outside project root: {}",
-                            canonical.display()
-                        );
-                        continue;
-                    }
+                if let Some(ref root) = canonical_project_root
+                    && !canonical.starts_with(root)
+                {
+                    debug!(
+                        "Skipping path outside project root: {}",
+                        canonical.display()
+                    );
+                    continue;
                 }
                 dirs.insert(canonical);
             } else {
