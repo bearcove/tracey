@@ -315,6 +315,7 @@ impl ApiError {
 }
 
 /// Convert roam RPC result to Result<T, Response>
+#[allow(clippy::result_large_err)]
 fn rpc<T, E: std::fmt::Debug>(res: Result<T, roam_stream::CallError<E>>) -> Result<T, Response> {
     res.map_err(|e| ApiError::rpc_error(format!("{:?}", e)))
 }
