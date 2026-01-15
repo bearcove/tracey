@@ -204,6 +204,68 @@ pub(crate) fn extract_from_content(path: &Path, content: &str, reqs: &mut Reqs) 
     }
 }
 
+/// State for tracking ignore directives across lines.
+///
+/// r[impl ref.ignore.prefix]
+#[cfg(not(feature = "reverse"))]
+struct IgnoreState {
+    /// Skip the next line (set by @tracey:ignore-next-line)
+    ignore_next_line: Option<usize>,
+    /// Currently inside an ignore block (set by @tracey:ignore-start)
+    /// r[impl ref.ignore.block]
+    in_ignore_block: bool,
+}
+
+#[cfg(not(feature = "reverse"))]
+impl Default for IgnoreState {
+    fn default() -> Self {
+        Self {
+            ignore_next_line: None,
+            in_ignore_block: false,
+        }
+    }
+}
+
+/// Check if a comment contains ignore directives and update state accordingly.
+///
+/// Returns true if the current comment's refs should be extracted (not ignored).
+#[cfg(not(feature = "reverse"))]
+fn check_ignore_directives(text: &str, line: usize, state: &mut IgnoreState) -> bool {
+    // Check for ignore directives
+    // r[impl ref.ignore.next-line]
+    if text.contains("@tracey:ignore-next-line") {
+        state.ignore_next_line = Some(line);
+        return false;
+    }
+
+    // r[impl ref.ignore.block]
+    if text.contains("@tracey:ignore-start") {
+        state.in_ignore_block = true;
+        return false;
+    }
+
+    if text.contains("@tracey:ignore-end") {
+        state.in_ignore_block = false;
+        return false;
+    }
+
+    // Check if we're in an ignore block
+    if state.in_ignore_block {
+        return false;
+    }
+
+    // Check if previous line had ignore-next-line
+    if let Some(ignore_line) = state.ignore_next_line {
+        if line == ignore_line + 1 {
+            state.ignore_next_line = None;
+            return false;
+        }
+        state.ignore_next_line = None;
+    }
+
+    true
+}
+
 #[cfg(not(feature = "reverse"))]
 fn extract_from_content_text_based(path: &Path, content: &str, reqs: &mut Reqs) {
     // Track line starts for computing line numbers from byte offsets
@@ -218,6 +280,8 @@ fn extract_from_content_text_based(path: &Path, content: &str, reqs: &mut Reqs) 
         }
     };
 
+    let mut ignore_state = IgnoreState::default();
+
     // Scan for comments and extract references
     for (line_idx, line) in content.lines().enumerate() {
         let line_num = line_idx + 1;
@@ -227,7 +291,11 @@ fn extract_from_content_text_based(path: &Path, content: &str, reqs: &mut Reqs) 
         if let Some(comment_pos) = line.find("//") {
             let comment = &line[comment_pos..];
             let comment_start = line_start + comment_pos;
-            extract_references_from_text(path, comment, comment_start, line_num, reqs);
+
+            // Check ignore directives before extracting
+            if check_ignore_directives(comment, line_num, &mut ignore_state) {
+                extract_references_from_text(path, comment, comment_start, line_num, reqs);
+            }
         }
     }
 
@@ -242,7 +310,16 @@ fn extract_from_content_text_based(path: &Path, content: &str, reqs: &mut Reqs) 
         if in_block_comment {
             if i + 1 < bytes.len() && bytes[i] == b'*' && bytes[i + 1] == b'/' {
                 let block_content = &content[block_start..i];
-                extract_references_from_text(path, block_content, block_start, block_line, reqs);
+                // Check ignore directives for block comments too
+                if check_ignore_directives(block_content, block_line, &mut ignore_state) {
+                    extract_references_from_text(
+                        path,
+                        block_content,
+                        block_start,
+                        block_line,
+                        reqs,
+                    );
+                }
                 in_block_comment = false;
                 i += 2;
                 continue;

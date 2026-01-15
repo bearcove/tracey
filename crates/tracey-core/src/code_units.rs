@@ -647,11 +647,71 @@ pub fn extract_refs(path: &Path, source: &str) -> Vec<FullReqRef> {
     };
 
     let mut refs = Vec::new();
-    extract_refs_recursive(source, tree.root_node(), &mut refs);
+    let mut ignore_state = IgnoreState::default();
+    extract_refs_recursive(source, tree.root_node(), &mut refs, &mut ignore_state);
     refs
 }
 
-fn extract_refs_recursive(source: &str, node: Node, refs: &mut Vec<FullReqRef>) {
+/// State for tracking ignore directives across comment nodes.
+///
+/// r[impl ref.ignore.prefix]
+#[derive(Default)]
+struct IgnoreState {
+    /// Skip the next line (set by @tracey:ignore-next-line)
+    ignore_next_line: Option<usize>,
+    /// Currently inside an ignore block (set by @tracey:ignore-start)
+    /// r[impl ref.ignore.block]
+    in_ignore_block: bool,
+}
+
+/// Check if a comment contains ignore directives and update state accordingly.
+///
+/// Returns true if the current comment's refs should be extracted (not ignored).
+fn check_ignore_directives(text: &str, line: usize, state: &mut IgnoreState) -> bool {
+    // Check for ignore directives
+    // r[impl ref.ignore.next-line]
+    if text.contains("@tracey:ignore-next-line") {
+        state.ignore_next_line = Some(line);
+        // Don't extract refs from directive comments themselves
+        return false;
+    }
+
+    // r[impl ref.ignore.block]
+    if text.contains("@tracey:ignore-start") {
+        state.in_ignore_block = true;
+        return false;
+    }
+
+    if text.contains("@tracey:ignore-end") {
+        state.in_ignore_block = false;
+        return false;
+    }
+
+    // Check if we're in an ignore block
+    if state.in_ignore_block {
+        return false;
+    }
+
+    // Check if previous line had ignore-next-line
+    if let Some(ignore_line) = state.ignore_next_line {
+        // Check if this comment is on the line immediately after the ignore directive
+        if line == ignore_line + 1 {
+            state.ignore_next_line = None;
+            return false;
+        }
+        // Clear the ignore if we've moved past it
+        state.ignore_next_line = None;
+    }
+
+    true
+}
+
+fn extract_refs_recursive(
+    source: &str,
+    node: Node,
+    refs: &mut Vec<FullReqRef>,
+    ignore_state: &mut IgnoreState,
+) {
     // Check if this is a comment node
     // Different languages and comment styles:
     // - Rust: line_comment (//), block_comment (/* */),
@@ -675,13 +735,17 @@ fn extract_refs_recursive(source: &str, node: Node, refs: &mut Vec<FullReqRef>) 
         let text = &source[node.byte_range()];
         let line = node.start_position().row + 1;
         let base_offset = node.start_byte();
-        extract_full_refs_from_text(text, line, base_offset, refs);
+
+        // Check ignore directives and determine if we should extract refs
+        if check_ignore_directives(text, line, ignore_state) {
+            extract_full_refs_from_text(text, line, base_offset, refs);
+        }
     }
 
     // Recurse into children
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        extract_refs_recursive(source, child, refs);
+        extract_refs_recursive(source, child, refs, ignore_state);
     }
 }
 
@@ -1455,5 +1519,94 @@ enum MyEnum {
             .iter()
             .find(|u| u.name.as_deref() == Some("MyEnum"));
         assert!(enum_unit.is_some(), "Should find MyEnum");
+    }
+
+    // =========================================================================
+    // Ignore directive tests
+    // =========================================================================
+
+    #[test]
+    fn test_ignore_next_line() {
+        let source = r#"
+// @tracey:ignore-next-line
+// This comment mentions r[impl auth.login] but it should be ignored
+fn example() {}
+"#;
+        let refs = extract_refs(Path::new("test.rs"), source);
+        assert!(
+            refs.is_empty(),
+            "Expected no refs due to ignore-next-line, got {:?}",
+            refs
+        );
+    }
+
+    #[test]
+    fn test_ignore_next_line_only_affects_next() {
+        let source = r#"
+// @tracey:ignore-next-line
+// This r[impl ignored.ref] should be ignored
+// But this r[impl visible.ref] should be extracted
+fn example() {}
+"#;
+        let refs = extract_refs(Path::new("test.rs"), source);
+        assert_eq!(refs.len(), 1, "Expected 1 ref, got {:?}", refs);
+        assert_eq!(refs[0].req_id, "visible.ref");
+    }
+
+    #[test]
+    fn test_ignore_block() {
+        let source = r#"
+// @tracey:ignore-start
+// The fixtures have both r[impl auth.login] and o[impl api.fetch]
+// These are just documentation, not actual references
+// @tracey:ignore-end
+fn test_validation() {}
+"#;
+        let refs = extract_refs(Path::new("test.rs"), source);
+        assert!(
+            refs.is_empty(),
+            "Expected no refs due to ignore block, got {:?}",
+            refs
+        );
+    }
+
+    #[test]
+    fn test_ignore_block_with_refs_after() {
+        let source = r#"
+// @tracey:ignore-start
+// This r[impl ignored.one] is ignored
+// This r[impl ignored.two] is also ignored
+// @tracey:ignore-end
+// But this r[impl visible.ref] should be extracted
+fn example() {}
+"#;
+        let refs = extract_refs(Path::new("test.rs"), source);
+        assert_eq!(refs.len(), 1, "Expected 1 ref, got {:?}", refs);
+        assert_eq!(refs[0].req_id, "visible.ref");
+    }
+
+    #[test]
+    fn test_ignore_block_with_refs_before() {
+        let source = r#"
+// This r[impl before.ref] should be extracted
+// @tracey:ignore-start
+// This r[impl ignored.ref] is ignored
+// @tracey:ignore-end
+fn example() {}
+"#;
+        let refs = extract_refs(Path::new("test.rs"), source);
+        assert_eq!(refs.len(), 1, "Expected 1 ref, got {:?}", refs);
+        assert_eq!(refs[0].req_id, "before.ref");
+    }
+
+    #[test]
+    fn test_normal_refs_still_work() {
+        let source = r#"
+// r[impl normal.ref]
+fn example() {}
+"#;
+        let refs = extract_refs(Path::new("test.rs"), source);
+        assert_eq!(refs.len(), 1, "Expected 1 ref, got {:?}", refs);
+        assert_eq!(refs[0].req_id, "normal.ref");
     }
 }

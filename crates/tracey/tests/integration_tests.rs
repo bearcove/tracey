@@ -519,8 +519,10 @@ async fn test_validate_ignores_other_spec_prefixes() {
 
     let service = create_test_service().await;
 
+    // @tracey:ignore-start
     // Validate test/rust - should NOT report errors for o[...] references
     // The fixtures/src/lib.rs has both r[impl auth.login] and o[impl api.fetch]
+    // @tracey:ignore-end
     let req = ValidateRequest {
         spec: Some("test".to_string()),
         impl_name: Some("rust".to_string()),
@@ -528,8 +530,10 @@ async fn test_validate_ignores_other_spec_prefixes() {
 
     let result = service.validate(req).await;
 
+    // @tracey:ignore-start
     // Should not have any UnknownRequirement errors for o[impl api.fetch]
     // because that reference belongs to the "other" spec, not "test"
+    // @tracey:ignore-end
     let unknown_api_errors: Vec<_> = result
         .errors
         .iter()
@@ -540,6 +544,7 @@ async fn test_validate_ignores_other_spec_prefixes() {
 
     assert!(
         unknown_api_errors.is_empty(),
+        // @tracey:ignore-next-line
         "Validation of test/rust should NOT report errors for o[...] references. \
          Found errors: {:?}",
         unknown_api_errors
@@ -552,6 +557,7 @@ async fn test_validate_other_spec_validates_its_own_prefix() {
 
     let service = create_test_service().await;
 
+    // @tracey:ignore-next-line
     // Validate other/rust - should properly validate o[...] references
     let req = ValidateRequest {
         spec: Some("other".to_string()),
@@ -560,8 +566,10 @@ async fn test_validate_other_spec_validates_its_own_prefix() {
 
     let result = service.validate(req).await;
 
+    // @tracey:ignore-start
     // Should not have UnknownRequirement errors for o[impl api.fetch]
     // because api.fetch exists in the other spec
+    // @tracey:ignore-end
     let unknown_api_errors: Vec<_> = result
         .errors
         .iter()
@@ -572,6 +580,7 @@ async fn test_validate_other_spec_validates_its_own_prefix() {
 
     assert!(
         unknown_api_errors.is_empty(),
+        // @tracey:ignore-next-line
         "Validation of other/rust should NOT report errors for valid o[...] references. \
          Found errors: {:?}",
         unknown_api_errors
@@ -584,8 +593,10 @@ async fn test_validate_other_spec_ignores_r_prefix() {
 
     let service = create_test_service().await;
 
+    // @tracey:ignore-start
     // Validate other/rust - should NOT report errors for r[...] references
     // because those belong to the "test" spec
+    // @tracey:ignore-end
     let req = ValidateRequest {
         spec: Some("other".to_string()),
         impl_name: Some("rust".to_string()),
@@ -593,8 +604,10 @@ async fn test_validate_other_spec_ignores_r_prefix() {
 
     let result = service.validate(req).await;
 
+    // @tracey:ignore-start
     // Should not have UnknownRequirement errors for r[impl auth.login]
     // because that reference belongs to the "test" spec, not "other"
+    // @tracey:ignore-end
     let unknown_auth_errors: Vec<_> = result
         .errors
         .iter()
