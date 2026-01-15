@@ -4,6 +4,22 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
+/// Creates a Command that will work cross-platform.
+/// On Windows, runs through `cmd /c` to handle PATH resolution for .cmd/.ps1/.exe variants.
+/// On Unix, runs the command directly.
+fn shell_command(program: &str) -> Command {
+    #[cfg(windows)]
+    {
+        let mut cmd = Command::new("cmd.exe");
+        cmd.args(["/c", program]);
+        cmd
+    }
+    #[cfg(not(windows))]
+    {
+        Command::new(program)
+    }
+}
+
 fn main() {
     // Generate TypeScript types for the dashboard
     generate_typescript_types();
@@ -80,13 +96,8 @@ fn build_dashboard() {
         return;
     }
 
-    #[cfg(windows)]
-    const NODE: &str = "node.exe";
-    #[cfg(not(windows))]
-    const NODE: &str = "node";
-
     // Check if node is available
-    let node_check = Command::new(NODE).arg("--version").output();
+    let node_check = shell_command("node").arg("--version").output();
 
     match node_check {
         Ok(output) if output.status.success() => {
@@ -136,13 +147,8 @@ fn build_dashboard() {
         }
     }
 
-    #[cfg(windows)]
-    const PNPM: &str = "pnpm.cmd";
-    #[cfg(not(windows))]
-    const PNPM: &str = "pnpm";
-
     // Check if pnpm is available
-    let pnpm_check = Command::new(PNPM).arg("--version").output();
+    let pnpm_check = shell_command("pnpm").arg("--version").output();
 
     match pnpm_check {
         Ok(output) if output.status.success() => {
@@ -192,7 +198,7 @@ fn build_dashboard() {
     eprintln!("Building dashboard with pnpm...");
 
     // Install dependencies if needed
-    let status = Command::new(PNPM)
+    let status = shell_command("pnpm")
         .args(["install", "--frozen-lockfile"])
         .current_dir(dashboard_dir)
         .status()
@@ -203,7 +209,7 @@ fn build_dashboard() {
     }
 
     // Build the dashboard
-    let status = Command::new(PNPM)
+    let status = shell_command("pnpm")
         .args(["run", "build"])
         .current_dir(dashboard_dir)
         .status()
