@@ -80,6 +80,43 @@ fn build_dashboard() {
         return;
     }
 
+    // Check if node is available
+    let node_check = Command::new("node").arg("--version").output();
+
+    match node_check {
+        Ok(output) if output.status.success() => {
+            let version = String::from_utf8_lossy(&output.stdout);
+            eprintln!("Found node {}", version.trim());
+        }
+        _ => {
+            panic!(
+                "\n\
+                Node.js is required but not found!\n\
+                \n\
+                Install Node.js using one of the following methods:\n\
+                \n\
+                  # On macOS with Homebrew:\n\
+                  brew install node\n\
+                \n\
+                  # On Windows with Scoop:\n\
+                  scoop install nodejs\n\
+                \n\
+                  # On Windows with Chocolatey:\n\
+                  choco install nodejs\n\
+                \n\
+                  # Using fnm (Fast Node Manager):\n\
+                  curl -fsSL https://fnm.vercel.app/install | bash\n\
+                  fnm install --lts\n\
+                \n\
+                  # Using nvm (Node Version Manager):\n\
+                  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash\n\
+                  nvm install --lts\n\
+                \n\
+                See https://nodejs.org/en/download for more options.\n"
+            );
+        }
+    }
+
     // Check if pnpm is available
     let pnpm_check = Command::new("pnpm").arg("--version").output();
 
