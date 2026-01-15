@@ -148,7 +148,7 @@ fn build_dashboard() {
     }
 
     // Check if pnpm is available
-    let pnpm_check = shell_command("pnpm").arg("--version").output();
+    let pnpm_check = shell_command("pnpm").arg("version").output();
 
     match pnpm_check {
         Ok(output) if output.status.success() => {
