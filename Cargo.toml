@@ -68,7 +68,7 @@ futures-util = "0.3"
 tokio-tungstenite = "0.28"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-notify-debouncer-mini = "0.7"
+notify = "8"
 
 # Full-text search
 tantivy = "0.22"

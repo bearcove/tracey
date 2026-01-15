@@ -226,7 +226,13 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
                     }
                 }
 
-                WatcherEvent::FilesChanged(changed_files) => {
+                WatcherEvent::FilesChanged(events) => {
+                    // Extract all paths from the batch of events
+                    let changed_files: Vec<PathBuf> = events
+                        .iter()
+                        .flat_map(|e| e.paths.iter().cloned())
+                        .collect();
+
                     // r[impl server.watch.patterns-from-config]
                     // Collect all include patterns from config
                     let mut include_patterns: Vec<String> = Vec::new();
@@ -508,13 +514,11 @@ async fn run_smart_watcher(
         config_path_owned,
         Duration::from_millis(200),
         move |events| {
-            let paths: Vec<PathBuf> = match events {
-                Ok(events) => events.into_iter().map(|e| e.path).collect(),
-                Err(e) => {
-                    warn!("File watcher error: {:?}", e);
-                    vec![]
-                }
-            };
+            // Events are already batched; extract all paths from them
+            let paths: Vec<PathBuf> = events
+                .iter()
+                .flat_map(|e| e.paths.iter().cloned())
+                .collect();
 
             if paths.is_empty() {
                 return;
@@ -530,15 +534,19 @@ async fn run_smart_watcher(
                 .iter()
                 .any(|p| p == &config_path || p == &gitignore_path);
 
-            let event = if needs_reconfigure {
+            let watcher_event = if needs_reconfigure {
                 debug!("Config or gitignore changed, sending Reconfigure event");
                 WatcherEvent::Reconfigure
             } else {
-                debug!("File changes detected: {} files", paths.len());
-                WatcherEvent::FilesChanged(paths)
+                debug!(
+                    event_count = events.len(),
+                    path_count = paths.len(),
+                    "batched file changes"
+                );
+                WatcherEvent::FilesChanged(events)
             };
 
-            if tx_for_handler.blocking_send(event).is_err() {
+            if tx_for_handler.blocking_send(watcher_event).is_err() {
                 // Channel closed, watcher should stop
                 debug!("Watcher channel closed");
             }

@@ -9,6 +9,7 @@
 //! - `WatcherManager` handles watch setup and reconfiguration
 //! - `WatcherState` tracks health status for monitoring
 //! - `WatcherEvent` is sent to the rebuild loop
+//! - Events are batched (not debounced/merged) and delivered at most every N ms
 //!
 //! ## Reconfiguration
 //!
@@ -21,12 +22,11 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, RwLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex, RwLock};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use eyre::{Result, WrapErr};
-use notify_debouncer_mini::notify::{RecommendedWatcher, RecursiveMode};
-use notify_debouncer_mini::{DebounceEventResult, Debouncer, new_debouncer};
+use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use tracing::{debug, info, warn};
 
 use crate::config::Config;
@@ -38,8 +38,8 @@ use crate::config::Config;
 /// Events sent from the watcher to the rebuild loop.
 #[derive(Debug)]
 pub enum WatcherEvent {
-    /// Files changed - contains the list of changed file paths.
-    FilesChanged(Vec<PathBuf>),
+    /// Files changed - contains the list of raw notify events.
+    FilesChanged(Vec<Event>),
 
     /// Config or gitignore changed - triggers reconfiguration.
     Reconfigure,
@@ -255,13 +255,79 @@ pub fn extract_watch_dirs_from_config(config: &Config, project_root: &Path) -> H
 }
 
 // ============================================================================
+// Event Batcher
+// ============================================================================
+
+/// Batches raw notify events and delivers them at most every `batch_duration`.
+///
+/// Unlike debouncing which merges events, this preserves all raw events
+/// and simply batches them for delivery.
+struct EventBatcher<F> {
+    /// Accumulated events waiting to be delivered.
+    pending_events: Vec<Event>,
+
+    /// When the current batch started (first event received).
+    batch_start: Option<Instant>,
+
+    /// How long to wait before delivering a batch.
+    batch_duration: Duration,
+
+    /// Callback to deliver batched events.
+    on_batch: F,
+}
+
+impl<F> EventBatcher<F>
+where
+    F: FnMut(Vec<Event>),
+{
+    fn new(batch_duration: Duration, on_batch: F) -> Self {
+        Self {
+            pending_events: Vec::new(),
+            batch_start: None,
+            batch_duration,
+            on_batch,
+        }
+    }
+
+    /// Add an event to the current batch.
+    fn push(&mut self, event: Event) {
+        debug!(?event, "raw notify event");
+
+        if self.batch_start.is_none() {
+            self.batch_start = Some(Instant::now());
+        }
+        self.pending_events.push(event);
+    }
+
+    /// Check if the batch is ready to be delivered.
+    fn should_flush(&self) -> bool {
+        if let Some(start) = self.batch_start {
+            start.elapsed() >= self.batch_duration
+        } else {
+            false
+        }
+    }
+
+    /// Deliver the current batch if ready.
+    fn flush_if_ready(&mut self) {
+        if self.should_flush() && !self.pending_events.is_empty() {
+            let events = std::mem::take(&mut self.pending_events);
+            self.batch_start = None;
+
+            debug!(count = events.len(), "delivering batched events");
+            (self.on_batch)(events);
+        }
+    }
+}
+
+// ============================================================================
 // Watcher Manager
 // ============================================================================
 
 /// Manages file watching with dynamic reconfiguration.
 pub struct WatcherManager {
-    /// The underlying debounced watcher.
-    debouncer: Debouncer<RecommendedWatcher>,
+    /// The underlying raw watcher.
+    watcher: RecommendedWatcher,
 
     /// Currently watched directories.
     watched_dirs: HashSet<PathBuf>,
@@ -277,26 +343,57 @@ pub struct WatcherManager {
 }
 
 impl WatcherManager {
-    /// Create a new watcher manager.
+    /// Create a new watcher manager with event batching.
+    ///
+    /// Events are batched and delivered at most every `batch_duration`.
+    /// All raw events are preserved (no merging/deduplication).
     ///
     /// The watcher starts with no directories watched. Call `reconfigure()`
     /// after creation to set up watches based on config.
     pub fn new<F>(
         project_root: PathBuf,
         config_path: PathBuf,
-        debounce_duration: Duration,
+        batch_duration: Duration,
         event_handler: F,
     ) -> Result<Self>
     where
-        F: Fn(DebounceEventResult) + Send + 'static,
+        F: Fn(Vec<Event>) + Send + 'static,
     {
-        let debouncer = new_debouncer(debounce_duration, event_handler)
-            .wrap_err("Failed to create file watcher")?;
+        // Wrap the handler in a batcher protected by a mutex
+        let batcher = Arc::new(Mutex::new(EventBatcher::new(batch_duration, event_handler)));
+        let batcher_for_watcher = Arc::clone(&batcher);
+
+        // Spawn a timer task to periodically flush batched events
+        let batcher_for_timer = Arc::clone(&batcher);
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(batch_duration / 2);
+                if let Ok(mut b) = batcher_for_timer.lock() {
+                    b.flush_if_ready();
+                }
+            }
+        });
+
+        let watcher = notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
+            match res {
+                Ok(event) => {
+                    if let Ok(mut b) = batcher_for_watcher.lock() {
+                        b.push(event);
+                        // Also check if we should flush immediately
+                        b.flush_if_ready();
+                    }
+                }
+                Err(e) => {
+                    warn!("File watcher error: {:?}", e);
+                }
+            }
+        })
+        .wrap_err("Failed to create file watcher")?;
 
         let gitignore_path = project_root.join(".gitignore");
 
         let mut manager = Self {
-            debouncer,
+            watcher,
             watched_dirs: HashSet::new(),
             project_root,
             config_path,
@@ -313,8 +410,7 @@ impl WatcherManager {
     fn watch_static_paths(&mut self) -> Result<()> {
         // Watch config file
         if self.config_path.exists() {
-            self.debouncer
-                .watcher()
+            self.watcher
                 .watch(&self.config_path, RecursiveMode::NonRecursive)
                 .wrap_err_with(|| {
                     format!(
@@ -327,8 +423,7 @@ impl WatcherManager {
 
         // Watch .gitignore if it exists
         if self.gitignore_path.exists() {
-            self.debouncer
-                .watcher()
+            self.watcher
                 .watch(&self.gitignore_path, RecursiveMode::NonRecursive)
                 .wrap_err_with(|| {
                     format!(
@@ -356,7 +451,7 @@ impl WatcherManager {
 
         // Remove old watches
         for dir in &to_remove {
-            match self.debouncer.watcher().unwatch(dir) {
+            match self.watcher.unwatch(dir) {
                 Ok(()) => {
                     debug!("Stopped watching: {}", dir.display());
                 }
@@ -373,11 +468,7 @@ impl WatcherManager {
 
         // Add new watches
         for dir in &to_add {
-            match self
-                .debouncer
-                .watcher()
-                .watch(dir, RecursiveMode::Recursive)
-            {
+            match self.watcher.watch(dir, RecursiveMode::Recursive) {
                 Ok(()) => {
                     info!("Watching directory: {}", dir.display());
                 }
