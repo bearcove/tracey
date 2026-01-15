@@ -185,7 +185,6 @@ tool_box!(
 // ============================================================================
 
 /// MCP handler that delegates to the daemon.
-/// r[impl daemon.bridge.reconnect]
 struct TraceyHandler {
     client: Arc<Mutex<DaemonClient>>,
 }
@@ -725,7 +724,6 @@ pub async fn run(root: Option<PathBuf>, _config_path: PathBuf) -> Result<()> {
     };
 
     // Create client (connects lazily, auto-reconnects)
-    // r[impl daemon.bridge.reconnect]
     let client = new_client(project_root);
 
     // Create handler

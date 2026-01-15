@@ -43,10 +43,8 @@ fn compute_column(content: &str, byte_offset: usize) -> usize {
 /// Load rules from markdown files matching a glob pattern.
 ///
 /// marq implements markdown rule extraction:
-/// r[impl markdown.syntax.marker] - r[rule.id] syntax
-/// r[impl markdown.syntax.standalone] - rule on its own line
-/// r[impl markdown.syntax.inline-ignored] - inline markers ignored
-/// r[impl markdown.syntax.blockquote] - > r[rule.id] for multi-paragraph rules
+/// r[impl markdown.syntax.marker]
+/// r[impl markdown.syntax.inline-ignored]
 pub async fn load_rules_from_glob(
     root: &std::path::Path,
     pattern: &str,

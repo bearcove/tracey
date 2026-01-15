@@ -251,8 +251,6 @@ pub struct DataUpdate {
 
 /// Response for health check query.
 ///
-/// r[impl daemon.health]
-///
 /// This provides visibility into daemon internals for monitoring.
 #[derive(Debug, Clone, Facet)]
 #[facet(rename_all = "camelCase")]
@@ -625,8 +623,6 @@ pub trait TraceyDaemon {
     async fn version(&self) -> u64;
 
     /// Get daemon health status
-    ///
-    /// r[impl daemon.health]
     async fn health(&self) -> HealthResponse;
 
     /// Subscribe to data updates (streaming)

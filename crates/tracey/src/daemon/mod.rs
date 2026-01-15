@@ -119,7 +119,6 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
     );
 
     // r[impl daemon.state.file-watcher]
-    // r[impl daemon.watcher.smart-watch]
     // Set up file watcher with smart directory watching
     let watcher_state = WatcherState::new();
 
@@ -129,7 +128,6 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
     let (watcher_tx, mut watcher_rx) = tokio::sync::mpsc::channel::<WatcherEvent>(16);
 
     // Spawn file watcher in a separate OS thread with auto-restart
-    // r[impl daemon.watcher.auto-restart]
     let config_path_for_watcher = config_path.clone();
     let project_root_for_watcher = project_root.clone();
     let watcher_state_for_thread = Arc::clone(&watcher_state);
@@ -182,7 +180,6 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
 
         while let Some(event) = watcher_rx.recv().await {
             match event {
-                // r[impl daemon.watcher.reconfigure]
                 WatcherEvent::Reconfigure => {
                     info!("Config or gitignore changed, reconfiguring watcher");
 
@@ -425,10 +422,6 @@ fn build_gitignore(project_root: &Path) -> ignore::gitignore::Gitignore {
 }
 
 /// Run the smart file watcher, sending events to the channel.
-///
-/// r[impl daemon.watcher.smart-watch]
-/// r[impl server.watch.debounce]
-/// r[impl server.watch.config-file]
 ///
 /// This watcher only watches directories derived from config patterns,
 /// rather than the entire project root. It also handles reconfiguration

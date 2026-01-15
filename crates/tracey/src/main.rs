@@ -135,7 +135,6 @@ fn main() -> Result<()> {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(bridge::mcp::run(root, config))
         }
-        // r[impl cli.lsp]
         // r[impl daemon.cli.lsp]
         Some(Command::Lsp { root, config }) => {
             // LSP communicates over stdio, so no tracing to stdout
@@ -241,7 +240,7 @@ fn init_tracing() {
         .init();
 }
 
-/// r[impl cli.logs]
+/// r[impl daemon.cli.logs]
 /// Show daemon logs from .tracey/daemon.log
 fn show_logs(root: Option<PathBuf>, follow: bool, lines: usize) -> Result<()> {
     use std::io::{BufRead, BufReader, Seek, SeekFrom};

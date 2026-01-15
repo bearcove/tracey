@@ -217,9 +217,6 @@ impl Backend {
     }
 
     /// Publish diagnostics for all files in the workspace.
-    ///
-    /// r[impl lsp.diagnostics.workspace]
-    /// r[impl lsp.diagnostics.clear-fixed]
     async fn publish_workspace_diagnostics(&self) {
         let project_root = self.state().await.project_root.clone();
 

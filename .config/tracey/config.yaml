@@ -1,18 +1,21 @@
+---
 specs:
   - name: tracey
     prefix: r
     source_url: "https://github.com/bearcove/tracey"
     include:
-      - "docs/spec/**/*.md"
+      - docs/spec/**/*.md
     impls:
       - name: main
         include:
-          - "crates/**/*.rs"
-          - "crates/**/*.ts"
-          - "crates/**/*.tsx"
-          - "crates/**/*.css"
-          - "tracey-zed/src/**/*.rs"
-          - "../marq/**/*.rs"
+          - crates/**/*.rs
+          - crates/**/*.ts
+          - crates/**/*.tsx
+          - crates/**/*.css
+          - tracey-zed/src/**/*.rs
+          - ../marq/**/*.rs
         exclude:
-          - "target/**"
-          - "../marq/target/**"
+          - target/**
+          - ../marq/target/**
+          - crates/tracey/tests/fixtures/**
+        test_include: []

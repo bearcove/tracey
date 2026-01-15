@@ -417,8 +417,6 @@ impl TraceyDaemon for TraceyService {
     }
 
     /// Get daemon health status
-    ///
-    /// r[impl daemon.health]
     async fn health(&self) -> HealthResponse {
         let version = self.inner.engine.version();
         let uptime_secs = self.inner.start_time.elapsed().as_secs();
@@ -907,7 +905,6 @@ impl TraceyDaemon for TraceyService {
     /// Get hover info for a position in a file
     ///
     /// r[impl lsp.hover.prefix]
-    /// r[impl lsp.hover.req-info]
     async fn lsp_hover(&self, req: LspPositionRequest) -> Option<HoverInfo> {
         let data = self.inner.engine.data().await;
         let path = PathBuf::from(&req.path);
@@ -1099,10 +1096,9 @@ impl TraceyDaemon for TraceyService {
 
     /// Get completions for a position
     ///
-    /// r[impl lsp.completion.prefix]
-    /// r[impl lsp.completion.verb]
-    /// r[impl lsp.completion.req-id]
-    /// r[impl lsp.completion.fuzzy]
+    /// r[impl lsp.completions.verb]
+    /// r[impl lsp.completions.req-id]
+    /// r[impl lsp.completions.req-id-fuzzy]
     async fn lsp_completions(&self, req: LspPositionRequest) -> Vec<LspCompletionItem> {
         let data = self.inner.engine.data().await;
 
@@ -1324,8 +1320,6 @@ impl TraceyDaemon for TraceyService {
     }
 
     /// Get diagnostics for all files in the workspace
-    ///
-    /// r[impl lsp.diagnostics.workspace]
     async fn lsp_workspace_diagnostics(&self) -> Vec<LspFileDiagnostics> {
         let data = self.inner.engine.data().await;
         let project_root = self.inner.engine.project_root();

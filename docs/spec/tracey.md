@@ -260,6 +260,39 @@ Each extracted requirement reference MUST include the byte length of the referen
 r[ref.span.file]
 Each extracted requirement reference MUST include the path to the source file.
 
+### Ignore Directives
+
+Tracey supports directives to suppress reference extraction in specific locations. This is useful for documentation, test assertions, or other contexts where requirement-like syntax appears but should not be treated as actual references.
+
+r[ref.ignore.prefix]
+Ignore directives MUST be prefixed with `@tracey:` to distinguish them from regular comments.
+
+r[ref.ignore.next-line]
+The `@tracey:ignore-next-line` directive MUST cause tracey to skip reference extraction on the immediately following line.
+
+```rust
+// @tracey:ignore-next-line
+// This comment mentions r[impl auth.login] but it won't be extracted
+fn example() {}
+```
+
+r[ref.ignore.block]
+The `@tracey:ignore-start` and `@tracey:ignore-end` directives MUST cause tracey to skip reference extraction for all lines between them (inclusive).
+
+```rust
+// @tracey:ignore-start
+// The fixtures have both r[impl auth.login] and o[impl api.fetch]
+// These are just documentation, not actual references
+// @tracey:ignore-end
+fn test_validation() {}
+```
+
+> r[ref.ignore.block-nesting]
+> Ignore blocks MUST NOT nest. A second `@tracey:ignore-start` before an `@tracey:ignore-end` SHOULD be treated as an error or ignored.
+
+> r[ref.ignore.block-unclosed]
+> An unclosed `@tracey:ignore-start` (no matching `@tracey:ignore-end` before end of file) SHOULD be treated as an error during validation.
+
 ---
 
 # Tooling

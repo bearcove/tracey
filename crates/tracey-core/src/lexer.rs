@@ -320,7 +320,7 @@ fn extract_references_from_text(
 
             if valid {
                 // Read the first word (could be verb or start of rule ID)
-                // r[impl ref.syntax.rule-id]
+                // r[impl ref.syntax.req-id]
                 while let Some(&(_, c)) = chars.peek() {
                     if c == ']' || c == ' ' {
                         break;

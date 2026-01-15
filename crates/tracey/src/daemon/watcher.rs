@@ -1,7 +1,5 @@
 //! File watcher with smart directory watching and health monitoring.
 //!
-//! r[impl daemon.watcher.smart-watch]
-//!
 //! Instead of watching the entire project root and filtering events,
 //! this module extracts directory prefixes from config glob patterns
 //! and only watches those specific directories.
@@ -13,8 +11,6 @@
 //! - `WatcherEvent` is sent to the rebuild loop
 //!
 //! ## Reconfiguration
-//!
-//! r[impl daemon.watcher.reconfigure]
 //!
 //! When config.yaml or .gitignore changes, the watcher sends a
 //! `Reconfigure` event. The rebuild loop then:
@@ -46,8 +42,6 @@ pub enum WatcherEvent {
     FilesChanged(Vec<PathBuf>),
 
     /// Config or gitignore changed - triggers reconfiguration.
-    ///
-    /// r[impl daemon.watcher.reconfigure]
     Reconfigure,
 }
 
@@ -56,8 +50,6 @@ pub enum WatcherEvent {
 // ============================================================================
 
 /// Shared state for monitoring watcher health.
-///
-/// r[impl daemon.health]
 ///
 /// This struct is shared between the watcher thread and the main daemon.
 /// It allows the health endpoint to report on watcher status.
@@ -97,8 +89,6 @@ impl WatcherState {
     }
 
     /// Mark the watcher as failed with an error message.
-    ///
-    /// r[impl daemon.watcher.auto-restart]
     pub fn mark_failed(&self, error: String) {
         self.active.store(false, Ordering::SeqCst);
         *self.error.write().unwrap() = Some(error);
@@ -163,8 +153,6 @@ impl Default for WatcherState {
 // ============================================================================
 
 /// Extract the directory prefix from a glob pattern.
-///
-/// r[impl daemon.watcher.smart-watch]
 ///
 /// This finds the longest path prefix before any glob metacharacter.
 ///
@@ -251,9 +239,6 @@ pub fn extract_watch_dirs_from_config(config: &Config, project_root: &Path) -> H
 // ============================================================================
 
 /// Manages file watching with dynamic reconfiguration.
-///
-/// r[impl daemon.watcher.smart-watch]
-/// r[impl daemon.watcher.reconfigure]
 pub struct WatcherManager {
     /// The underlying debounced watcher.
     debouncer: Debouncer<RecommendedWatcher>,
@@ -338,8 +323,6 @@ impl WatcherManager {
     }
 
     /// Reconfigure watches based on config patterns.
-    ///
-    /// r[impl daemon.watcher.reconfigure]
     ///
     /// This is called on startup and whenever config changes.
     /// It computes the new set of watch directories, removes watches

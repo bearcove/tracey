@@ -255,7 +255,7 @@ impl ReqHandler for TraceyRuleHandler {
             let coverage = self.coverage.get(&rule.id);
             let status = coverage.map(|c| c.status).unwrap_or("uncovered");
 
-            // r[impl markdown.html.wbr] - insert <wbr> after dots for better line breaking
+            // Insert <wbr> after dots for better line breaking
             let display_id = rule.id.replace('.', ".<wbr>");
 
             // Get current source file for this rule (make it absolute)
@@ -761,7 +761,6 @@ pub async fn build_dashboard_data_with_overlay(
                 include.iter().partition(|p| !p.starts_with("../"));
 
             // Helper to process a file
-            // r[impl walk.extensions]
             let mut process_file = async |path: &Path, root: &Path, patterns: &[&String]| {
                 if path.extension().is_some_and(is_supported_extension) {
                     let relative = path.strip_prefix(root).unwrap_or(path);

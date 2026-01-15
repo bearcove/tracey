@@ -381,8 +381,6 @@ async fn api_version(State(state): State<Arc<AppState>>) -> Response {
 }
 
 /// GET /api/health - Get daemon health status.
-///
-/// r[impl daemon.health]
 async fn api_health(State(state): State<Arc<AppState>>) -> Response {
     let client = state.client.lock().await;
     match rpc(client.health().await) {
