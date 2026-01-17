@@ -426,67 +426,71 @@ When started without a configuration file, tracey MUST watch for the creation of
 > r[config.schema]
 > The configuration MUST follow this schema:
 >
-> ```kdl
-> spec {
->     name "tracey"
->     prefix "r"
->     include "docs/spec/**/*.md"
+> ```yaml
+> specs:
+>   - name: tracey
+>     prefix: r
+>     include:
+>       - docs/spec/**/*.md
+>     impls:
+>       - name: rust
+>         include:
+>           - crates/**/*.rs
+>         exclude:
+>           - target/**
 >
->     impl {
->         name "rust"
->         include "crates/**/*.rs"
->         exclude "target/**"
->     }
-> }
->
-> spec {
->     name "messaging-protocol"
->     prefix "m"
->     include "vendor/messaging-spec/**/*.md"
->     source_url "https://github.com/example/messaging-spec"
->
->     impl {
->         name "rust"
->         include "crates/**/*.rs"
->     }
-> }
+>   - name: messaging-protocol
+>     prefix: m
+>     include:
+>       - vendor/messaging-spec/**/*.md
+>     source_url: https://github.com/example/messaging-spec
+>     impls:
+>       - name: rust
+>         include:
+>           - crates/**/*.rs
 > ```
 
 r[config.spec.name]
-Each spec configuration MUST have a `name` child node with the spec name as its argument.
+Each spec configuration MUST have a `name` field with the spec name.
 
 r[config.spec.prefix]
-Each spec configuration MUST have a `prefix` child node specifying the single-character or multi-character prefix used to identify this spec in markdown and source code annotations.
+Each spec configuration MUST have a `prefix` field specifying the single-character or multi-character prefix used to identify this spec in markdown and source code annotations.
 
 r[config.spec.include]
-Each spec configuration MUST have one or more `include` child nodes specifying glob patterns for markdown files containing requirement definitions.
+Each spec configuration MUST have an `include` field with one or more glob patterns for markdown files containing requirement definitions.
 
 r[config.spec.source-url]
-Each spec configuration MAY have a `source_url` child node providing the canonical URL for the specification (e.g., a GitHub repository). This URL is used for attribution in the dashboard and documentation.
+Each spec configuration MAY have a `source_url` field providing the canonical URL for the specification (e.g., a GitHub repository). This URL is used for attribution in the dashboard and documentation.
 
 r[config.impl.name]
-Each impl configuration MUST have a `name` child node identifying the implementation (e.g., "main", "core").
+Each impl configuration MUST have a `name` field identifying the implementation (e.g., "main", "core").
 
 r[config.impl.include]
-Each impl configuration MAY have one or more `include` child nodes specifying glob patterns for source files to scan.
+Each impl configuration MAY have an `include` field with one or more glob patterns for source files to scan.
 
 r[config.impl.exclude]
-Each impl configuration MAY have one or more `exclude` child nodes specifying glob patterns for source files to exclude.
+Each impl configuration MAY have an `exclude` field with one or more glob patterns for source files to exclude.
 
 r[config.impl.test_include]
-Each impl configuration MAY have one or more `test_include` child nodes specifying glob patterns for test files to scan.
+Each impl configuration MAY have a `test_include` field with one or more glob patterns for test files to scan.
 
 r[config.impl.test_include.verify-only]
 Files matched by `test_include` patterns MUST only contain `verify` annotations. Any `impl` annotation in a test file is a hard error.
 
 Example configuration separating implementation and test files:
 
-```kdl
-impl {
-    name "rust"
-    include "src/**/*.rs"
-    test_include "tests/**/*.rs"
-}
+```yaml
+specs:
+  - name: myapp
+    prefix: r
+    include:
+      - docs/spec/**/*.md
+    impls:
+      - name: rust
+        include:
+          - src/**/*.rs
+        test_include:
+          - tests/**/*.rs
 ```
 
 In this example, `src/auth.rs` may contain `r[impl auth.token]` but `tests/auth_test.rs` may only contain `r[verify auth.token]`.
@@ -501,32 +505,30 @@ Requirement IDs MUST be unique within a single spec, but MAY be duplicated acros
 
 Example: implementing both your own spec and an external specification:
 
-```kdl
-// Your project's internal specification
-spec {
-    name "myapp"
-    prefix "r"
-    include "docs/spec/**/*.md"
+```yaml
+specs:
+  # Your project's internal specification
+  - name: myapp
+    prefix: r
+    include:
+      - docs/spec/**/*.md
+    impls:
+      - name: rust
+        include:
+          - src/**/*.rs
+        test_include:
+          - tests/**/*.rs
 
-    impl {
-        name "rust"
-        include "src/**/*.rs"
-        test_include "tests/**/*.rs"
-    }
-}
-
-// External HTTP/2 specification (obtained via git submodule)
-spec {
-    name "http2"
-    prefix "h2"
-    source_url "https://github.com/http2/spec"
-    include "vendor/http2-spec/docs/**/*.md"
-
-    impl {
-        name "rust"
-        include "src/http2/**/*.rs"
-    }
-}
+  # External HTTP/2 specification (obtained via git submodule)
+  - name: http2
+    prefix: h2
+    source_url: https://github.com/http2/spec
+    include:
+      - vendor/http2-spec/docs/**/*.md
+    impls:
+      - name: rust
+        include:
+          - src/http2/**/*.rs
 ```
 
 With this configuration:
@@ -744,10 +746,16 @@ Both `tracey serve` (HTTP) and `tracey mcp` (MCP) share a common headless server
 > r[server.watch.patterns-from-config]
 > The file watcher MUST derive which files to watch from the configuration's `include` patterns (both spec includes and impl includes), rather than hardcoding watched directories. For example, if the config contains:
 >
-> ```kdl
-> include "crates/**/*.rs"
-> include "crates/tracey/dashboard/src/**/*.tsx"
-> include "docs/spec/**/*.md"
+> ```yaml
+> specs:
+>   - name: tracey
+>     include:
+>       - docs/spec/**/*.md
+>     impls:
+>       - name: rust
+>         include:
+>           - crates/**/*.rs
+>           - crates/tracey/dashboard/src/**/*.tsx
 > ```
 >
 > Then changes to `crates/foo/bar.rs`, `crates/tracey/dashboard/src/main.tsx`, and `docs/spec/tracey.md` should all trigger rebuilds.
