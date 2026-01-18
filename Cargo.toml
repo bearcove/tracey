@@ -17,6 +17,7 @@ authors = ["Amos Wenger <amos@bearcove.eu>"]
 tracey-core = { path = "crates/tracey-core", version = "1.0.0" }
 tracey-api = { path = "crates/tracey-api", version = "1.0.0" }
 tracey-proto = { path = "crates/tracey-proto", version = "1.0.0" }
+tracey-config = { path = "crates/tracey-config", version = "1.0.0" }
 
 # Facet ecosystem
 facet = { git = "https://github.com/facet-rs/facet", branch = "main" }

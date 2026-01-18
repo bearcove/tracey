@@ -1467,7 +1467,7 @@ dependencies = [
 [[package]]
 name = "facet-styx"
 version = "0.1.0"
-source = "git+https://github.com/bearcove/styx?branch=main#cc4277a2d5fef04928b13eec1433a12f45bb8c37"
+source = "git+https://github.com/bearcove/styx?branch=main#9372c86c4c9d192ccec9cb85b63290d5dc42a797"
 dependencies = [
  "ariadne",
  "facet-core",
@@ -3335,7 +3335,7 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 [[package]]
 name = "styx-cst"
 version = "0.1.0"
-source = "git+https://github.com/bearcove/styx?branch=main#cc4277a2d5fef04928b13eec1433a12f45bb8c37"
+source = "git+https://github.com/bearcove/styx?branch=main#9372c86c4c9d192ccec9cb85b63290d5dc42a797"
 dependencies = [
  "rowan",
  "styx-parse",
@@ -3344,7 +3344,7 @@ dependencies = [
 [[package]]
 name = "styx-embed"
 version = "0.1.0"
-source = "git+https://github.com/bearcove/styx?branch=main#cc4277a2d5fef04928b13eec1433a12f45bb8c37"
+source = "git+https://github.com/bearcove/styx?branch=main#9372c86c4c9d192ccec9cb85b63290d5dc42a797"
 dependencies = [
  "blake3",
  "lz4_flex",
@@ -3354,7 +3354,7 @@ dependencies = [
 [[package]]
 name = "styx-embed-macros"
 version = "0.1.0"
-source = "git+https://github.com/bearcove/styx?branch=main#cc4277a2d5fef04928b13eec1433a12f45bb8c37"
+source = "git+https://github.com/bearcove/styx?branch=main#9372c86c4c9d192ccec9cb85b63290d5dc42a797"
 dependencies = [
  "blake3",
  "lz4_flex",
@@ -3365,7 +3365,7 @@ dependencies = [
 [[package]]
 name = "styx-format"
 version = "0.1.0"
-source = "git+https://github.com/bearcove/styx?branch=main#cc4277a2d5fef04928b13eec1433a12f45bb8c37"
+source = "git+https://github.com/bearcove/styx?branch=main#9372c86c4c9d192ccec9cb85b63290d5dc42a797"
 dependencies = [
  "rowan",
  "styx-cst",
@@ -3376,12 +3376,12 @@ dependencies = [
 [[package]]
 name = "styx-parse"
 version = "0.1.0"
-source = "git+https://github.com/bearcove/styx?branch=main#cc4277a2d5fef04928b13eec1433a12f45bb8c37"
+source = "git+https://github.com/bearcove/styx?branch=main#9372c86c4c9d192ccec9cb85b63290d5dc42a797"
 
 [[package]]
 name = "styx-tree"
 version = "0.1.0"
-source = "git+https://github.com/bearcove/styx?branch=main#cc4277a2d5fef04928b13eec1433a12f45bb8c37"
+source = "git+https://github.com/bearcove/styx?branch=main#9372c86c4c9d192ccec9cb85b63290d5dc42a797"
 dependencies = [
  "ariadne",
  "styx-parse",
@@ -3909,6 +3909,7 @@ dependencies = [
  "tower-http",
  "tower-lsp",
  "tracey-api",
+ "tracey-config",
  "tracey-core",
  "tracey-proto",
  "tracing",
@@ -3919,6 +3920,13 @@ dependencies = [
 
 [[package]]
 name = "tracey-api"
+version = "1.0.0"
+dependencies = [
+ "facet",
+]
+
+[[package]]
+name = "tracey-config"
 version = "1.0.0"
 dependencies = [
  "facet",

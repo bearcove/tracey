@@ -32,6 +32,7 @@ path = "src/main.rs"
 tracey-core = { workspace = true, features = ["walk", "parallel", "reverse"] }
 tracey-api = { path = "../tracey-api" }
 tracey-proto = { path = "../tracey-proto" }
+tracey-config = { workspace = true }
 
 # Facet ecosystem for config parsing and CLI
 facet = { workspace = true }
@@ -102,6 +103,7 @@ search = ["dep:tantivy"]
 
 [build-dependencies]
 tracey-api = { path = "../tracey-api" }
+tracey-config = { workspace = true }
 facet-typescript = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-styx = { workspace = true }
 

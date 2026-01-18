@@ -115,40 +115,7 @@ enum Command {
 }
 
 // Embed the config schema for zero-execution discovery by styx tooling
-styx_embed::embed_inline!(
-    r#"meta {
-    id Config
-    version 1.0.0
-    description "Root configuration for tracey"
-}
-schema {
-    @ @object{
-        /// Specifications to track coverage against
-        specs @seq(@object{
-            /// Name of the spec (for display purposes)
-            name @string
-            /// Prefix used to identify this spec in annotations (e.g., "r" for r[req.id])
-            prefix @string
-            /// Canonical URL for the specification (e.g., a GitHub repository)
-            source_url @optional(@string)
-            /// Glob patterns for markdown spec files containing requirement definitions
-            include @seq(@string)
-            /// Implementations of this spec
-            impls @seq(@object{
-                /// Name of this implementation (e.g., "main", "core", "frontend")
-                name @string
-                /// Glob patterns for source files to scan
-                include @seq(@string)
-                /// Glob patterns to exclude
-                exclude @seq(@string)
-                /// Glob patterns for test files (only verify annotations allowed)
-                test_include @seq(@string)
-            })
-        })
-    }
-}
-"#
-);
+styx_embed::embed_outdir_file!("schema.styx");
 
 fn main() -> Result<()> {
     let args: Args = match args::from_std_args() {

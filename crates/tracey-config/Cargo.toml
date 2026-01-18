@@ -1,0 +1,16 @@
+[package]
+name = "tracey-config"
+version = "1.0.0"
+description = "Configuration types for tracey"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
+[dependencies]
+facet = { workspace = true }

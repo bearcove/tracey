@@ -21,11 +21,22 @@ fn shell_command(program: &str) -> Command {
 }
 
 fn main() {
+    // Generate Styx schema for config (embedded in binary for tooling discovery)
+    generate_styx_schema();
+
     // Generate TypeScript types for the dashboard
     generate_typescript_types();
 
     // Build dashboard (after TS types are generated)
     build_dashboard();
+}
+
+fn generate_styx_schema() {
+    facet_styx::GenerateSchema::<tracey_config::Config>::new()
+        .crate_name("tracey-config")
+        .version("1")
+        .cli("tracey")
+        .write("schema.styx");
 }
 
 fn generate_typescript_types() {
