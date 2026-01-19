@@ -257,7 +257,7 @@ impl Backend {
         // Lock is now released
 
         // Publish config error diagnostic on config file
-        let config_path = project_root.join(".config/tracey/config.yaml");
+        let config_path = project_root.join(".config/tracey/config.styx");
         if let Ok(uri) = Url::from_file_path(&config_path) {
             if let Some(error_msg) = config_error {
                 let diagnostic = Diagnostic {

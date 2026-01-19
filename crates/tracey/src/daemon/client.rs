@@ -50,7 +50,7 @@ impl DaemonConnector {
         let exe = std::env::current_exe().map_err(io::Error::other)?;
 
         // Determine config path
-        let config_path = self.project_root.join(".config/tracey/config.yaml");
+        let config_path = self.project_root.join(".config/tracey/config.styx");
 
         info!("Auto-starting daemon for {}", self.project_root.display());
 
