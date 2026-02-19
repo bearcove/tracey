@@ -57,6 +57,8 @@ arborium-java = "2"
 arborium-python = "2"
 arborium-typescript = "2"
 arborium-php = "2"
+arborium-c = "2"
+arborium-cpp = "2"
 
 # HTTP server for serve command
 axum = { version = "0.8", features = ["ws"] }

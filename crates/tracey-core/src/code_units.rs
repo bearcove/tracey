@@ -155,6 +155,8 @@ pub fn extract(path: &Path, source: &str) -> CodeUnits {
         "py" => extract_python(path, source),
         "ts" | "tsx" | "js" | "jsx" | "mts" | "cts" => extract_typescript(path, source),
         "php" => extract_php(path, source),
+        "c" | "h" => extract_c(path, source),
+        "cpp" | "cc" | "cxx" | "hpp" => extract_cpp(path, source),
         _ => CodeUnits::new(),
     }
 }
@@ -346,6 +348,28 @@ fn php_node_kind(kind: &str) -> Option<CodeUnitKind> {
     }
 }
 
+fn c_node_kind(kind: &str) -> Option<CodeUnitKind> {
+    match kind {
+        "function_definition" => Some(CodeUnitKind::Function),
+        "struct_specifier" => Some(CodeUnitKind::Struct),
+        "enum_specifier" => Some(CodeUnitKind::Enum),
+        "union_specifier" => Some(CodeUnitKind::Struct),
+        _ => None,
+    }
+}
+
+fn cpp_node_kind(kind: &str) -> Option<CodeUnitKind> {
+    match kind {
+        "function_definition" => Some(CodeUnitKind::Function),
+        "struct_specifier" => Some(CodeUnitKind::Struct),
+        "class_specifier" => Some(CodeUnitKind::Struct),
+        "enum_specifier" => Some(CodeUnitKind::Enum),
+        "union_specifier" => Some(CodeUnitKind::Struct),
+        "namespace_definition" => Some(CodeUnitKind::Module),
+        _ => None,
+    }
+}
+
 /// Extract code units from PHP source code
 pub fn extract_php(path: &Path, source: &str) -> CodeUnits {
     let mut parser = Parser::new();
@@ -360,6 +384,40 @@ pub fn extract_php(path: &Path, source: &str) -> CodeUnits {
     let mut units = CodeUnits::new();
     let root = tree.root_node();
     extract_units_recursive(path, source, root, &mut units, php_node_kind);
+    units
+}
+
+/// Extract code units from C source code
+pub fn extract_c(path: &Path, source: &str) -> CodeUnits {
+    let mut parser = Parser::new();
+    parser
+        .set_language(&arborium_c::language().into())
+        .expect("Failed to load C grammar");
+
+    let Some(tree) = parser.parse(source, None) else {
+        return CodeUnits::new();
+    };
+
+    let mut units = CodeUnits::new();
+    let root = tree.root_node();
+    extract_units_recursive(path, source, root, &mut units, c_node_kind);
+    units
+}
+
+/// Extract code units from C++ source code
+pub fn extract_cpp(path: &Path, source: &str) -> CodeUnits {
+    let mut parser = Parser::new();
+    parser
+        .set_language(&arborium_cpp::language().into())
+        .expect("Failed to load C++ grammar");
+
+    let Some(tree) = parser.parse(source, None) else {
+        return CodeUnits::new();
+    };
+
+    let mut units = CodeUnits::new();
+    let root = tree.root_node();
+    extract_units_recursive(path, source, root, &mut units, cpp_node_kind);
     units
 }
 
@@ -441,12 +499,38 @@ fn find_line_start_byte(source: &str, line: usize) -> usize {
     0
 }
 
+/// Recursively unwrap C/C++ declarator chains to find the identifier node.
+///
+/// In tree-sitter-c/cpp, function names are nested inside declarator chains:
+/// `function_definition` -> `function_declarator` -> `identifier`
+/// This also handles pointer declarators, parenthesized declarators, etc.
+fn find_declarator_name(node: Node) -> Option<Node> {
+    match node.kind() {
+        "identifier" | "field_identifier" | "qualified_identifier" | "type_identifier" => {
+            Some(node)
+        }
+        "function_declarator"
+        | "pointer_declarator"
+        | "parenthesized_declarator"
+        | "reference_declarator" => node
+            .child_by_field_name("declarator")
+            .and_then(find_declarator_name),
+        _ => None,
+    }
+}
+
 fn get_node_name(source: &str, node: Node) -> Option<String> {
     // Try common field names used across languages for the identifier/name
     // Most tree-sitter grammars use "name" for the identifier field
     let name_node = node
         .child_by_field_name("name")
-        .or_else(|| node.child_by_field_name("type")) // For impl blocks
+        // C/C++: name is inside a declarator chain (must check before "type" fallback,
+        // since C function_definition also has a "type" field for the return type)
+        .or_else(|| {
+            node.child_by_field_name("declarator")
+                .and_then(find_declarator_name)
+        })
+        .or_else(|| node.child_by_field_name("type")) // For Rust impl blocks
         .or_else(|| {
             // For some languages, the first identifier child is the name
             let mut cursor = node.walk();
@@ -634,6 +718,8 @@ pub fn extract_refs(path: &Path, source: &str) -> Vec<FullReqRef> {
         "py" => arborium_python::language(),
         "ts" | "tsx" | "js" | "jsx" | "mts" | "cts" => arborium_typescript::language(),
         "php" => arborium_php::language(),
+        "c" | "h" => arborium_c::language(),
+        "cpp" | "cc" | "cxx" | "hpp" => arborium_cpp::language(),
         _ => return Vec::new(),
     };
 
@@ -1608,5 +1694,228 @@ fn example() {}
         let refs = extract_refs(Path::new("test.rs"), source);
         assert_eq!(refs.len(), 1, "Expected 1 ref, got {:?}", refs);
         assert_eq!(refs[0].req_id, "normal.ref");
+    }
+
+    // =========================================================================
+    // C language tests
+    // =========================================================================
+
+    #[test]
+    fn test_c_code_units() {
+        let source = r#"// r[impl c.feature]
+void do_something(void) {
+    printf("hello\n");
+}
+
+// r[verify c.test]
+struct MyStruct {
+    int x;
+    int y;
+};
+
+enum Color {
+    RED,
+    GREEN,
+    BLUE
+};
+
+union Data {
+    int i;
+    float f;
+};
+"#;
+        let units = extract_c(Path::new("test.c"), source);
+
+        // Function
+        let func_unit = units
+            .units
+            .iter()
+            .find(|u| u.name.as_deref() == Some("do_something"));
+        assert!(func_unit.is_some(), "Should find do_something function");
+        let func_unit = func_unit.unwrap();
+        assert_eq!(func_unit.kind, CodeUnitKind::Function);
+        assert_eq!(func_unit.start_line, 1, "Should include comment");
+        assert_eq!(func_unit.req_refs, vec!["c.feature"]);
+
+        // Struct
+        let struct_unit = units
+            .units
+            .iter()
+            .find(|u| u.name.as_deref() == Some("MyStruct"));
+        assert!(struct_unit.is_some(), "Should find MyStruct");
+        let struct_unit = struct_unit.unwrap();
+        assert_eq!(struct_unit.kind, CodeUnitKind::Struct);
+
+        // Enum
+        let enum_unit = units
+            .units
+            .iter()
+            .find(|u| u.name.as_deref() == Some("Color"));
+        assert!(enum_unit.is_some(), "Should find Color enum");
+        assert_eq!(enum_unit.unwrap().kind, CodeUnitKind::Enum);
+
+        // Union
+        let union_unit = units
+            .units
+            .iter()
+            .find(|u| u.name.as_deref() == Some("Data"));
+        assert!(union_unit.is_some(), "Should find Data union");
+        assert_eq!(union_unit.unwrap().kind, CodeUnitKind::Struct);
+    }
+
+    #[test]
+    fn test_c_extract_refs() {
+        let source = r#"// r[impl buffer.alloc]
+void* alloc_buffer(size_t size) {
+    return malloc(size);
+}
+"#;
+        let refs = extract_refs(Path::new("alloc.c"), source);
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0].req_id, "buffer.alloc");
+        assert_eq!(refs[0].verb, "impl");
+    }
+
+    #[test]
+    fn test_h_file_uses_c_grammar() {
+        let source = r#"struct Point {
+    int x;
+    int y;
+};
+
+void process_point(struct Point* p) {}
+"#;
+        let units = extract(Path::new("point.h"), source);
+        assert!(!units.is_empty(), "Should extract code units from .h file");
+
+        let struct_unit = units
+            .units
+            .iter()
+            .find(|u| u.name.as_deref() == Some("Point"));
+        assert!(struct_unit.is_some(), "Should find Point struct in .h file");
+    }
+
+    // =========================================================================
+    // C++ language tests
+    // =========================================================================
+
+    #[test]
+    fn test_cpp_code_units() {
+        let source = r#"// r[impl cpp.feature]
+void doSomething() {
+    std::cout << "hello" << std::endl;
+}
+
+// r[verify cpp.test]
+class MyClass {
+public:
+    void method() {}
+};
+
+struct MyStruct {
+    int x;
+};
+
+enum MyEnum {
+    A,
+    B,
+    C
+};
+
+namespace MyNamespace {
+    void innerFunc() {}
+}
+"#;
+        let units = extract_cpp(Path::new("test.cpp"), source);
+
+        // Function
+        let func_unit = units
+            .units
+            .iter()
+            .find(|u| u.name.as_deref() == Some("doSomething"));
+        assert!(func_unit.is_some(), "Should find doSomething function");
+        let func_unit = func_unit.unwrap();
+        assert_eq!(func_unit.kind, CodeUnitKind::Function);
+        assert_eq!(func_unit.start_line, 1, "Should include comment");
+        assert_eq!(func_unit.req_refs, vec!["cpp.feature"]);
+
+        // Class
+        let class_unit = units
+            .units
+            .iter()
+            .find(|u| u.name.as_deref() == Some("MyClass"));
+        assert!(class_unit.is_some(), "Should find MyClass");
+        let class_unit = class_unit.unwrap();
+        assert_eq!(class_unit.kind, CodeUnitKind::Struct);
+
+        // Struct
+        let struct_unit = units
+            .units
+            .iter()
+            .find(|u| u.name.as_deref() == Some("MyStruct"));
+        assert!(struct_unit.is_some(), "Should find MyStruct");
+
+        // Enum
+        let enum_unit = units
+            .units
+            .iter()
+            .find(|u| u.name.as_deref() == Some("MyEnum"));
+        assert!(enum_unit.is_some(), "Should find MyEnum");
+
+        // Namespace
+        let ns_unit = units
+            .units
+            .iter()
+            .find(|u| u.name.as_deref() == Some("MyNamespace"));
+        assert!(ns_unit.is_some(), "Should find MyNamespace namespace");
+        assert_eq!(ns_unit.unwrap().kind, CodeUnitKind::Module);
+
+        // Inner function in namespace
+        let inner_func = units
+            .units
+            .iter()
+            .find(|u| u.name.as_deref() == Some("innerFunc"));
+        assert!(
+            inner_func.is_some(),
+            "Should find innerFunc inside namespace"
+        );
+    }
+
+    #[test]
+    fn test_cpp_extract_refs() {
+        let source = r#"// r[impl widget.render]
+// r[depends ui.framework]
+void render() {
+    // rendering logic
+}
+"#;
+        let refs = extract_refs(Path::new("widget.cpp"), source);
+        assert_eq!(refs.len(), 2);
+        assert_eq!(refs[0].req_id, "widget.render");
+        assert_eq!(refs[1].req_id, "ui.framework");
+    }
+
+    #[test]
+    fn test_hpp_file_uses_cpp_grammar() {
+        let source = r#"class Widget {
+public:
+    void draw() {}
+};
+"#;
+        let units = extract(Path::new("widget.hpp"), source);
+        assert!(
+            !units.is_empty(),
+            "Should extract code units from .hpp file"
+        );
+
+        let class_unit = units
+            .units
+            .iter()
+            .find(|u| u.name.as_deref() == Some("Widget"));
+        assert!(
+            class_unit.is_some(),
+            "Should find Widget class in .hpp file"
+        );
+        assert_eq!(class_unit.unwrap().kind, CodeUnitKind::Struct);
     }
 }
