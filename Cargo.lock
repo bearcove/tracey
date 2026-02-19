@@ -3977,6 +3977,8 @@ name = "tracey-core"
 version = "1.0.0"
 dependencies = [
  "arborium",
+ "arborium-c",
+ "arborium-cpp",
  "arborium-go",
  "arborium-java",
  "arborium-php",
