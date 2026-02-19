@@ -127,7 +127,21 @@ fn main() -> Result<()> {
     };
 
     if args.version {
-        println!("tracey {}", env!("CARGO_PKG_VERSION"));
+        print!("tracey {}", env!("CARGO_PKG_VERSION"));
+
+        if let Some(git_commit) = option_env!("TRACEY_GIT_COMMIT") {
+            print!(" ({git_commit}");
+
+            if let Some(build_date) = option_env!("TRACEY_BUILD_DATE") {
+                print!(" {build_date}");
+            }
+
+            print!(")");
+        } else if let Some(build_date) = option_env!("TRACEY_BUILD_DATE") {
+            print!(" (built {build_date})");
+        }
+
+        println!();
         return Ok(());
     }
 

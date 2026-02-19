@@ -3944,6 +3944,7 @@ dependencies = [
  "styx-embed",
  "tantivy",
  "tempfile",
+ "time",
  "tokio",
  "tokio-tungstenite",
  "tower-http",
