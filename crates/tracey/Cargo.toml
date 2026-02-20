@@ -94,9 +94,9 @@ tower-lsp = "0.20"
 open = "5"
 
 # roam RPC framework (for daemon architecture)
-roam = { git = "https://github.com/bearcove/roam", rev = "9129c6fd10e09a5e3c40974097d478c8301b9b75" }
-roam-stream = { git = "https://github.com/bearcove/roam", rev = "9129c6fd10e09a5e3c40974097d478c8301b9b75" }
-roam-local = { git = "https://github.com/bearcove/roam", rev = "9129c6fd10e09a5e3c40974097d478c8301b9b75" }
+roam = { git = "https://github.com/bearcove/roam", branch = "main" }
+roam-stream = { git = "https://github.com/bearcove/roam", branch = "main" }
+roam-local = { git = "https://github.com/bearcove/roam", branch = "main" }
 
 [features]
 default = ["search"]
