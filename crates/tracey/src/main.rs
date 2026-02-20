@@ -138,7 +138,10 @@ fn main() -> Result<()> {
             open,
             dev,
         } => {
-            init_tracing(TracingConfig { log_file: None })?;
+            init_tracing(TracingConfig {
+                log_file: None,
+                enable_console: true,
+            })?;
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(bridge::http::run(
                 root,
@@ -151,15 +154,45 @@ fn main() -> Result<()> {
         // r[impl cli.mcp]
         // r[impl daemon.cli.mcp]
         Command::Mcp { root, config } => {
-            // MCP communicates over stdio, so no tracing to stdout
+            let project_root = root.unwrap_or_else(|| find_project_root().unwrap_or_default());
+            let log_path = bridge_log_path(&project_root, "mcp");
+            write_bridge_start_marker(&log_path, "mcp", &project_root, &config)?;
+            // MCP communicates over stdio, so logging must stay off stdio.
+            init_tracing(TracingConfig {
+                log_file: Some(log_path.clone()),
+                enable_console: false,
+            })?;
+            tracing::info!(
+                pid = std::process::id(),
+                command = "mcp",
+                project_root = %project_root.display(),
+                config = %config.display(),
+                log_file = %log_path.display(),
+                "starting tracey bridge"
+            );
             let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(bridge::mcp::run(root, config))
+            rt.block_on(bridge::mcp::run(Some(project_root), config))
         }
         // r[impl daemon.cli.lsp]
         Command::Lsp { root, config } => {
-            // LSP communicates over stdio, so no tracing to stdout
+            let project_root = root.unwrap_or_else(|| find_project_root().unwrap_or_default());
+            let log_path = bridge_log_path(&project_root, "lsp");
+            write_bridge_start_marker(&log_path, "lsp", &project_root, &config)?;
+            // LSP communicates over stdio, so logging must stay off stdio.
+            init_tracing(TracingConfig {
+                log_file: Some(log_path.clone()),
+                enable_console: false,
+            })?;
+            tracing::info!(
+                pid = std::process::id(),
+                command = "lsp",
+                project_root = %project_root.display(),
+                config = %config.display(),
+                log_file = %log_path.display(),
+                "starting tracey bridge"
+            );
             let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(bridge::lsp::run(root, config))
+            rt.block_on(bridge::lsp::run(Some(project_root), config))
         }
         // r[impl daemon.cli.daemon]
         Command::Daemon { root, config } => {
@@ -171,6 +204,7 @@ fn main() -> Result<()> {
             let log_path = project_root.join(".tracey/daemon.log");
             init_tracing(TracingConfig {
                 log_file: Some(log_path),
+                enable_console: true,
             })?;
 
             let rt = tokio::runtime::Runtime::new()?;
@@ -221,6 +255,8 @@ fn cli_version_text() -> String {
 struct TracingConfig {
     /// If Some, also log to this file (creating parent dirs as needed).
     log_file: Option<PathBuf>,
+    /// If true, emit logs to console (stderr).
+    enable_console: bool,
 }
 
 /// Initialize tracing with optional file logging.
@@ -234,10 +270,11 @@ fn init_tracing(config: TracingConfig) -> Result<()> {
         Err(_) => tracing_subscriber::EnvFilter::new("tracey=info"),
     };
 
-    let console_layer = tracing_subscriber::fmt::layer().with_ansi(true);
+    let console_layer = config
+        .enable_console
+        .then(|| tracing_subscriber::fmt::layer().with_ansi(true));
 
-    if let Some(log_path) = config.log_file {
-        // Ensure parent directory exists
+    let file_layer = if let Some(log_path) = config.log_file {
         if let Some(parent) = log_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -247,21 +284,63 @@ fn init_tracing(config: TracingConfig) -> Result<()> {
             .append(true)
             .open(&log_path)?;
 
-        let file_layer = tracing_subscriber::fmt::layer()
-            .with_ansi(false)
-            .with_writer(log_file);
-
-        tracing_subscriber::registry()
-            .with(filter)
-            .with(console_layer)
-            .with(file_layer)
-            .init();
+        Some(
+            tracing_subscriber::fmt::layer()
+                .with_ansi(false)
+                .with_writer(log_file),
+        )
     } else {
-        tracing_subscriber::registry()
-            .with(filter)
-            .with(console_layer)
-            .init();
+        None
+    };
+
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(console_layer)
+        .with(file_layer)
+        .init();
+
+    Ok(())
+}
+
+/// Build a bridge log path with process ID in the filename.
+fn bridge_log_path(project_root: &std::path::Path, bridge: &str) -> PathBuf {
+    project_root
+        .join(".tracey")
+        .join(format!("{bridge}-{}.log", std::process::id()))
+}
+
+/// Write a startup marker so bridge launches are visible even before first tracing event.
+fn write_bridge_start_marker(
+    log_path: &std::path::Path,
+    command: &str,
+    project_root: &std::path::Path,
+    config_path: &std::path::Path,
+) -> Result<()> {
+    use std::io::Write;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    if let Some(parent) = log_path.parent() {
+        std::fs::create_dir_all(parent)?;
     }
+
+    let mut log_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path)?;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    writeln!(
+        log_file,
+        "[ts={} pid={}] starting {} root={} config={} cwd={}",
+        now,
+        std::process::id(),
+        command,
+        project_root.display(),
+        config_path.display(),
+        std::env::current_dir()?.display()
+    )?;
 
     Ok(())
 }
