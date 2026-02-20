@@ -33,7 +33,7 @@ pub struct CoverageReport {
 impl CoverageReport {
     /// Compute coverage from rules and a set of known rule IDs
     ///
-    /// r[impl coverage.compute.covered]
+    /// r[impl coverage.compute.covered+2]
     /// r[impl coverage.compute.uncovered]
     /// r[impl coverage.compute.invalid]
     /// r[impl validation.broken-refs]
