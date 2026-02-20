@@ -6,7 +6,6 @@
 
 use facet::Facet;
 use roam::Tx;
-use roam::prelude::*;
 use tracey_core::RuleId;
 
 // Re-export API types for convenience
