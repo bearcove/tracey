@@ -3,7 +3,13 @@ import { EDITORS } from "../config";
 import { useFile } from "../hooks";
 import { FilePath, html, LangIcon } from "../main";
 import type { FileContent, SourcesViewProps, TreeNodeWithCoverage } from "../types";
-import { buildFileTree, getCoverageBadge, getStatClass, splitHighlightedHtml } from "../utils";
+import {
+  buildFileTree,
+  getCoverageBadge,
+  getStatClass,
+  ruleIdToString,
+  splitHighlightedHtml,
+} from "../utils";
 
 // Declare lucide as global
 declare const lucide: { createIcons: (opts?: { nodes?: NodeList }) => void };
@@ -296,7 +302,7 @@ export function SourcesView({
   const contextRule = useMemo(() => {
     if (!ruleContext || !forward) return null;
     for (const spec of forward.specs) {
-      const rule = spec.rules.find((r) => r.id === ruleContext);
+      const rule = spec.rules.find((r) => ruleIdToString(r.id) === ruleContext);
       if (rule) return rule;
     }
     return null;

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "preact/hooks";
 import { LEVELS } from "../config";
 import { FileRef, html } from "../main";
 import type { CoverageViewProps } from "../types";
-import { getStatClass } from "../utils";
+import { getStatClass, ruleIdToString } from "../utils";
 
 // r[impl dashboard.coverage.table]
 // r[impl dashboard.coverage.filter-type]
@@ -75,7 +75,8 @@ export function CoverageView({
 			const q = search.toLowerCase();
 			rules = rules.filter(
 				(r) =>
-					r.id.toLowerCase().includes(q) || r.html?.toLowerCase().includes(q),
+					ruleIdToString(r.id).toLowerCase().includes(q) ||
+					r.html?.toLowerCase().includes(q),
 			);
 		}
 
@@ -187,16 +188,18 @@ export function CoverageView({
             </thead>
             <tbody>
               ${filteredRules.map(
-								(rule) => html`
+									(rule) => {
+										const ruleId = ruleIdToString(rule.id);
+										return html`
                   <tr
-                    key=${rule.id}
-                    onClick=${() => onSelectRule(rule.id)}
+                    key=${ruleId}
+                    onClick=${() => onSelectRule(ruleId)}
                     style="cursor: pointer;"
                   >
                     <td>
                       <div class="rule-id-row">
                         ${mdIcon}
-                        <span class="rule-id">${rule.id}</span>
+                        <span class="rule-id">${ruleId}</span>
                       </div>
                       ${
 												rule.html &&
@@ -237,7 +240,8 @@ export function CoverageView({
 											}
                     </td>
                   </tr>
-                `,
+                `;
+									},
 							)}
             </tbody>
           </table>

@@ -45,13 +45,13 @@ impl Display for RuleId {
 
 impl PartialEq<&str> for RuleId {
     fn eq(&self, other: &&str) -> bool {
-        self.to_string() == *other
+        parse_rule_id(other).is_some_and(|parsed| parsed == *self)
     }
 }
 
 impl PartialEq<RuleId> for &str {
     fn eq(&self, other: &RuleId) -> bool {
-        *self == other.to_string()
+        parse_rule_id(self).is_some_and(|parsed| parsed == *other)
     }
 }
 

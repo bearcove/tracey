@@ -211,22 +211,13 @@ pub(crate) fn extract_from_content(path: &Path, content: &str, reqs: &mut Reqs) 
 ///
 /// r[impl ref.ignore.prefix]
 #[cfg(not(feature = "reverse"))]
+#[derive(Default)]
 struct IgnoreState {
     /// Skip the next line (set by @tracey:ignore-next-line)
     ignore_next_line: Option<usize>,
     /// Currently inside an ignore block (set by @tracey:ignore-start)
     /// r[impl ref.ignore.block]
     in_ignore_block: bool,
-}
-
-#[cfg(not(feature = "reverse"))]
-impl Default for IgnoreState {
-    fn default() -> Self {
-        Self {
-            ignore_next_line: None,
-            in_ignore_block: false,
-        }
-    }
 }
 
 /// Check if a comment contains ignore directives and update state accordingly.

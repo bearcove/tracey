@@ -3,7 +3,9 @@
 use crate::lexer::{Reqs, extract_from_content};
 use eyre::Result;
 use std::ffi::OsStr;
-use std::path::{Path, PathBuf};
+#[cfg(feature = "walk")]
+use std::path::Path;
+use std::path::PathBuf;
 
 /// r[impl ref.cross-workspace.missing-paths]
 /// Result of extracting requirements, including any warnings about missing files

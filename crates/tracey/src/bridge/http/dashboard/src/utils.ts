@@ -1,5 +1,10 @@
 // Utility functions
+import type { RuleId } from "./api-types";
 import type { FileInfo, TreeNodeWithCoverage } from "./types";
+
+export function ruleIdToString(ruleId: RuleId): string {
+	return ruleId.version === 1 ? ruleId.base : `${ruleId.base}+${ruleId.version}`;
+}
 
 export function buildFileTree(files: FileInfo[]): TreeNodeWithCoverage {
 	const root: TreeNodeWithCoverage = {
