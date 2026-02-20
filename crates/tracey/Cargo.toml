@@ -111,3 +111,4 @@ time = { version = "0.3", features = ["formatting"] }
 
 [dev-dependencies]
 tempfile = "3.24.0"
+roam-memory = { git = "https://github.com/bearcove/roam", branch = "main" }

@@ -12,6 +12,10 @@ use tracey_proto::*;
 // Re-export test modules
 mod common;
 
+fn rpc<T, E: std::fmt::Debug>(res: Result<T, roam_stream::CallError<E>>) -> T {
+    res.expect("RPC call failed")
+}
+
 /// Get the path to the test fixtures directory.
 fn fixtures_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -32,9 +36,10 @@ async fn create_test_engine() -> Arc<tracey::daemon::Engine> {
 }
 
 /// Helper to create a service for testing.
-async fn create_test_service() -> tracey::daemon::TraceyService {
+async fn create_test_service() -> common::RpcTestService {
     let engine = create_test_engine().await;
-    tracey::daemon::TraceyService::new(engine)
+    let service = tracey::daemon::TraceyService::new(engine);
+    common::create_test_rpc_service(service).await
 }
 
 fn rid(id: &str) -> tracey_core::RuleId {
@@ -47,10 +52,8 @@ fn rid(id: &str) -> tracey_core::RuleId {
 
 #[tokio::test]
 async fn test_status_returns_coverage() {
-    use tracey_proto::TraceyDaemon;
-
     let service = create_test_service().await;
-    let status = service.status().await;
+    let status = rpc(service.client.status().await);
 
     // We should have at least one impl
     assert!(!status.impls.is_empty(), "Expected at least one impl");
@@ -68,10 +71,8 @@ async fn test_status_returns_coverage() {
 
 #[tokio::test]
 async fn test_status_coverage_percentages() {
-    use tracey_proto::TraceyDaemon;
-
     let service = create_test_service().await;
-    let status = service.status().await;
+    let status = rpc(service.client.status().await);
 
     for impl_status in &status.impls {
         // Covered rules should not exceed total
@@ -98,8 +99,6 @@ async fn test_status_coverage_percentages() {
 
 #[tokio::test]
 async fn test_uncovered_returns_rules() {
-    use tracey_proto::TraceyDaemon;
-
     let service = create_test_service().await;
     let req = UncoveredRequest {
         spec: Some("test".to_string()),
@@ -107,7 +106,7 @@ async fn test_uncovered_returns_rules() {
         prefix: None,
     };
 
-    let response = service.uncovered(req).await;
+    let response = rpc(service.client.uncovered(req).await);
 
     assert_eq!(response.spec, "test");
     assert_eq!(response.impl_name, "rust");
@@ -120,8 +119,6 @@ async fn test_uncovered_returns_rules() {
 
 #[tokio::test]
 async fn test_uncovered_with_prefix_filter() {
-    use tracey_proto::TraceyDaemon;
-
     let service = create_test_service().await;
     let req = UncoveredRequest {
         spec: Some("test".to_string()),
@@ -129,7 +126,7 @@ async fn test_uncovered_with_prefix_filter() {
         prefix: Some("auth".to_string()),
     };
 
-    let response = service.uncovered(req).await;
+    let response = rpc(service.client.uncovered(req).await);
 
     // All returned rules should start with "auth."
     for section in &response.by_section {
@@ -145,8 +142,6 @@ async fn test_uncovered_with_prefix_filter() {
 
 #[tokio::test]
 async fn test_untested_returns_rules() {
-    use tracey_proto::TraceyDaemon;
-
     let service = create_test_service().await;
     let req = UntestedRequest {
         spec: Some("test".to_string()),
@@ -154,7 +149,7 @@ async fn test_untested_returns_rules() {
         prefix: None,
     };
 
-    let response = service.untested(req).await;
+    let response = rpc(service.client.untested(req).await);
 
     assert_eq!(response.spec, "test");
     assert_eq!(response.impl_name, "rust");
@@ -168,10 +163,8 @@ async fn test_untested_returns_rules() {
 
 #[tokio::test]
 async fn test_rule_returns_details() {
-    use tracey_proto::TraceyDaemon;
-
     let service = create_test_service().await;
-    let rule = service.rule(rid("auth.login")).await;
+    let rule = rpc(service.client.rule(rid("auth.login")).await);
 
     assert!(rule.is_some(), "Expected auth.login rule to exist");
 
@@ -186,10 +179,8 @@ async fn test_rule_returns_details() {
 
 #[tokio::test]
 async fn test_rule_not_found() {
-    use tracey_proto::TraceyDaemon;
-
     let service = create_test_service().await;
-    let rule = service.rule(rid("nonexistent.rule")).await;
+    let rule = rpc(service.client.rule(rid("nonexistent.rule")).await);
 
     assert!(rule.is_none(), "Expected nonexistent rule to return None");
 }
@@ -200,10 +191,8 @@ async fn test_rule_not_found() {
 
 #[tokio::test]
 async fn test_config_returns_project_info() {
-    use tracey_proto::TraceyDaemon;
-
     let service = create_test_service().await;
-    let config = service.config().await;
+    let config = rpc(service.client.config().await);
 
     assert!(!config.specs.is_empty(), "Expected at least one spec");
 
@@ -224,8 +213,6 @@ async fn test_config_returns_project_info() {
 
 #[tokio::test]
 async fn test_lsp_hover_on_reference() {
-    use tracey_proto::TraceyDaemon;
-
     let service = create_test_service().await;
 
     // Content with a reference to auth.login
@@ -239,7 +226,7 @@ fn test_func() {}"#;
         character: 12, // Position within "auth.login"
     };
 
-    let hover = service.lsp_hover(req).await;
+    let hover = rpc(service.client.lsp_hover(req).await);
 
     assert!(hover.is_some(), "Expected hover info for auth.login");
 
@@ -250,8 +237,6 @@ fn test_func() {}"#;
 
 #[tokio::test]
 async fn test_lsp_hover_outside_reference() {
-    use tracey_proto::TraceyDaemon;
-
     let service = create_test_service().await;
 
     let content = r#"// Just a comment
@@ -264,15 +249,13 @@ fn test_func() {}"#;
         character: 5, // Position in "fn"
     };
 
-    let hover = service.lsp_hover(req).await;
+    let hover = rpc(service.client.lsp_hover(req).await);
 
     assert!(hover.is_none(), "Expected no hover info outside reference");
 }
 
 #[tokio::test]
 async fn test_lsp_definition() {
-    use tracey_proto::TraceyDaemon;
-
     let service = create_test_service().await;
 
     let content = r#"/// r[impl auth.login]
@@ -285,7 +268,7 @@ fn test_func() {}"#;
         character: 12,
     };
 
-    let locations = service.lsp_definition(req).await;
+    let locations = rpc(service.client.lsp_definition(req).await);
 
     assert!(
         !locations.is_empty(),
@@ -301,8 +284,6 @@ fn test_func() {}"#;
 
 #[tokio::test]
 async fn test_lsp_completions() {
-    use tracey_proto::TraceyDaemon;
-
     let service = create_test_service().await;
 
     // Typing "r[impl auth" should suggest auth.* rules
@@ -315,7 +296,7 @@ async fn test_lsp_completions() {
         character: 15, // After "auth"
     };
 
-    let completions = service.lsp_completions(req).await;
+    let completions = rpc(service.client.lsp_completions(req).await);
 
     // Should have some auth.* completions
     let auth_completions: Vec<_> = completions
@@ -332,8 +313,6 @@ async fn test_lsp_completions() {
 
 #[tokio::test]
 async fn test_lsp_diagnostics_orphaned_reference() {
-    use tracey_proto::TraceyDaemon;
-
     let service = create_test_service().await;
 
     // Reference to non-existent rule
@@ -345,7 +324,7 @@ fn test_func() {}"#;
         content: content.to_string(),
     };
 
-    let diagnostics = service.lsp_diagnostics(req).await;
+    let diagnostics = rpc(service.client.lsp_diagnostics(req).await);
 
     // Should have a diagnostic for the orphaned reference
     let orphaned = diagnostics.iter().find(|d| d.code == "orphaned");
@@ -354,8 +333,6 @@ fn test_func() {}"#;
 
 #[tokio::test]
 async fn test_lsp_document_symbols() {
-    use tracey_proto::TraceyDaemon;
-
     let service = create_test_service().await;
 
     let content = r#"/// r[impl auth.login]
@@ -373,7 +350,7 @@ fn test_login() {}"#;
         content: content.to_string(),
     };
 
-    let symbols = service.lsp_document_symbols(req).await;
+    let symbols = rpc(service.client.lsp_document_symbols(req).await);
 
     // Should have symbols for each reference
     assert!(symbols.len() >= 3, "Expected at least 3 symbols");
@@ -389,11 +366,12 @@ fn test_login() {}"#;
 
 #[tokio::test]
 async fn test_lsp_workspace_symbols() {
-    use tracey_proto::TraceyDaemon;
-
     let service = create_test_service().await;
 
-    let symbols = service.lsp_workspace_symbols("auth".to_string()).await;
+    let symbols = rpc(service
+        .client
+        .lsp_workspace_symbols("auth".to_string())
+        .await);
 
     // Should have auth.* symbols
     assert!(!symbols.is_empty(), "Expected auth.* symbols");
@@ -409,8 +387,6 @@ async fn test_lsp_workspace_symbols() {
 
 #[tokio::test]
 async fn test_lsp_references() {
-    use tracey_proto::TraceyDaemon;
-
     let service = create_test_service().await;
 
     let content = r#"/// r[impl auth.login]
@@ -424,7 +400,7 @@ fn login() {}"#;
         include_declaration: true,
     };
 
-    let references = service.lsp_references(req).await;
+    let references = rpc(service.client.lsp_references(req).await);
 
     // Should have at least the definition and one impl reference
     assert!(!references.is_empty(), "Expected references for auth.login");
@@ -436,15 +412,13 @@ fn login() {}"#;
 
 #[tokio::test]
 async fn test_validate_returns_results() {
-    use tracey_proto::TraceyDaemon;
-
     let service = create_test_service().await;
     let req = ValidateRequest {
         spec: Some("test".to_string()),
         impl_name: Some("rust".to_string()),
     };
 
-    let result = service.validate(req).await;
+    let result = rpc(service.client.validate(req).await);
 
     assert_eq!(result.spec, "test");
     assert_eq!(result.impl_name, "rust");
@@ -457,8 +431,6 @@ async fn test_validate_returns_results() {
 
 #[tokio::test]
 async fn test_lsp_semantic_tokens() {
-    use tracey_proto::TraceyDaemon;
-
     let service = create_test_service().await;
 
     let content = r#"/// r[impl auth.login]
@@ -473,7 +445,7 @@ fn test_login() {}"#;
         content: content.to_string(),
     };
 
-    let tokens = service.lsp_semantic_tokens(req).await;
+    let tokens = rpc(service.client.lsp_semantic_tokens(req).await);
 
     // Should have tokens for each reference
     assert!(!tokens.is_empty(), "Expected semantic tokens");
@@ -485,8 +457,6 @@ fn test_login() {}"#;
 
 #[tokio::test]
 async fn test_lsp_code_lens() {
-    use tracey_proto::TraceyDaemon;
-
     let service = create_test_service().await;
 
     // Code lenses show for r[define ...] references (explicit definition verb)
@@ -503,7 +473,7 @@ pub fn login() {}"#;
         content: content.to_string(),
     };
 
-    let lenses = service.lsp_code_lens(req).await;
+    let lenses = rpc(service.client.lsp_code_lens(req).await);
 
     // Should have a code lens for the auth.login definition
     assert!(
@@ -520,8 +490,6 @@ pub fn login() {}"#;
 
 #[tokio::test]
 async fn test_validate_ignores_other_spec_prefixes() {
-    use tracey_proto::TraceyDaemon;
-
     let service = create_test_service().await;
 
     // @tracey:ignore-start
@@ -533,7 +501,7 @@ async fn test_validate_ignores_other_spec_prefixes() {
         impl_name: Some("rust".to_string()),
     };
 
-    let result = service.validate(req).await;
+    let result = rpc(service.client.validate(req).await);
 
     // @tracey:ignore-start
     // Should not have any UnknownRequirement errors for o[impl api.fetch]
@@ -558,8 +526,6 @@ async fn test_validate_ignores_other_spec_prefixes() {
 
 #[tokio::test]
 async fn test_validate_other_spec_validates_its_own_prefix() {
-    use tracey_proto::TraceyDaemon;
-
     let service = create_test_service().await;
 
     // @tracey:ignore-next-line
@@ -569,7 +535,7 @@ async fn test_validate_other_spec_validates_its_own_prefix() {
         impl_name: Some("rust".to_string()),
     };
 
-    let result = service.validate(req).await;
+    let result = rpc(service.client.validate(req).await);
 
     // @tracey:ignore-start
     // Should not have UnknownRequirement errors for o[impl api.fetch]
@@ -594,8 +560,6 @@ async fn test_validate_other_spec_validates_its_own_prefix() {
 
 #[tokio::test]
 async fn test_validate_other_spec_ignores_r_prefix() {
-    use tracey_proto::TraceyDaemon;
-
     let service = create_test_service().await;
 
     // @tracey:ignore-start
@@ -607,7 +571,7 @@ async fn test_validate_other_spec_ignores_r_prefix() {
         impl_name: Some("rust".to_string()),
     };
 
-    let result = service.validate(req).await;
+    let result = rpc(service.client.validate(req).await);
 
     // @tracey:ignore-start
     // Should not have UnknownRequirement errors for r[impl auth.login]
@@ -631,8 +595,6 @@ async fn test_validate_other_spec_ignores_r_prefix() {
 
 #[tokio::test]
 async fn test_validate_detects_unknown_rule_in_matching_prefix() {
-    use tracey_proto::TraceyDaemon;
-
     let service = create_test_service().await;
 
     // Create a test case where a rule ID is wrong for the matching prefix
@@ -648,7 +610,7 @@ fn test_func() {}"#;
         content: content.to_string(),
     };
 
-    let diagnostics = service.lsp_diagnostics(req).await;
+    let diagnostics = rpc(service.client.lsp_diagnostics(req).await);
 
     // Should have a diagnostic for the orphaned reference
     let orphaned = diagnostics.iter().find(|d| d.code == "orphaned");

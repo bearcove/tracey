@@ -14,6 +14,10 @@ use std::sync::Arc;
 
 use tracey::daemon::watcher::{WatcherState, glob_to_watch_dir};
 
+fn rpc<T, E: std::fmt::Debug>(res: Result<T, roam_stream::CallError<E>>) -> T {
+    res.expect("RPC call failed")
+}
+
 // ============================================================================
 // Unit Tests for glob_to_watch_dir
 // ============================================================================
@@ -138,7 +142,7 @@ fn test_watcher_state_set_watched_dirs() {
 // ============================================================================
 
 /// Helper to create a test engine and service
-async fn create_test_service() -> tracey::daemon::TraceyService {
+async fn create_test_service() -> common::RpcTestService {
     use tracey::daemon::{Engine, TraceyService};
 
     let fixtures = common::fixtures_dir();
@@ -150,11 +154,12 @@ async fn create_test_service() -> tracey::daemon::TraceyService {
             .expect("Failed to create engine"),
     );
 
-    TraceyService::new(engine)
+    let service = TraceyService::new(engine);
+    common::create_test_rpc_service(service).await
 }
 
 /// Helper to create a test service with watcher state
-async fn create_test_service_with_watcher() -> (tracey::daemon::TraceyService, Arc<WatcherState>) {
+async fn create_test_service_with_watcher() -> (common::RpcTestService, Arc<WatcherState>) {
     use tracey::daemon::{Engine, TraceyService};
 
     let fixtures = common::fixtures_dir();
@@ -173,16 +178,15 @@ async fn create_test_service_with_watcher() -> (tracey::daemon::TraceyService, A
 
     let (service, _shutdown_rx) =
         TraceyService::new_with_watcher(engine, Arc::clone(&watcher_state));
+    let service = common::create_test_rpc_service(service).await;
 
     (service, watcher_state)
 }
 
 #[tokio::test]
 async fn test_health_without_watcher_state() {
-    use tracey_proto::TraceyDaemon;
-
     let service = Arc::new(create_test_service().await);
-    let health = service.health().await;
+    let health = rpc(service.client.health().await);
 
     // Without watcher state, defaults are returned
     assert!(!health.watcher_active);
@@ -195,11 +199,9 @@ async fn test_health_without_watcher_state() {
 
 #[tokio::test]
 async fn test_health_with_watcher_state() {
-    use tracey_proto::TraceyDaemon;
-
     let (service, _state) = create_test_service_with_watcher().await;
     let service = Arc::new(service);
-    let health = service.health().await;
+    let health = rpc(service.client.health().await);
 
     assert!(health.watcher_active);
     assert!(health.watcher_error.is_none());
@@ -211,15 +213,13 @@ async fn test_health_with_watcher_state() {
 
 #[tokio::test]
 async fn test_health_reports_watcher_error() {
-    use tracey_proto::TraceyDaemon;
-
     let (service, state) = create_test_service_with_watcher().await;
 
     // Simulate watcher failure
     state.mark_failed("Connection lost".to_string());
 
     let service = Arc::new(service);
-    let health = service.health().await;
+    let health = rpc(service.client.health().await);
 
     assert!(!health.watcher_active);
     assert_eq!(health.watcher_error, Some("Connection lost".to_string()));

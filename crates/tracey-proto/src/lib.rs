@@ -580,7 +580,7 @@ pub struct LspDocumentRequest {
 ///
 /// This service is exposed by the daemon over a Unix socket. Bridges (HTTP, MCP, LSP)
 /// connect as clients and translate their protocols to/from these RPC calls.
-#[service]
+#[roam::service]
 pub trait TraceyDaemon {
     // === Core Queries ===
 
