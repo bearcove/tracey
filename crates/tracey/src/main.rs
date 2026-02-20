@@ -119,6 +119,17 @@ enum Command {
         #[facet(args::subcommand)]
         action: SkillAction,
     },
+
+    /// Run query subcommands over daemon data from the terminal
+    Query {
+        /// Project root directory (default: current directory)
+        #[facet(args::positional, default)]
+        root: Option<PathBuf>,
+
+        /// Query command to run
+        #[facet(args::subcommand)]
+        query: QueryCommand,
+    },
 }
 
 /// Skill subcommands
@@ -134,6 +145,62 @@ enum SkillAction {
         /// Install only for Codex CLI
         #[facet(args::named, default)]
         codex: bool,
+    },
+}
+
+#[derive(Debug, facet::Facet)]
+enum QueryCommand {
+    /// coverage overview
+    Status,
+
+    /// List rules without implementation references
+    Uncovered {
+        /// Spec/impl to query (e.g., "my-spec/rust"). Optional if only one exists.
+        #[facet(args::named, default)]
+        spec_impl: Option<String>,
+
+        /// Filter by rule ID prefix
+        #[facet(args::named, default)]
+        prefix: Option<String>,
+    },
+
+    /// List rules without verification references
+    Untested {
+        /// Spec/impl to query (e.g., "my-spec/rust"). Optional if only one exists.
+        #[facet(args::named, default)]
+        spec_impl: Option<String>,
+
+        /// Filter by rule ID prefix
+        #[facet(args::named, default)]
+        prefix: Option<String>,
+    },
+
+    /// Show unmapped code units
+    Unmapped {
+        /// Spec/impl to query (e.g., "my-spec/rust"). Optional if only one exists.
+        #[facet(args::named, default)]
+        spec_impl: Option<String>,
+
+        /// Directory or file path to zoom into
+        #[facet(args::named, default)]
+        path: Option<String>,
+    },
+
+    /// Show details about a specific rule
+    Rule {
+        /// Rule identifier to inspect
+        #[facet(args::positional)]
+        rule_id: String,
+    },
+
+    /// Display current configuration
+    Config,
+
+    /// Validate the spec and implementation
+    Validate {
+        /// Spec/impl to validate (e.g., "my-spec/rust"). Optional if only one exists.
+        #[facet(args::named, default)]
+        spec_impl: Option<String>,
     },
 }
 
@@ -249,10 +316,47 @@ fn main() -> Result<()> {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(kill_daemon(root))
         }
+
         // r[impl cli.skill.install]
         Command::Skill { action } => match action {
             SkillAction::Install { claude, codex } => install_skill(claude, codex),
         },
+
+        // r[impl daemon.cli.query]
+        Command::Query { root, query } => {
+            let project_root = root.unwrap_or_else(|| find_project_root().unwrap_or_default());
+            let query_client = bridge::query::QueryClient::new(project_root);
+            let rt = tokio::runtime::Runtime::new()?;
+
+            let output = rt.block_on(async {
+                match query {
+                    QueryCommand::Status => query_client.status().await,
+                    QueryCommand::Uncovered { spec_impl, prefix } => {
+                        query_client
+                            .uncovered(spec_impl.as_deref(), prefix.as_deref())
+                            .await
+                    }
+                    QueryCommand::Untested { spec_impl, prefix } => {
+                        query_client
+                            .untested(spec_impl.as_deref(), prefix.as_deref())
+                            .await
+                    }
+                    QueryCommand::Unmapped { spec_impl, path } => {
+                        query_client
+                            .unmapped(spec_impl.as_deref(), path.as_deref())
+                            .await
+                    }
+                    QueryCommand::Rule { rule_id } => query_client.rule(&rule_id).await,
+                    QueryCommand::Config => query_client.config().await,
+                    QueryCommand::Validate { spec_impl } => {
+                        query_client.validate(spec_impl.as_deref()).await
+                    }
+                }
+            });
+
+            println!("{}", output);
+            Ok(())
+        }
     }
 }
 
@@ -302,6 +406,7 @@ fn init_tracing(config: TracingConfig) -> Result<()> {
         .then(|| tracing_subscriber::fmt::layer().with_ansi(true));
 
     let file_layer = if let Some(log_path) = config.log_file {
+        // Ensure parent directory exists
         if let Some(parent) = log_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
