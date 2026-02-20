@@ -14,7 +14,7 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [dependencies]
 # roam RPC framework
-roam = { git = "https://github.com/bearcove/roam", branch = "main" }
+roam = { git = "https://github.com/bearcove/roam", rev = "9129c6fd10e09a5e3c40974097d478c8301b9b75" }
 
 # API types (re-exported for convenience)
 tracey-api = { path = "../tracey-api" }

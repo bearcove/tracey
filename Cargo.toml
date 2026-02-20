@@ -21,13 +21,13 @@ tracey-config = { path = "crates/tracey-config", version = "1.0.0" }
 
 # Facet ecosystem
 facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-args = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-axum = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-axum = { git = "https://github.com/facet-rs/facet-axum", branch = "main" }
 facet-yaml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-styx = { git = "https://github.com/bearcove/styx", branch = "main" }
 styx-embed = { git = "https://github.com/bearcove/styx", branch = "main" }
 facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-error = { git = "https://github.com/facet-rs/facet", branch = "main" }
+figue = { git = "https://github.com/bearcove/figue", branch = "main" }
 
 # Error handling
 eyre = "0.6"
@@ -75,7 +75,7 @@ notify = "8"
 tantivy = "0.22"
 
 # Markdown processing (with syntax highlighting and diagram handlers)
-marq = { git = "https://github.com/bearcove/marq", rev = "f6f65cbd8fc3b18d6c3a4bca29bc2012df9431a9", features = ["all-handlers"] }
+marq = { git = "https://github.com/bearcove/marq", branch = "main", features = ["all-handlers"] }
 
 # The profile that 'dist' will build with
 [profile.dist]

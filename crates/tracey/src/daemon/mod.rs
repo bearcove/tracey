@@ -420,6 +420,9 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
                                     ConnectionError::Dispatch(e) => {
                                         error!("Dispatch error: {}", e);
                                     }
+                                    ConnectionError::UnsupportedProtocolVersion => {
+                                        warn!("Unsupported protocol version");
+                                    }
                                 }
                             }
                         }

@@ -36,12 +36,12 @@ tracey-config = { workspace = true }
 
 # Facet ecosystem for config parsing and CLI
 facet = { workspace = true }
-facet-args = { workspace = true }
 facet-yaml = { workspace = true }
 facet-styx = { workspace = true }
 styx-embed = { workspace = true }
 facet-json = { workspace = true }
 facet-axum = { workspace = true }
+figue = { workspace = true }
 
 # Error handling
 eyre = { workspace = true }
@@ -94,9 +94,9 @@ tower-lsp = "0.20"
 open = "5"
 
 # roam RPC framework (for daemon architecture)
-roam = { git = "https://github.com/bearcove/roam", branch = "main" }
-roam-stream = { git = "https://github.com/bearcove/roam", branch = "main" }
-roam-local = { git = "https://github.com/bearcove/roam", branch = "main" }
+roam = { git = "https://github.com/bearcove/roam", rev = "9129c6fd10e09a5e3c40974097d478c8301b9b75" }
+roam-stream = { git = "https://github.com/bearcove/roam", rev = "9129c6fd10e09a5e3c40974097d478c8301b9b75" }
+roam-local = { git = "https://github.com/bearcove/roam", rev = "9129c6fd10e09a5e3c40974097d478c8301b9b75" }
 
 [features]
 default = ["search"]

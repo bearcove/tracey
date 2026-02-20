@@ -31,7 +31,7 @@ export interface ValidationError {
   /**
    * Related rule IDs (for dependency errors)
    */
-  relatedRules: RuleId[];
+  relatedRules?: RuleId[];
 }
 
 /**

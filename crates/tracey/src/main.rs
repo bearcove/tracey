@@ -4,8 +4,8 @@
 //! (in the format `[rule.id]` in comments) and compares them against a spec
 //! manifest to produce coverage reports.
 
-use eyre::Result;
-use facet_args as args;
+use eyre::{Result, eyre};
+use figue::{self as args, FigueBuiltins};
 use owo_colors::OwoColorize;
 use std::path::PathBuf;
 
@@ -15,13 +15,13 @@ use tracey::{bridge, daemon, find_project_root};
 /// CLI arguments
 #[derive(Debug, facet::Facet)]
 struct Args {
-    /// Print version information
-    #[facet(args::named, args::short = 'V', default)]
-    version: bool,
-
     /// Subcommand to run
     #[facet(args::subcommand)]
-    command: Option<Command>,
+    command: Command,
+
+    /// Standard CLI builtins (--help, --version, --completions)
+    #[facet(flatten)]
+    builtins: FigueBuiltins,
 }
 
 /// Subcommands
@@ -118,43 +118,26 @@ enum Command {
 styx_embed::embed_outdir_file!("schema.styx");
 
 fn main() -> Result<()> {
-    let args: Args = match args::from_std_args() {
-        Ok(args) => args,
-        Err(e) => {
-            eprintln!("{e}");
-            std::process::exit(1)
-        }
-    };
-
-    if args.version {
-        print!("tracey {}", env!("CARGO_PKG_VERSION"));
-
-        if let Some(git_commit) = option_env!("TRACEY_GIT_COMMIT") {
-            print!(" ({git_commit}");
-
-            if let Some(build_date) = option_env!("TRACEY_BUILD_DATE") {
-                print!(" {build_date}");
-            }
-
-            print!(")");
-        } else if let Some(build_date) = option_env!("TRACEY_BUILD_DATE") {
-            print!(" (built {build_date})");
-        }
-
-        println!();
-        return Ok(());
-    }
+    let config = args::builder::<Args>()
+        .map_err(|e| eyre!("failed to initialize CLI parser: {e}"))?
+        .cli(|cli| cli.args(std::env::args().skip(1)))
+        .help(|h| {
+            h.program_name(env!("CARGO_PKG_NAME"))
+                .version(cli_version_text())
+        })
+        .build();
+    let args: Args = args::Driver::new(config).run().unwrap();
 
     match args.command {
         // r[impl cli.web]
         // r[impl daemon.cli.web]
-        Some(Command::Web {
+        Command::Web {
             root,
             config,
             port,
             open,
             dev,
-        }) => {
+        } => {
             init_tracing(TracingConfig { log_file: None })?;
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(bridge::http::run(
@@ -167,19 +150,19 @@ fn main() -> Result<()> {
         }
         // r[impl cli.mcp]
         // r[impl daemon.cli.mcp]
-        Some(Command::Mcp { root, config }) => {
+        Command::Mcp { root, config } => {
             // MCP communicates over stdio, so no tracing to stdout
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(bridge::mcp::run(root, config))
         }
         // r[impl daemon.cli.lsp]
-        Some(Command::Lsp { root, config }) => {
+        Command::Lsp { root, config } => {
             // LSP communicates over stdio, so no tracing to stdout
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(bridge::lsp::run(root, config))
         }
         // r[impl daemon.cli.daemon]
-        Some(Command::Daemon { root, config }) => {
+        Command::Daemon { root, config } => {
             let project_root = root.unwrap_or_else(|| find_project_root().unwrap_or_default());
             // r[impl config.path.default]
             let config_path = project_root.join(&config);
@@ -194,60 +177,44 @@ fn main() -> Result<()> {
             rt.block_on(daemon::run(project_root, config_path))
         }
         // r[impl daemon.cli.logs]
-        Some(Command::Logs {
+        Command::Logs {
             root,
             follow,
             lines,
-        }) => show_logs(root, follow, lines.unwrap_or(50)),
+        } => show_logs(root, follow, lines.unwrap_or(50)),
         // r[impl daemon.cli.status]
-        Some(Command::Status { root }) => {
+        Command::Status { root } => {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(show_status(root))
         }
         // r[impl daemon.cli.kill]
-        Some(Command::Kill { root }) => {
+        Command::Kill { root } => {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(kill_daemon(root))
-        }
-        // r[impl cli.no-args]
-        None => {
-            print_help();
-            Ok(())
         }
     }
 }
 
-fn print_help() {
-    println!(
-        r#"tracey - Measure spec coverage in Rust codebases
+fn cli_version_text() -> String {
+    let mut version = env!("CARGO_PKG_VERSION").to_string();
 
-{usage}:
-    tracey <COMMAND> [OPTIONS]
+    if let Some(git_commit) = option_env!("TRACEY_GIT_COMMIT") {
+        version.push_str(" (");
+        version.push_str(git_commit);
 
-{commands}:
-    {web}       Start the interactive web dashboard
-    {mcp}       Start the MCP server for AI assistants
-    {lsp}       Start the LSP server for editor integration
-    {daemon}    Start the tracey daemon (persistent server)
-    {logs}      Show daemon logs
-    {status}    Show daemon status
-    {kill}      Stop the running daemon
+        if let Some(build_date) = option_env!("TRACEY_BUILD_DATE") {
+            version.push(' ');
+            version.push_str(build_date);
+        }
 
-{options}:
-    -h, --help      Show this help message
+        version.push(')');
+    } else if let Some(build_date) = option_env!("TRACEY_BUILD_DATE") {
+        version.push_str(" (built ");
+        version.push_str(build_date);
+        version.push(')');
+    }
 
-Run 'tracey <COMMAND> --help' for more information on a command."#,
-        usage = "Usage".bold(),
-        commands = "Commands".bold(),
-        web = "web".cyan(),
-        mcp = "mcp".cyan(),
-        lsp = "lsp".cyan(),
-        daemon = "daemon".cyan(),
-        logs = "logs".cyan(),
-        status = "status".cyan(),
-        kill = "kill".cyan(),
-        options = "Options".bold(),
-    );
+    version
 }
 
 /// Configuration for tracing initialization.
