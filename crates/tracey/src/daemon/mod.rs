@@ -134,13 +134,20 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
     let endpoint = local_endpoint(&project_root);
 
     // r[impl daemon.lifecycle.stale-socket]
-    // Remove stale endpoint if it exists (no-op on Windows)
+    // Remove stale endpoint if it exists; if it's alive, fail fast instead.
     if roam_local::endpoint_exists(&endpoint) {
-        #[cfg(unix)]
-        info!("Removing stale socket at {}", endpoint.display());
-        #[cfg(windows)]
-        info!("Removing stale endpoint");
-        let _ = roam_local::remove_endpoint(&endpoint);
+        if roam_local::connect(&endpoint).await.is_ok() {
+            #[cfg(unix)]
+            eyre::bail!("Daemon already running at {}", endpoint.display());
+            #[cfg(windows)]
+            eyre::bail!("Daemon already running");
+        } else {
+            #[cfg(unix)]
+            info!("Removing stale socket at {}", endpoint.display());
+            #[cfg(windows)]
+            info!("Removing stale endpoint");
+            let _ = roam_local::remove_endpoint(&endpoint);
+        }
     }
 
     // Create engine

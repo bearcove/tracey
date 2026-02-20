@@ -3,9 +3,10 @@
 //! Uses roam's `connect()` with auto-reconnection.
 
 use roam_stream::{Connector, HandshakeConfig, NoDispatcher, connect};
+use std::fs::OpenOptions;
 use std::io;
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tracing::info;
 
 use super::local_endpoint;
@@ -36,6 +37,18 @@ pub fn new_client(project_root: PathBuf) -> DaemonClient {
 /// and wait for it to be ready before connecting.
 pub struct DaemonConnector {
     project_root: PathBuf,
+}
+
+struct StartupLock {
+    path: PathBuf,
+    #[allow(dead_code)]
+    file: std::fs::File,
+}
+
+impl Drop for StartupLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
 }
 
 impl DaemonConnector {
@@ -83,6 +96,57 @@ impl DaemonConnector {
         Ok(())
     }
 
+    fn startup_lock_path(&self) -> PathBuf {
+        self.project_root.join(".tracey").join("daemon-start.lock")
+    }
+
+    fn acquire_startup_lock(&self, timeout: Duration) -> io::Result<StartupLock> {
+        super::ensure_tracey_dir(&self.project_root).map_err(io::Error::other)?;
+
+        let lock_path = self.startup_lock_path();
+        let started = Instant::now();
+
+        loop {
+            match OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&lock_path)
+            {
+                Ok(mut file) => {
+                    use std::io::Write;
+                    writeln!(file, "pid={}", std::process::id())?;
+                    return Ok(StartupLock {
+                        path: lock_path,
+                        file,
+                    });
+                }
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+                    // Recover from stale lock files left behind by crashed startup attempts.
+                    if let Ok(meta) = std::fs::metadata(&lock_path)
+                        && let Ok(modified) = meta.modified()
+                        && modified.elapsed().unwrap_or_default() > Duration::from_secs(30)
+                    {
+                        let _ = std::fs::remove_file(&lock_path);
+                        continue;
+                    }
+
+                    if started.elapsed() > timeout {
+                        return Err(io::Error::new(
+                            io::ErrorKind::TimedOut,
+                            format!(
+                                "Timed out waiting for daemon startup lock at {}",
+                                lock_path.display()
+                            ),
+                        ));
+                    }
+
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    }
+
     /// Wait for the daemon endpoint to appear and connect.
     async fn wait_and_connect(&self) -> io::Result<roam_local::LocalStream> {
         let endpoint = local_endpoint(&self.project_root);
@@ -124,8 +188,19 @@ impl Connector for DaemonConnector {
                 Ok(stream)
             }
             Err(_) => {
+                // Serialize startup so multiple bridges don't all spawn daemons at once.
+                let _startup_lock = self.acquire_startup_lock(Duration::from_secs(15))?;
+
+                // Another process may have started the daemon while we waited for lock.
+                if let Ok(stream) = roam_local::connect(&endpoint).await {
+                    info!("Connected to daemon");
+                    return Ok(stream);
+                }
+
                 // r[impl daemon.lifecycle.stale-socket]
-                if roam_local::endpoint_exists(&endpoint) {
+                if roam_local::endpoint_exists(&endpoint)
+                    && roam_local::connect(&endpoint).await.is_err()
+                {
                     let _ = roam_local::remove_endpoint(&endpoint);
                 }
 
