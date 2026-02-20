@@ -4,7 +4,7 @@
 //! (in the format `[rule.id]` in comments) and compares them against a spec
 //! manifest to produce coverage reports.
 
-use eyre::{Result, eyre};
+use eyre::{Result, WrapErr, eyre};
 use figue::{self as args, FigueBuiltins};
 use owo_colors::OwoColorize;
 use std::path::PathBuf;
@@ -112,6 +112,29 @@ enum Command {
         #[facet(args::positional, default)]
         root: Option<PathBuf>,
     },
+
+    /// Manage the bundled AI skill
+    Skill {
+        /// Skill action to perform
+        #[facet(args::subcommand)]
+        action: SkillAction,
+    },
+}
+
+/// Skill subcommands
+#[derive(Debug, facet::Facet)]
+#[repr(u8)]
+enum SkillAction {
+    /// Install the bundled Tracey skill for Claude and/or Codex
+    Install {
+        /// Install only for Claude Code
+        #[facet(args::named, default)]
+        claude: bool,
+
+        /// Install only for Codex CLI
+        #[facet(args::named, default)]
+        codex: bool,
+    },
 }
 
 // Embed the config schema for zero-execution discovery by styx tooling
@@ -192,6 +215,10 @@ fn main() -> Result<()> {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(kill_daemon(root))
         }
+        // r[impl cli.skill.install]
+        Command::Skill { action } => match action {
+            SkillAction::Install { claude, codex } => install_skill(claude, codex),
+        },
     }
 }
 
@@ -415,6 +442,58 @@ async fn show_status(root: Option<PathBuf>) -> Result<()> {
             println!("  The daemon may have crashed. Run 'tracey kill' to clean up.");
         }
     }
+
+    Ok(())
+}
+
+const SKILL_MD: &str = include_str!("../../../skill/SKILL.md");
+const SPEC_MD: &str = include_str!("../../../skill/references/tracey-spec.md");
+
+/// r[impl cli.skill.install]
+/// Install the bundled Tracey skill for Claude and/or Codex
+fn install_skill(claude_only: bool, codex_only: bool) -> Result<()> {
+    let home = dirs::home_dir().ok_or_else(|| eyre!("could not determine home directory"))?;
+
+    // If neither flag is set, install for both
+    let install_claude = !codex_only;
+    let install_codex = !claude_only;
+
+    let mut installed = Vec::new();
+
+    if install_claude {
+        let skill_dir = home.join(".claude/skills/tracey");
+        install_skill_to(&skill_dir)?;
+        installed.push(skill_dir);
+    }
+
+    if install_codex {
+        let skill_dir = home.join(".codex/skills/tracey");
+        install_skill_to(&skill_dir)?;
+        installed.push(skill_dir);
+    }
+
+    println!("{}: Tracey skill installed", "Success".green());
+    for path in &installed {
+        println!("  {}", path.display());
+    }
+
+    Ok(())
+}
+
+fn install_skill_to(skill_dir: &std::path::Path) -> Result<()> {
+    let refs_dir = skill_dir.join("references");
+    std::fs::create_dir_all(&refs_dir)
+        .wrap_err_with(|| format!("failed to create {}", refs_dir.display()))?;
+
+    std::fs::write(skill_dir.join("SKILL.md"), SKILL_MD)
+        .wrap_err_with(|| format!("failed to write {}", skill_dir.join("SKILL.md").display()))?;
+
+    std::fs::write(refs_dir.join("tracey-spec.md"), SPEC_MD).wrap_err_with(|| {
+        format!(
+            "failed to write {}",
+            refs_dir.join("tracey-spec.md").display()
+        )
+    })?;
 
     Ok(())
 }

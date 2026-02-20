@@ -97,6 +97,7 @@ open = "5"
 roam = { git = "https://github.com/bearcove/roam", branch = "main" }
 roam-stream = { git = "https://github.com/bearcove/roam", branch = "main" }
 roam-local = { git = "https://github.com/bearcove/roam", branch = "main" }
+dirs = "6.0.0"
 
 [features]
 default = ["search"]
