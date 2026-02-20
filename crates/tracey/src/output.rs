@@ -205,7 +205,11 @@ struct JsonReference {
 }
 
 fn render_json(report: &CoverageReport) -> String {
-    let mut uncovered: Vec<_> = report.uncovered_rules.iter().cloned().collect();
+    let mut uncovered: Vec<_> = report
+        .uncovered_rules
+        .iter()
+        .map(ToString::to_string)
+        .collect();
     uncovered.sort();
 
     let json_report = JsonReport {
@@ -219,7 +223,7 @@ fn render_json(report: &CoverageReport) -> String {
             .iter()
             .map(|r| JsonReference {
                 verb: r.verb.as_str().to_string(),
-                rule_id: r.rule_id.clone(),
+                rule_id: r.req_id.to_string(),
                 file: r.file.display().to_string(),
                 line: r.line,
             })
@@ -230,7 +234,7 @@ fn render_json(report: &CoverageReport) -> String {
             .flatten()
             .map(|r| JsonReference {
                 verb: r.verb.as_str().to_string(),
-                rule_id: r.rule_id.clone(),
+                rule_id: r.req_id.to_string(),
                 file: r.file.display().to_string(),
                 line: r.line,
             })

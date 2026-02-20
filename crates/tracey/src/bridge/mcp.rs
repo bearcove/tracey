@@ -25,6 +25,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
 use crate::daemon::{DaemonClient, new_client};
+use tracey_core::parse_rule_id;
 use tracey_proto::*;
 
 /// Convert roam RPC result to a simple Result
@@ -405,7 +406,10 @@ impl TraceyHandler {
 
     async fn handle_rule(&self, rule_id: &str) -> String {
         let client = self.client.lock().await;
-        match rpc(client.rule(rule_id.to_string()).await) {
+        let Some(rule_id) = parse_rule_id(rule_id) else {
+            return "Error: invalid rule ID".to_string();
+        };
+        match rpc(client.rule(rule_id.clone()).await) {
             Ok(Some(info)) => {
                 let mut output = format!("# {}\n\n{}\n\n", info.id, info.raw);
 
@@ -702,7 +706,12 @@ fn format_validation_result(result: &tracey_proto::ValidationResult) -> String {
             if !error.related_rules.is_empty() {
                 output.push_str(&format!(
                     "    Related rules: {}\n",
-                    error.related_rules.join(", ")
+                    error
+                        .related_rules
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 ));
             }
         }

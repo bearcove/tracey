@@ -73,7 +73,7 @@ notify = "8"
 tantivy = "0.22"
 
 # Markdown processing (with syntax highlighting and diagram handlers)
-marq = { git = "https://github.com/bearcove/marq", branch = "main", features = ["all-handlers"] }
+marq = { git = "https://github.com/bearcove/marq", rev = "c111aa37e5d1d8a8144d1abc2cd96fa8a202ab94", features = ["all-handlers"] }
 
 # The profile that 'dist' will build with
 [profile.dist]

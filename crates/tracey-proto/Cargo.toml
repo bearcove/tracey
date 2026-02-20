@@ -18,6 +18,7 @@ roam = { git = "https://github.com/bearcove/roam", branch = "main" }
 
 # API types (re-exported for convenience)
 tracey-api = { path = "../tracey-api" }
+tracey-core = { workspace = true }
 
 # facet for Facet derives on request/response types
 facet = { workspace = true }

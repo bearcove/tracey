@@ -149,14 +149,15 @@ pub async fn load_rules_from_glob(
             // r[impl markdown.duplicates.same-file] - caught when marq returns duplicate reqs from single file
             // r[impl markdown.duplicates.cross-file] - caught via seen_ids persisting across files
             for req in &doc.reqs {
-                if seen_ids.contains(&req.id) {
+                let req_id = req.id.to_string();
+                if seen_ids.contains(&req_id) {
                     eyre::bail!(
                         "Duplicate requirement '{}' found in {}",
                         req.id.red(),
                         display_path
                     );
                 }
-                seen_ids.insert(req.id.clone());
+                seen_ids.insert(req_id);
             }
 
             // Build a mapping from rule ID to section info by processing elements in order
@@ -173,8 +174,10 @@ pub async fn load_rules_from_glob(
                     }
                     DocElement::Req(r) => {
                         if let Some((slug, title)) = &current_section {
-                            rule_sections
-                                .insert(r.id.clone(), (Some(slug.clone()), Some(title.clone())));
+                            rule_sections.insert(
+                                r.id.to_string(),
+                                (Some(slug.clone()), Some(title.clone())),
+                            );
                         }
                     }
                     DocElement::Paragraph(_) => {}
@@ -184,8 +187,9 @@ pub async fn load_rules_from_glob(
             // Add requirements with their source file, computed column, and section
             for req in doc.reqs {
                 let column = Some(compute_column(&content, req.span.offset));
-                let (section, section_title) =
-                    rule_sections.remove(&req.id).unwrap_or((None, None));
+                let (section, section_title) = rule_sections
+                    .remove(&req.id.to_string())
+                    .unwrap_or((None, None));
                 rules.push(ExtractedRule {
                     def: req,
                     source_file: display_path.clone(),
@@ -218,14 +222,15 @@ pub async fn load_rules_from_globs(
         // r[impl validation.duplicates]
         // Check for duplicates across patterns
         for extracted in rules {
-            if seen_ids.contains(&extracted.def.id) {
+            let def_id = extracted.def.id.to_string();
+            if seen_ids.contains(&def_id) {
                 eyre::bail!(
                     "Duplicate requirement '{}' found in {}",
                     extracted.def.id.red(),
                     extracted.source_file
                 );
             }
-            seen_ids.insert(extracted.def.id.clone());
+            seen_ids.insert(def_id);
             all_rules.push(extracted);
         }
     }

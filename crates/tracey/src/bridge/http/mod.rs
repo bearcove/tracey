@@ -31,6 +31,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::daemon::{DaemonClient, new_client};
 use tracey_api::*;
+use tracey_core::parse_rule_id;
 
 /// Message sent to WebSocket clients when data changes.
 #[derive(Debug, Clone, Facet)]
@@ -279,6 +280,17 @@ struct ApiError {
 }
 
 impl ApiError {
+    fn bad_request(msg: impl Into<String>) -> Response {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ApiError {
+                error: msg.into(),
+                code: "bad_request".to_string(),
+            }),
+        )
+            .into_response()
+    }
+
     fn not_found(msg: impl Into<String>) -> Response {
         (
             StatusCode::NOT_FOUND,
@@ -567,8 +579,11 @@ async fn api_unmapped(
 /// GET /api/rule - Get details for a specific rule.
 async fn api_rule(State(state): State<Arc<AppState>>, Query(query): Query<RuleQuery>) -> Response {
     let client = state.client.lock().await;
+    let Some(rule_id) = parse_rule_id(&query.id) else {
+        return ApiError::bad_request("Invalid rule ID");
+    };
 
-    match rpc(client.rule(query.id).await) {
+    match rpc(client.rule(rule_id).await) {
         Ok(Some(info)) => Json(info).into_response(),
         Ok(None) => ApiError::not_found("Rule not found"),
         Err(e) => e,

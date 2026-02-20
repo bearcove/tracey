@@ -133,8 +133,8 @@ A requirement reference MUST be written as `PREFIX[VERB REQ]` within a comment, 
 > 
 > If omitted, defaults to `impl`.
 
-> r[ref.syntax.req-id]
-> REQ is a requirement ID consisting of dot-separated segments.
+> r[ref.syntax.req-id+2]
+> REQ is a requirement ID consisting of dot-separated segments, optionally followed by a version suffix.
 >
 > Each segment MUST contain only ASCII letters (a-z, A-Z), digits (0-9), hyphens, or underscores. This restriction ensures requirement IDs work cleanly in URLs without encoding issues.
 
@@ -161,6 +161,27 @@ A requirement reference MUST be written as `PREFIX[VERB REQ]` within a comment, 
 > // r[impl auth.🔐.token]         // emoji not allowed
 > // r[verify café.menu]           // accented characters not allowed
 > ```
+
+> r[ref.syntax.version]
+> A requirement ID MAY carry a version suffix of the form `+N`, where N is a positive integer (≥ 1).
+>
+> The `+` character separates the base ID from the version number. Only a single `+` is allowed.
+> Version 0 is invalid. A trailing `+` with no number is invalid.
+>
+> Examples:
+> - `auth.login` — base ID, implicitly version 1
+> - `auth.login+2` — base ID at version 2
+> - `display.edge.fields+10` — base ID at version 10
+>
+> Invalid:
+> - `auth.login+` — trailing `+` with no number
+> - `auth.login+0` — version 0 is not allowed
+> - `auth.login+1+2` — multiple `+` not allowed
+
+> r[ref.syntax.version.implicit]
+> A reference without a version suffix MUST be treated as implicitly referencing version 1.
+>
+> That is, `r[impl auth.login]` is equivalent to `r[impl auth.login+1]`.
 
 ### Supported Verbs
 
@@ -304,8 +325,16 @@ This section specifies how the tracey tool processes annotations, computes cover
 r[coverage.compute.percentage]
 Coverage percentage MUST be calculated as (covered requirements / total requirements) * 100.
 
-r[coverage.compute.covered]
-Tracey MUST consider a requirement covered if at least one reference to it exists in the scanned source files.
+r[coverage.compute.covered+2]
+Tracey MUST consider a requirement covered if at least one reference to it exists in the scanned source files **at the current version** (i.e., the reference version matches the spec rule version).
+
+r[coverage.compute.stale]
+When a requirement carries a version suffix `+N` and an implementation reference exists for the same base ID but at an older version (< N), Tracey MUST report the requirement as **stale** rather than covered.
+
+A stale requirement means the code was written against an earlier version of the rule and must be reviewed and updated before it counts as covered.
+
+r[coverage.compute.stale.update]
+To resolve a stale reference, the developer MUST update the annotation in source code to include the current version suffix (e.g., change `r[impl auth.login]` to `r[impl auth.login+2]`), confirming they have reviewed the code against the updated rule.
 
 r[coverage.compute.uncovered]
 Requirements in the manifest with no references MUST be reported as uncovered.

@@ -5,6 +5,7 @@
 //! definitions via facet-typescript.
 
 use facet::Facet;
+use tracey_core::RuleId;
 
 /// Git status for a file
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Facet)]
@@ -65,7 +66,7 @@ pub struct ApiSpecForward {
 #[derive(Debug, Clone, Facet)]
 #[facet(rename_all = "camelCase")]
 pub struct ApiRule {
-    pub id: String,
+    pub id: RuleId,
     /// Raw markdown source (without r[...] marker, but with `>` prefixes for blockquote rules)
     pub raw: String,
     /// Rendered HTML (for dashboard display)
@@ -218,7 +219,7 @@ pub struct ValidationError {
     pub column: Option<usize>,
     /// Related rule IDs (for dependency errors)
     #[facet(default)]
-    pub related_rules: Vec<String>,
+    pub related_rules: Vec<RuleId>,
 }
 
 /// Error codes for validation errors

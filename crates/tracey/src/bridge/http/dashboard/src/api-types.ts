@@ -31,7 +31,21 @@ export interface ValidationError {
   /**
    * Related rule IDs (for dependency errors)
    */
-  relatedRules: string[];
+  relatedRules: RuleId[];
+}
+
+/**
+ * Structured rule ID representation.
+ */
+export interface RuleId {
+  /**
+   * Base rule ID without version suffix.
+   */
+  base: string;
+  /**
+   * Normalized version number (unversioned IDs are version 1).
+   */
+  version: number;
 }
 
 /**
@@ -205,7 +219,7 @@ export interface ApiCodeRef {
 }
 
 export interface ApiRule {
-  id: string;
+  id: RuleId;
   /**
    * Raw markdown source (without r[...] marker, but with `>` prefixes for blockquote rules)
    */

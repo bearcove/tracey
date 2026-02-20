@@ -2348,7 +2348,7 @@ dependencies = [
 [[package]]
 name = "marq"
 version = "0.1.0"
-source = "git+https://github.com/bearcove/marq?branch=main#85f3d40270b23e65faaaa3854f4754a978245c88"
+source = "git+https://github.com/bearcove/marq?rev=c111aa37e5d1d8a8144d1abc2cd96fa8a202ab94#c111aa37e5d1d8a8144d1abc2cd96fa8a202ab94"
 dependencies = [
  "aasvg",
  "arborium",
@@ -3963,6 +3963,7 @@ name = "tracey-api"
 version = "1.0.0"
 dependencies = [
  "facet",
+ "tracey-core",
 ]
 
 [[package]]
@@ -3998,6 +3999,7 @@ dependencies = [
  "facet",
  "roam",
  "tracey-api",
+ "tracey-core",
 ]
 
 [[package]]

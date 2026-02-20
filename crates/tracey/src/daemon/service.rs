@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use tracey_core::{RuleIdMatch, classify_reference_for_rule};
+use tracey_core::{RuleId, RuleIdMatch, classify_reference_for_rule, parse_rule_id};
 use tracey_proto::*;
 
 use super::engine::Engine;
@@ -353,7 +353,7 @@ impl TraceyDaemon for TraceyService {
     }
 
     /// Get details for a specific rule
-    async fn rule(&self, rule_id: String) -> Option<RuleInfo> {
+    async fn rule(&self, rule_id: RuleId) -> Option<RuleInfo> {
         let data = self.inner.engine.data().await;
         let query = QueryEngine::new(&data);
 
@@ -600,7 +600,7 @@ impl TraceyDaemon for TraceyService {
                 name: u.name.clone(),
                 start_line: u.start_line,
                 end_line: u.end_line,
-                rule_refs: u.req_refs.clone(),
+                rule_refs: u.req_refs.iter().map(|r| r.to_string()).collect(),
             })
             .collect();
 
@@ -743,15 +743,19 @@ impl TraceyDaemon for TraceyService {
         // Get all rules for this spec/impl
         if let Some(forward_data) = data.forward_by_impl.get(&(spec.clone(), impl_name.clone())) {
             // Build a list of rule IDs for match classification.
-            let known_rule_ids: Vec<&str> =
-                forward_data.rules.iter().map(|r| r.id.as_str()).collect();
+            let known_rule_ids: Vec<RuleId> =
+                forward_data.rules.iter().map(|r| r.id.clone()).collect();
 
             // r[impl config.multi-spec.unique-within-spec]
-            // Check for duplicate rule IDs (within this spec)
-            let mut seen_ids: std::collections::HashMap<&str, (&Option<String>, Option<usize>)> =
+            // Check for duplicate rule IDs and duplicate bases (within this spec)
+            let mut seen_ids: std::collections::HashMap<RuleId, (&Option<String>, Option<usize>)> =
                 std::collections::HashMap::new();
+            let mut seen_bases: std::collections::HashMap<
+                String,
+                (&RuleId, &Option<String>, Option<usize>),
+            > = std::collections::HashMap::new();
             for rule in &forward_data.rules {
-                if let Some((prev_file, prev_line)) = seen_ids.get(rule.id.as_str()) {
+                if let Some((prev_file, prev_line)) = seen_ids.get(&rule.id) {
                     errors.push(ValidationError {
                         code: ValidationErrorCode::DuplicateRequirement,
                         message: format!(
@@ -766,7 +770,32 @@ impl TraceyDaemon for TraceyService {
                         related_rules: vec![rule.id.clone()],
                     });
                 } else {
-                    seen_ids.insert(&rule.id, (&rule.source_file, rule.source_line));
+                    seen_ids.insert(rule.id.clone(), (&rule.source_file, rule.source_line));
+                }
+
+                if let Some((prev_rule_id, prev_file, prev_line)) =
+                    seen_bases.get(rule.id.base.as_str())
+                {
+                    errors.push(ValidationError {
+                        code: ValidationErrorCode::DuplicateRequirement,
+                        message: format!(
+                            "Duplicate rule base '{}' across versions ('{}' and '{}') in same spec (first defined at {}:{})",
+                            rule.id.base,
+                            prev_rule_id,
+                            rule.id,
+                            prev_file.as_deref().unwrap_or("?"),
+                            prev_line.unwrap_or(0)
+                        ),
+                        file: rule.source_file.clone(),
+                        line: rule.source_line,
+                        column: rule.source_column,
+                        related_rules: vec![(*prev_rule_id).clone(), rule.id.clone()],
+                    });
+                } else {
+                    seen_bases.insert(
+                        rule.id.base.clone(),
+                        (&rule.id, &rule.source_file, rule.source_line),
+                    );
                 }
             }
 
@@ -879,7 +908,7 @@ impl TraceyDaemon for TraceyService {
                                             file: Some(file_entry.path.clone()),
                                             line: Some(reference.line),
                                             column: None,
-                                            related_rules: vec![current_rule_id.to_string()],
+                                            related_rules: vec![current_rule_id],
                                         });
                                     }
                                     KnownRuleMatch::Missing => {
@@ -910,7 +939,14 @@ impl TraceyDaemon for TraceyService {
             for cycle in cycles {
                 errors.push(ValidationError {
                     code: ValidationErrorCode::CircularDependency,
-                    message: format!("Circular dependency detected: {}", cycle.join(" → ")),
+                    message: format!(
+                        "Circular dependency detected: {}",
+                        cycle
+                            .iter()
+                            .map(ToString::to_string)
+                            .collect::<Vec<_>>()
+                            .join(" -> ")
+                    ),
                     file: None,
                     line: None,
                     column: None,
@@ -1179,9 +1215,9 @@ impl TraceyDaemon for TraceyService {
                     // Find matching rules
                     for ((spec, _), forward_data) in &data.forward_by_impl {
                         for rule in &forward_data.rules {
-                            if rule.id.starts_with(query) || query.is_empty() {
+                            if rule.id.base_starts_with(query) || query.is_empty() {
                                 completions.push(LspCompletionItem {
-                                    label: rule.id.clone(),
+                                    label: rule.id.to_string(),
                                     kind: "rule".to_string(),
                                     detail: Some(spec.clone()),
                                     documentation: Some(rule.raw.clone()),
@@ -1219,7 +1255,9 @@ impl TraceyDaemon for TraceyService {
                         span_to_range(&req.content, def.marker_span.offset, def.marker_span.length);
 
                     // Look up the rule to check coverage
-                    if let Some((_, rule)) = find_rule_in_data(&data, &def.id) {
+                    if let Some(def_id) = parse_rule_id(&def.id.to_string())
+                        && let Some((_, rule)) = find_rule_in_data(&data, &def_id)
+                    {
                         let impl_count = rule.impl_refs.len();
                         let verify_count = rule.verify_refs.len();
 
@@ -1268,14 +1306,14 @@ impl TraceyDaemon for TraceyService {
             .collect();
 
         // Build known rules by prefix (using all implementations for each spec).
-        let mut known_rules_by_prefix: std::collections::HashMap<&str, Vec<&str>> =
+        let mut known_rules_by_prefix: std::collections::HashMap<&str, Vec<RuleId>> =
             std::collections::HashMap::new();
         for spec_cfg in &data.config.specs {
             let mut rule_ids = Vec::new();
             for ((spec_name, _), forward_data) in &data.forward_by_impl {
                 if spec_name == &spec_cfg.name {
                     for rule in &forward_data.rules {
-                        rule_ids.push(rule.id.as_str());
+                        rule_ids.push(rule.id.clone());
                     }
                 }
             }
@@ -1470,12 +1508,12 @@ impl TraceyDaemon for TraceyService {
                         let line = rule.source_line.unwrap_or(1).saturating_sub(1) as u32;
                         let col = rule.source_column.unwrap_or(1).saturating_sub(1) as u32;
                         symbols.push(LspSymbol {
-                            name: rule.id.clone(),
+                            name: rule.id.to_string(),
                             kind: "requirement".to_string(),
                             start_line: line,
                             start_char: col,
                             end_line: line,
-                            end_char: col + rule.id.len() as u32,
+                            end_char: col + rule.id.to_string().len() as u32,
                         });
                     }
                 }
@@ -1487,7 +1525,7 @@ impl TraceyDaemon for TraceyService {
                 let (start_line, start_char, end_line, end_char) =
                     span_to_range(&req.content, r.span.offset, r.span.length);
                 symbols.push(LspSymbol {
-                    name: r.req_id.clone(),
+                    name: r.req_id.to_string(),
                     kind: format!("{:?}", r.verb).to_lowercase(),
                     start_line,
                     start_char,
@@ -1510,7 +1548,7 @@ impl TraceyDaemon for TraceyService {
         let mut symbols = Vec::new();
         for ((_, _), forward_data) in &data.forward_by_impl {
             for rule in &forward_data.rules {
-                if rule.id.to_lowercase().contains(&query_lower) {
+                if rule.id.base.to_lowercase().contains(&query_lower) {
                     let (line, char) = if let Some(l) = rule.source_line {
                         (
                             l.saturating_sub(1) as u32,
@@ -1521,12 +1559,12 @@ impl TraceyDaemon for TraceyService {
                     };
 
                     symbols.push(LspSymbol {
-                        name: rule.id.clone(),
+                        name: rule.id.to_string(),
                         kind: "requirement".to_string(),
                         start_line: line,
                         start_char: char,
                         end_line: line,
-                        end_char: char + rule.id.len() as u32,
+                        end_char: char + rule.id.to_string().len() as u32,
                     });
                 }
             }
@@ -1547,7 +1585,7 @@ impl TraceyDaemon for TraceyService {
         let known_rules: std::collections::HashSet<_> = data
             .forward_by_impl
             .values()
-            .flat_map(|f| f.rules.iter().map(|r| r.id.as_str()))
+            .flat_map(|f| f.rules.iter().map(|r| r.id.clone()))
             .collect();
 
         let mut tokens = Vec::new();
@@ -1581,7 +1619,7 @@ impl TraceyDaemon for TraceyService {
 
                 // Token for the entire reference
                 // Token type 0 = namespace (prefix), 1 = keyword (verb), 2 = variable (req_id)
-                let is_valid = known_rules.contains(reference.req_id.as_str());
+                let is_valid = known_rules.contains(&reference.req_id);
                 let modifier = if reference.verb == tracey_core::RefVerb::Define {
                     1 // DEFINITION modifier
                 } else if is_valid {
@@ -1624,7 +1662,9 @@ impl TraceyDaemon for TraceyService {
                         span_to_range(&req.content, def.marker_span.offset, def.marker_span.length);
 
                     // Look up coverage for this rule
-                    if let Some((_, rule)) = find_rule_in_data(&data, &def.id) {
+                    if let Some(def_id) = parse_rule_id(&def.id.to_string())
+                        && let Some((_, rule)) = find_rule_in_data(&data, &def_id)
+                    {
                         let impl_count = rule.impl_refs.len();
                         let verify_count = rule.verify_refs.len();
 
@@ -1642,7 +1682,7 @@ impl TraceyDaemon for TraceyService {
                             end_char,
                             title,
                             command: "tracey.showReferences".to_string(),
-                            arguments: vec![def.id.clone()],
+                            arguments: vec![def.id.to_string()],
                         });
                     }
                 }
@@ -1679,7 +1719,7 @@ impl TraceyDaemon for TraceyService {
                         end_char,
                         title,
                         command: "tracey.showReferences".to_string(),
-                        arguments: vec![reference.req_id.clone()],
+                        arguments: vec![reference.req_id.to_string()],
                     });
                 }
             }
@@ -1713,7 +1753,9 @@ impl TraceyDaemon for TraceyService {
                     }
 
                     // Look up the rule to get impl/verify counts
-                    if let Some((_, rule)) = find_rule_in_data(&data, &def.id) {
+                    if let Some(def_id) = parse_rule_id(&def.id.to_string())
+                        && let Some((_, rule)) = find_rule_in_data(&data, &def_id)
+                    {
                         let impl_count = rule.impl_refs.len();
                         let verify_count = rule.verify_refs.len();
 
@@ -1786,7 +1828,7 @@ impl TraceyDaemon for TraceyService {
             start_char,
             end_line,
             end_char,
-            placeholder: rule_at_pos.req_id,
+            placeholder: rule_at_pos.req_id.to_string(),
         })
     }
 
@@ -1806,7 +1848,10 @@ impl TraceyDaemon for TraceyService {
         };
 
         // Validate the new name follows naming convention
-        if !is_valid_rule_id(&req.new_name) {
+        let Some(parsed_new_name) = parse_rule_id(&req.new_name) else {
+            return vec![];
+        };
+        if !is_valid_rule_id(&parsed_new_name) {
             return vec![];
         }
 
@@ -1823,7 +1868,8 @@ impl TraceyDaemon for TraceyService {
                 start_line: line.saturating_sub(1) as u32,
                 start_char: rule.source_column.unwrap_or(0) as u32,
                 end_line: line.saturating_sub(1) as u32,
-                end_char: (rule.source_column.unwrap_or(0) + rule_at_pos.req_id.len()) as u32,
+                end_char: (rule.source_column.unwrap_or(0) + rule_at_pos.req_id.to_string().len())
+                    as u32,
                 new_text: req.new_name.clone(),
             });
         }
@@ -1867,7 +1913,7 @@ impl TraceyDaemon for TraceyService {
                     title: format!("Create requirement '{}'", rule_at_pos.req_id),
                     kind: "quickfix".to_string(),
                     command: "tracey.createRequirement".to_string(),
-                    arguments: vec![rule_at_pos.req_id.clone()],
+                    arguments: vec![rule_at_pos.req_id.to_string()],
                     is_preferred: true,
                 });
             } else {
@@ -1876,7 +1922,7 @@ impl TraceyDaemon for TraceyService {
                     title: "Open in dashboard".to_string(),
                     kind: "source".to_string(),
                     command: "tracey.openDashboard".to_string(),
-                    arguments: vec![rule_at_pos.req_id],
+                    arguments: vec![rule_at_pos.req_id.to_string()],
                     is_preferred: false,
                 });
             }
@@ -1906,7 +1952,9 @@ impl TraceyDaemon for TraceyService {
                 return doc
                     .reqs
                     .iter()
-                    .filter(|r| r.id == rule_at_pos.req_id)
+                    .filter(|r| {
+                        parse_rule_id(&r.id.to_string()).is_some_and(|id| id == rule_at_pos.req_id)
+                    })
                     .map(|r| {
                         let (start_line, start_char, _, _) =
                             span_to_range(&req.content, r.span.offset, r.span.length);
@@ -2036,7 +2084,7 @@ impl TraceyDaemon for TraceyService {
 /// Information about a rule reference or definition at a cursor position
 struct RuleAtPosition {
     /// The rule ID
-    req_id: String,
+    req_id: RuleId,
     /// Byte offset in the content
     span_offset: usize,
     /// Length in bytes
@@ -2065,7 +2113,7 @@ async fn find_rule_at_position(
             let end = r.span.offset + r.span.length;
             if target_offset >= start && target_offset < end {
                 Some(RuleAtPosition {
-                    req_id: r.id.clone(),
+                    req_id: parse_rule_id(&r.id.to_string())?,
                     span_offset: r.span.offset,
                     span_length: r.span.length,
                 })
@@ -2169,24 +2217,24 @@ fn span_to_range(content: &str, offset: usize, length: usize) -> (u32, u32, u32,
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum KnownRuleMatch<'a> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum KnownRuleMatch {
     Exact,
-    Stale(&'a str),
+    Stale(RuleId),
     Missing,
 }
 
-fn classify_reference_against_known_rules<'a>(
-    reference_id: &str,
-    known_rule_ids: &'a [&'a str],
-) -> KnownRuleMatch<'a> {
-    let mut stale_target: Option<&'a str> = None;
+fn classify_reference_against_known_rules(
+    reference_id: &RuleId,
+    known_rule_ids: &[RuleId],
+) -> KnownRuleMatch {
+    let mut stale_target: Option<RuleId> = None;
 
     for rule_id in known_rule_ids {
         match classify_reference_for_rule(rule_id, reference_id) {
             RuleIdMatch::Exact => return KnownRuleMatch::Exact,
             RuleIdMatch::Stale => {
-                stale_target = Some(rule_id);
+                stale_target = Some(rule_id.clone());
             }
             RuleIdMatch::NoMatch => {}
         }
@@ -2202,16 +2250,22 @@ fn classify_reference_against_known_rules<'a>(
 /// Find a rule by ID in the engine data
 fn find_rule_in_data<'a>(
     data: &'a crate::data::DashboardData,
-    rule_id: &str,
+    rule_id: &RuleId,
 ) -> Option<(&'a String, &'a ApiRule)> {
+    let mut best_match: Option<(&'a String, &'a ApiRule)> = None;
     for ((spec, _), forward_data) in &data.forward_by_impl {
         for rule in &forward_data.rules {
-            if rule.id == rule_id {
-                return Some((spec, rule));
+            if rule.id.base == rule_id.base {
+                match best_match {
+                    Some((_, current)) if current.id.version >= rule.id.version => {}
+                    _ => {
+                        best_match = Some((spec, rule));
+                    }
+                }
             }
         }
     }
-    None
+    best_match
 }
 
 /// Save config to file
@@ -2224,11 +2278,8 @@ fn save_config(path: &Path, config: &crate::config::Config) -> eyre::Result<()> 
 }
 
 /// Check if a rule ID follows the naming convention
-fn is_valid_rule_id(id: &str) -> bool {
-    let Some(parsed) = tracey_core::parse_rule_id(id) else {
-        return false;
-    };
-    let base_id = parsed.base;
+fn is_valid_rule_id(id: &RuleId) -> bool {
+    let base_id = &id.base;
 
     // Split by dots and check each segment
     for segment in base_id.split('.') {
@@ -2256,17 +2307,17 @@ fn is_valid_rule_id(id: &str) -> bool {
 }
 
 /// Detect circular dependencies in the rule dependency graph
-fn detect_circular_dependencies(forward_data: &ApiSpecForward) -> Vec<Vec<String>> {
+fn detect_circular_dependencies(forward_data: &ApiSpecForward) -> Vec<Vec<RuleId>> {
     use std::collections::{HashMap, HashSet};
 
     // Build adjacency list from depends_refs
     // Note: This is a simplified version - in a full implementation,
     // we'd need to track which rule ID each depends ref points to
-    let mut graph: HashMap<&str, Vec<&str>> = HashMap::new();
+    let mut graph: HashMap<RuleId, Vec<RuleId>> = HashMap::new();
 
     for rule in &forward_data.rules {
         // Initialize empty adjacency list for each rule
-        graph.entry(rule.id.as_str()).or_default();
+        graph.entry(rule.id.clone()).or_default();
 
         // For now, we can't easily extract dependency targets from depends_refs
         // since they only contain file:line references, not rule IDs.
@@ -2280,27 +2331,27 @@ fn detect_circular_dependencies(forward_data: &ApiSpecForward) -> Vec<Vec<String
     let mut rec_stack = HashSet::new();
     let mut path = Vec::new();
 
-    fn dfs<'a>(
-        node: &'a str,
-        graph: &HashMap<&'a str, Vec<&'a str>>,
-        visited: &mut HashSet<&'a str>,
-        rec_stack: &mut HashSet<&'a str>,
-        path: &mut Vec<String>,
-        cycles: &mut Vec<Vec<String>>,
+    fn dfs(
+        node: &RuleId,
+        graph: &HashMap<RuleId, Vec<RuleId>>,
+        visited: &mut HashSet<RuleId>,
+        rec_stack: &mut HashSet<RuleId>,
+        path: &mut Vec<RuleId>,
+        cycles: &mut Vec<Vec<RuleId>>,
     ) {
-        visited.insert(node);
-        rec_stack.insert(node);
-        path.push(node.to_string());
+        visited.insert(node.clone());
+        rec_stack.insert(node.clone());
+        path.push(node.clone());
 
         if let Some(neighbors) = graph.get(node) {
-            for &neighbor in neighbors {
+            for neighbor in neighbors {
                 if !visited.contains(neighbor) {
                     dfs(neighbor, graph, visited, rec_stack, path, cycles);
                 } else if rec_stack.contains(neighbor) {
                     // Found a cycle
                     let cycle_start = path.iter().position(|n| n == neighbor).unwrap();
-                    let mut cycle: Vec<String> = path[cycle_start..].to_vec();
-                    cycle.push(neighbor.to_string());
+                    let mut cycle: Vec<RuleId> = path[cycle_start..].to_vec();
+                    cycle.push(neighbor.clone());
                     cycles.push(cycle);
                 }
             }
@@ -2310,10 +2361,10 @@ fn detect_circular_dependencies(forward_data: &ApiSpecForward) -> Vec<Vec<String
         rec_stack.remove(node);
     }
 
-    for &node in graph.keys() {
-        if !visited.contains(node) {
+    for node in graph.keys().cloned().collect::<Vec<_>>() {
+        if !visited.contains(&node) {
             dfs(
-                node,
+                &node,
                 &graph,
                 &mut visited,
                 &mut rec_stack,

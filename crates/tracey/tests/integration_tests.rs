@@ -6,6 +6,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use tracey_core::parse_rule_id;
 use tracey_proto::*;
 
 // Re-export test modules
@@ -34,6 +35,10 @@ async fn create_test_engine() -> Arc<tracey::daemon::Engine> {
 async fn create_test_service() -> tracey::daemon::TraceyService {
     let engine = create_test_engine().await;
     tracey::daemon::TraceyService::new(engine)
+}
+
+fn rid(id: &str) -> tracey_core::RuleId {
+    parse_rule_id(id).expect("valid rule id")
 }
 
 // ============================================================================
@@ -130,7 +135,7 @@ async fn test_uncovered_with_prefix_filter() {
     for section in &response.by_section {
         for rule in &section.rules {
             assert!(
-                rule.id.starts_with("auth."),
+                rule.id.base.starts_with("auth."),
                 "Rule {} doesn't match prefix filter",
                 rule.id
             );
@@ -166,12 +171,12 @@ async fn test_rule_returns_details() {
     use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
-    let rule = service.rule("auth.login".to_string()).await;
+    let rule = service.rule(rid("auth.login")).await;
 
     assert!(rule.is_some(), "Expected auth.login rule to exist");
 
     let info = rule.unwrap();
-    assert_eq!(info.id, "auth.login");
+    assert_eq!(info.id, rid("auth.login"));
     assert!(!info.raw.is_empty(), "Expected rule raw markdown");
     assert!(
         !info.coverage.is_empty(),
@@ -184,7 +189,7 @@ async fn test_rule_not_found() {
     use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
-    let rule = service.rule("nonexistent.rule".to_string()).await;
+    let rule = service.rule(rid("nonexistent.rule")).await;
 
     assert!(rule.is_none(), "Expected nonexistent rule to return None");
 }

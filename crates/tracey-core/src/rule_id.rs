@@ -1,10 +1,64 @@
-/// Parsed rule ID with normalized version.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ParsedRuleId<'a> {
-    /// Base rule ID without the version suffix.
-    pub base: &'a str,
+use facet::Facet;
+use std::fmt::{Display, Formatter};
+
+/// Structured rule ID representation.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Facet)]
+pub struct RuleId {
+    /// Base rule ID without version suffix.
+    pub base: String,
     /// Normalized version number (unversioned IDs are version 1).
     pub version: u32,
+}
+
+impl RuleId {
+    pub fn new(base: impl Into<String>, version: u32) -> Option<Self> {
+        if version == 0 {
+            return None;
+        }
+        let base = base.into();
+        if base.is_empty() || base.contains('+') {
+            return None;
+        }
+        Some(Self { base, version })
+    }
+
+    /// Canonical string form (`base` for v1, `base+N` otherwise).
+    pub fn canonical(&self) -> String {
+        self.to_string()
+    }
+
+    /// Returns true if this rule's base starts with the given prefix.
+    pub fn base_starts_with(&self, prefix: &str) -> bool {
+        self.base.starts_with(prefix)
+    }
+}
+
+impl Display for RuleId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        if self.version == 1 {
+            f.write_str(&self.base)
+        } else {
+            write!(f, "{}+{}", self.base, self.version)
+        }
+    }
+}
+
+impl PartialEq<&str> for RuleId {
+    fn eq(&self, other: &&str) -> bool {
+        self.to_string() == *other
+    }
+}
+
+impl PartialEq<RuleId> for &str {
+    fn eq(&self, other: &RuleId) -> bool {
+        *self == other.to_string()
+    }
+}
+
+impl AsRef<str> for RuleId {
+    fn as_ref(&self) -> &str {
+        &self.base
+    }
 }
 
 /// Relationship between a reference ID and a rule definition ID.
@@ -14,16 +68,12 @@ pub enum RuleIdMatch {
     Exact,
     /// Same base ID but reference points to an older version.
     Stale,
-    /// Different base ID, newer version reference, or unparsable ID.
+    /// Different base ID or newer-version reference.
     NoMatch,
 }
 
 /// Parse a rule ID with optional `+N` suffix.
-///
-/// Examples:
-/// - `auth.login` => base `auth.login`, version `1`
-/// - `auth.login+2` => base `auth.login`, version `2`
-pub fn parse_rule_id(id: &str) -> Option<ParsedRuleId<'_>> {
+pub fn parse_rule_id(id: &str) -> Option<RuleId> {
     if id.is_empty() {
         return None;
     }
@@ -33,43 +83,37 @@ pub fn parse_rule_id(id: &str) -> Option<ParsedRuleId<'_>> {
             return None;
         }
         let version = version_str.parse::<u32>().ok()?;
-        if version == 0 {
-            return None;
-        }
-        Some(ParsedRuleId { base, version })
+        RuleId::new(base, version)
     } else if id.contains('+') {
         None
     } else {
-        Some(ParsedRuleId {
-            base: id,
-            version: 1,
-        })
+        RuleId::new(id, 1)
     }
 }
 
-/// Compare a reference ID against a rule definition ID.
-pub fn classify_reference_for_rule(rule_id: &str, reference_id: &str) -> RuleIdMatch {
-    let Some(rule) = parse_rule_id(rule_id) else {
-        return if rule_id == reference_id {
-            RuleIdMatch::Exact
-        } else {
-            RuleIdMatch::NoMatch
-        };
-    };
-    let Some(reference) = parse_rule_id(reference_id) else {
-        return RuleIdMatch::NoMatch;
-    };
-
-    if rule.base != reference.base {
+/// Compare two structured rule IDs.
+pub fn classify_reference_for_rule(rule_id: &RuleId, reference_id: &RuleId) -> RuleIdMatch {
+    if rule_id.base != reference_id.base {
         return RuleIdMatch::NoMatch;
     }
-    if rule.version == reference.version {
+    if rule_id.version == reference_id.version {
         RuleIdMatch::Exact
-    } else if reference.version < rule.version {
+    } else if reference_id.version < rule_id.version {
         RuleIdMatch::Stale
     } else {
         RuleIdMatch::NoMatch
     }
+}
+
+/// Parse and compare string rule IDs.
+pub fn classify_reference_for_rule_str(rule_id: &str, reference_id: &str) -> RuleIdMatch {
+    let Some(rule) = parse_rule_id(rule_id) else {
+        return RuleIdMatch::NoMatch;
+    };
+    let Some(reference) = parse_rule_id(reference_id) else {
+        return RuleIdMatch::NoMatch;
+    };
+    classify_reference_for_rule(&rule, &reference)
 }
 
 #[cfg(test)]
@@ -100,36 +144,44 @@ mod tests {
 
     #[test]
     fn classify_reference_detects_stale() {
+        let rule = parse_rule_id("auth.login+2").expect("must parse");
+        let old = parse_rule_id("auth.login").expect("must parse");
+        let old2 = parse_rule_id("auth.login+1").expect("must parse");
+        assert_eq!(classify_reference_for_rule(&rule, &old), RuleIdMatch::Stale);
         assert_eq!(
-            classify_reference_for_rule("auth.login+2", "auth.login"),
-            RuleIdMatch::Stale
-        );
-        assert_eq!(
-            classify_reference_for_rule("auth.login+2", "auth.login+1"),
+            classify_reference_for_rule(&rule, &old2),
             RuleIdMatch::Stale
         );
     }
 
     #[test]
     fn classify_reference_detects_exact() {
+        let rule = parse_rule_id("auth.login+2").expect("must parse");
+        let same = parse_rule_id("auth.login+2").expect("must parse");
         assert_eq!(
-            classify_reference_for_rule("auth.login+2", "auth.login+2"),
+            classify_reference_for_rule(&rule, &same),
             RuleIdMatch::Exact
         );
+
+        let rule = parse_rule_id("auth.login").expect("must parse");
+        let same = parse_rule_id("auth.login+1").expect("must parse");
         assert_eq!(
-            classify_reference_for_rule("auth.login", "auth.login+1"),
+            classify_reference_for_rule(&rule, &same),
             RuleIdMatch::Exact
         );
     }
 
     #[test]
     fn classify_reference_detects_no_match() {
+        let rule = parse_rule_id("auth.login+2").expect("must parse");
+        let newer = parse_rule_id("auth.login+3").expect("must parse");
+        let other = parse_rule_id("auth.logout").expect("must parse");
         assert_eq!(
-            classify_reference_for_rule("auth.login+2", "auth.login+3"),
+            classify_reference_for_rule(&rule, &newer),
             RuleIdMatch::NoMatch
         );
         assert_eq!(
-            classify_reference_for_rule("auth.login+2", "auth.logout"),
+            classify_reference_for_rule(&rule, &other),
             RuleIdMatch::NoMatch
         );
     }

@@ -14,7 +14,7 @@
 //! - Code added without updating the spec
 //! - Potential dead code or technical debt
 
-use crate::parse_rule_id;
+use crate::{RuleId, parse_rule_id};
 use arborium::tree_sitter::{Node, Parser};
 use std::path::{Path, PathBuf};
 
@@ -36,7 +36,7 @@ pub struct CodeUnit {
     /// Byte offset where the code unit ends
     pub end_byte: usize,
     /// Requirement IDs referenced in comments associated with this code unit
-    pub req_refs: Vec<String>,
+    pub req_refs: Vec<RuleId>,
 }
 
 /// The kind of code unit
@@ -474,7 +474,7 @@ fn get_node_name(source: &str, node: Node) -> Option<String> {
 }
 
 /// Returns (requirement refs, earliest comment line if any)
-fn extract_req_refs_from_comments(source: &str, node: Node) -> (Vec<String>, Option<usize>) {
+fn extract_req_refs_from_comments(source: &str, node: Node) -> (Vec<RuleId>, Option<usize>) {
     let mut refs = Vec::new();
     let mut earliest_comment_line: Option<usize> = None;
 
@@ -528,7 +528,7 @@ fn extract_req_refs_from_comments(source: &str, node: Node) -> (Vec<String>, Opt
 }
 
 /// Recursively collect comment refs from a node's children
-fn collect_inner_comment_refs(source: &str, node: Node, refs: &mut Vec<String>) {
+fn collect_inner_comment_refs(source: &str, node: Node, refs: &mut Vec<RuleId>) {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         match child.kind() {
@@ -557,7 +557,7 @@ fn collect_inner_comment_refs(source: &str, node: Node, refs: &mut Vec<String>) 
     }
 }
 
-fn collect_comment_refs(source: &str, node: Node, refs: &mut Vec<String>) {
+fn collect_comment_refs(source: &str, node: Node, refs: &mut Vec<RuleId>) {
     match node.kind() {
         "line_comment" | "block_comment" | "comment" | "multiline_comment" => {
             extract_refs_from_comment_text(source, node, refs);
@@ -573,7 +573,7 @@ fn collect_comment_refs(source: &str, node: Node, refs: &mut Vec<String>) {
     }
 }
 
-fn extract_refs_from_comment_text(source: &str, node: Node, refs: &mut Vec<String>) {
+fn extract_refs_from_comment_text(source: &str, node: Node, refs: &mut Vec<RuleId>) {
     let text = &source[node.byte_range()];
 
     // Reuse the same pattern matching from the lexer
@@ -586,7 +586,7 @@ fn extract_refs_from_comment_text(source: &str, node: Node, refs: &mut Vec<Strin
 }
 
 /// Extract requirement IDs from comment text
-fn find_req_refs(text: &str) -> Vec<String> {
+fn find_req_refs(text: &str) -> Vec<RuleId> {
     let mut refs = Vec::new();
     let mut chars = text.char_indices().peekable();
 
@@ -610,7 +610,7 @@ pub struct FullReqRef {
     /// The verb (impl, verify, depends, related, define)
     pub verb: String,
     /// The requirement ID
-    pub req_id: String,
+    pub req_id: RuleId,
     /// Line number (1-indexed)
     pub line: usize,
     /// Byte offset of the reference start
@@ -802,7 +802,7 @@ fn extract_full_refs_from_text(
 // r[impl ref.syntax.req-id]
 fn try_parse_full_ref(
     chars: &mut std::iter::Peekable<impl Iterator<Item = (usize, char)>>,
-) -> Option<(String, String, usize)> {
+) -> Option<(String, RuleId, usize)> {
     // First char must be lowercase letter
     let first_char = chars.peek().map(|(_, c)| *c)?;
     if !first_char.is_ascii_lowercase() {
@@ -873,7 +873,7 @@ fn try_parse_full_ref(
                 }
 
                 if has_dot && is_valid_req_id(&req_id) {
-                    return Some((verb, req_id, end_idx));
+                    return parse_rule_id(&req_id).map(|parsed| (verb, parsed, end_idx));
                 }
             }
             None
@@ -882,7 +882,7 @@ fn try_parse_full_ref(
             chars.next(); // consume ]
             // [req.id] format - defaults to impl
             if is_valid_req_id(&first_word) {
-                Some(("impl".to_string(), first_word, end_idx))
+                parse_rule_id(&first_word).map(|parsed| ("impl".to_string(), parsed, end_idx))
             } else {
                 None
             }
@@ -893,7 +893,7 @@ fn try_parse_full_ref(
 
 fn try_parse_req_ref(
     chars: &mut std::iter::Peekable<impl Iterator<Item = (usize, char)>>,
-) -> Option<String> {
+) -> Option<RuleId> {
     // First char must be lowercase letter
     let first_char = chars.peek().map(|(_, c)| *c)?;
     if !first_char.is_ascii_lowercase() {
@@ -955,7 +955,7 @@ fn try_parse_req_ref(
                 }
 
                 if has_dot && is_valid_req_id(&req_id) {
-                    return Some(req_id);
+                    return parse_rule_id(&req_id);
                 }
             }
             None
@@ -964,7 +964,7 @@ fn try_parse_req_ref(
             chars.next(); // consume ]
             // [req.id] format - must contain dot
             if is_valid_req_id(&first_word) {
-                Some(first_word)
+                parse_rule_id(&first_word)
             } else {
                 None
             }
@@ -983,6 +983,11 @@ fn is_valid_req_id(req_id: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parse_rule_id;
+
+    fn rid(id: &str) -> RuleId {
+        parse_rule_id(id).expect("valid rule id")
+    }
 
     #[test]
     fn test_extract_refs_doc_comment() {
@@ -1042,7 +1047,7 @@ fn do_thing() {}
 "#;
         let units = extract_rust(Path::new("test.rs"), source);
         assert_eq!(units.len(), 1);
-        assert_eq!(units.units[0].req_refs, vec!["foo.bar"]);
+        assert_eq!(units.units[0].req_refs, vec![rid("foo.bar")]);
     }
 
     #[test]
@@ -1054,7 +1059,7 @@ fn test_parity() {}
 "#;
         let units = extract_rust(Path::new("test.rs"), source);
         assert_eq!(units.len(), 1);
-        assert_eq!(units.units[0].req_refs, vec!["channel.id.parity"]);
+        assert_eq!(units.units[0].req_refs, vec![rid("channel.id.parity")]);
     }
 
     #[test]
@@ -1074,15 +1079,15 @@ fn uncovered() {}
 
     #[test]
     fn test_find_req_refs() {
-        assert_eq!(find_req_refs("// r[impl foo.bar]"), vec!["foo.bar"]);
-        assert_eq!(find_req_refs("// [foo.bar]"), vec!["foo.bar"]);
+        assert_eq!(find_req_refs("// r[impl foo.bar]"), vec![rid("foo.bar")]);
+        assert_eq!(find_req_refs("// [foo.bar]"), vec![rid("foo.bar")]);
         assert_eq!(
             find_req_refs("// r[impl a.b] and r[verify c.d]"),
-            vec!["a.b", "c.d"]
+            vec![rid("a.b"), rid("c.d")]
         );
         assert_eq!(
             find_req_refs("// r[impl auth.login+2] and r[verify auth.logout+3]"),
-            vec!["auth.login+2", "auth.logout+3"]
+            vec![rid("auth.login+2"), rid("auth.logout+3")]
         );
         assert!(find_req_refs("// no refs here").is_empty());
         assert!(find_req_refs("// [invalid]").is_empty()); // no dot
@@ -1099,8 +1104,8 @@ fn multi_ref() {}
         let units = extract_rust(Path::new("test.rs"), source);
         assert_eq!(units.len(), 1);
         // Should capture both refs
-        assert!(units.units[0].req_refs.contains(&"req.one".to_string()));
-        assert!(units.units[0].req_refs.contains(&"req.two".to_string()));
+        assert!(units.units[0].req_refs.contains(&rid("req.one")));
+        assert!(units.units[0].req_refs.contains(&rid("req.two")));
     }
 
     #[test]
@@ -1112,7 +1117,7 @@ fn documented() {}
 "#;
         let units = extract_rust(Path::new("test.rs"), source);
         assert_eq!(units.len(), 1);
-        assert_eq!(units.units[0].req_refs, vec!["doc.ref"]);
+        assert_eq!(units.units[0].req_refs, vec![rid("doc.ref")]);
     }
 
     #[test]
@@ -1127,7 +1132,7 @@ impl Foo {
         // Should find both the impl and the method
         let impl_unit = units.units.iter().find(|u| u.kind == CodeUnitKind::Impl);
         assert!(impl_unit.is_some());
-        assert_eq!(impl_unit.unwrap().req_refs, vec!["my.impl"]);
+        assert_eq!(impl_unit.unwrap().req_refs, vec![rid("my.impl")]);
     }
 
     #[test]
@@ -1193,7 +1198,7 @@ async fn test_third() {
             "test_first should start at line 1 (comment)"
         );
         assert_eq!(first.end_line, 6, "test_first should end at line 6");
-        assert_eq!(first.req_refs, vec!["first.test"]);
+        assert_eq!(first.req_refs, vec![rid("first.test")]);
 
         // Second function: starts at line 8 (comment), ends at line 13
         let second = &units.units[1];
@@ -1203,7 +1208,7 @@ async fn test_third() {
             "test_second should start at line 8 (comment)"
         );
         assert_eq!(second.end_line, 13, "test_second should end at line 13");
-        assert_eq!(second.req_refs, vec!["second.test"]);
+        assert_eq!(second.req_refs, vec![rid("second.test")]);
 
         // Third function: starts at line 15 (attribute, no comment), ends at line 19
         let third = &units.units[2];
@@ -1283,7 +1288,7 @@ protocol MyProtocol {
         let func_unit = func_unit.unwrap();
         assert_eq!(func_unit.kind, CodeUnitKind::Function);
         assert_eq!(func_unit.start_line, 1, "Should include comment");
-        assert_eq!(func_unit.req_refs, vec!["swift.feature"]);
+        assert_eq!(func_unit.req_refs, vec![rid("swift.feature")]);
 
         // Class
         let class_unit = units
@@ -1346,7 +1351,7 @@ type MyStruct struct {
         let func_unit = func_unit.unwrap();
         assert_eq!(func_unit.kind, CodeUnitKind::Function);
         assert_eq!(func_unit.start_line, 3, "Should include comment");
-        assert_eq!(func_unit.req_refs, vec!["go.feature"]);
+        assert_eq!(func_unit.req_refs, vec![rid("go.feature")]);
 
         // Method
         let method_unit = units
@@ -1404,7 +1409,7 @@ enum MyEnum {
         let class_unit = class_unit.unwrap();
         assert_eq!(class_unit.kind, CodeUnitKind::Struct);
         assert_eq!(class_unit.start_line, 1, "Should include comment");
-        assert_eq!(class_unit.req_refs, vec!["java.feature"]);
+        assert_eq!(class_unit.req_refs, vec![rid("java.feature")]);
 
         // Method
         let method_unit = units
@@ -1453,7 +1458,7 @@ class MyClass:
         let func_unit = func_unit.unwrap();
         assert_eq!(func_unit.kind, CodeUnitKind::Function);
         assert_eq!(func_unit.start_line, 1, "Should include comment");
-        assert_eq!(func_unit.req_refs, vec!["python.feature"]);
+        assert_eq!(func_unit.req_refs, vec![rid("python.feature")]);
 
         // Class
         let class_unit = units
@@ -1507,7 +1512,7 @@ enum MyEnum {
         let func_unit = func_unit.unwrap();
         assert_eq!(func_unit.kind, CodeUnitKind::Function);
         assert_eq!(func_unit.start_line, 1, "Should include comment");
-        assert_eq!(func_unit.req_refs, vec!["ts.feature"]);
+        assert_eq!(func_unit.req_refs, vec![rid("ts.feature")]);
 
         // Class
         let class_unit = units

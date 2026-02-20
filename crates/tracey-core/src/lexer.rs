@@ -3,6 +3,7 @@
 //! This module implements parsing of rule references from Rust source code.
 //! It scans comments for patterns like `r[verb rule.id]`.
 
+use crate::RuleId;
 #[cfg(not(feature = "reverse"))]
 use crate::parse_rule_id;
 use crate::sources::{ExtractionResult, Sources};
@@ -90,7 +91,7 @@ pub struct ReqReference {
     /// The relationship type (impl, verify, depends, etc.)
     pub verb: RefVerb,
     /// The requirement ID (e.g., "channel.id.allocation")
-    pub req_id: String,
+    pub req_id: RuleId,
     /// File where the reference was found
     pub file: PathBuf,
     /// Line number (1-indexed)
@@ -470,14 +471,16 @@ fn extract_references_from_text(
                         // Validate rule ID
                         if found_dot && is_valid_req_id(&req_id) {
                             let span = SourceSpan::new(bracket_start, final_idx - prefix_start + 1);
-                            reqs.references.push(ReqReference {
-                                prefix: prefix.clone(),
-                                verb,
-                                req_id,
-                                file: path.to_path_buf(),
-                                line: base_line,
-                                span,
-                            });
+                            if let Some(rule_id) = parse_rule_id(&req_id) {
+                                reqs.references.push(ReqReference {
+                                    prefix: prefix.clone(),
+                                    verb,
+                                    req_id: rule_id,
+                                    file: path.to_path_buf(),
+                                    line: base_line,
+                                    span,
+                                });
+                            }
                         }
                     } else {
                         // Not a known verb - just ignore it. We only match rule
@@ -492,14 +495,16 @@ fn extract_references_from_text(
                     // Validate: must contain dot, not end with dot
                     if is_valid_req_id(&first_word) {
                         let span = SourceSpan::new(bracket_start, end_idx - prefix_start + 1);
-                        reqs.references.push(ReqReference {
-                            prefix: prefix.clone(),
-                            verb: RefVerb::Impl, // default to impl
-                            req_id: first_word,
-                            file: path.to_path_buf(),
-                            line: base_line,
-                            span,
-                        });
+                        if let Some(rule_id) = parse_rule_id(&first_word) {
+                            reqs.references.push(ReqReference {
+                                prefix: prefix.clone(),
+                                verb: RefVerb::Impl, // default to impl
+                                req_id: rule_id,
+                                file: path.to_path_buf(),
+                                line: base_line,
+                                span,
+                            });
+                        }
                     }
                 }
             }

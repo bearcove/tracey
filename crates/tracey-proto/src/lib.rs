@@ -7,6 +7,7 @@
 use facet::Facet;
 use roam::Tx;
 use roam::prelude::*;
+use tracey_core::RuleId;
 
 // Re-export API types for convenience
 pub use tracey_api::*;
@@ -53,7 +54,7 @@ pub struct SectionRules {
 /// Reference to a rule
 #[derive(Debug, Clone, Facet)]
 pub struct RuleRef {
-    pub id: String,
+    pub id: RuleId,
     #[facet(default)]
     pub text: Option<String>,
 }
@@ -152,7 +153,7 @@ pub struct ImplStatus {
 #[derive(Debug, Clone, Facet)]
 #[facet(rename_all = "camelCase")]
 pub struct RuleInfo {
-    pub id: String,
+    pub id: RuleId,
     /// Raw markdown source (without r[...] marker, but with `>` prefixes for blockquote rules)
     pub raw: String,
     pub html: String,
@@ -290,14 +291,14 @@ pub struct DeltaSummary {
     /// Rules that became covered
     pub newly_covered: Vec<CoverageChange>,
     /// Rules that became uncovered
-    pub newly_uncovered: Vec<String>,
+    pub newly_uncovered: Vec<RuleId>,
 }
 
 /// A change in coverage status
 #[derive(Debug, Clone, Facet)]
 #[facet(rename_all = "camelCase")]
 pub struct CoverageChange {
-    pub rule_id: String,
+    pub rule_id: RuleId,
     pub file: String,
     pub line: usize,
 }
@@ -337,7 +338,7 @@ pub struct HoverRef {
 #[facet(rename_all = "camelCase")]
 pub struct HoverInfo {
     /// Rule ID
-    pub rule_id: String,
+    pub rule_id: RuleId,
     /// Raw markdown source (without r[...] marker)
     pub raw: String,
     /// Spec name this rule belongs to
@@ -596,7 +597,7 @@ pub trait TraceyDaemon {
     async fn unmapped(&self, req: UnmappedRequest) -> UnmappedResponse;
 
     /// Get details for a specific rule by ID
-    async fn rule(&self, rule_id: String) -> Option<RuleInfo>;
+    async fn rule(&self, rule_id: RuleId) -> Option<RuleInfo>;
 
     // === Configuration ===
 

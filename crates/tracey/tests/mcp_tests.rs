@@ -6,6 +6,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use tracey_core::parse_rule_id;
 use tracey_proto::*;
 
 /// Get the path to the test fixtures directory.
@@ -31,6 +32,10 @@ async fn create_test_engine() -> Arc<tracey::daemon::Engine> {
 async fn create_test_service() -> tracey::daemon::TraceyService {
     let engine = create_test_engine().await;
     tracey::daemon::TraceyService::new(engine)
+}
+
+fn rid(id: &str) -> tracey_core::RuleId {
+    parse_rule_id(id).expect("valid rule id")
 }
 
 // ============================================================================
@@ -101,7 +106,7 @@ async fn test_mcp_uncovered_tool_with_prefix() {
     for section in &response.by_section {
         for rule in &section.rules {
             assert!(
-                rule.id.starts_with("data."),
+                rule.id.base.starts_with("data."),
                 "Rule {} doesn't match prefix 'data.'",
                 rule.id
             );
@@ -208,12 +213,12 @@ async fn test_mcp_rule_tool_found() {
     use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
-    let rule = service.rule("auth.login".to_string()).await;
+    let rule = service.rule(rid("auth.login")).await;
 
     assert!(rule.is_some(), "Expected auth.login rule to exist");
 
     let info = rule.unwrap();
-    assert_eq!(info.id, "auth.login");
+    assert_eq!(info.id, rid("auth.login"));
     assert!(!info.raw.is_empty(), "Expected rule raw markdown");
     assert!(
         info.source_file.is_some(),
@@ -226,7 +231,7 @@ async fn test_mcp_rule_tool_not_found() {
     use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
-    let rule = service.rule("nonexistent.rule.id".to_string()).await;
+    let rule = service.rule(rid("nonexistent.rule.id")).await;
 
     assert!(rule.is_none(), "Expected nonexistent rule to return None");
 }
@@ -236,7 +241,7 @@ async fn test_mcp_rule_tool_coverage_info() {
     use tracey_proto::TraceyDaemon;
 
     let service = create_test_service().await;
-    let rule = service.rule("auth.login".to_string()).await;
+    let rule = service.rule(rid("auth.login")).await;
 
     let info = rule.expect("Expected rule to exist");
 
@@ -404,7 +409,7 @@ async fn test_mcp_forward_data() {
 
     // Check that rules have IDs
     for rule in &data.rules {
-        assert!(!rule.id.is_empty(), "Rule ID should not be empty");
+        assert!(!rule.id.base.is_empty(), "Rule ID should not be empty");
     }
 }
 
