@@ -2224,6 +2224,8 @@ enum KnownRuleMatch {
     Missing,
 }
 
+// r[impl coverage.compute.stale]
+// r[impl coverage.compute.stale.update]
 fn classify_reference_against_known_rules(
     reference_id: &RuleId,
     known_rule_ids: &[RuleId],

@@ -73,6 +73,9 @@ pub enum RuleIdMatch {
 }
 
 /// Parse a rule ID with optional `+N` suffix.
+///
+/// r[impl ref.syntax.version]
+/// r[impl ref.syntax.version.implicit]
 pub fn parse_rule_id(id: &str) -> Option<RuleId> {
     if id.is_empty() {
         return None;
