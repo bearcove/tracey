@@ -124,6 +124,46 @@ fn login_impl() {}"#;
     );
 }
 
+/// Test that a reference to an older rule version is flagged as stale.
+#[tokio::test]
+async fn test_stale_reference_produces_stale_diagnostic() {
+    use tracey_proto::TraceyDaemon;
+
+    let (temp, service) = create_isolated_test_service().await;
+
+    // Update spec to use a newer version.
+    std::fs::write(
+        temp.path().join("spec.md"),
+        r#"# Versioned Spec
+
+r[auth.login+2]
+Users MUST provide valid credentials to log in.
+"#,
+    )
+    .expect("failed to write spec");
+
+    // Rebuild daemon data after changing spec content.
+    service.reload().await;
+
+    let content = r#"/// r[impl auth.login]
+fn login_impl() {}"#;
+
+    let req = LspDocumentRequest {
+        path: temp.path().join("src/vfs_test.rs").display().to_string(),
+        content: content.to_string(),
+    };
+
+    let diagnostics = service.lsp_diagnostics(req).await;
+    let stale = diagnostics.iter().find(|d| d.code == "stale");
+    assert!(stale.is_some(), "Expected stale diagnostic");
+
+    let orphaned = diagnostics.iter().find(|d| d.code == "orphaned");
+    assert!(
+        orphaned.is_none(),
+        "Stale references should not be reported as orphaned"
+    );
+}
+
 // ============================================================================
 // VFS + Diagnostic Lifecycle Tests
 // ============================================================================

@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use tracey_core::code_units::CodeUnit;
 use tracey_core::is_supported_extension;
-use tracey_core::{RefVerb, ReqDefinition, Reqs};
+use tracey_core::{RefVerb, ReqDefinition, Reqs, RuleIdMatch, classify_reference_for_rule};
 
 // Markdown rendering
 use marq::{
@@ -92,7 +92,7 @@ fn html_escape(s: &str) -> String {
 /// Coverage status for a rule
 #[derive(Debug, Clone)]
 struct RuleCoverage {
-    status: &'static str, // "covered", "partial", "uncovered"
+    status: &'static str, // "covered", "partial", "stale", "uncovered"
     impl_refs: Vec<ApiCodeRef>,
     verify_refs: Vec<ApiCodeRef>,
 }
@@ -168,7 +168,7 @@ impl InlineCodeHandler for TraceyInlineCodeHandler {
         if rule_id.is_empty()
             || !rule_id
                 .chars()
-                .all(|c| c.is_alphanumeric() || c == '.' || c == '-' || c == '_')
+                .all(|c| c.is_alphanumeric() || c == '.' || c == '-' || c == '_' || c == '+')
         {
             return None;
         }
@@ -644,6 +644,8 @@ pub async fn build_dashboard_data_with_overlay(
 
             // Build forward data for this impl
             let mut api_rules = Vec::new();
+            let mut stale_rule_ids: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
             for extracted in &extracted_rules {
                 let mut impl_refs = Vec::new();
                 let mut verify_refs = Vec::new();
@@ -651,7 +653,7 @@ pub async fn build_dashboard_data_with_overlay(
 
                 for r in &reqs.references {
                     // r[impl ref.prefix.coverage]
-                    if r.prefix == spec_config.prefix && r.req_id == extracted.def.id {
+                    if r.prefix == spec_config.prefix {
                         // r[impl ref.cross-workspace.graceful]
                         // Canonicalize the reference file path for consistent matching
                         // Uses unwrap_or_else to gracefully handle missing files
@@ -671,10 +673,19 @@ pub async fn build_dashboard_data_with_overlay(
                             file: relative_display,
                             line: r.line,
                         };
-                        match r.verb {
-                            RefVerb::Impl | RefVerb::Define => impl_refs.push(code_ref),
-                            RefVerb::Verify => verify_refs.push(code_ref),
-                            RefVerb::Depends | RefVerb::Related => depends_refs.push(code_ref),
+                        match classify_reference_for_rule(&extracted.def.id, &r.req_id) {
+                            RuleIdMatch::Exact => match r.verb {
+                                RefVerb::Impl | RefVerb::Define => impl_refs.push(code_ref),
+                                RefVerb::Verify => verify_refs.push(code_ref),
+                                RefVerb::Depends | RefVerb::Related => depends_refs.push(code_ref),
+                            },
+                            RuleIdMatch::Stale => match r.verb {
+                                RefVerb::Impl | RefVerb::Define | RefVerb::Verify => {
+                                    stale_rule_ids.insert(extracted.def.id.clone());
+                                }
+                                RefVerb::Depends | RefVerb::Related => {}
+                            },
+                            RuleIdMatch::NoMatch => {}
                         }
                     }
                 }
@@ -716,10 +727,13 @@ pub async fn build_dashboard_data_with_overlay(
             for rule in &api_rules {
                 let has_impl = !rule.impl_refs.is_empty();
                 let has_verify = !rule.verify_refs.is_empty();
+                let has_stale = stale_rule_ids.contains(&rule.id);
                 let status = if has_impl && has_verify {
                     "covered"
                 } else if has_impl || has_verify {
                     "partial"
+                } else if has_stale {
+                    "stale"
                 } else {
                     "uncovered"
                 };

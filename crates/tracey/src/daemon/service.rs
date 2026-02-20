@@ -5,6 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+use tracey_core::{RuleIdMatch, classify_reference_for_rule};
 use tracey_proto::*;
 
 use super::engine::Engine;
@@ -741,8 +742,8 @@ impl TraceyDaemon for TraceyService {
 
         // Get all rules for this spec/impl
         if let Some(forward_data) = data.forward_by_impl.get(&(spec.clone(), impl_name.clone())) {
-            // Build a map of rule IDs for quick lookup
-            let rule_ids: std::collections::HashSet<_> =
+            // Build a list of rule IDs for match classification.
+            let known_rule_ids: Vec<&str> =
                 forward_data.rules.iter().map(|r| r.id.as_str()).collect();
 
             // r[impl config.multi-spec.unique-within-spec]
@@ -863,19 +864,37 @@ impl TraceyDaemon for TraceyService {
                             // Only validate references whose prefix matches the current spec
                             // Skip references that belong to a different spec (different prefix)
                             else if current_spec_prefix == Some(reference.prefix.as_str()) {
-                                // Check if rule ID exists (for matching prefix only)
-                                if !rule_ids.contains(reference.req_id.as_str()) {
-                                    errors.push(ValidationError {
-                                        code: ValidationErrorCode::UnknownRequirement,
-                                        message: format!(
-                                            "Reference to unknown rule '{}'",
-                                            reference.req_id
-                                        ),
-                                        file: Some(file_entry.path.clone()),
-                                        line: Some(reference.line),
-                                        column: None,
-                                        related_rules: vec![],
-                                    });
+                                match classify_reference_against_known_rules(
+                                    &reference.req_id,
+                                    &known_rule_ids,
+                                ) {
+                                    KnownRuleMatch::Exact => {}
+                                    KnownRuleMatch::Stale(current_rule_id) => {
+                                        errors.push(ValidationError {
+                                            code: ValidationErrorCode::StaleRequirement,
+                                            message: format!(
+                                                "Reference '{}' is stale; current rule is '{}'",
+                                                reference.req_id, current_rule_id
+                                            ),
+                                            file: Some(file_entry.path.clone()),
+                                            line: Some(reference.line),
+                                            column: None,
+                                            related_rules: vec![current_rule_id.to_string()],
+                                        });
+                                    }
+                                    KnownRuleMatch::Missing => {
+                                        errors.push(ValidationError {
+                                            code: ValidationErrorCode::UnknownRequirement,
+                                            message: format!(
+                                                "Reference to unknown rule '{}'",
+                                                reference.req_id
+                                            ),
+                                            file: Some(file_entry.path.clone()),
+                                            line: Some(reference.line),
+                                            column: None,
+                                            related_rules: vec![],
+                                        });
+                                    }
                                 }
                             }
                             // References with different known prefixes are intentionally skipped
@@ -1240,13 +1259,6 @@ impl TraceyDaemon for TraceyService {
         // Check if this is a test file
         let is_test = data.test_files.contains(&path);
 
-        // Build set of known rule IDs
-        let known_rules: std::collections::HashSet<_> = data
-            .forward_by_impl
-            .values()
-            .flat_map(|f| f.rules.iter().map(|r| r.id.as_str()))
-            .collect();
-
         // Build set of known prefixes
         let known_prefixes: std::collections::HashSet<_> = data
             .config
@@ -1254,6 +1266,21 @@ impl TraceyDaemon for TraceyService {
             .iter()
             .map(|s| s.prefix.as_str())
             .collect();
+
+        // Build known rules by prefix (using all implementations for each spec).
+        let mut known_rules_by_prefix: std::collections::HashMap<&str, Vec<&str>> =
+            std::collections::HashMap::new();
+        for spec_cfg in &data.config.specs {
+            let mut rule_ids = Vec::new();
+            for ((spec_name, _), forward_data) in &data.forward_by_impl {
+                if spec_name == &spec_cfg.name {
+                    for rule in &forward_data.rules {
+                        rule_ids.push(rule.id.as_str());
+                    }
+                }
+            }
+            known_rules_by_prefix.insert(spec_cfg.prefix.as_str(), rule_ids);
+        }
 
         for reference in &reqs.references {
             let (start_line, start_char, end_line, end_char) =
@@ -1273,17 +1300,37 @@ impl TraceyDaemon for TraceyService {
                 continue;
             }
 
-            // Check for unknown rule ID (orphaned reference)
-            if !known_rules.contains(reference.req_id.as_str()) {
-                diagnostics.push(LspDiagnostic {
-                    severity: "warning".to_string(),
-                    code: "orphaned".to_string(),
-                    message: format!("Unknown requirement: '{}'", reference.req_id),
-                    start_line,
-                    start_char,
-                    end_line,
-                    end_char,
-                });
+            let known_for_prefix = known_rules_by_prefix
+                .get(reference.prefix.as_str())
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
+            match classify_reference_against_known_rules(&reference.req_id, known_for_prefix) {
+                KnownRuleMatch::Exact => {}
+                KnownRuleMatch::Stale(current_rule_id) => {
+                    diagnostics.push(LspDiagnostic {
+                        severity: "warning".to_string(),
+                        code: "stale".to_string(),
+                        message: format!(
+                            "Stale requirement reference: '{}' is older than '{}'",
+                            reference.req_id, current_rule_id
+                        ),
+                        start_line,
+                        start_char,
+                        end_line,
+                        end_char,
+                    });
+                }
+                KnownRuleMatch::Missing => {
+                    diagnostics.push(LspDiagnostic {
+                        severity: "warning".to_string(),
+                        code: "orphaned".to_string(),
+                        message: format!("Unknown requirement: '{}'", reference.req_id),
+                        start_line,
+                        start_char,
+                        end_line,
+                        end_char,
+                    });
+                }
             }
 
             // Check for impl in test file
@@ -2122,6 +2169,36 @@ fn span_to_range(content: &str, offset: usize, length: usize) -> (u32, u32, u32,
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum KnownRuleMatch<'a> {
+    Exact,
+    Stale(&'a str),
+    Missing,
+}
+
+fn classify_reference_against_known_rules<'a>(
+    reference_id: &str,
+    known_rule_ids: &'a [&'a str],
+) -> KnownRuleMatch<'a> {
+    let mut stale_target: Option<&'a str> = None;
+
+    for rule_id in known_rule_ids {
+        match classify_reference_for_rule(rule_id, reference_id) {
+            RuleIdMatch::Exact => return KnownRuleMatch::Exact,
+            RuleIdMatch::Stale => {
+                stale_target = Some(rule_id);
+            }
+            RuleIdMatch::NoMatch => {}
+        }
+    }
+
+    if let Some(rule_id) = stale_target {
+        KnownRuleMatch::Stale(rule_id)
+    } else {
+        KnownRuleMatch::Missing
+    }
+}
+
 /// Find a rule by ID in the engine data
 fn find_rule_in_data<'a>(
     data: &'a crate::data::DashboardData,
@@ -2148,13 +2225,13 @@ fn save_config(path: &Path, config: &crate::config::Config) -> eyre::Result<()> 
 
 /// Check if a rule ID follows the naming convention
 fn is_valid_rule_id(id: &str) -> bool {
-    // Must have at least one segment
-    if id.is_empty() {
+    let Some(parsed) = tracey_core::parse_rule_id(id) else {
         return false;
-    }
+    };
+    let base_id = parsed.base;
 
     // Split by dots and check each segment
-    for segment in id.split('.') {
+    for segment in base_id.split('.') {
         if segment.is_empty() {
             return false;
         }

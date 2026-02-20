@@ -14,6 +14,7 @@
 //! - Code added without updating the spec
 //! - Potential dead code or technical debt
 
+use crate::parse_rule_id;
 use arborium::tree_sitter::{Node, Parser};
 use std::path::{Path, PathBuf};
 
@@ -818,7 +819,7 @@ fn try_parse_full_ref(
         end_idx = idx;
         if c == ']' || c == ' ' {
             break;
-        } else if c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.' {
+        } else if c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.' || c == '+' {
             first_word.push(c);
             chars.next();
         } else {
@@ -854,7 +855,12 @@ fn try_parse_full_ref(
                     if c == ']' {
                         chars.next();
                         break;
-                    } else if c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_' {
+                    } else if c.is_ascii_lowercase()
+                        || c.is_ascii_digit()
+                        || c == '-'
+                        || c == '_'
+                        || c == '+'
+                    {
                         req_id.push(c);
                         chars.next();
                     } else if c == '.' {
@@ -866,7 +872,7 @@ fn try_parse_full_ref(
                     }
                 }
 
-                if has_dot && !req_id.ends_with('.') && !req_id.is_empty() {
+                if has_dot && is_valid_req_id(&req_id) {
                     return Some((verb, req_id, end_idx));
                 }
             }
@@ -875,7 +881,7 @@ fn try_parse_full_ref(
         Some(']') => {
             chars.next(); // consume ]
             // [req.id] format - defaults to impl
-            if first_word.contains('.') && !first_word.ends_with('.') {
+            if is_valid_req_id(&first_word) {
                 Some(("impl".to_string(), first_word, end_idx))
             } else {
                 None
@@ -902,7 +908,7 @@ fn try_parse_req_ref(
     while let Some(&(_, c)) = chars.peek() {
         if c == ']' || c == ' ' {
             break;
-        } else if c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.' {
+        } else if c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.' || c == '+' {
             first_word.push(c);
             chars.next();
         } else {
@@ -936,7 +942,7 @@ fn try_parse_req_ref(
                     if c == ']' {
                         chars.next();
                         break;
-                    } else if c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' {
+                    } else if c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '+' {
                         req_id.push(c);
                         chars.next();
                     } else if c == '.' {
@@ -948,7 +954,7 @@ fn try_parse_req_ref(
                     }
                 }
 
-                if has_dot && !req_id.ends_with('.') && !req_id.is_empty() {
+                if has_dot && is_valid_req_id(&req_id) {
                     return Some(req_id);
                 }
             }
@@ -957,7 +963,7 @@ fn try_parse_req_ref(
         Some(']') => {
             chars.next(); // consume ]
             // [req.id] format - must contain dot
-            if first_word.contains('.') && !first_word.ends_with('.') {
+            if is_valid_req_id(&first_word) {
                 Some(first_word)
             } else {
                 None
@@ -965,6 +971,13 @@ fn try_parse_req_ref(
         }
         _ => None,
     }
+}
+
+fn is_valid_req_id(req_id: &str) -> bool {
+    let Some(parsed) = parse_rule_id(req_id) else {
+        return false;
+    };
+    parsed.base.contains('.') && !parsed.base.ends_with('.')
 }
 
 #[cfg(test)]
@@ -1067,8 +1080,13 @@ fn uncovered() {}
             find_req_refs("// r[impl a.b] and r[verify c.d]"),
             vec!["a.b", "c.d"]
         );
+        assert_eq!(
+            find_req_refs("// r[impl auth.login+2] and r[verify auth.logout+3]"),
+            vec!["auth.login+2", "auth.logout+3"]
+        );
         assert!(find_req_refs("// no refs here").is_empty());
         assert!(find_req_refs("// [invalid]").is_empty()); // no dot
+        assert!(find_req_refs("// r[impl auth.login+]").is_empty());
     }
 
     #[test]

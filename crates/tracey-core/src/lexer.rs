@@ -3,6 +3,8 @@
 //! This module implements parsing of rule references from Rust source code.
 //! It scans comments for patterns like `r[verb rule.id]`.
 
+#[cfg(not(feature = "reverse"))]
+use crate::parse_rule_id;
 use crate::sources::{ExtractionResult, Sources};
 use eyre::Result;
 use facet::Facet;
@@ -401,7 +403,12 @@ fn extract_references_from_text(
                 while let Some(&(_, c)) = chars.peek() {
                     if c == ']' || c == ' ' {
                         break;
-                    } else if c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.' {
+                    } else if c.is_ascii_lowercase()
+                        || c.is_ascii_digit()
+                        || c == '-'
+                        || c == '.'
+                        || c == '+'
+                    {
                         first_word.push(c);
                         chars.next();
                     } else {
@@ -444,7 +451,11 @@ fn extract_references_from_text(
                             if c == ']' {
                                 chars.next();
                                 break;
-                            } else if c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' {
+                            } else if c.is_ascii_lowercase()
+                                || c.is_ascii_digit()
+                                || c == '-'
+                                || c == '+'
+                            {
                                 req_id.push(c);
                                 chars.next();
                             } else if c == '.' {
@@ -457,7 +468,7 @@ fn extract_references_from_text(
                         }
 
                         // Validate rule ID
-                        if found_dot && !req_id.ends_with('.') && !req_id.is_empty() {
+                        if found_dot && is_valid_req_id(&req_id) {
                             let span = SourceSpan::new(bracket_start, final_idx - prefix_start + 1);
                             reqs.references.push(ReqReference {
                                 prefix: prefix.clone(),
@@ -479,7 +490,7 @@ fn extract_references_from_text(
                     chars.next(); // consume ]
 
                     // Validate: must contain dot, not end with dot
-                    if first_word.contains('.') && !first_word.ends_with('.') {
+                    if is_valid_req_id(&first_word) {
                         let span = SourceSpan::new(bracket_start, end_idx - prefix_start + 1);
                         reqs.references.push(ReqReference {
                             prefix: prefix.clone(),
@@ -494,6 +505,14 @@ fn extract_references_from_text(
             }
         }
     }
+}
+
+#[cfg(not(feature = "reverse"))]
+fn is_valid_req_id(req_id: &str) -> bool {
+    let Some(parsed) = parse_rule_id(req_id) else {
+        return false;
+    };
+    parsed.base.contains('.') && !parsed.base.ends_with('.')
 }
 
 #[cfg(test)]
@@ -579,6 +598,32 @@ mod tests {
         assert_eq!(reqs.references[0].verb, RefVerb::Impl);
         assert_eq!(reqs.references[1].req_id, "channel.id.two");
         assert_eq!(reqs.references[1].verb, RefVerb::Verify);
+    }
+
+    #[test]
+    fn test_extract_versioned_references() {
+        let content = r#"
+            // r[impl auth.login+2]
+            // r[verify auth.session+3]
+            fn foo() {}
+        "#;
+
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 2);
+        assert_eq!(reqs.references[0].req_id, "auth.login+2");
+        assert_eq!(reqs.references[1].req_id, "auth.session+3");
+    }
+
+    #[test]
+    fn test_reject_invalid_version_suffix() {
+        let content = r#"
+            // r[impl auth.login+]
+            // r[impl auth.session+0]
+            fn foo() {}
+        "#;
+
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 0);
     }
 
     #[test]

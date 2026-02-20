@@ -6,6 +6,7 @@
 
 mod coverage;
 mod lexer;
+mod rule_id;
 mod sources;
 mod spec;
 
@@ -14,6 +15,7 @@ pub mod code_units;
 
 pub use coverage::CoverageReport;
 pub use lexer::{ParseWarning, RefVerb, ReqReference, Reqs, SourceSpan, WarningKind};
+pub use rule_id::{RuleIdMatch, classify_reference_for_rule, parse_rule_id};
 pub use sources::{
     ExtractionResult, MemorySources, PathSources, SUPPORTED_EXTENSIONS, Sources,
     is_supported_extension,

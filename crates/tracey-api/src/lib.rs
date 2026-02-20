@@ -232,6 +232,8 @@ pub enum ValidationErrorCode {
     InvalidNaming,
     /// Unknown requirement ID referenced
     UnknownRequirement,
+    /// Reference points to an older requirement version
+    StaleRequirement,
     /// Duplicate requirement ID in the same spec
     DuplicateRequirement,
     /// Unknown prefix in reference
