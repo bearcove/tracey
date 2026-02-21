@@ -290,12 +290,12 @@ impl Connector for DaemonConnector {
         let _startup_lock = self.acquire_startup_lock(Duration::from_secs(5))?;
 
         // Re-check: another process may have started the daemon while we waited for the lock.
-        if let Some((pid, version)) = read_pid_file(&self.project_root) {
-            if is_pid_alive(pid) && version == tracey_proto::PROTOCOL_VERSION {
-                if let Ok(stream) = roam_local::connect(&endpoint).await {
-                    return Ok(stream);
-                }
-            }
+        if let Some((pid, version)) = read_pid_file(&self.project_root)
+            && is_pid_alive(pid)
+            && version == tracey_proto::PROTOCOL_VERSION
+            && let Ok(stream) = roam_local::connect(&endpoint).await
+        {
+            return Ok(stream);
         }
 
         self.spawn_daemon()?;
