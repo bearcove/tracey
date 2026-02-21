@@ -47,16 +47,21 @@ pub fn git_capture(project_root: &Path, args: &[&str]) -> Result<String> {
         .wrap_err_with(|| format!("git {} output is not valid UTF-8", args.join(" ")))
 }
 
-/// Get a file's content from the git index (`:path`) or HEAD (`HEAD:path`).
-/// Returns `None` if the file doesn't exist at that revision (e.g. new file).
-/// Returns `Err` if the file exists but is not valid UTF-8.
-pub fn git_show(project_root: &Path, revision: &str, path: &str) -> Result<Option<String>> {
-    let spec = format!("{revision}:{path}");
+/// Read a blob from the git object database via `git cat-file blob`.
+/// `revision` is `""` for the index (`:path`) or e.g. `"HEAD"` for a commit.
+/// Returns `None` if the object doesn't exist (new or deleted file).
+/// Returns `Err` if the content is not valid UTF-8.
+pub fn git_cat_file(project_root: &Path, revision: &str, path: &str) -> Result<Option<String>> {
+    let spec = if revision.is_empty() {
+        format!(":{path}")
+    } else {
+        format!("{revision}:{path}")
+    };
     let out = std::process::Command::new("git")
-        .args(["show", &spec])
+        .args(["cat-file", "blob", &spec])
         .current_dir(project_root)
         .output()
-        .wrap_err("failed to run git show")?;
+        .wrap_err("failed to run git cat-file")?;
 
     if !out.status.success() {
         return Ok(None);
@@ -64,7 +69,7 @@ pub fn git_show(project_root: &Path, revision: &str, path: &str) -> Result<Optio
 
     String::from_utf8(out.stdout)
         .map(Some)
-        .wrap_err_with(|| format!("content of {revision}:{path} is not valid UTF-8"))
+        .wrap_err_with(|| format!("content of {spec} is not valid UTF-8"))
 }
 
 /// Parse a spec markdown string and return a map from rule **base** ID → `ReqDefinition`.
@@ -83,7 +88,7 @@ async fn parse_spec_rules(content: &str) -> Result<HashMap<String, marq::ReqDefi
 /// Detect rules that are staged with a text change but no version bump.
 ///
 /// For each staged spec file this function:
-/// 1. Reads HEAD and index content via `git show`.
+/// 1. Reads HEAD and index content via `git cat-file blob`.
 /// 2. Parses both with marq.
 /// 3. Compares rules that share the same base ID: if `raw` changed but the
 ///    version number did not increase, the rule is reported as changed.
@@ -91,7 +96,22 @@ pub async fn detect_changed_rules(
     project_root: &Path,
     config: &Config,
 ) -> Result<Vec<ChangedRule>> {
-    let staged_output = git_capture(project_root, &["diff", "--cached", "--name-only"])?;
+    // Without a HEAD there is nothing to compare against — new repo, first commit.
+    let head_exists = std::process::Command::new("git")
+        .args(["rev-parse", "--verify", "HEAD"])
+        .current_dir(project_root)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
+    if !head_exists {
+        return Ok(vec![]);
+    }
+
+    let staged_output = git_capture(
+        project_root,
+        &["diff-index", "--name-only", "--cached", "HEAD"],
+    )?;
 
     // Collect all spec include patterns.
     let spec_patterns: Vec<&str> = config
@@ -113,8 +133,8 @@ pub async fn detect_changed_rules(
             continue;
         }
 
-        let old_content = git_show(project_root, "HEAD", staged_file)?;
-        let new_content = match git_show(project_root, "", staged_file)? {
+        let old_content = git_cat_file(project_root, "HEAD", staged_file)?;
+        let new_content = match git_cat_file(project_root, "", staged_file)? {
             Some(c) => c,
             None => continue, // deleted — nothing to check
         };
@@ -193,7 +213,7 @@ pub async fn bump(project_root: &Path, config: &Config) -> Result<Vec<marq::Rule
 
     for (file, indices) in &by_file {
         let file_str = file.to_string_lossy();
-        let content = git_show(project_root, "", &file_str)?
+        let content = git_cat_file(project_root, "", &file_str)?
             .ok_or_else(|| eyre::eyre!("file disappeared from index: {}", file.display()))?;
 
         let mut bytes = content.into_bytes();
@@ -239,7 +259,7 @@ pub async fn bump(project_root: &Path, config: &Config) -> Result<Vec<marq::Rule
         std::fs::write(&full_path, &bytes)
             .wrap_err_with(|| format!("failed to write {}", full_path.display()))?;
 
-        git_capture(project_root, &["add", &file_str])
+        git_capture(project_root, &["update-index", "--add", "--", &file_str])
             .wrap_err_with(|| format!("failed to re-stage {}", file.display()))?;
     }
 
