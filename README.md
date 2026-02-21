@@ -215,7 +215,17 @@ When spec text changes and the version is bumped to `+4`, tracey reports the `+3
 
 ## Supported Languages
 
-Tracey scans comments in: Rust, Swift, TypeScript, TSX, JavaScript, JSX, Go, C, C++, Objective-C, Objective-C++, Java, Kotlin, Scala, Groovy, C#, Zig, PHP.
+Tracey scans comments in 39 languages:
+
+- **Systems:** Rust, C, C++, D, Zig, Assembly
+- **JVM:** Java, Kotlin, Scala, Groovy
+- **Web:** TypeScript, JavaScript, TSX, JSX, Dart, PHP
+- **Scripting:** Python, Ruby, Perl, Lua, Bash, PowerShell, R
+- **Functional:** Haskell, OCaml, F#, Elixir, Erlang, Clojure
+- **.NET:** C#, Visual Basic
+- **Apple:** Swift, Objective-C, Objective-C++
+- **Scientific:** Julia, MATLAB
+- **Other:** Go, COBOL, CMake
 
 ## License
 
