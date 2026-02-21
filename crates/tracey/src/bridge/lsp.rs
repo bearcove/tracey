@@ -67,6 +67,8 @@ async fn run_lsp_server(project_root: PathBuf) -> Result<()> {
         project_root: project_root.clone(),
         doc_state: Mutex::new(LspDocState {
             documents: HashMap::new(),
+            document_revisions: HashMap::new(),
+            next_revision: 1,
             files_with_diagnostics: HashSet::new(),
         }),
     });
@@ -88,6 +90,10 @@ struct Backend {
 struct LspDocState {
     /// Document content cache: uri -> content
     documents: HashMap<String, String>,
+    /// Monotonic revision per open document used to drop stale async diagnostics.
+    document_revisions: HashMap<String, u64>,
+    /// Next monotonic revision value.
+    next_revision: u64,
     /// Files that have been published with non-empty diagnostics.
     /// Used to clear diagnostics when issues are fixed.
     files_with_diagnostics: HashSet<String>,
@@ -100,6 +106,21 @@ impl Backend {
         let content = state.documents.get(uri.as_str())?.clone();
         let path = uri.to_file_path().ok()?.to_string_lossy().into_owned();
         Some((path, content))
+    }
+
+    fn get_path_content_and_revision(&self, uri: &Url) -> Option<(String, String, u64)> {
+        let state = self.doc_state.lock().unwrap();
+        let content = state.documents.get(uri.as_str())?.clone();
+        let revision = *state.document_revisions.get(uri.as_str())?;
+        let path = uri.to_file_path().ok()?.to_string_lossy().into_owned();
+        Some((path, content, revision))
+    }
+
+    fn bump_document_revision(state: &mut LspDocState, uri: &Url) -> u64 {
+        let revision = state.next_revision;
+        state.next_revision = state.next_revision.saturating_add(1);
+        state.document_revisions.insert(uri.to_string(), revision);
+        revision
     }
 
     fn offset_to_line_col(content: &str, offset: usize) -> (u32, u32) {
@@ -227,7 +248,8 @@ impl Backend {
     /// r[impl lsp.diagnostics.unknown-prefix-message]
     /// r[impl lsp.diagnostics.unknown-verb]
     async fn publish_diagnostics(&self, uri: Url) {
-        let Some((path, content)) = self.get_path_and_content(&uri) else {
+        let Some((path, content, request_revision)) = self.get_path_content_and_revision(&uri)
+        else {
             return;
         };
 
@@ -266,9 +288,15 @@ impl Backend {
             })
             .collect();
 
-        // Track files with non-empty diagnostics for clearing later
+        // Drop stale async diagnostic responses for older document revisions.
         {
             let mut state = self.doc_state.lock().unwrap();
+            let Some(current_revision) = state.document_revisions.get(uri.as_str()).copied() else {
+                return;
+            };
+            if current_revision != request_revision {
+                return;
+            }
             if diagnostics.is_empty() {
                 state.files_with_diagnostics.remove(&path);
             } else {
@@ -564,6 +592,7 @@ impl LanguageServer for Backend {
         {
             let mut state = self.doc_state.lock().unwrap();
             state.documents.insert(uri.to_string(), content.clone());
+            Self::bump_document_revision(&mut state, &uri);
         }
         self.notify_vfs_open(&uri, &content).await;
         self.client
@@ -580,6 +609,7 @@ impl LanguageServer for Backend {
             {
                 let mut state = self.doc_state.lock().unwrap();
                 state.documents.insert(uri.to_string(), content.clone());
+                Self::bump_document_revision(&mut state, &uri);
             }
             self.notify_vfs_change(&uri, &content).await;
             self.client
@@ -592,6 +622,12 @@ impl LanguageServer for Backend {
     /// r[impl lsp.diagnostics.on-save]
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         let uri = params.text_document.uri.clone();
+        {
+            let mut state = self.doc_state.lock().unwrap();
+            if state.documents.contains_key(uri.as_str()) {
+                Self::bump_document_revision(&mut state, &uri);
+            }
+        }
         self.client
             .publish_diagnostics(uri.clone(), vec![], None)
             .await;
@@ -607,6 +643,7 @@ impl LanguageServer for Backend {
         {
             let mut state = self.doc_state.lock().unwrap();
             state.documents.remove(uri.as_str());
+            state.document_revisions.remove(uri.as_str());
         }
         self.notify_vfs_close(&uri).await;
         // Don't clear diagnostics on close - workspace diagnostics should persist
