@@ -476,6 +476,7 @@ fn format_validation_result(result: &tracey_proto::ValidationResult) -> String {
             };
 
             if error.code == ValidationErrorCode::StaleRequirement {
+                // r[impl mcp.validation.stale.message-prefix]
                 output.push_str(&format!(
                     "  - {} [{:?}]{}\n",
                     error.message, error.code, location

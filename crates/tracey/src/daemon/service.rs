@@ -935,6 +935,7 @@ impl TraceyDaemon for TraceyService {
                                 ) {
                                     KnownRuleMatch::Exact => {}
                                     KnownRuleMatch::Stale(current_rule_id) => {
+                                        // r[impl validation.stale.message-prefix]
                                         let message = stale_requirement_message(
                                             project_root,
                                             &reference.req_id,
@@ -1399,6 +1400,9 @@ impl TraceyDaemon for TraceyService {
             match classify_reference_against_known_rules(&reference.req_id, known_for_prefix) {
                 KnownRuleMatch::Exact => {}
                 KnownRuleMatch::Stale(current_rule_id) => {
+                    // r[impl lsp.diagnostics.stale]
+                    // r[impl lsp.diagnostics.stale.message-prefix]
+                    // r[impl lsp.diagnostics.stale.diff]
                     let message = stale_requirement_message(
                         project_root,
                         &reference.req_id,
@@ -2375,6 +2379,7 @@ async fn load_previous_rule_text_from_git(
     source_file: &str,
     previous_rule_id: &RuleId,
 ) -> Option<HistoricalRuleText> {
+    // r[impl validation.stale.diff]
     let commits = run_git_capture(project_root, &["log", "--format=%H", "--", source_file])?;
 
     for commit in commits.lines() {
@@ -2492,6 +2497,7 @@ async fn stale_requirement_message(
     current_rule: Option<&ApiRule>,
     cache: &mut std::collections::HashMap<(RuleId, RuleId), Option<HistoricalRuleText>>,
 ) -> String {
+    // r[impl validation.stale.message-prefix]
     let mut message = String::from(STALE_IMPLEMENTATION_MUST_CHANGE_PREFIX);
 
     let Some(current_rule) = current_rule else {
@@ -2522,6 +2528,7 @@ async fn stale_requirement_message(
     };
 
     let Some(previous) = historical else {
+        // r[impl validation.stale.diff.fallback]
         message.push_str(
             "\n\nRule-text history is unavailable (git history is missing, shallow, or does not contain the older rule text).",
         );

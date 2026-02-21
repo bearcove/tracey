@@ -946,6 +946,15 @@ The system MUST identify requirements that are defined in specs but never refere
 r[validation.duplicates]
 The system MUST detect duplicate requirement IDs across all spec files.
 
+r[validation.stale.message-prefix]
+When reporting a stale requirement reference, the validation message MUST start with this exact sentence: `Implementation must be changed to match updated rule text — and ONLY ONCE THAT'S DONE must the code annotation be bumped`.
+
+r[validation.stale.diff]
+When reporting a stale requirement reference and source history is available, the validation message MUST include: previous rule text, current rule text, and a textual diff between them.
+
+r[validation.stale.diff.fallback]
+When reporting a stale requirement reference and source history is unavailable (for example, missing git metadata, shallow history, or no matching prior rule text), the validation message MUST include an explicit fallback note that rule-text history could not be retrieved.
+
 ## MCP Server
 
 The MCP server exposes tracey functionality as tools for AI assistants.
@@ -1062,6 +1071,9 @@ Large result sets SHOULD be paginated with hints showing how to retrieve more re
 
 r[mcp.validation.check]
 The `tracey_validate` tool MUST run all validation checks and return a report of issues found (broken refs, naming violations, circular deps, orphaned requirements, duplicates).
+
+r[mcp.validation.stale.message-prefix]
+When `tracey_validate` output includes stale-reference errors, each stale entry MUST begin with the stale-validation message text so the required message prefix is visible before any error code or formatting metadata.
 
 r[dashboard.query.search]
 The dashboard MUST provide a search interface for finding requirements by keyword in their text or ID.
@@ -1291,6 +1303,15 @@ The server MAY publish diagnostics for requirement definitions that have no impl
 
 r[lsp.diagnostics.impl-in-test]
 The server MUST publish diagnostics for `impl` annotations in files matched by `test_include` patterns, with severity `Error`. Test files should only contain `verify` annotations.
+
+r[lsp.diagnostics.stale]
+The server MUST publish diagnostics for stale requirement references, with severity `Warning`.
+
+> r[lsp.diagnostics.stale.message-prefix]
+> Stale-reference diagnostics MUST start with this exact sentence: `Implementation must be changed to match updated rule text — and ONLY ONCE THAT'S DONE must the code annotation be bumped`.
+
+> r[lsp.diagnostics.stale.diff]
+> When rule history is available, stale-reference diagnostics MUST include previous rule text, current rule text, and a textual diff between them. When unavailable, they MUST include an explicit fallback note.
 
 r[lsp.diagnostics.on-change]
 Diagnostics MUST be updated when files are modified, using debouncing to avoid excessive recomputation.
