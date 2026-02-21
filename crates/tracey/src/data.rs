@@ -509,6 +509,13 @@ pub async fn build_dashboard_data_with_overlay(
     quiet: bool,
     overlay: &FileOverlay,
 ) -> Result<DashboardData> {
+    struct ImplExtraction {
+        impl_name: String,
+        include: Vec<String>,
+        exclude: Vec<String>,
+        extraction_result: tracey_core::ExtractionResult,
+    }
+
     use tracey_core::WalkSources;
 
     let abs_root = project_root
@@ -610,12 +617,14 @@ pub async fn build_dashboard_data_with_overlay(
             crate::load_rules_from_globs(project_root, &include_patterns, quiet).await?;
 
         // Build data for each implementation
+        let mut extraction_tasks = Vec::with_capacity(spec_config.impls.len());
         for impl_config in &spec_config.impls {
-            let impl_name = &impl_config.name;
-            let impl_key: ImplKey = (spec_name.clone(), impl_name.clone());
-
             if !quiet {
-                eprintln!("   {} {} implementation", "Scanning".green(), impl_name);
+                eprintln!(
+                    "   {} {} implementation",
+                    "Scanning".green(),
+                    impl_config.name
+                );
             }
 
             // Get include/exclude patterns for this impl
@@ -626,14 +635,38 @@ pub async fn build_dashboard_data_with_overlay(
                 impl_config.include.to_vec()
             };
             let exclude: Vec<String> = impl_config.exclude.to_vec();
+            let impl_name = impl_config.name.clone();
+            let root = project_root.to_path_buf();
 
-            // r[impl ref.cross-workspace.paths]
-            // Extract requirement references from this impl's source files
-            let extraction_result = Reqs::extract(
-                WalkSources::new(project_root)
-                    .include(include.clone())
-                    .exclude(exclude.clone()),
-            )?;
+            extraction_tasks.push(tokio::task::spawn_blocking(
+                move || -> Result<ImplExtraction> {
+                    // r[impl ref.cross-workspace.paths]
+                    // Extract requirement references from this impl's source files
+                    let extraction_result = Reqs::extract(
+                        WalkSources::new(root)
+                            .include(include.clone())
+                            .exclude(exclude.clone()),
+                    )?;
+
+                    Ok(ImplExtraction {
+                        impl_name,
+                        include,
+                        exclude,
+                        extraction_result,
+                    })
+                },
+            ));
+        }
+
+        for extraction_task in futures_util::future::join_all(extraction_tasks).await {
+            let ImplExtraction {
+                impl_name,
+                include,
+                exclude,
+                extraction_result,
+            } = extraction_task
+                .map_err(|err| eyre::eyre!("Implementation scan task failed: {err}"))??;
+            let impl_key: ImplKey = (spec_name.clone(), impl_name.clone());
 
             // r[impl ref.cross-workspace.cli-warnings]
             // Print warnings for missing cross-workspace paths
@@ -777,7 +810,7 @@ pub async fn build_dashboard_data_with_overlay(
                 project_root,
                 &include_patterns,
                 spec_name,
-                impl_name,
+                &impl_name,
                 &coverage,
                 &mut impl_specs_content,
                 overlay,
