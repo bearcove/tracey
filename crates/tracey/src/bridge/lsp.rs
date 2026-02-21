@@ -539,6 +539,9 @@ impl LanguageServer for Backend {
             state.documents.insert(uri.to_string(), content.clone());
         }
         self.notify_vfs_open(&uri, &content).await;
+        self.client
+            .publish_diagnostics(uri.clone(), vec![], None)
+            .await;
         self.publish_diagnostics(uri).await;
     }
 
@@ -552,6 +555,9 @@ impl LanguageServer for Backend {
                 state.documents.insert(uri.to_string(), content.clone());
             }
             self.notify_vfs_change(&uri, &content).await;
+            self.client
+                .publish_diagnostics(uri.clone(), vec![], None)
+                .await;
             self.publish_diagnostics(uri).await;
         }
     }
@@ -559,6 +565,9 @@ impl LanguageServer for Backend {
     /// r[impl lsp.diagnostics.on-save]
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         let uri = params.text_document.uri.clone();
+        self.client
+            .publish_diagnostics(uri.clone(), vec![], None)
+            .await;
         self.publish_diagnostics(uri).await;
 
         // Also refresh workspace-wide diagnostics, since saving one file
