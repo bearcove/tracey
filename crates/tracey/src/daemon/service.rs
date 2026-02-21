@@ -1090,6 +1090,24 @@ impl TraceyDaemon for TraceyService {
             rule_at_pos.span_length,
         );
 
+        // For tail annotations (current version, version > 1), show the diff from N-1 to N
+        let tail_diff = if rule.id.version > 1
+            && classify_reference_for_rule(&rule.id, &rule_at_pos.req_id) == RuleIdMatch::Exact
+        {
+            let prev_id = RuleId::new(rule.id.base.clone(), rule.id.version - 1)
+                .expect("version - 1 >= 1 since version > 1");
+            if let Some(source_file) = rule.source_file.as_deref() {
+                let project_root = self.inner.engine.project_root();
+                load_previous_rule_text_from_git(project_root, source_file, &prev_id)
+                    .await
+                    .map(|historical| build_rule_text_diff(&historical.text, &rule.raw))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         Some(HoverInfo {
             rule_id: rule.id.clone(),
             raw: rule.raw.clone(),
@@ -1104,6 +1122,7 @@ impl TraceyDaemon for TraceyService {
             range_start_char: start_char,
             range_end_line: end_line,
             range_end_char: end_char,
+            tail_diff,
         })
     }
 

@@ -24,7 +24,7 @@ use marq::{RenderOptions, render};
 pub struct ExtractedRule {
     pub def: ReqDefinition,
     pub source_file: String,
-    /// Marker prefix used by this requirement definition (e.g., "r" in r[foo.bar])
+    /// Marker prefix used by this requirement definition (e.g., "r" in `r[foo.bar]`)
     pub prefix: String,
     /// 1-indexed column where the rule marker starts
     pub column: Option<usize>,

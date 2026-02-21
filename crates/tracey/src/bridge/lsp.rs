@@ -534,6 +534,13 @@ impl LanguageServer for Backend {
             markdown.push_str("\n\n*No implementations or verifications*");
         }
 
+        // Show diff from previous rule version for tail (current-version) annotations
+        if let Some(diff) = &info.tail_diff {
+            markdown.push_str("\n\n**Changes from previous version:**\n```diff\n");
+            markdown.push_str(diff);
+            markdown.push_str("```");
+        }
+
         Ok(Some(Hover {
             contents: HoverContents::Markup(MarkupContent {
                 kind: MarkupKind::Markdown,
