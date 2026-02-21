@@ -529,6 +529,9 @@ fn show_logs(root: Option<PathBuf>, follow: bool, lines: usize) -> Result<()> {
 /// r[impl daemon.cli.status]
 /// Show daemon status by connecting and calling health()
 async fn show_status(root: Option<PathBuf>) -> Result<()> {
+    use roam_stream::{Connector, HandshakeConfig, NoDispatcher, connect};
+    use std::time::Duration;
+
     let project_root = match root {
         Some(r) => r,
         None => find_project_root()?,
@@ -536,81 +539,70 @@ async fn show_status(root: Option<PathBuf>) -> Result<()> {
 
     let endpoint = daemon::local_endpoint(&project_root);
 
-    // Check if endpoint exists
-    if !roam_local::endpoint_exists(&endpoint) {
-        println!("{}: No daemon running", "Status".yellow());
-        #[cfg(unix)]
-        println!("  Socket: {} (not found)", endpoint.display());
-        #[cfg(windows)]
-        println!("  Endpoint: {} (not found)", endpoint);
-        return Ok(());
+    // Try to connect without auto-starting
+    let stream = match roam_local::connect(&endpoint).await {
+        Ok(s) => s,
+        Err(_) => {
+            println!("{}: No daemon running", "Status".yellow());
+            return Ok(());
+        }
+    };
+
+    struct DirectConnector {
+        stream: std::sync::Mutex<Option<roam_local::LocalStream>>,
     }
 
-    // Try to connect without auto-starting
-    match roam_local::connect(&endpoint).await {
-        Ok(stream) => {
-            // Create a minimal client to call health()
-            use roam_stream::{Connector, HandshakeConfig, NoDispatcher, connect};
+    impl Connector for DirectConnector {
+        type Transport = roam_local::LocalStream;
+        async fn connect(&self) -> std::io::Result<Self::Transport> {
+            self.stream
+                .lock()
+                .unwrap()
+                .take()
+                .ok_or_else(|| std::io::Error::other("already connected"))
+        }
+    }
 
-            struct DirectConnector {
-                stream: std::sync::Mutex<Option<roam_local::LocalStream>>,
-            }
+    let client = tracey_proto::TraceyDaemonClient::new(connect(
+        DirectConnector {
+            stream: std::sync::Mutex::new(Some(stream)),
+        },
+        HandshakeConfig::default(),
+        NoDispatcher,
+    ));
 
-            impl Connector for DirectConnector {
-                type Transport = roam_local::LocalStream;
-                async fn connect(&self) -> std::io::Result<Self::Transport> {
-                    self.stream
-                        .lock()
-                        .unwrap()
-                        .take()
-                        .ok_or_else(|| std::io::Error::other("already connected"))
+    match tokio::time::timeout(Duration::from_secs(1), client.health()).await {
+        Ok(Ok(health)) => {
+            println!("{}: Daemon is running", "Status".green());
+            println!("  Uptime: {}s", health.uptime_secs);
+            println!("  Data version: {}", health.version);
+            println!(
+                "  Watcher: {}",
+                if health.watcher_active {
+                    "active".green().to_string()
+                } else {
+                    "inactive".yellow().to_string()
                 }
+            );
+            if let Some(err) = &health.watcher_error {
+                println!("  Watcher error: {}", err.as_str().red());
             }
-
-            let connector = DirectConnector {
-                stream: std::sync::Mutex::new(Some(stream)),
-            };
-            let client = connect(connector, HandshakeConfig::default(), NoDispatcher);
-            let client = tracey_proto::TraceyDaemonClient::new(client);
-
-            match client.health().await {
-                Ok(health) => {
-                    println!("{}: Daemon is running", "Status".green());
-                    println!("  Uptime: {}s", health.uptime_secs);
-                    println!("  Data version: {}", health.version);
-                    println!(
-                        "  Watcher: {}",
-                        if health.watcher_active {
-                            "active".green().to_string()
-                        } else {
-                            "inactive".yellow().to_string()
-                        }
-                    );
-                    if let Some(err) = &health.watcher_error {
-                        println!("  Watcher error: {}", err.as_str().red());
-                    }
-                    if let Some(err) = &health.config_error {
-                        println!("  Config error: {}", err.as_str().red());
-                    }
-                    println!("  File events: {}", health.watcher_event_count);
-                    println!("  Watched dirs: {}", health.watched_directories.len());
-                }
-                Err(e) => {
-                    println!("{}: Daemon connection failed", "Status".red());
-                    println!("  Error: {}", e);
-                }
+            if let Some(err) = &health.config_error {
+                println!("  Config error: {}", err.as_str().red());
             }
+            println!("  File events: {}", health.watcher_event_count);
+            println!("  Watched dirs: {}", health.watched_directories.len());
+        }
+        Ok(Err(e)) => {
+            println!("{}: Daemon connection failed", "Status".red());
+            println!("  Error: {e}");
         }
         Err(_) => {
-            println!("{}: Daemon not responding", "Status".yellow());
-            #[cfg(unix)]
             println!(
-                "  Socket exists at {} but cannot connect",
-                endpoint.display()
+                "{}: Daemon not responding (health check timed out)",
+                "Status".yellow()
             );
-            #[cfg(windows)]
-            println!("  Endpoint exists but cannot connect");
-            println!("  The daemon may have crashed. Run 'tracey kill' to clean up.");
+            println!("  The daemon may be stuck. Run 'tracey kill' to restart it.");
         }
     }
 

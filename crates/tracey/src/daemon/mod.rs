@@ -81,6 +81,35 @@ pub fn socket_path(project_root: &Path) -> PathBuf {
     local_endpoint(project_root)
 }
 
+/// Path to the daemon PID file within the workspace.
+pub fn pid_file_path(project_root: &Path) -> PathBuf {
+    project_root.join(".tracey/daemon.pid")
+}
+
+/// RAII guard that writes the PID file on creation and removes it on drop.
+struct PidFile {
+    path: PathBuf,
+}
+
+impl PidFile {
+    fn create(project_root: &Path) -> Result<Self> {
+        let path = pid_file_path(project_root);
+        let content = format!(
+            "pid={}\nversion={}\n",
+            std::process::id(),
+            tracey_proto::PROTOCOL_VERSION
+        );
+        std::fs::write(&path, content)?;
+        Ok(Self { path })
+    }
+}
+
+impl Drop for PidFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
 /// Ensure the .tracey directory exists and is gitignored.
 pub fn ensure_tracey_dir(project_root: &Path) -> Result<PathBuf> {
     let dir = project_root.join(".tracey");
@@ -129,6 +158,9 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
 
     // Ensure .tracey directory exists
     ensure_tracey_dir(&project_root)?;
+
+    // Write PID file; it is removed automatically when this guard drops.
+    let _pid_file = PidFile::create(&project_root)?;
 
     // Get local IPC endpoint
     let endpoint = local_endpoint(&project_root);

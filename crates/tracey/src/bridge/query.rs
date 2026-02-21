@@ -4,18 +4,10 @@
 //! MCP and terminal queries print the same markdown-like output.
 
 use std::path::PathBuf;
-use std::sync::Arc;
-
-use tokio::sync::Mutex;
 
 use crate::daemon::{DaemonClient, new_client};
 use tracey_core::parse_rule_id;
 use tracey_proto::*;
-
-/// Convert roam RPC result to a simple Result
-fn rpc<T, E: std::fmt::Debug>(res: Result<T, roam_stream::CallError<E>>) -> Result<T, String> {
-    res.map_err(|e| format!("RPC error: {:?}", e))
-}
 
 /// Format config error as a warning banner to prepend to responses
 fn format_config_error_banner(error: &str) -> String {
@@ -40,20 +32,19 @@ fn parse_spec_impl(spec_impl: Option<&str>) -> (Option<String>, Option<String>) 
 /// Shared query client used by both MCP and CLI.
 #[derive(Clone)]
 pub struct QueryClient {
-    client: Arc<Mutex<DaemonClient>>,
+    client: DaemonClient,
 }
 
 impl QueryClient {
     pub fn new(project_root: PathBuf) -> Self {
         Self {
-            client: Arc::new(Mutex::new(new_client(project_root))),
+            client: new_client(project_root),
         }
     }
 
     /// Check for config errors and return a warning banner if present.
     async fn get_config_error_banner(&self) -> Option<String> {
-        let client = self.client.lock().await;
-        match rpc(client.health().await) {
+        match self.client.health().await {
             Ok(health) => health.config_error.map(|e| format_config_error_banner(&e)),
             Err(_) => None,
         }
@@ -69,8 +60,7 @@ impl QueryClient {
 
     /// Get coverage status for all specs/implementations
     pub async fn status(&self) -> String {
-        let client = self.client.lock().await;
-        let output = match rpc(client.status().await) {
+        let output = match self.client.status().await {
             Ok(status) => {
                 let mut output = String::new();
                 for impl_status in &status.impls {
@@ -105,7 +95,7 @@ impl QueryClient {
                     output
                 }
             }
-            Err(e) => format!("Error: {}", e),
+            Err(e) => format!("Error: {e}"),
         };
 
         self.with_config_banner(output).await
@@ -113,7 +103,6 @@ impl QueryClient {
 
     /// Get rules without implementation references
     pub async fn uncovered(&self, spec_impl: Option<&str>, prefix: Option<&str>) -> String {
-        let client = self.client.lock().await;
         let (spec, impl_name) = parse_spec_impl(spec_impl);
 
         let req = UncoveredRequest {
@@ -122,7 +111,7 @@ impl QueryClient {
             prefix: prefix.map(String::from),
         };
 
-        let output = match rpc(client.uncovered(req).await) {
+        let output = match self.client.uncovered(req).await {
             Ok(response) => {
                 let mut output = format!(
                     "{}/{}: {} uncovered out of {} rules\n\n",
@@ -148,7 +137,7 @@ impl QueryClient {
 
                 output
             }
-            Err(e) => format!("Error: {}", e),
+            Err(e) => format!("Error: {e}"),
         };
 
         self.with_config_banner(output).await
@@ -156,7 +145,6 @@ impl QueryClient {
 
     /// Get rules without verification references
     pub async fn untested(&self, spec_impl: Option<&str>, prefix: Option<&str>) -> String {
-        let client = self.client.lock().await;
         let (spec, impl_name) = parse_spec_impl(spec_impl);
 
         let req = UntestedRequest {
@@ -165,7 +153,7 @@ impl QueryClient {
             prefix: prefix.map(String::from),
         };
 
-        let output = match rpc(client.untested(req).await) {
+        let output = match self.client.untested(req).await {
             Ok(response) => {
                 let mut output = format!(
                     "{}/{}: {} untested (impl but no verify) out of {} rules\n\n",
@@ -191,7 +179,7 @@ impl QueryClient {
 
                 output
             }
-            Err(e) => format!("Error: {}", e),
+            Err(e) => format!("Error: {e}"),
         };
 
         self.with_config_banner(output).await
@@ -199,7 +187,6 @@ impl QueryClient {
 
     /// Get code units without rule references
     pub async fn unmapped(&self, spec_impl: Option<&str>, path: Option<&str>) -> String {
-        let client = self.client.lock().await;
         let (spec, impl_name) = parse_spec_impl(spec_impl);
 
         let req = UnmappedRequest {
@@ -208,7 +195,7 @@ impl QueryClient {
             path: path.map(String::from),
         };
 
-        let output = match rpc(client.unmapped(req).await) {
+        let output = match self.client.unmapped(req).await {
             Ok(response) => {
                 let mut output = format!(
                     "{}/{}: {} unmapped code units out of {} total\n\n",
@@ -267,19 +254,18 @@ impl QueryClient {
 
                 output
             }
-            Err(e) => format!("Error: {}", e),
+            Err(e) => format!("Error: {e}"),
         };
 
         self.with_config_banner(output).await
     }
 
     pub async fn rule(&self, rule_id: &str) -> String {
-        let client = self.client.lock().await;
         let Some(rule_id) = parse_rule_id(rule_id) else {
             return "Error: invalid rule ID".to_string();
         };
 
-        let output = match rpc(client.rule(rule_id.clone()).await) {
+        let output = match self.client.rule(rule_id.clone()).await {
             Ok(Some(info)) => {
                 let mut output = format!("# {}\n\n{}\n\n", info.id, info.raw);
 
@@ -308,7 +294,7 @@ impl QueryClient {
                 output
             }
             Ok(None) => format!("Rule not found: {}", rule_id),
-            Err(e) => format!("Error: {}", e),
+            Err(e) => format!("Error: {e}"),
         };
 
         self.with_config_banner(output).await
@@ -316,8 +302,7 @@ impl QueryClient {
 
     /// Display current configuration
     pub async fn config(&self) -> String {
-        let client = self.client.lock().await;
-        let output = match rpc(client.config().await) {
+        let output = match self.client.config().await {
             Ok(config) => {
                 let mut output = String::from("# Tracey Configuration\n\n");
 
@@ -335,42 +320,40 @@ impl QueryClient {
 
                 output
             }
-            Err(e) => format!("Error: {}", e),
+            Err(e) => format!("Error: {e}"),
         };
 
         self.with_config_banner(output).await
     }
 
     pub async fn reload(&self) -> String {
-        let client = self.client.lock().await;
-        let output = match rpc(client.reload().await) {
+        let output = match self.client.reload().await {
             Ok(response) => format!(
                 "Reload complete (version {}, took {}ms)",
                 response.version, response.rebuild_time_ms
             ),
-            Err(e) => format!("Error: {}", e),
+            Err(e) => format!("Error: {e}"),
         };
 
         self.with_config_banner(output).await
     }
 
     pub async fn validate(&self, spec_impl: Option<&str>) -> String {
-        let client = self.client.lock().await;
         let output = if spec_impl.is_some() {
             // If a specific spec/impl was requested, validate just that one.
             let (spec, impl_name) = parse_spec_impl(spec_impl);
             let req = ValidateRequest { spec, impl_name };
-            match rpc(client.validate(req).await) {
+            match self.client.validate(req).await {
                 Ok(result) => format_validation_result(&result),
-                Err(e) => format!("Error: {}", e),
+                Err(e) => format!("Error: {e}"),
             }
         } else {
             // No filter provided: validate ALL spec/impl combinations.
-            let status = match rpc(client.status().await) {
+            let status = match self.client.status().await {
                 Ok(s) => s,
                 Err(e) => {
                     return self
-                        .with_config_banner(format!("Error getting status: {}", e))
+                        .with_config_banner(format!("Error getting status: {e}"))
                         .await;
                 }
             };
@@ -387,7 +370,7 @@ impl QueryClient {
                         impl_name: Some(impl_status.impl_name.clone()),
                     };
 
-                    match rpc(client.validate(req).await) {
+                    match self.client.validate(req).await {
                         Ok(result) => {
                             total_errors += result.error_count;
                             output.push_str(&format_validation_result(&result));
@@ -395,8 +378,8 @@ impl QueryClient {
                         }
                         Err(e) => {
                             output.push_str(&format!(
-                                "✗ {}/{}: Error: {}\n\n",
-                                impl_status.spec, impl_status.impl_name, e
+                                "✗ {}/{}: Error: {e}\n\n",
+                                impl_status.spec, impl_status.impl_name
                             ));
                         }
                     }
@@ -419,7 +402,6 @@ impl QueryClient {
     }
 
     pub async fn config_exclude(&self, spec_impl: Option<&str>, pattern: &str) -> String {
-        let client = self.client.lock().await;
         let (spec, impl_name) = parse_spec_impl(spec_impl);
 
         let req = ConfigPatternRequest {
@@ -428,16 +410,15 @@ impl QueryClient {
             pattern: pattern.to_string(),
         };
 
-        let output = match rpc(client.config_add_exclude(req).await) {
-            Ok(()) => format!("Added exclude pattern: {}", pattern),
-            Err(e) => format!("Error: {}", e),
+        let output = match self.client.config_add_exclude(req).await {
+            Ok(()) => format!("Added exclude pattern: {pattern}"),
+            Err(e) => format!("Error: {e}"),
         };
 
         self.with_config_banner(output).await
     }
 
     pub async fn config_include(&self, spec_impl: Option<&str>, pattern: &str) -> String {
-        let client = self.client.lock().await;
         let (spec, impl_name) = parse_spec_impl(spec_impl);
 
         let req = ConfigPatternRequest {
@@ -446,9 +427,9 @@ impl QueryClient {
             pattern: pattern.to_string(),
         };
 
-        let output = match rpc(client.config_add_include(req).await) {
-            Ok(()) => format!("Added include pattern: {}", pattern),
-            Err(e) => format!("Error: {}", e),
+        let output = match self.client.config_add_include(req).await {
+            Ok(()) => format!("Added include pattern: {pattern}"),
+            Err(e) => format!("Error: {e}"),
         };
 
         self.with_config_banner(output).await
