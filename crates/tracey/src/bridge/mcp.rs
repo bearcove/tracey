@@ -225,7 +225,11 @@ impl ServerHandler for TraceyHandler {
                 let rule_id = args.get("rule_id").and_then(|v| v.as_str());
                 match rule_id {
                     Some(id) => self.client.rule(id).await,
-                    None => "Error: rule_id is required".to_string(),
+                    None => {
+                        self.client
+                            .with_config_banner("Error: rule_id is required".to_string())
+                            .await
+                    }
                 }
             }
             "tracey_config" => self.client.config().await,
@@ -239,7 +243,11 @@ impl ServerHandler for TraceyHandler {
                 let pattern = args.get("pattern").and_then(|v| v.as_str());
                 match pattern {
                     Some(p) => self.client.config_exclude(spec_impl, p).await,
-                    None => "Error: pattern is required".to_string(),
+                    None => {
+                        self.client
+                            .with_config_banner("Error: pattern is required".to_string())
+                            .await
+                    }
                 }
             }
             "tracey_config_include" => {
@@ -247,10 +255,18 @@ impl ServerHandler for TraceyHandler {
                 let pattern = args.get("pattern").and_then(|v| v.as_str());
                 match pattern {
                     Some(p) => self.client.config_include(spec_impl, p).await,
-                    None => "Error: pattern is required".to_string(),
+                    None => {
+                        self.client
+                            .with_config_banner("Error: pattern is required".to_string())
+                            .await
+                    }
                 }
             }
-            other => format!("Unknown tool: {}", other),
+            other => {
+                self.client
+                    .with_config_banner(format!("Unknown tool: {}", other))
+                    .await
+            }
         };
 
         Ok(CallToolResult::text_content(vec![response.into()]))

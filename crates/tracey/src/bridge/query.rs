@@ -59,7 +59,7 @@ impl QueryClient {
         }
     }
 
-    async fn with_config_banner(&self, output: String) -> String {
+    pub async fn with_config_banner(&self, output: String) -> String {
         if let Some(banner) = self.get_config_error_banner().await {
             format!("{}{}", banner, output)
         } else {
@@ -356,60 +356,64 @@ impl QueryClient {
 
     pub async fn validate(&self, spec_impl: Option<&str>) -> String {
         let client = self.client.lock().await;
-
-        // If a specific spec/impl was requested, validate just that one
-        if spec_impl.is_some() {
+        let output = if spec_impl.is_some() {
+            // If a specific spec/impl was requested, validate just that one.
             let (spec, impl_name) = parse_spec_impl(spec_impl);
             let req = ValidateRequest { spec, impl_name };
-            return match rpc(client.validate(req).await) {
+            match rpc(client.validate(req).await) {
                 Ok(result) => format_validation_result(&result),
                 Err(e) => format!("Error: {}", e),
-            };
-        }
-
-        // No filter provided: validate ALL spec/impl combinations
-        let status = match rpc(client.status().await) {
-            Ok(s) => s,
-            Err(e) => return format!("Error getting status: {}", e),
-        };
-
-        if status.impls.is_empty() {
-            return "No spec/impl combinations configured.".to_string();
-        }
-
-        let mut output = String::new();
-        let mut total_errors = 0;
-
-        for impl_status in &status.impls {
-            let req = ValidateRequest {
-                spec: Some(impl_status.spec.clone()),
-                impl_name: Some(impl_status.impl_name.clone()),
-            };
-
-            match rpc(client.validate(req).await) {
-                Ok(result) => {
-                    total_errors += result.error_count;
-                    output.push_str(&format_validation_result(&result));
-                    output.push('\n');
-                }
-                Err(e) => {
-                    output.push_str(&format!(
-                        "✗ {}/{}: Error: {}\n\n",
-                        impl_status.spec, impl_status.impl_name, e
-                    ));
-                }
             }
-        }
+        } else {
+            // No filter provided: validate ALL spec/impl combinations.
+            let status = match rpc(client.status().await) {
+                Ok(s) => s,
+                Err(e) => {
+                    return self
+                        .with_config_banner(format!("Error getting status: {}", e))
+                        .await;
+                }
+            };
 
-        output.push_str("---\n");
-        output.push_str(&format!(
-            "Validated {} spec/impl combination(s), {} total error(s)\n",
-            status.impls.len(),
-            total_errors
-        ));
-        output.push_str(
-            "→ Use spec_impl parameter to validate a specific one (e.g., \"my-spec/rust\")\n",
-        );
+            if status.impls.is_empty() {
+                "No spec/impl combinations configured.".to_string()
+            } else {
+                let mut output = String::new();
+                let mut total_errors = 0;
+
+                for impl_status in &status.impls {
+                    let req = ValidateRequest {
+                        spec: Some(impl_status.spec.clone()),
+                        impl_name: Some(impl_status.impl_name.clone()),
+                    };
+
+                    match rpc(client.validate(req).await) {
+                        Ok(result) => {
+                            total_errors += result.error_count;
+                            output.push_str(&format_validation_result(&result));
+                            output.push('\n');
+                        }
+                        Err(e) => {
+                            output.push_str(&format!(
+                                "✗ {}/{}: Error: {}\n\n",
+                                impl_status.spec, impl_status.impl_name, e
+                            ));
+                        }
+                    }
+                }
+
+                output.push_str("---\n");
+                output.push_str(&format!(
+                    "Validated {} spec/impl combination(s), {} total error(s)\n",
+                    status.impls.len(),
+                    total_errors
+                ));
+                output.push_str(
+                    "→ Use spec_impl parameter to validate a specific one (e.g., \"my-spec/rust\")\n",
+                );
+                output
+            }
+        };
 
         self.with_config_banner(output).await
     }
@@ -424,10 +428,12 @@ impl QueryClient {
             pattern: pattern.to_string(),
         };
 
-        match rpc(client.config_add_exclude(req).await) {
+        let output = match rpc(client.config_add_exclude(req).await) {
             Ok(()) => format!("Added exclude pattern: {}", pattern),
             Err(e) => format!("Error: {}", e),
-        }
+        };
+
+        self.with_config_banner(output).await
     }
 
     pub async fn config_include(&self, spec_impl: Option<&str>, pattern: &str) -> String {
@@ -440,10 +446,12 @@ impl QueryClient {
             pattern: pattern.to_string(),
         };
 
-        match rpc(client.config_add_include(req).await) {
+        let output = match rpc(client.config_add_include(req).await) {
             Ok(()) => format!("Added include pattern: {}", pattern),
             Err(e) => format!("Error: {}", e),
-        }
+        };
+
+        self.with_config_banner(output).await
     }
 }
 
