@@ -365,7 +365,27 @@ impl TraceyDaemon for TraceyService {
         let data = self.inner.engine.data().await;
         let query = QueryEngine::new(&data);
 
-        query.rule(&rule_id).map(|info| RuleInfo {
+        let Some(info) = query.rule(&rule_id) else {
+            return None;
+        };
+
+        // Compute version diff only when references are stale
+        let version_diff = if info.is_stale && info.id.version > 1 {
+            let prev_id = RuleId::new(info.id.base.clone(), info.id.version - 1)
+                .expect("version - 1 >= 1 since version > 1");
+            if let Some(source_file) = info.source_file.as_deref() {
+                let project_root = self.inner.engine.project_root();
+                load_previous_rule_text_from_git(project_root, source_file, &prev_id)
+                    .await
+                    .map(|historical| build_markdown_word_diff(&historical.text, &info.raw))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        Some(RuleInfo {
             id: info.id,
             raw: info.raw,
             html: info.html,
@@ -381,6 +401,7 @@ impl TraceyDaemon for TraceyService {
                     verify_refs: c.verify_refs,
                 })
                 .collect(),
+            version_diff,
         })
     }
 

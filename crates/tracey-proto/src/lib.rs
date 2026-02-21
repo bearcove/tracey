@@ -171,6 +171,10 @@ pub struct RuleInfo {
     pub source_line: Option<usize>,
     /// Coverage across all implementations
     pub coverage: Vec<RuleCoverage>,
+    /// Diff from the previous rule version (N-1 → N), if version > 1 and git history is available.
+    /// Inline markdown format: ~~removed~~ / **added**.
+    #[facet(default)]
+    pub version_diff: Option<String>,
 }
 
 /// Coverage of a rule in a specific implementation

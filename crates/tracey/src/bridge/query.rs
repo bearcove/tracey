@@ -376,6 +376,10 @@ impl QueryClient {
                     output.push_str(&format!("Defined in: {}:{}\n\n", file, line));
                 }
 
+                if let Some(diff) = &info.version_diff {
+                    output.push_str(&format!("## Changes from previous version\n\n{diff}\n\n"));
+                }
+
                 for cov in &info.coverage {
                     output.push_str(&format!("\n## {}/{}\n", cov.spec, cov.impl_name));
                     if !cov.impl_refs.is_empty() {

@@ -441,6 +441,7 @@ impl<'a> QueryEngine<'a> {
                         source_line: rule.source_line,
                         status: rule.status.clone(),
                         level: rule.level.clone(),
+                        is_stale: rule.is_stale,
                         coverage: Vec::new(), // Will be set at the end
                     });
                 }
@@ -558,6 +559,8 @@ pub struct RuleInfo {
     pub source_line: Option<usize>,
     pub status: Option<String>,
     pub level: Option<String>,
+    /// True if any reference to this rule is stale
+    pub is_stale: bool,
     /// Coverage across all implementations
     pub coverage: Vec<ImplCoverage>,
 }
