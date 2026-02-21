@@ -672,9 +672,13 @@ fn extract_refs_from_comment_text(source: &str, node: Node, refs: &mut Vec<RuleI
 /// Extract requirement IDs from comment text
 fn find_req_refs(text: &str) -> Vec<RuleId> {
     let mut refs = Vec::new();
+    let code_mask = crate::markdown::markdown_code_mask(text);
     let mut chars = text.char_indices().peekable();
 
-    while let Some((_, ch)) = chars.next() {
+    while let Some((idx, ch)) = chars.next() {
+        if crate::markdown::is_code_index(idx, &code_mask) {
+            continue;
+        }
         if ch == '[' {
             // Try to parse a requirement reference
             if let Some(req_id) = try_parse_req_ref(&mut chars) {
@@ -843,9 +847,13 @@ fn extract_full_refs_from_text(
     base_offset: usize,
     refs: &mut Vec<FullReqRef>,
 ) {
+    let code_mask = crate::markdown::markdown_code_mask(text);
     let mut chars = text.char_indices().peekable();
 
     while let Some((start_idx, ch)) = chars.next() {
+        if crate::markdown::is_code_index(start_idx, &code_mask) {
+            continue;
+        }
         // Match prefix (lowercase alphanumeric) followed by '['
         if ch.is_ascii_lowercase() || ch.is_ascii_digit() {
             let prefix_start = start_idx;

@@ -4388,6 +4388,7 @@ dependencies = [
  "facet",
  "ignore",
  "marq",
+ "pulldown-cmark",
  "rayon",
 ]
 
