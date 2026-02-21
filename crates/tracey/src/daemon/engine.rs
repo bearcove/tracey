@@ -9,11 +9,12 @@
 //! It provides blocking rebuild semantics - all requests wait during rebuild.
 
 use eyre::Result;
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
-use tokio::sync::{RwLock, mpsc, watch};
+use tokio::sync::{Mutex, Notify, RwLock, mpsc, watch};
 use tracing::{debug, error, info, warn};
 
 use crate::config::Config;
@@ -54,6 +55,19 @@ pub struct Engine {
     search_reindex_tx: mpsc::UnboundedSender<Arc<DashboardData>>,
     /// Whether search has ever been requested in this daemon lifecycle
     search_activated: Arc<AtomicBool>,
+    /// Rebuild coalescing state (single-flight + pending changed files)
+    rebuild_state: Arc<Mutex<RebuildCoalesceState>>,
+    /// Notifies waiters when a coalesced rebuild pass completes
+    rebuild_notify: Arc<Notify>,
+}
+
+#[derive(Default)]
+struct RebuildCoalesceState {
+    in_progress: bool,
+    pending_full_rebuild: bool,
+    pending_changed_files: BTreeSet<PathBuf>,
+    generation: u64,
+    last_result: Option<std::result::Result<(u64, Duration), String>>,
 }
 
 impl Engine {
@@ -184,6 +198,8 @@ impl Engine {
             search_index,
             search_reindex_tx,
             search_activated,
+            rebuild_state: Arc::new(Mutex::new(RebuildCoalesceState::default())),
+            rebuild_notify: Arc::new(Notify::new()),
         };
         Ok(engine)
     }
@@ -215,9 +231,7 @@ impl Engine {
         debug!("VFS: opened {}", path.display());
         // Trigger rebuild
         drop(vfs);
-        if let Err(e) = self.rebuild_with_changes(&[path]).await {
-            error!("Rebuild failed after vfs_open: {}", e);
-        }
+        self.schedule_rebuild_with_changes(&[path]).await;
     }
 
     /// Update a file in the VFS overlay (from LSP didChange).
@@ -229,9 +243,7 @@ impl Engine {
         debug!("VFS: changed {}", path.display());
         // Trigger rebuild
         drop(vfs);
-        if let Err(e) = self.rebuild_with_changes(&[path]).await {
-            error!("Rebuild failed after vfs_change: {}", e);
-        }
+        self.schedule_rebuild_with_changes(&[path]).await;
     }
 
     /// Remove a file from the VFS overlay (from LSP didClose).
@@ -243,9 +255,7 @@ impl Engine {
         debug!("VFS: closed {}", path.display());
         // Trigger rebuild
         drop(vfs);
-        if let Err(e) = self.rebuild_with_changes(&[path]).await {
-            error!("Rebuild failed after vfs_close: {}", e);
-        }
+        self.schedule_rebuild_with_changes(&[path]).await;
     }
 
     /// Force a rebuild of the dashboard data.
@@ -258,6 +268,99 @@ impl Engine {
     }
 
     pub async fn rebuild_with_changes(&self, changed_files: &[PathBuf]) -> Result<(u64, Duration)> {
+        self.run_coalesced_rebuild(changed_files, true).await
+    }
+
+    pub async fn schedule_rebuild_with_changes(&self, changed_files: &[PathBuf]) {
+        if let Err(e) = self.run_coalesced_rebuild(changed_files, false).await {
+            error!("Scheduled rebuild failed: {}", e);
+        }
+    }
+
+    async fn run_coalesced_rebuild(
+        &self,
+        changed_files: &[PathBuf],
+        wait_for_completion: bool,
+    ) -> Result<(u64, Duration)> {
+        let waiter_generation = {
+            let mut state = self.rebuild_state.lock().await;
+            if changed_files.is_empty() {
+                state.pending_full_rebuild = true;
+            } else {
+                state
+                    .pending_changed_files
+                    .extend(changed_files.iter().cloned());
+            }
+
+            if state.in_progress {
+                if wait_for_completion {
+                    Some(state.generation + 1)
+                } else {
+                    return Ok((self.version(), Duration::ZERO));
+                }
+            } else {
+                state.in_progress = true;
+                None
+            }
+        };
+
+        if let Some(target_generation) = waiter_generation {
+            loop {
+                self.rebuild_notify.notified().await;
+                let state = self.rebuild_state.lock().await;
+                if state.generation >= target_generation {
+                    if let Some(result) = &state.last_result {
+                        return match result {
+                            Ok(ok) => Ok(*ok),
+                            Err(e) => Err(eyre::eyre!(e.clone())),
+                        };
+                    }
+                    return Ok((self.version(), Duration::ZERO));
+                }
+            }
+        }
+
+        loop {
+            let changed_batch = {
+                let mut state = self.rebuild_state.lock().await;
+                let pending_full = state.pending_full_rebuild;
+                state.pending_full_rebuild = false;
+
+                if pending_full {
+                    state.pending_changed_files.clear();
+                    Vec::new()
+                } else {
+                    std::mem::take(&mut state.pending_changed_files)
+                        .into_iter()
+                        .collect::<Vec<_>>()
+                }
+            };
+
+            let result = self.rebuild_once(&changed_batch).await;
+            let should_continue = {
+                let mut state = self.rebuild_state.lock().await;
+                state.last_result = Some(match &result {
+                    Ok(v) => Ok(*v),
+                    Err(e) => Err(e.to_string()),
+                });
+                state.generation = state.generation.saturating_add(1);
+                self.rebuild_notify.notify_waiters();
+
+                let has_pending =
+                    state.pending_full_rebuild || !state.pending_changed_files.is_empty();
+                if !has_pending {
+                    state.in_progress = false;
+                }
+                has_pending
+            };
+
+            if !should_continue {
+                return result;
+            }
+        }
+    }
+
+    async fn rebuild_once(&self, changed_files: &[PathBuf]) -> Result<(u64, Duration)> {
         let start = Instant::now();
 
         // Reload config - record errors but continue with current config

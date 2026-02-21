@@ -889,17 +889,34 @@ async fn extract_markdown_rules_cached(
     stats: &mut CacheStats,
 ) -> Result<Vec<crate::ExtractedRule>> {
     let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    let metadata = tokio::fs::metadata(&canonical).await.ok();
-    let file_len = metadata.as_ref().map_or(0, std::fs::Metadata::len);
-    let modified_nanos = metadata
-        .as_ref()
-        .and_then(|m| m.modified().ok())
-        .and_then(file_modified_nanos);
+    let overlay_content = overlay
+        .get(path)
+        .or_else(|| overlay.get(&canonical))
+        .cloned();
+    let overlay_is_present = overlay_content.is_some();
 
-    let content = read_file_with_overlay(&canonical, overlay).await?;
+    let (content, file_len, modified_nanos) = if let Some(content) = overlay_content {
+        (content.clone(), content.len() as u64, None)
+    } else {
+        let metadata = tokio::fs::metadata(&canonical).await.ok();
+        let file_len = metadata.as_ref().map_or(0, std::fs::Metadata::len);
+        let modified_nanos = metadata
+            .as_ref()
+            .and_then(|m| m.modified().ok())
+            .and_then(file_modified_nanos);
+        (
+            read_file_with_overlay(&canonical, overlay).await?,
+            file_len,
+            modified_nanos,
+        )
+    };
+
     let content_hash = compute_content_hash(&content);
     if let Some(entry) = cache.markdown_files.get(&canonical) {
-        if entry.file_len == file_len && entry.modified_nanos == modified_nanos {
+        if !overlay_is_present
+            && entry.file_len == file_len
+            && entry.modified_nanos == modified_nanos
+        {
             stats.metadata_hits += 1;
             return Ok(entry.extracted_rules.clone());
         }
@@ -1000,8 +1017,17 @@ async fn load_rules_from_includes_cached(
     changed_files: &[PathBuf],
     stats: &mut CacheStats,
 ) -> Result<(Vec<crate::ExtractedRule>, bool)> {
-    let (spec_paths, _warnings, did_full_walk) =
+    let (mut spec_paths, _warnings, did_full_walk) =
         get_cached_spec_scan_paths(project_root, include_patterns, changed_files, cache);
+    let (spec_roots, _) = build_scan_roots(project_root, include_patterns);
+    for overlay_path in overlay.keys() {
+        if overlay_path.extension().is_none_or(|ext| ext != "md") {
+            continue;
+        }
+        if path_matches_any_root(overlay_path, &spec_roots) {
+            spec_paths.insert(overlay_path.clone());
+        }
+    }
 
     let mut all_rules = Vec::new();
     let mut seen_ids: BTreeSet<String> = BTreeSet::new();
@@ -1041,8 +1067,22 @@ async fn scan_impl_files(
     BTreeMap<PathBuf, String>,
     bool,
 ) {
-    let (files, warnings, did_full_walk) =
+    let (mut files, warnings, did_full_walk) =
         get_cached_impl_scan_paths(project_root, include, exclude, changed_files, cache);
+    let (impl_roots, _) = build_scan_roots(project_root, include);
+    for overlay_path in overlay.keys() {
+        if overlay_path
+            .extension()
+            .is_none_or(|ext| !is_supported_extension(ext))
+        {
+            continue;
+        }
+        if path_matches_any_root(overlay_path, &impl_roots)
+            && !path_matches_excludes(overlay_path, &impl_roots, exclude)
+        {
+            files.insert(overlay_path.clone());
+        }
+    }
     let mut refs = Vec::new();
     let mut parse_warnings = Vec::new();
     let mut code_units_by_file: BTreeMap<PathBuf, Vec<CodeUnit>> = BTreeMap::new();
