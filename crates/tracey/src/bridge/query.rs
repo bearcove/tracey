@@ -133,8 +133,8 @@ impl QueryClient {
                     let verified = impl_status.verified_rules;
 
                     output.push_str(&format!(
-                        "{} of {} requirements are covered.",
-                        covered, total
+                        "{}/{}: {} of {} requirements are covered.",
+                        impl_status.spec, impl_status.impl_name, covered, total
                     ));
 
                     if stale > 0 {
