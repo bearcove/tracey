@@ -63,7 +63,7 @@ struct AppState {
 pub async fn run(
     root: Option<PathBuf>,
     _config_path: PathBuf,
-    port: u16,
+    port: Option<u16>,
     open: bool,
     dev: bool,
 ) -> Result<()> {
@@ -148,8 +148,35 @@ pub async fn run(
             .allow_headers(Any),
     );
 
-    // Start server
-    let addr = format!("127.0.0.1:{}", port);
+    // Start server — find a free port if none was explicitly requested
+    let listener = match port {
+        Some(p) => {
+            let addr = format!("127.0.0.1:{p}");
+            tokio::net::TcpListener::bind(&addr).await?
+        }
+        None => {
+            const DEFAULT_PORT: u16 = 3000;
+            const MAX_ATTEMPTS: u16 = 20;
+            let mut listener = None;
+            for p in DEFAULT_PORT..DEFAULT_PORT + MAX_ATTEMPTS {
+                match tokio::net::TcpListener::bind(format!("127.0.0.1:{p}")).await {
+                    Ok(l) => {
+                        listener = Some(l);
+                        break;
+                    }
+                    Err(_) => continue,
+                }
+            }
+            listener.ok_or_else(|| {
+                eyre::eyre!(
+                    "Could not find a free port in range {DEFAULT_PORT}..{}",
+                    DEFAULT_PORT + MAX_ATTEMPTS
+                )
+            })?
+        }
+    };
+
+    let addr = listener.local_addr()?;
     if let Some(vp) = vite_port {
         info!(
             "HTTP bridge listening on http://{} (dev mode, proxying to Vite on port {})",
@@ -166,7 +193,6 @@ pub async fn run(
         }
     }
 
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
     axum::serve(listener, app).await?;
 
     Ok(())

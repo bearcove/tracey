@@ -270,7 +270,7 @@ async fn main() -> Result<()> {
                 console_ansi: true,
                 default_filter: "tracey=info",
             })?;
-            bridge::http::run(root, config, port.unwrap_or(3000), open, dev).await
+            bridge::http::run(root, config, port, open, dev).await
         }
         // r[impl cli.mcp]
         // r[impl daemon.cli.mcp]
