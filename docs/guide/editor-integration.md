@@ -8,9 +8,7 @@ Tracey provides an LSP server that gives you real-time feedback on requirement r
 
 ## Zed
 
-Install from the Zed extension registry: open the extensions panel and search for "Tracey". The extension automatically downloads the tracey binary.
-
-For manual installation, clone the [tracey-zed](https://github.com/bearcove/tracey) repository into Zed's extensions directory.
+The Tracey Zed extension is not yet published to the registry. To install it, open the command palette (`Cmd+Shift+P`), run `zed: install dev extension`, and select the `tracey-zed` directory from the tracey repository.
 
 The extension activates for all supported source file types (`.rs`, `.ts`, `.tsx`, `.js`, `.jsx`, `.py`, `.go`, `.swift`, `.java`, `.md`) when a `.config/tracey/config.styx` file exists in the project.
 
