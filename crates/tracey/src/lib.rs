@@ -4,6 +4,7 @@
 //! and embedding purposes.
 
 pub mod bridge;
+pub mod bump;
 pub mod config;
 pub mod daemon;
 pub mod data;
@@ -261,7 +262,7 @@ pub async fn load_rules_from_globs(
 }
 
 /// Simple glob pattern matching
-fn matches_glob(path: &str, pattern: &str) -> bool {
+pub(crate) fn matches_glob(path: &str, pattern: &str) -> bool {
     // Make path separators consistent in case of windows
     let path = path.replace('\\', "/");
     let pattern = pattern.replace('\\', "/");

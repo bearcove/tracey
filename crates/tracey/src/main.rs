@@ -130,6 +130,29 @@ enum Command {
         #[facet(args::subcommand)]
         query: QueryCommand,
     },
+
+    /// Check staged spec changes and fail if any rule text changed without a version bump.
+    /// Designed to be installed as a git pre-commit hook.
+    PreCommit {
+        /// Project root directory (default: current directory)
+        #[facet(args::positional, default)]
+        root: Option<PathBuf>,
+
+        /// Path to config file
+        #[facet(args::named, args::short = 'c', default = ".config/tracey/config.styx")]
+        config: PathBuf,
+    },
+
+    /// Bump version numbers of staged rules whose text changed, then re-stage the files.
+    Bump {
+        /// Project root directory (default: current directory)
+        #[facet(args::positional, default)]
+        root: Option<PathBuf>,
+
+        /// Path to config file
+        #[facet(args::named, args::short = 'c', default = ".config/tracey/config.styx")]
+        config: PathBuf,
+    },
 }
 
 /// Skill subcommands
@@ -307,6 +330,37 @@ async fn main() -> Result<()> {
         Command::Skill { action } => match action {
             SkillAction::Install { claude, codex } => install_skill(claude, codex),
         },
+
+        // r[impl cli.pre-commit]
+        Command::PreCommit { root, config } => {
+            let project_root = root.unwrap_or_else(|| find_project_root().unwrap_or_default());
+            let config_path = project_root.join(&config);
+            let cfg = tracey::load_config(&config_path)?;
+            let passed = tracey::bump::pre_commit(&project_root, &cfg).await?;
+            if !passed {
+                std::process::exit(1);
+            }
+            Ok(())
+        }
+
+        // r[impl cli.bump]
+        Command::Bump { root, config } => {
+            let project_root = root.unwrap_or_else(|| find_project_root().unwrap_or_default());
+            let config_path = project_root.join(&config);
+            let cfg = tracey::load_config(&config_path)?;
+            let bumped = tracey::bump::bump(&project_root, &cfg).await?;
+            if bumped.is_empty() {
+                println!("No staged rule changes require a version bump.");
+            } else {
+                println!("Bumped {} rule(s):", bumped.len());
+                for id in &bumped {
+                    println!("  {id}");
+                }
+                println!();
+                println!("Affected spec files have been re-staged. Review and commit.");
+            }
+            Ok(())
+        }
 
         // r[impl daemon.cli.query]
         Command::Query { root, query } => {
