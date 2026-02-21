@@ -16,6 +16,14 @@ use roam::{Context, Tx};
 // Re-export the generated dispatcher from tracey-proto
 pub use tracey_proto::TraceyDaemonDispatcher;
 
+const STALE_IMPLEMENTATION_MUST_CHANGE_PREFIX: &str = "Implementation must be changed to match updated rule text — and ONLY ONCE THAT'S DONE must the code annotation be bumped";
+
+#[derive(Debug, Clone)]
+struct HistoricalRuleText {
+    commit: String,
+    text: String,
+}
+
 /// Inner service state shared via Arc.
 struct TraceyServiceInner {
     engine: Arc<Engine>,
@@ -764,6 +772,15 @@ impl TraceyDaemon for TraceyService {
             // Build a list of rule IDs for match classification.
             let known_rule_ids: Vec<RuleId> =
                 forward_data.rules.iter().map(|r| r.id.clone()).collect();
+            let rules_by_id: std::collections::HashMap<RuleId, &ApiRule> = forward_data
+                .rules
+                .iter()
+                .map(|rule| (rule.id.clone(), rule))
+                .collect();
+            let mut stale_message_cache: std::collections::HashMap<
+                (RuleId, RuleId),
+                Option<HistoricalRuleText>,
+            > = std::collections::HashMap::new();
 
             // r[impl config.multi-spec.unique-within-spec]
             // Check for duplicate rule IDs and duplicate bases (within this spec)
@@ -918,12 +935,16 @@ impl TraceyDaemon for TraceyService {
                                 ) {
                                     KnownRuleMatch::Exact => {}
                                     KnownRuleMatch::Stale(current_rule_id) => {
+                                        let message = stale_requirement_message(
+                                            project_root,
+                                            &reference.req_id,
+                                            rules_by_id.get(&current_rule_id).copied(),
+                                            &mut stale_message_cache,
+                                        )
+                                        .await;
                                         errors.push(ValidationError {
                                             code: ValidationErrorCode::StaleRequirement,
-                                            message: format!(
-                                                "Reference '{}' is stale; current rule is '{}'",
-                                                reference.req_id, current_rule_id
-                                            ),
+                                            message,
                                             file: Some(file_entry.path.clone()),
                                             line: Some(reference.line),
                                             column: None,
@@ -1331,17 +1352,27 @@ impl TraceyDaemon for TraceyService {
         // Build known rules by prefix (using all implementations for each spec).
         let mut known_rules_by_prefix: std::collections::HashMap<&str, Vec<RuleId>> =
             std::collections::HashMap::new();
+        let mut rules_by_id: std::collections::HashMap<RuleId, ApiRule> =
+            std::collections::HashMap::new();
         for spec_cfg in &data.config.specs {
             let mut rule_ids = Vec::new();
             for ((spec_name, _), forward_data) in &data.forward_by_impl {
                 if spec_name == &spec_cfg.name {
                     for rule in &forward_data.rules {
                         rule_ids.push(rule.id.clone());
+                        rules_by_id
+                            .entry(rule.id.clone())
+                            .or_insert_with(|| rule.clone());
                     }
                 }
             }
             known_rules_by_prefix.insert(spec_cfg.prefix.as_str(), rule_ids);
         }
+        let mut stale_message_cache: std::collections::HashMap<
+            (RuleId, RuleId),
+            Option<HistoricalRuleText>,
+        > = std::collections::HashMap::new();
+        let project_root = self.inner.engine.project_root();
 
         for reference in &reqs.references {
             let (start_line, start_char, end_line, end_char) =
@@ -1368,13 +1399,17 @@ impl TraceyDaemon for TraceyService {
             match classify_reference_against_known_rules(&reference.req_id, known_for_prefix) {
                 KnownRuleMatch::Exact => {}
                 KnownRuleMatch::Stale(current_rule_id) => {
+                    let message = stale_requirement_message(
+                        project_root,
+                        &reference.req_id,
+                        rules_by_id.get(&current_rule_id),
+                        &mut stale_message_cache,
+                    )
+                    .await;
                     diagnostics.push(LspDiagnostic {
                         severity: "warning".to_string(),
                         code: "stale".to_string(),
-                        message: format!(
-                            "Stale requirement reference: '{}' is older than '{}'",
-                            reference.req_id, current_rule_id
-                        ),
+                        message,
                         start_line,
                         start_char,
                         end_line,
@@ -2311,6 +2346,197 @@ fn find_rule_in_data<'a>(
         }
     }
     best_match
+}
+
+fn run_git_capture(project_root: &Path, args: &[&str]) -> Option<String> {
+    let output = std::process::Command::new("git")
+        .args(args)
+        .current_dir(project_root)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8(output.stdout).ok()
+}
+
+async fn find_rule_text_in_markdown(content: &str, rule_id: &RuleId) -> Option<String> {
+    let options = marq::RenderOptions::default();
+    let doc = marq::render(content, &options).await.ok()?;
+    let rule_id = rule_id.to_string();
+    doc.reqs
+        .iter()
+        .find(|req| req.id.to_string() == rule_id)
+        .map(|req| req.raw.clone())
+}
+
+async fn load_previous_rule_text_from_git(
+    project_root: &Path,
+    source_file: &str,
+    previous_rule_id: &RuleId,
+) -> Option<HistoricalRuleText> {
+    let commits = run_git_capture(project_root, &["log", "--format=%H", "--", source_file])?;
+
+    for commit in commits.lines() {
+        let show_arg = format!("{commit}:{source_file}");
+        let content = run_git_capture(project_root, &["show", &show_arg]);
+        let Some(content) = content else {
+            continue;
+        };
+
+        if let Some(text) = find_rule_text_in_markdown(&content, previous_rule_id).await {
+            return Some(HistoricalRuleText {
+                commit: commit.to_string(),
+                text,
+            });
+        }
+    }
+
+    None
+}
+
+enum DiffLine<'a> {
+    Equal(&'a str),
+    Remove(&'a str),
+    Add(&'a str),
+}
+
+fn line_diff<'a>(old: &'a str, new: &'a str) -> Vec<DiffLine<'a>> {
+    let old_lines: Vec<&str> = old.lines().collect();
+    let new_lines: Vec<&str> = new.lines().collect();
+    let n = old_lines.len();
+    let m = new_lines.len();
+
+    let mut lcs = vec![vec![0usize; m + 1]; n + 1];
+    for i in (0..n).rev() {
+        for j in (0..m).rev() {
+            lcs[i][j] = if old_lines[i] == new_lines[j] {
+                lcs[i + 1][j + 1] + 1
+            } else {
+                lcs[i + 1][j].max(lcs[i][j + 1])
+            };
+        }
+    }
+
+    let mut i = 0;
+    let mut j = 0;
+    let mut out = Vec::new();
+    while i < n && j < m {
+        if old_lines[i] == new_lines[j] {
+            out.push(DiffLine::Equal(old_lines[i]));
+            i += 1;
+            j += 1;
+        } else if lcs[i + 1][j] >= lcs[i][j + 1] {
+            out.push(DiffLine::Remove(old_lines[i]));
+            i += 1;
+        } else {
+            out.push(DiffLine::Add(new_lines[j]));
+            j += 1;
+        }
+    }
+    while i < n {
+        out.push(DiffLine::Remove(old_lines[i]));
+        i += 1;
+    }
+    while j < m {
+        out.push(DiffLine::Add(new_lines[j]));
+        j += 1;
+    }
+
+    out
+}
+
+fn append_indented_block(message: &mut String, title: &str, body: &str) {
+    message.push('\n');
+    message.push_str(title);
+    message.push('\n');
+    if body.is_empty() {
+        message.push_str("  (empty)\n");
+        return;
+    }
+    for line in body.lines() {
+        message.push_str("  ");
+        message.push_str(line);
+        message.push('\n');
+    }
+}
+
+fn build_rule_text_diff(old_text: &str, new_text: &str) -> String {
+    let ops = line_diff(old_text, new_text);
+    let mut out = String::new();
+    for op in ops {
+        match op {
+            DiffLine::Equal(line) => {
+                out.push_str("  ");
+                out.push_str(line);
+                out.push('\n');
+            }
+            DiffLine::Remove(line) => {
+                out.push('-');
+                out.push_str(line);
+                out.push('\n');
+            }
+            DiffLine::Add(line) => {
+                out.push('+');
+                out.push_str(line);
+                out.push('\n');
+            }
+        }
+    }
+    out
+}
+
+async fn stale_requirement_message(
+    project_root: &Path,
+    reference_rule_id: &RuleId,
+    current_rule: Option<&ApiRule>,
+    cache: &mut std::collections::HashMap<(RuleId, RuleId), Option<HistoricalRuleText>>,
+) -> String {
+    let mut message = String::from(STALE_IMPLEMENTATION_MUST_CHANGE_PREFIX);
+
+    let Some(current_rule) = current_rule else {
+        message.push_str(". The referenced annotation is stale, but the latest matching rule could not be loaded.");
+        return message;
+    };
+
+    message.push_str(&format!(
+        ". Reference '{}' is stale; current rule is '{}'.",
+        reference_rule_id, current_rule.id
+    ));
+
+    let Some(source_file) = current_rule.source_file.as_deref() else {
+        message.push_str(
+            "\n\nRule-text history is unavailable because the current rule source file is unknown.",
+        );
+        return message;
+    };
+
+    let key = (reference_rule_id.clone(), current_rule.id.clone());
+    let historical = if let Some(entry) = cache.get(&key) {
+        entry.clone()
+    } else {
+        let loaded =
+            load_previous_rule_text_from_git(project_root, source_file, reference_rule_id).await;
+        cache.insert(key.clone(), loaded.clone());
+        loaded
+    };
+
+    let Some(previous) = historical else {
+        message.push_str(
+            "\n\nRule-text history is unavailable (git history is missing, shallow, or does not contain the older rule text).",
+        );
+        return message;
+    };
+
+    append_indented_block(&mut message, "Previous rule text:", &previous.text);
+    append_indented_block(&mut message, "Current rule text:", &current_rule.raw);
+    let diff = build_rule_text_diff(&previous.text, &current_rule.raw);
+    append_indented_block(&mut message, "Diff:", &diff);
+    message.push_str(&format!(
+        "Previous rule text source commit: {}",
+        previous.commit
+    ));
+    message
 }
 
 /// Save config to file

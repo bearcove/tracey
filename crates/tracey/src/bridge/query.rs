@@ -475,10 +475,17 @@ fn format_validation_result(result: &tracey_proto::ValidationResult) -> String {
                 _ => String::new(),
             };
 
-            output.push_str(&format!(
-                "  - [{:?}] {}{}\n",
-                error.code, error.message, location
-            ));
+            if error.code == ValidationErrorCode::StaleRequirement {
+                output.push_str(&format!(
+                    "  - {} [{:?}]{}\n",
+                    error.message, error.code, location
+                ));
+            } else {
+                output.push_str(&format!(
+                    "  - [{:?}] {}{}\n",
+                    error.code, error.message, location
+                ));
+            }
 
             if !error.related_rules.is_empty() {
                 output.push_str(&format!(
@@ -494,5 +501,39 @@ fn format_validation_result(result: &tracey_proto::ValidationResult) -> String {
         }
 
         output
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_validation_result;
+    use tracey_core::parse_rule_id;
+    use tracey_proto::{ValidationError, ValidationErrorCode, ValidationResult};
+
+    #[test]
+    fn stale_validation_output_starts_with_message_text() {
+        let result = ValidationResult {
+            spec: "spec".to_string(),
+            impl_name: "impl".to_string(),
+            errors: vec![ValidationError {
+                code: ValidationErrorCode::StaleRequirement,
+                message: "Implementation must be changed to match updated rule text — and ONLY ONCE THAT'S DONE must the code annotation be bumped. Example".to_string(),
+                file: Some("src/lib.rs".to_string()),
+                line: Some(12),
+                column: None,
+                related_rules: vec![parse_rule_id("spec.rule+2").expect("valid rule id")],
+            }],
+            warning_count: 0,
+            error_count: 1,
+        };
+
+        let output = format_validation_result(&result);
+        assert!(
+            output.contains(
+                "  - Implementation must be changed to match updated rule text — and ONLY ONCE THAT'S DONE must the code annotation be bumped."
+            ),
+            "unexpected output:\n{}",
+            output
+        );
     }
 }
