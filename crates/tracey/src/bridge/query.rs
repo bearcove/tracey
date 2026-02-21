@@ -559,10 +559,18 @@ fn format_validation_result(result: &tracey_proto::ValidationResult) -> String {
             };
 
             if error.code == ValidationErrorCode::StaleRequirement {
-                // r[impl mcp.validation.stale.message-prefix]
+                // r[impl mcp.validation.stale.message-prefix+2]
+                // Build a concise human-readable message from structured fields
+                let stale_msg = if let (Some(ref_id), Some(current_id)) =
+                    (&error.reference_rule_id, error.related_rules.first())
+                {
+                    format!("Reference '{ref_id}' is stale; current rule is '{current_id}'")
+                } else {
+                    error.message.clone()
+                };
                 output.push_str(&format!(
-                    "  - {} [{:?}]{}\n",
-                    error.message, error.code, location
+                    "  - [{:?}] {}{}\n",
+                    error.code, stale_msg, location
                 ));
                 if let Some(current_rule) = error.related_rules.first() {
                     output.push_str(&format!(
@@ -602,13 +610,13 @@ mod tests {
     use tracey_proto::{ValidationError, ValidationErrorCode, ValidationResult};
 
     #[test]
-    fn stale_validation_output_starts_with_message_text() {
+    fn stale_validation_output_is_concise() {
         let result = ValidationResult {
             spec: "spec".to_string(),
             impl_name: "impl".to_string(),
             errors: vec![ValidationError {
                 code: ValidationErrorCode::StaleRequirement,
-                message: "Implementation must be changed to match updated rule text — and ONLY ONCE THAT'S DONE must the code annotation be bumped. Example".to_string(),
+                message: "Implementation must be changed to match updated rule text — and ONLY ONCE THAT'S DONE must the code annotation be bumped. Reference 'spec.rule' is stale; current rule is 'spec.rule+2'.".to_string(),
                 file: Some("src/lib.rs".to_string()),
                 line: Some(12),
                 column: None,
@@ -620,16 +628,21 @@ mod tests {
         };
 
         let output = format_validation_result(&result);
+        // Consistent format: [Code] message — no agent-directed prefix
         assert!(
-            output.contains(
-                "  - Implementation must be changed to match updated rule text — and ONLY ONCE THAT'S DONE must the code annotation be bumped."
-            ),
-            "unexpected output:\n{}",
+            output.contains("[StaleRequirement] Reference 'spec.rule' is stale; current rule is 'spec.rule+2' at src/lib.rs:12"),
+            "expected concise stale output:\n{}",
             output
         );
         assert!(
             output.contains("Use `tracey query rule 'spec.rule+2'` to see the full rule and diff."),
             "expected query hint in output:\n{}",
+            output
+        );
+        // Agent prefix should NOT appear in formatted output
+        assert!(
+            !output.contains("ONLY ONCE THAT'S DONE"),
+            "agent-directed prefix should not appear in CLI output:\n{}",
             output
         );
     }

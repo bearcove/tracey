@@ -1067,8 +1067,8 @@ Large result sets SHOULD be paginated with hints showing how to retrieve more re
 r[mcp.validation.check]
 The `tracey_validate` tool MUST run all validation checks and return a report of issues found (broken refs, naming violations, circular deps, orphaned requirements, duplicates).
 
-r[mcp.validation.stale.message-prefix]
-When `tracey_validate` output includes stale-reference errors, each stale entry MUST begin with the stale-validation message text so the required message prefix is visible before any error code or formatting metadata.
+r[mcp.validation.stale.message-prefix+2]
+When `tracey_validate` output includes stale-reference errors, each stale entry MUST use the same `[StaleRequirement]` prefix format as other error codes, with a concise human-readable message identifying the stale reference and current rule ID, followed by a hint to use `tracey query rule` for the full diff.
 
 r[dashboard.query.search]
 The dashboard MUST provide a search interface for finding requirements by keyword in their text or ID.
