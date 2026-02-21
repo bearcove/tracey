@@ -224,6 +224,9 @@ pub struct ValidationError {
     /// Related rule IDs (for dependency errors)
     #[facet(default)]
     pub related_rules: Vec<RuleId>,
+    /// The stale reference's rule ID (for StaleRequirement errors)
+    #[facet(default)]
+    pub reference_rule_id: Option<RuleId>,
 }
 
 /// Error codes for validation errors

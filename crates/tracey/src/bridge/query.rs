@@ -564,6 +564,11 @@ fn format_validation_result(result: &tracey_proto::ValidationResult) -> String {
                     "  - {} [{:?}]{}\n",
                     error.message, error.code, location
                 ));
+                if let Some(current_rule) = error.related_rules.first() {
+                    output.push_str(&format!(
+                        "    Use `tracey query rule '{current_rule}'` to see the full rule and diff.\n",
+                    ));
+                }
             } else {
                 output.push_str(&format!(
                     "  - [{:?}] {}{}\n",
@@ -571,7 +576,9 @@ fn format_validation_result(result: &tracey_proto::ValidationResult) -> String {
                 ));
             }
 
-            if !error.related_rules.is_empty() {
+            if !error.related_rules.is_empty()
+                && error.code != ValidationErrorCode::StaleRequirement
+            {
                 output.push_str(&format!(
                     "    Related rules: {}\n",
                     error
@@ -606,6 +613,7 @@ mod tests {
                 line: Some(12),
                 column: None,
                 related_rules: vec![parse_rule_id("spec.rule+2").expect("valid rule id")],
+                reference_rule_id: Some(parse_rule_id("spec.rule").expect("valid rule id")),
             }],
             warning_count: 0,
             error_count: 1,
@@ -617,6 +625,11 @@ mod tests {
                 "  - Implementation must be changed to match updated rule text — and ONLY ONCE THAT'S DONE must the code annotation be bumped."
             ),
             "unexpected output:\n{}",
+            output
+        );
+        assert!(
+            output.contains("Use `tracey query rule 'spec.rule+2'` to see the full rule and diff."),
+            "expected query hint in output:\n{}",
             output
         );
     }

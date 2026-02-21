@@ -32,6 +32,10 @@ export interface ValidationError {
    * Related rule IDs (for dependency errors)
    */
   relatedRules?: RuleId[];
+  /**
+   * The stale reference's rule ID (for StaleRequirement errors)
+   */
+  referenceRuleId?: RuleId;
 }
 
 /**

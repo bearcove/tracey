@@ -20,7 +20,6 @@ const STALE_IMPLEMENTATION_MUST_CHANGE_PREFIX: &str = "Implementation must be ch
 
 #[derive(Debug, Clone)]
 struct HistoricalRuleText {
-    commit: String,
     text: String,
 }
 
@@ -778,11 +777,6 @@ impl TraceyDaemon for TraceyService {
                 .iter()
                 .map(|rule| (rule.id.clone(), rule))
                 .collect();
-            let mut stale_message_cache: std::collections::HashMap<
-                (RuleId, RuleId),
-                Option<HistoricalRuleText>,
-            > = std::collections::HashMap::new();
-
             // r[impl config.multi-spec.unique-within-spec]
             // Check for duplicate rule IDs and duplicate bases (within this spec)
             let mut seen_ids: std::collections::HashMap<RuleId, (&Option<String>, Option<usize>)> =
@@ -805,6 +799,7 @@ impl TraceyDaemon for TraceyService {
                         line: rule.source_line,
                         column: rule.source_column,
                         related_rules: vec![rule.id.clone()],
+                        reference_rule_id: None,
                     });
                 } else {
                     seen_ids.insert(rule.id.clone(), (&rule.source_file, rule.source_line));
@@ -827,6 +822,7 @@ impl TraceyDaemon for TraceyService {
                         line: rule.source_line,
                         column: rule.source_column,
                         related_rules: vec![(*prev_rule_id).clone(), rule.id.clone()],
+                        reference_rule_id: None,
                     });
                 } else {
                     seen_bases.insert(
@@ -850,6 +846,7 @@ impl TraceyDaemon for TraceyService {
                         line: rule.source_line,
                         column: rule.source_column,
                         related_rules: vec![],
+                        reference_rule_id: None,
                     });
                 }
 
@@ -868,6 +865,7 @@ impl TraceyDaemon for TraceyService {
                             line: Some(impl_ref.line),
                             column: None,
                             related_rules: vec![rule.id.clone()],
+                            reference_rule_id: None,
                         });
                     }
                 }
@@ -945,6 +943,7 @@ impl TraceyDaemon for TraceyService {
                                     line: Some(reference.line),
                                     column: None,
                                     related_rules: vec![],
+                                    reference_rule_id: None,
                                 });
                             }
                             // r[impl ref.prefix.filter+2]
@@ -958,13 +957,10 @@ impl TraceyDaemon for TraceyService {
                                     KnownRuleMatch::Exact => {}
                                     KnownRuleMatch::Stale(current_rule_id) => {
                                         // r[impl validation.stale.message-prefix]
-                                        let message = stale_requirement_message(
-                                            project_root,
+                                        let message = stale_diagnostic_message_short(
                                             &reference.req_id,
                                             rules_by_id.get(&current_rule_id).copied(),
-                                            &mut stale_message_cache,
-                                        )
-                                        .await;
+                                        );
                                         errors.push(ValidationError {
                                             code: ValidationErrorCode::StaleRequirement,
                                             message,
@@ -972,6 +968,7 @@ impl TraceyDaemon for TraceyService {
                                             line: Some(reference.line),
                                             column: None,
                                             related_rules: vec![current_rule_id],
+                                            reference_rule_id: Some(reference.req_id.clone()),
                                         });
                                     }
                                     KnownRuleMatch::Missing => {
@@ -994,6 +991,7 @@ impl TraceyDaemon for TraceyService {
                                                     line: Some(reference.line),
                                                     column: None,
                                                     related_rules: vec![],
+                                                    reference_rule_id: None,
                                                 });
                                             }
                                         }
@@ -1025,6 +1023,7 @@ impl TraceyDaemon for TraceyService {
                     line: None,
                     column: None,
                     related_rules: cycle,
+                    reference_rule_id: None,
                 });
             }
         }
@@ -2449,105 +2448,11 @@ async fn load_previous_rule_text_from_git(
         };
 
         if let Some(text) = find_rule_text_in_markdown(&content, previous_rule_id).await {
-            return Some(HistoricalRuleText {
-                commit: commit.to_string(),
-                text,
-            });
+            return Some(HistoricalRuleText { text });
         }
     }
 
     None
-}
-
-enum DiffLine<'a> {
-    Equal(&'a str),
-    Remove(&'a str),
-    Add(&'a str),
-}
-
-fn line_diff<'a>(old: &'a str, new: &'a str) -> Vec<DiffLine<'a>> {
-    let old_lines: Vec<&str> = old.lines().collect();
-    let new_lines: Vec<&str> = new.lines().collect();
-    let n = old_lines.len();
-    let m = new_lines.len();
-
-    let mut lcs = vec![vec![0usize; m + 1]; n + 1];
-    for i in (0..n).rev() {
-        for j in (0..m).rev() {
-            lcs[i][j] = if old_lines[i] == new_lines[j] {
-                lcs[i + 1][j + 1] + 1
-            } else {
-                lcs[i + 1][j].max(lcs[i][j + 1])
-            };
-        }
-    }
-
-    let mut i = 0;
-    let mut j = 0;
-    let mut out = Vec::new();
-    while i < n && j < m {
-        if old_lines[i] == new_lines[j] {
-            out.push(DiffLine::Equal(old_lines[i]));
-            i += 1;
-            j += 1;
-        } else if lcs[i + 1][j] >= lcs[i][j + 1] {
-            out.push(DiffLine::Remove(old_lines[i]));
-            i += 1;
-        } else {
-            out.push(DiffLine::Add(new_lines[j]));
-            j += 1;
-        }
-    }
-    while i < n {
-        out.push(DiffLine::Remove(old_lines[i]));
-        i += 1;
-    }
-    while j < m {
-        out.push(DiffLine::Add(new_lines[j]));
-        j += 1;
-    }
-
-    out
-}
-
-fn append_indented_block(message: &mut String, title: &str, body: &str) {
-    message.push('\n');
-    message.push_str(title);
-    message.push('\n');
-    if body.is_empty() {
-        message.push_str("  (empty)\n");
-        return;
-    }
-    for line in body.lines() {
-        message.push_str("  ");
-        message.push_str(line);
-        message.push('\n');
-    }
-}
-
-fn build_rule_text_diff(old_text: &str, new_text: &str) -> String {
-    let ops = line_diff(old_text, new_text);
-    let mut out = String::new();
-    for op in ops {
-        match op {
-            DiffLine::Equal(line) => {
-                out.push_str("  ");
-                out.push_str(line);
-                out.push('\n');
-            }
-            DiffLine::Remove(line) => {
-                out.push('-');
-                out.push_str(line);
-                out.push('\n');
-            }
-            DiffLine::Add(line) => {
-                out.push('+');
-                out.push_str(line);
-                out.push('\n');
-            }
-        }
-    }
-    out
 }
 
 enum WordDiffOp<'a> {
@@ -2654,62 +2559,6 @@ fn stale_diagnostic_message_short(
     } else {
         message.push_str(". The referenced annotation is stale, but the latest matching rule could not be loaded.");
     }
-    message
-}
-
-/// Verbose stale message for validation/MCP — includes previous/current text and diff.
-async fn stale_requirement_message(
-    project_root: &Path,
-    reference_rule_id: &RuleId,
-    current_rule: Option<&ApiRule>,
-    cache: &mut std::collections::HashMap<(RuleId, RuleId), Option<HistoricalRuleText>>,
-) -> String {
-    // r[impl validation.stale.message-prefix]
-    let mut message = String::from(STALE_IMPLEMENTATION_MUST_CHANGE_PREFIX);
-
-    let Some(current_rule) = current_rule else {
-        message.push_str(". The referenced annotation is stale, but the latest matching rule could not be loaded.");
-        return message;
-    };
-
-    message.push_str(&format!(
-        ". Reference '{}' is stale; current rule is '{}'.",
-        reference_rule_id, current_rule.id
-    ));
-
-    let Some(source_file) = current_rule.source_file.as_deref() else {
-        message.push_str(
-            "\n\nRule-text history is unavailable because the current rule source file is unknown.",
-        );
-        return message;
-    };
-
-    let key = (reference_rule_id.clone(), current_rule.id.clone());
-    let historical = if let Some(entry) = cache.get(&key) {
-        entry.clone()
-    } else {
-        let loaded =
-            load_previous_rule_text_from_git(project_root, source_file, reference_rule_id).await;
-        cache.insert(key.clone(), loaded.clone());
-        loaded
-    };
-
-    let Some(previous) = historical else {
-        // r[impl validation.stale.diff.fallback]
-        message.push_str(
-            "\n\nRule-text history is unavailable (git history is missing, shallow, or does not contain the older rule text).",
-        );
-        return message;
-    };
-
-    append_indented_block(&mut message, "Previous rule text:", &previous.text);
-    append_indented_block(&mut message, "Current rule text:", &current_rule.raw);
-    let diff = build_rule_text_diff(&previous.text, &current_rule.raw);
-    append_indented_block(&mut message, "Diff:", &diff);
-    message.push_str(&format!(
-        "Previous rule text source commit: {}",
-        previous.commit
-    ));
     message
 }
 

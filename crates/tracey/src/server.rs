@@ -418,11 +418,19 @@ impl<'a> QueryEngine<'a> {
         let mut result: Option<RuleInfo> = None;
 
         for (key, forward) in &self.data.forward_by_impl {
-            if let Some(rule) = forward
+            // Try exact match first, then fall back to latest version with matching base
+            let rule = forward
                 .rules
                 .iter()
                 .find(|r| r.id.base == rule_id.base && r.id.version == rule_id.version)
-            {
+                .or_else(|| {
+                    forward
+                        .rules
+                        .iter()
+                        .filter(|r| r.id.base == rule_id.base)
+                        .max_by_key(|r| r.id.version)
+                });
+            if let Some(rule) = rule {
                 // Capture rule metadata from first match
                 if result.is_none() {
                     result = Some(RuleInfo {
