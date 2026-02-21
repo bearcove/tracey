@@ -2507,7 +2507,7 @@ dependencies = [
 [[package]]
 name = "marq"
 version = "0.1.0"
-source = "git+https://github.com/bearcove/marq?branch=main#86fd18a5da01b6ff675c79331dc4c51e051709ad"
+source = "git+https://github.com/bearcove/marq?branch=ast-diff-api#a3d70b27fb66e98d6a12962335795525a5c7a5e7"
 dependencies = [
  "aasvg",
  "arborium",

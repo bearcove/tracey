@@ -411,7 +411,7 @@ impl TraceyDaemon for TraceyService {
                 let project_root = self.inner.engine.project_root();
                 load_previous_rule_text_from_git(project_root, source_file, &prev_id)
                     .await
-                    .map(|historical| build_markdown_word_diff(&historical.text, &info.raw))
+                    .map(|historical| marq::diff_markdown_inline(&historical.text, &info.raw))
             } else {
                 None
             }
@@ -1158,7 +1158,7 @@ impl TraceyDaemon for TraceyService {
                     let project_root = self.inner.engine.project_root();
                     load_previous_rule_text_from_git(project_root, source_file, &prev_id)
                         .await
-                        .map(|historical| build_markdown_word_diff(&historical.text, &rule.raw))
+                        .map(|historical| marq::diff_markdown_inline(&historical.text, &rule.raw))
                 } else {
                     None
                 }
@@ -1169,7 +1169,7 @@ impl TraceyDaemon for TraceyService {
                     let project_root = self.inner.engine.project_root();
                     load_previous_rule_text_from_git(project_root, source_file, &rule_at_pos.req_id)
                         .await
-                        .map(|historical| build_markdown_word_diff(&historical.text, &rule.raw))
+                        .map(|historical| marq::diff_markdown_inline(&historical.text, &rule.raw))
                 } else {
                     None
                 }
@@ -2508,96 +2508,6 @@ async fn load_previous_rule_text_from_git(
     }
 
     None
-}
-
-enum WordDiffOp<'a> {
-    Equal(&'a str),
-    Remove(&'a str),
-    Add(&'a str),
-}
-
-fn word_diff<'a>(old: &'a str, new: &'a str) -> Vec<WordDiffOp<'a>> {
-    let old_words: Vec<&str> = old.split_whitespace().collect();
-    let new_words: Vec<&str> = new.split_whitespace().collect();
-    let n = old_words.len();
-    let m = new_words.len();
-
-    // LCS table
-    let mut lcs = vec![vec![0usize; m + 1]; n + 1];
-    for i in (0..n).rev() {
-        for j in (0..m).rev() {
-            lcs[i][j] = if old_words[i] == new_words[j] {
-                lcs[i + 1][j + 1] + 1
-            } else {
-                lcs[i + 1][j].max(lcs[i][j + 1])
-            };
-        }
-    }
-
-    let mut i = 0;
-    let mut j = 0;
-    let mut out = Vec::new();
-    while i < n && j < m {
-        if old_words[i] == new_words[j] {
-            out.push(WordDiffOp::Equal(old_words[i]));
-            i += 1;
-            j += 1;
-        } else if lcs[i + 1][j] >= lcs[i][j + 1] {
-            out.push(WordDiffOp::Remove(old_words[i]));
-            i += 1;
-        } else {
-            out.push(WordDiffOp::Add(new_words[j]));
-            j += 1;
-        }
-    }
-    while i < n {
-        out.push(WordDiffOp::Remove(old_words[i]));
-        i += 1;
-    }
-    while j < m {
-        out.push(WordDiffOp::Add(new_words[j]));
-        j += 1;
-    }
-
-    out
-}
-
-fn build_markdown_word_diff(old_text: &str, new_text: &str) -> String {
-    let ops = word_diff(old_text, new_text);
-    let mut out = String::new();
-    let mut need_space = false;
-
-    for op in ops {
-        match op {
-            WordDiffOp::Equal(word) => {
-                if need_space {
-                    out.push(' ');
-                }
-                out.push_str(word);
-                need_space = true;
-            }
-            WordDiffOp::Remove(word) => {
-                if need_space {
-                    out.push(' ');
-                }
-                out.push_str("~~");
-                out.push_str(word);
-                out.push_str("~~");
-                need_space = true;
-            }
-            WordDiffOp::Add(word) => {
-                if need_space {
-                    out.push(' ');
-                }
-                out.push_str("**");
-                out.push_str(word);
-                out.push_str("**");
-                need_space = true;
-            }
-        }
-    }
-
-    out
 }
 
 /// Short stale diagnostic for LSP — just the prefix and reference info, no diff.
