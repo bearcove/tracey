@@ -1,10 +1,12 @@
 # Configuration
 
-Tracey is configured via `.config/tracey/config.styx` in your project root. The config file defines which spec files to read and which source files to scan.
+Tracey is configured via `.config/tracey/config.styx` in your project root. The config file uses the [Styx](https://styx.bearcove.eu/) configuration language and defines which spec files to read and which source files to scan.
 
 ## Minimal config
 
 ```styx
+@schema {id crate:tracey-config@1, cli tracey}
+
 specs (
     {
         name my-project
