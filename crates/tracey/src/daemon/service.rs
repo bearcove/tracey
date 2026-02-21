@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tracey_core::{RuleId, RuleIdMatch, classify_reference_for_rule, parse_rule_id};
 use tracey_proto::*;
+use tracing::debug;
 
 use super::engine::Engine;
 use super::watcher::WatcherState;
@@ -23,6 +24,12 @@ struct HistoricalRuleText {
     text: String,
 }
 
+#[derive(Default)]
+struct ValidationCache {
+    version: u64,
+    entries: std::collections::HashMap<(String, String), ValidationResult>,
+}
+
 /// Inner service state shared via Arc.
 struct TraceyServiceInner {
     engine: Arc<Engine>,
@@ -34,6 +41,8 @@ struct TraceyServiceInner {
     start_time: Instant,
     /// Shutdown signal sender
     shutdown_tx: tokio::sync::watch::Sender<bool>,
+    /// Cached validation results keyed by (spec, impl) for the current build version.
+    validation_cache: Mutex<ValidationCache>,
 }
 
 /// Service implementation wrapping the Engine.
@@ -55,6 +64,7 @@ impl TraceyService {
                 watcher_state: None,
                 start_time: Instant::now(),
                 shutdown_tx,
+                validation_cache: Mutex::new(ValidationCache::default()),
             }),
         }
     }
@@ -73,6 +83,7 @@ impl TraceyService {
                 watcher_state: Some(watcher_state),
                 start_time: Instant::now(),
                 shutdown_tx,
+                validation_cache: Mutex::new(ValidationCache::default()),
             }),
         };
         (service, shutdown_rx)
@@ -719,15 +730,36 @@ impl TraceyDaemon for TraceyService {
         impl_name: String,
     ) -> Option<ApiSpecData> {
         let data = self.inner.engine.data().await;
-        data.specs_content_by_impl.get(&(spec, impl_name)).cloned()
+        if let Some(cached) = data
+            .specs_content_by_impl
+            .get(&(spec.clone(), impl_name.clone()))
+            .cloned()
+        {
+            return Some(cached);
+        }
+
+        let forward = data
+            .forward_by_impl
+            .get(&(spec.clone(), impl_name.clone()))?;
+        let include_patterns = data.spec_includes_by_name.get(&spec)?;
+        crate::data::render_spec_content_for_impl(
+            self.inner.engine.project_root(),
+            include_patterns,
+            &spec,
+            &impl_name,
+            forward,
+        )
+        .await
+        .ok()
     }
 
     /// Search rules and files
     async fn search(&self, _cx: &Context, query: String, limit: u32) -> Vec<SearchResult> {
-        let data = self.inner.engine.data().await;
-        let raw_results: Vec<_> = data
-            .search_index
+        let raw_results: Vec<_> = self
+            .inner
+            .engine
             .search(&query, limit as usize)
+            .await
             .into_iter()
             .collect();
 
@@ -842,9 +874,21 @@ impl TraceyDaemon for TraceyService {
     async fn validate(&self, _cx: &Context, req: ValidateRequest) -> ValidationResult {
         let data = self.inner.engine.data().await;
         let project_root = self.inner.engine.project_root();
+        let data_version = data.version;
 
         let (spec, impl_name) =
             self.resolve_spec_impl(req.spec.as_deref(), req.impl_name.as_deref(), &data.config);
+
+        {
+            let mut cache = self.inner.validation_cache.lock().unwrap();
+            if cache.version != data_version {
+                cache.entries.clear();
+                cache.version = data_version;
+            }
+            if let Some(cached) = cache.entries.get(&(spec.clone(), impl_name.clone())) {
+                return cached.clone();
+            }
+        }
 
         let mut errors = Vec::new();
 
@@ -982,6 +1026,14 @@ impl TraceyDaemon for TraceyService {
                     .iter()
                     .find(|s| s.name == spec)
                     .map(|s| s.prefix.as_str());
+                debug!(
+                    "validate spec={} impl={} current_spec_prefix={:?} known_prefixes={:?} files={}",
+                    spec,
+                    impl_name,
+                    current_spec_prefix,
+                    known_prefixes,
+                    reverse_data.files.len()
+                );
                 // r[impl config.multi-spec.prefix-namespace+2]
                 let known_rule_ids_for_prefix: Vec<RuleId> =
                     if let Some(prefix) = current_spec_prefix {
@@ -1007,12 +1059,25 @@ impl TraceyDaemon for TraceyService {
                     let file_path = project_root.join(&file_entry.path);
                     if let Ok(content) = std::fs::read_to_string(&file_path) {
                         let reqs = tracey_core::Reqs::extract_from_content(&file_path, &content);
+                        debug!(
+                            "validate scanning file={} refs={} warnings={}",
+                            file_entry.path,
+                            reqs.references.len(),
+                            reqs.warnings.len()
+                        );
                         for reference in &reqs.references {
                             // Check if prefix is known
                             if !known_prefixes.contains(reference.prefix.as_str()) {
                                 let mut available: Vec<_> =
                                     known_prefixes.iter().copied().collect();
                                 available.sort_unstable();
+                                debug!(
+                                    "validate unknown-prefix file={} line={} prefix={} available={}",
+                                    file_entry.path,
+                                    reference.line,
+                                    reference.prefix,
+                                    available.join(", ")
+                                );
                                 errors.push(ValidationError {
                                     code: ValidationErrorCode::UnknownPrefix,
                                     message: format!(
@@ -1062,12 +1127,22 @@ impl TraceyDaemon for TraceyService {
                                                 // It will be checked when that spec is validated.
                                             }
                                             KnownRuleMatch::Missing => {
+                                                let message = unknown_rule_message_with_context(
+                                                    &reference.prefix,
+                                                    &reference.verb,
+                                                    &reference.req_id,
+                                                    &known_rule_ids_for_prefix,
+                                                );
+                                                debug!(
+                                                    "validate unknown-rule file={} line={} prefix={} req_id={}",
+                                                    file_entry.path,
+                                                    reference.line,
+                                                    reference.prefix,
+                                                    reference.req_id
+                                                );
                                                 errors.push(ValidationError {
                                                     code: ValidationErrorCode::UnknownRequirement,
-                                                    message: format!(
-                                                        "Reference to unknown rule '{}'",
-                                                        reference.req_id
-                                                    ),
+                                                    message,
                                                     file: Some(file_entry.path.clone()),
                                                     line: Some(reference.line),
                                                     column: None,
@@ -1111,13 +1186,25 @@ impl TraceyDaemon for TraceyService {
 
         let error_count = errors.len();
 
-        ValidationResult {
+        let result = ValidationResult {
             spec,
             impl_name,
             errors,
             warning_count: 0,
             error_count,
+        };
+
+        let mut cache = self.inner.validation_cache.lock().unwrap();
+        if cache.version != data_version {
+            cache.entries.clear();
+            cache.version = data_version;
         }
+        cache.entries.insert(
+            (result.spec.clone(), result.impl_name.clone()),
+            result.clone(),
+        );
+
+        result
     }
 
     // =========================================================================
@@ -1496,6 +1583,18 @@ impl TraceyDaemon for TraceyService {
             .iter()
             .map(|s| s.prefix.as_str())
             .collect();
+        // If no prefixes are loaded (e.g. during transient startup/config fallback),
+        // unknown-prefix diagnostics are not actionable and often false positives.
+        if known_prefixes.is_empty() {
+            return diagnostics;
+        }
+        debug!(
+            "lsp_diagnostics path={} refs={} known_prefixes={:?} specs={}",
+            path.display(),
+            reqs.references.len(),
+            known_prefixes,
+            data.config.specs.len()
+        );
 
         // Build known rules by prefix (using all implementations for each spec).
         let mut known_rules_by_prefix: std::collections::HashMap<&str, Vec<RuleId>> =
@@ -1521,17 +1620,18 @@ impl TraceyDaemon for TraceyService {
             let (start_line, start_char, end_line, end_char) =
                 span_to_range(&req.content, reference.span.offset, reference.span.length);
 
-            // Check for unknown prefix
+            // Unknown-prefix diagnostics are currently noisy and can become sticky
+            // in editor UIs when ranges drift. Keep strict prefix validation in
+            // `query validate`, but suppress this LSP diagnostic until range/source
+            // attribution is made deterministic.
             if !known_prefixes.contains(reference.prefix.as_str()) {
-                diagnostics.push(LspDiagnostic {
-                    severity: "error".to_string(),
-                    code: "unknown-prefix".to_string(),
-                    message: format!("Unknown prefix: '{}'", reference.prefix),
-                    start_line,
-                    start_char,
-                    end_line,
-                    end_char,
-                });
+                debug!(
+                    "lsp_diagnostics suppressed unknown-prefix path={} ref_prefix={} ref_id={} known_prefixes={:?}",
+                    path.display(),
+                    reference.prefix,
+                    reference.req_id,
+                    known_prefixes
+                );
                 continue;
             }
 
@@ -1560,10 +1660,12 @@ impl TraceyDaemon for TraceyService {
                     });
                 }
                 KnownRuleMatch::Missing => {
+                    let message =
+                        unknown_rule_message_with_suggestions(&reference.req_id, known_for_prefix);
                     diagnostics.push(LspDiagnostic {
                         severity: "warning".to_string(),
                         code: "orphaned".to_string(),
-                        message: format!("Unknown requirement: '{}'", reference.req_id),
+                        message,
                         start_line,
                         start_char,
                         end_line,
@@ -2118,12 +2220,44 @@ impl TraceyDaemon for TraceyService {
         {
             // Check if it's an orphaned reference
             if find_rule_in_data(&data, &rule_at_pos.req_id).is_none() {
+                if let Some(prefix) = rule_at_pos.prefix.as_deref() {
+                    let spec_names: std::collections::HashSet<&str> = data
+                        .config
+                        .specs
+                        .iter()
+                        .filter(|s| s.prefix == prefix)
+                        .map(|s| s.name.as_str())
+                        .collect();
+                    let known_rule_ids_for_prefix: Vec<RuleId> = data
+                        .forward_by_impl
+                        .iter()
+                        .filter(|((spec_name, _), _)| spec_names.contains(spec_name.as_str()))
+                        .flat_map(|(_, forward)| forward.rules.iter().map(|r| r.id.clone()))
+                        .collect();
+                    let suggestions = suggest_similar_rule_ids(
+                        &rule_at_pos.req_id,
+                        &known_rule_ids_for_prefix,
+                        1,
+                    );
+                    if let Some(best) = suggestions.first() {
+                        actions.push(LspCodeAction {
+                            title: format!(
+                                "Replace '{}' with '{}' (all impl annotations)",
+                                rule_at_pos.req_id, best
+                            ),
+                            kind: "quickfix".to_string(),
+                            command: "tracey.renameUnknownRequirement".to_string(),
+                            arguments: vec![rule_at_pos.req_id.to_string(), best.to_string()],
+                            is_preferred: true,
+                        });
+                    }
+                }
                 actions.push(LspCodeAction {
                     title: format!("Create requirement '{}'", rule_at_pos.req_id),
                     kind: "quickfix".to_string(),
                     command: "tracey.createRequirement".to_string(),
                     arguments: vec![rule_at_pos.req_id.to_string()],
-                    is_preferred: true,
+                    is_preferred: false,
                 });
             } else {
                 // Open dashboard for this requirement
@@ -2306,6 +2440,8 @@ impl TraceyDaemon for TraceyService {
 struct RuleAtPosition {
     /// The rule ID
     req_id: RuleId,
+    /// Prefix for source references (e.g. "r"); None for markdown definitions.
+    prefix: Option<String>,
     /// Byte offset in the content
     span_offset: usize,
     /// Length in bytes
@@ -2335,6 +2471,7 @@ async fn find_rule_at_position(
             if target_offset >= start && target_offset < end {
                 Some(RuleAtPosition {
                     req_id: parse_rule_id(&r.id.to_string())?,
+                    prefix: None,
                     span_offset: r.span.offset,
                     span_length: r.span.length,
                 })
@@ -2349,6 +2486,7 @@ async fn find_rule_at_position(
 
         Some(RuleAtPosition {
             req_id: ref_at_pos.req_id.clone(),
+            prefix: Some(ref_at_pos.prefix.clone()),
             span_offset: ref_at_pos.span.offset,
             span_length: ref_at_pos.span.length,
         })
@@ -2468,6 +2606,126 @@ fn classify_reference_against_known_rules(
     } else {
         KnownRuleMatch::Missing
     }
+}
+
+fn unknown_rule_message_with_suggestions(
+    reference_id: &RuleId,
+    known_rule_ids: &[RuleId],
+) -> String {
+    let suggestions = suggest_similar_rule_ids(reference_id, known_rule_ids, 3);
+    if suggestions.is_empty() {
+        format!("Reference to unknown rule '{}'", reference_id)
+    } else {
+        format!(
+            "Reference to unknown rule '{}' (did you mean: {})",
+            reference_id,
+            suggestions
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    }
+}
+
+fn unknown_rule_message_with_context(
+    prefix: &str,
+    verb: &tracey_core::RefVerb,
+    reference_id: &RuleId,
+    known_rule_ids: &[RuleId],
+) -> String {
+    let suggestions = suggest_similar_rule_ids(reference_id, known_rule_ids, 3);
+    let reference = format!("{}[{} {}]", prefix, verb, reference_id);
+    if suggestions.is_empty() {
+        format!("Unknown rule reference {}", reference)
+    } else {
+        format!(
+            "Unknown rule reference {} (did you mean: {})",
+            reference,
+            suggestions
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    }
+}
+
+fn suggest_similar_rule_ids(
+    reference_id: &RuleId,
+    known_rule_ids: &[RuleId],
+    limit: usize,
+) -> Vec<RuleId> {
+    let mut latest_by_base: std::collections::HashMap<String, RuleId> =
+        std::collections::HashMap::new();
+    for rule_id in known_rule_ids {
+        let entry = latest_by_base
+            .entry(rule_id.base.clone())
+            .or_insert_with(|| rule_id.clone());
+        if rule_id.version > entry.version {
+            *entry = rule_id.clone();
+        }
+    }
+
+    let target = reference_id.base.as_str();
+    let target_segments: std::collections::HashSet<&str> = target.split('.').collect();
+    let mut scored: Vec<(i32, RuleId)> = latest_by_base
+        .into_values()
+        .filter_map(|candidate| {
+            let cand = candidate.base.as_str();
+            let dist = levenshtein(target, cand) as i32;
+            let prefix = common_prefix_len(target, cand) as i32;
+            let cand_segments: std::collections::HashSet<&str> = cand.split('.').collect();
+            let overlap = target_segments.intersection(&cand_segments).count() as i32;
+            let version_delta = (candidate.version as i32 - reference_id.version as i32).abs();
+            let score = overlap * 40 + prefix - dist * 4 - version_delta;
+
+            let max_dist = (target.len().max(cand.len()) / 3).max(3) as i32;
+            let passes = overlap > 0 || prefix >= 5 || dist <= max_dist;
+            if passes {
+                Some((score, candidate))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    scored.sort_by(|(sa, a), (sb, b)| sb.cmp(sa).then_with(|| b.version.cmp(&a.version)));
+    scored
+        .into_iter()
+        .take(limit)
+        .map(|(_, rule_id)| rule_id)
+        .collect()
+}
+
+fn common_prefix_len(a: &str, b: &str) -> usize {
+    a.bytes().zip(b.bytes()).take_while(|(x, y)| x == y).count()
+}
+
+fn levenshtein(a: &str, b: &str) -> usize {
+    if a.is_empty() {
+        return b.chars().count();
+    }
+    if b.is_empty() {
+        return a.chars().count();
+    }
+
+    let b_chars: Vec<char> = b.chars().collect();
+    let mut prev: Vec<usize> = (0..=b_chars.len()).collect();
+    let mut curr = vec![0usize; b_chars.len() + 1];
+
+    for (i, ca) in a.chars().enumerate() {
+        curr[0] = i + 1;
+        for (j, cb) in b_chars.iter().enumerate() {
+            let cost = if ca == *cb { 0 } else { 1 };
+            let insert = curr[j] + 1;
+            let delete = prev[j + 1] + 1;
+            let replace = prev[j] + cost;
+            curr[j + 1] = insert.min(delete).min(replace);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[b_chars.len()]
 }
 
 /// Find a rule by ID in the engine data

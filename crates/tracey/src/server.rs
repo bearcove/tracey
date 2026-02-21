@@ -11,7 +11,7 @@
 use std::collections::BTreeMap;
 use tracey_core::RuleId;
 
-use crate::data::{ApiCodeRef, ApiFileEntry, ApiRule, DashboardData, ImplKey, OutlineEntry};
+use crate::data::{ApiCodeRef, ApiFileEntry, ApiRule, DashboardData, ImplKey};
 
 // ============================================================================
 // Delta Tracking
@@ -249,7 +249,6 @@ impl<'a> QueryEngine<'a> {
     ) -> Option<UncoveredResult> {
         let key: ImplKey = (spec.to_string(), impl_name.to_string());
         let forward = self.data.forward_by_impl.get(&key)?;
-        let spec_data = self.data.specs_content_by_impl.get(&key)?;
 
         let stats = CoverageStats::from_rules(&forward.rules);
 
@@ -266,7 +265,7 @@ impl<'a> QueryEngine<'a> {
             .collect();
 
         // Build section mapping from outline
-        let by_section = group_rules_by_section(&uncovered_rules, &spec_data.outline);
+        let by_section = group_rules_by_section(&uncovered_rules);
 
         Some(UncoveredResult {
             spec: spec.to_string(),
@@ -288,7 +287,6 @@ impl<'a> QueryEngine<'a> {
     ) -> Option<UntestedResult> {
         let key: ImplKey = (spec.to_string(), impl_name.to_string());
         let forward = self.data.forward_by_impl.get(&key)?;
-        let spec_data = self.data.specs_content_by_impl.get(&key)?;
 
         let stats = CoverageStats::from_rules(&forward.rules);
 
@@ -304,7 +302,7 @@ impl<'a> QueryEngine<'a> {
             })
             .collect();
 
-        let by_section = group_rules_by_section(&untested_rules, &spec_data.outline);
+        let by_section = group_rules_by_section(&untested_rules);
 
         Some(UntestedResult {
             spec: spec.to_string(),
@@ -646,10 +644,7 @@ impl RuleInfo {
 // Helpers
 // ============================================================================
 
-fn group_rules_by_section(
-    rules: &[&ApiRule],
-    _outline: &[OutlineEntry],
-) -> BTreeMap<String, Vec<RuleRef>> {
+fn group_rules_by_section(rules: &[&ApiRule]) -> BTreeMap<String, Vec<RuleRef>> {
     let mut result: BTreeMap<String, Vec<RuleRef>> = BTreeMap::new();
 
     for rule in rules {

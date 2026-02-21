@@ -277,16 +277,16 @@ pub fn extract_watch_dirs_from_config(config: &Config, project_root: &Path) -> H
 // Event Batcher
 // ============================================================================
 
-/// Batches raw notify events and delivers them at most every `batch_duration`.
+/// Debounces raw notify events and delivers a batch after a quiet period.
 ///
-/// Unlike debouncing which merges events, this preserves all raw events
-/// and simply batches them for delivery.
+/// The quiet period timer is reset on every incoming event. When no new events
+/// arrive for `batch_duration`, all accumulated events are delivered together.
 struct EventBatcher<F> {
     /// Accumulated events waiting to be delivered.
     pending_events: Vec<Event>,
 
-    /// When the current batch started (first event received).
-    batch_start: Option<Instant>,
+    /// Timestamp of the most recent event in this batch.
+    last_event_at: Option<Instant>,
 
     /// How long to wait before delivering a batch.
     batch_duration: Duration,
@@ -302,7 +302,7 @@ where
     fn new(batch_duration: Duration, on_batch: F) -> Self {
         Self {
             pending_events: Vec::new(),
-            batch_start: None,
+            last_event_at: None,
             batch_duration,
             on_batch,
         }
@@ -321,16 +321,14 @@ where
 
         debug!(?event, "notify event");
 
-        if self.batch_start.is_none() {
-            self.batch_start = Some(Instant::now());
-        }
+        self.last_event_at = Some(Instant::now());
         self.pending_events.push(event);
     }
 
     /// Check if the batch is ready to be delivered.
     fn should_flush(&self) -> bool {
-        if let Some(start) = self.batch_start {
-            start.elapsed() >= self.batch_duration
+        if let Some(last) = self.last_event_at {
+            last.elapsed() >= self.batch_duration
         } else {
             false
         }
@@ -340,7 +338,7 @@ where
     fn flush_if_ready(&mut self) {
         if self.should_flush() && !self.pending_events.is_empty() {
             let events = std::mem::take(&mut self.pending_events);
-            self.batch_start = None;
+            self.last_event_at = None;
 
             debug!(count = events.len(), "delivering batched events");
             (self.on_batch)(events);
