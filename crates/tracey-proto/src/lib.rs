@@ -14,7 +14,7 @@ pub use tracey_api::*;
 /// Protocol version — bump this whenever any RPC method is added, removed, or changed.
 /// The daemon writes this into its PID file; connectors compare it before connecting
 /// to detect stale daemons running an incompatible build.
-pub const PROTOCOL_VERSION: u32 = 2;
+pub const PROTOCOL_VERSION: u32 = 3;
 
 // ============================================================================
 // Request/Response types for the TraceyDaemon service
