@@ -24,6 +24,12 @@ struct HistoricalRuleText {
     text: String,
 }
 
+#[derive(Default)]
+struct ValidationCache {
+    version: u64,
+    entries: std::collections::HashMap<(String, String), ValidationResult>,
+}
+
 /// Inner service state shared via Arc.
 struct TraceyServiceInner {
     engine: Arc<Engine>,
@@ -35,6 +41,8 @@ struct TraceyServiceInner {
     start_time: Instant,
     /// Shutdown signal sender
     shutdown_tx: tokio::sync::watch::Sender<bool>,
+    /// Cached validation results keyed by (spec, impl) for the current build version.
+    validation_cache: Mutex<ValidationCache>,
 }
 
 /// Service implementation wrapping the Engine.
@@ -56,6 +64,7 @@ impl TraceyService {
                 watcher_state: None,
                 start_time: Instant::now(),
                 shutdown_tx,
+                validation_cache: Mutex::new(ValidationCache::default()),
             }),
         }
     }
@@ -74,6 +83,7 @@ impl TraceyService {
                 watcher_state: Some(watcher_state),
                 start_time: Instant::now(),
                 shutdown_tx,
+                validation_cache: Mutex::new(ValidationCache::default()),
             }),
         };
         (service, shutdown_rx)
@@ -864,9 +874,21 @@ impl TraceyDaemon for TraceyService {
     async fn validate(&self, _cx: &Context, req: ValidateRequest) -> ValidationResult {
         let data = self.inner.engine.data().await;
         let project_root = self.inner.engine.project_root();
+        let data_version = data.version;
 
         let (spec, impl_name) =
             self.resolve_spec_impl(req.spec.as_deref(), req.impl_name.as_deref(), &data.config);
+
+        {
+            let mut cache = self.inner.validation_cache.lock().unwrap();
+            if cache.version != data_version {
+                cache.entries.clear();
+                cache.version = data_version;
+            }
+            if let Some(cached) = cache.entries.get(&(spec.clone(), impl_name.clone())) {
+                return cached.clone();
+            }
+        }
 
         let mut errors = Vec::new();
 
@@ -1161,13 +1183,25 @@ impl TraceyDaemon for TraceyService {
 
         let error_count = errors.len();
 
-        ValidationResult {
+        let result = ValidationResult {
             spec,
             impl_name,
             errors,
             warning_count: 0,
             error_count,
+        };
+
+        let mut cache = self.inner.validation_cache.lock().unwrap();
+        if cache.version != data_version {
+            cache.entries.clear();
+            cache.version = data_version;
         }
+        cache.entries.insert(
+            (result.spec.clone(), result.impl_name.clone()),
+            result.clone(),
+        );
+
+        result
     }
 
     // =========================================================================
