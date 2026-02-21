@@ -16,7 +16,6 @@ pub struct ExtractionResult {
 }
 
 /// File extensions that tracey knows how to scan for requirement references.
-/// These all use `//` and `/* */` comment syntax.
 pub const SUPPORTED_EXTENSIONS: &[&str] = &[
     "rs",     // Rust
     "swift",  // Swift
@@ -41,6 +40,46 @@ pub const SUPPORTED_EXTENSIONS: &[&str] = &[
     "cs",     // C#
     "zig",    // Zig
     "php",    // PHP
+    "py",     // Python
+    "rb",     // Ruby
+    "r",      // R
+    "R",      // R (uppercase)
+    "dart",   // Dart
+    "lua",    // Lua
+    "asm",    // Assembly
+    "s",      // Assembly
+    "S",      // Assembly (uppercase)
+    "pl",     // Perl
+    "pm",     // Perl module
+    "hs",     // Haskell
+    "lhs",    // Literate Haskell
+    "ex",     // Elixir
+    "exs",    // Elixir script
+    "erl",    // Erlang
+    "hrl",    // Erlang header
+    "clj",    // Clojure
+    "cljs",   // ClojureScript
+    "cljc",   // Clojure common
+    "edn",    // EDN
+    "fs",     // F#
+    "fsi",    // F# script
+    "fsx",    // F# script
+    "vb",     // Visual Basic
+    "vbs",    // VBScript
+    "cob",    // COBOL
+    "cbl",    // COBOL
+    "cpy",    // COBOL copybook
+    "jl",     // Julia
+    "d",      // D
+    "ps1",    // PowerShell
+    "psm1",   // PowerShell module
+    "psd1",   // PowerShell data
+    "cmake",  // CMake
+    "ml",     // OCaml
+    "mli",    // OCaml interface
+    "sh",     // Shell/Bash
+    "bash",   // Bash
+    "zsh",    // Zsh
 ];
 
 /// Check if a file extension is supported for scanning

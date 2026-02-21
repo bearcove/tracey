@@ -189,6 +189,32 @@ fn arborium_language(path: &str) -> Option<&'static str> {
         "php" => Some("php"),
         // R
         "r" | "R" => Some("r"),
+        // Dart
+        "dart" => Some("dart"),
+        // Assembly
+        "asm" | "s" | "S" => Some("asm"),
+        // Perl
+        "pl" | "pm" => Some("perl"),
+        // Erlang
+        "erl" | "hrl" => Some("erlang"),
+        // Clojure
+        "clj" | "cljs" | "cljc" | "edn" => Some("clojure"),
+        // F#
+        "fs" | "fsi" | "fsx" => Some("fsharp"),
+        // Visual Basic
+        "vb" | "vbs" => Some("vb"),
+        // COBOL
+        "cob" | "cbl" | "cpy" => Some("cobol"),
+        // Julia
+        "jl" => Some("julia"),
+        // D
+        "d" => Some("d"),
+        // PowerShell
+        "ps1" | "psm1" | "psd1" => Some("powershell"),
+        // CMake
+        "cmake" => Some("cmake"),
+        // MATLAB
+        "mat" => Some("matlab"),
         _ => None,
     }
 }

@@ -49,6 +49,9 @@ arborium = { version = "2", features = [
     "lang-bash", "lang-json", "lang-yaml", "lang-toml", "lang-xml",
     "lang-html", "lang-css", "lang-scss", "lang-markdown", "lang-sql",
     "lang-swift", "lang-elixir", "lang-haskell", "lang-ocaml", "lang-lua", "lang-php", "lang-r",
+    "lang-dart", "lang-asm", "lang-x86asm", "lang-matlab", "lang-perl",
+    "lang-erlang", "lang-clojure", "lang-fsharp", "lang-vb", "lang-cobol",
+    "lang-julia", "lang-d", "lang-powershell", "lang-cmake",
 ] }
 arborium-rust = "2"
 arborium-swift = "2"
@@ -59,6 +62,26 @@ arborium-typescript = "2"
 arborium-php = "2"
 arborium-c = "2"
 arborium-cpp = "2"
+arborium-ruby = "2"
+arborium-r = "2"
+arborium-dart = "2"
+arborium-lua = "2"
+arborium-asm = "2"
+arborium-matlab = "2"
+arborium-perl = "2"
+arborium-haskell = "2"
+arborium-elixir = "2"
+arborium-erlang = "2"
+arborium-clojure = "2"
+arborium-fsharp = "2"
+arborium-vb = "2"
+arborium-cobol = "2"
+arborium-julia = "2"
+arborium-d = "2"
+arborium-powershell = "2"
+arborium-cmake = "2"
+arborium-ocaml = "2"
+arborium-bash = "2"
 
 # HTTP server for serve command
 axum = { version = "0.8", features = ["ws"] }

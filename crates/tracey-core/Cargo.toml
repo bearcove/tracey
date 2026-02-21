@@ -30,6 +30,26 @@ reverse = [
     "dep:arborium-php",
     "dep:arborium-c",
     "dep:arborium-cpp",
+    "dep:arborium-ruby",
+    "dep:arborium-r",
+    "dep:arborium-dart",
+    "dep:arborium-lua",
+    "dep:arborium-asm",
+    "dep:arborium-matlab",
+    "dep:arborium-perl",
+    "dep:arborium-haskell",
+    "dep:arborium-elixir",
+    "dep:arborium-erlang",
+    "dep:arborium-clojure",
+    "dep:arborium-fsharp",
+    "dep:arborium-vb",
+    "dep:arborium-cobol",
+    "dep:arborium-julia",
+    "dep:arborium-d",
+    "dep:arborium-powershell",
+    "dep:arborium-cmake",
+    "dep:arborium-ocaml",
+    "dep:arborium-bash",
 ]
 
 [dependencies]
@@ -51,3 +71,23 @@ arborium-typescript = { workspace = true, optional = true }
 arborium-php = { workspace = true, optional = true }
 arborium-c = { workspace = true, optional = true }
 arborium-cpp = { workspace = true, optional = true }
+arborium-ruby = { workspace = true, optional = true }
+arborium-r = { workspace = true, optional = true }
+arborium-dart = { workspace = true, optional = true }
+arborium-lua = { workspace = true, optional = true }
+arborium-asm = { workspace = true, optional = true }
+arborium-matlab = { workspace = true, optional = true }
+arborium-perl = { workspace = true, optional = true }
+arborium-haskell = { workspace = true, optional = true }
+arborium-elixir = { workspace = true, optional = true }
+arborium-erlang = { workspace = true, optional = true }
+arborium-clojure = { workspace = true, optional = true }
+arborium-fsharp = { workspace = true, optional = true }
+arborium-vb = { workspace = true, optional = true }
+arborium-cobol = { workspace = true, optional = true }
+arborium-julia = { workspace = true, optional = true }
+arborium-d = { workspace = true, optional = true }
+arborium-powershell = { workspace = true, optional = true }
+arborium-cmake = { workspace = true, optional = true }
+arborium-ocaml = { workspace = true, optional = true }
+arborium-bash = { workspace = true, optional = true }
