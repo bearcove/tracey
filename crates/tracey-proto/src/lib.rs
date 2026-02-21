@@ -14,7 +14,7 @@ pub use tracey_api::*;
 /// Protocol version — bump this whenever any RPC method is added, removed, or changed.
 /// The daemon writes this into its PID file; connectors compare it before connecting
 /// to detect stale daemons running an incompatible build.
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 3;
 
 // ============================================================================
 // Request/Response types for the TraceyDaemon service
@@ -171,6 +171,10 @@ pub struct RuleInfo {
     pub source_line: Option<usize>,
     /// Coverage across all implementations
     pub coverage: Vec<RuleCoverage>,
+    /// Diff from the previous rule version (N-1 → N), if version > 1 and git history is available.
+    /// Inline markdown format: ~~removed~~ / **added**.
+    #[facet(default)]
+    pub version_diff: Option<String>,
 }
 
 /// Coverage of a rule in a specific implementation
@@ -372,6 +376,10 @@ pub struct HoverInfo {
     pub range_start_char: u32,
     pub range_end_line: u32,
     pub range_end_char: u32,
+    /// Diff between a previous rule version and the current one (inline markdown format).
+    /// Present for tail annotations (current version, version > 1) and stale annotations.
+    #[facet(default)]
+    pub version_diff: Option<String>,
 }
 
 /// A completion item

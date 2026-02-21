@@ -534,6 +534,13 @@ impl LanguageServer for Backend {
             markdown.push_str("\n\n*No implementations or verifications*");
         }
 
+        // r[impl lsp.hover.tail-diff.format+2]
+        // Show word-level diff from previous rule version
+        if let Some(diff) = &info.version_diff {
+            markdown.push_str("\n\n**Changes from previous version:**\n\n");
+            markdown.push_str(diff);
+        }
+
         Ok(Some(Hover {
             contents: HoverContents::Markup(MarkupContent {
                 kind: MarkupKind::Markdown,
