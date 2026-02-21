@@ -7,7 +7,7 @@ use std::fs::OpenOptions;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
-use tracing::info;
+use tracing::{info, warn};
 
 use super::{local_endpoint, pid_file_path};
 
@@ -146,13 +146,16 @@ impl DaemonConnector {
         let endpoint = local_endpoint(&self.project_root);
         let start = Instant::now();
         let timeout = Duration::from_secs(5);
+        let mut last_print_secs = 0u64;
 
         loop {
             if let Ok(stream) = roam_local::connect(&endpoint).await {
                 return Ok(stream);
             }
 
-            if start.elapsed() > timeout {
+            let elapsed = start.elapsed();
+
+            if elapsed > timeout {
                 return Err(io::Error::new(
                     io::ErrorKind::TimedOut,
                     format!(
@@ -163,14 +166,33 @@ impl DaemonConnector {
                 ));
             }
 
+            // Print a progress line once per second so CLI users know we're waiting.
+            let secs = elapsed.as_secs();
+            if secs > last_print_secs {
+                last_print_secs = secs;
+                let dots = ".".repeat(secs as usize);
+                info!("Starting daemon{dots}");
+            }
+
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
     }
 }
 
 /// Read the PID file and return `(pid, protocol_version)` if it parses correctly.
+/// Returns `None` if the file doesn't exist. Logs a warning and returns `None`
+/// if the file exists but is malformed.
 fn read_pid_file(project_root: &Path) -> Option<(u32, u32)> {
-    let content = std::fs::read_to_string(pid_file_path(project_root)).ok()?;
+    let path = pid_file_path(project_root);
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return None,
+        Err(e) => {
+            warn!("Failed to read PID file {}: {e}", path.display());
+            return None;
+        }
+    };
+
     let mut pid = None;
     let mut version = None;
     for line in content.lines() {
@@ -180,7 +202,17 @@ fn read_pid_file(project_root: &Path) -> Option<(u32, u32)> {
             version = v.parse().ok();
         }
     }
-    Some((pid?, version?))
+
+    match (pid, version) {
+        (Some(p), Some(v)) => Some((p, v)),
+        _ => {
+            warn!(
+                "PID file {} has unexpected format, ignoring it",
+                path.display()
+            );
+            None
+        }
+    }
 }
 
 /// Check whether a process with the given PID is alive.
