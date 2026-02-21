@@ -16,6 +16,7 @@ use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 use crate::daemon::{DaemonClient, new_client};
+use tracey_core::{RefVerb, parse_rule_id};
 use tracey_proto::*;
 
 /// Convert roam RPC result to a simple Result
@@ -99,6 +100,123 @@ impl Backend {
         let content = state.documents.get(uri.as_str())?.clone();
         let path = uri.to_file_path().ok()?.to_string_lossy().into_owned();
         Some((path, content))
+    }
+
+    fn offset_to_line_col(content: &str, offset: usize) -> (u32, u32) {
+        let mut line: u32 = 0;
+        let mut col: u32 = 0;
+        for (i, ch) in content.char_indices() {
+            if i >= offset {
+                break;
+            }
+            if ch == '\n' {
+                line += 1;
+                col = 0;
+            } else {
+                col += 1;
+            }
+        }
+        (line, col)
+    }
+
+    fn replacement_edits_for_file(
+        content: &str,
+        old_id: &tracey_core::RuleId,
+        new_id: &str,
+    ) -> Vec<TextEdit> {
+        let reqs = tracey_core::Reqs::extract_from_content(&PathBuf::new(), content);
+        let old_text = old_id.to_string();
+        let mut edits = Vec::new();
+        for reference in &reqs.references {
+            if reference.verb == RefVerb::Define || reference.req_id != *old_id {
+                continue;
+            }
+            let start = reference.span.offset;
+            let end = start.saturating_add(reference.span.length);
+            let Some(span_text) = content.get(start..end) else {
+                continue;
+            };
+            let Some(local_idx) = span_text.find(&old_text) else {
+                continue;
+            };
+            let abs_start = start + local_idx;
+            let abs_end = abs_start + old_text.len();
+            let (start_line, start_char) = Self::offset_to_line_col(content, abs_start);
+            let (end_line, end_char) = Self::offset_to_line_col(content, abs_end);
+            edits.push(TextEdit {
+                range: Range {
+                    start: Position {
+                        line: start_line,
+                        character: start_char,
+                    },
+                    end: Position {
+                        line: end_line,
+                        character: end_char,
+                    },
+                },
+                new_text: new_id.to_string(),
+            });
+        }
+        edits
+    }
+
+    async fn apply_unknown_requirement_rename(
+        &self,
+        old_rule: &str,
+        new_rule: &str,
+    ) -> LspResult<()> {
+        let Some(old_id) = parse_rule_id(old_rule) else {
+            return Ok(());
+        };
+        if parse_rule_id(new_rule).is_none() {
+            return Ok(());
+        }
+
+        let walker = ignore::WalkBuilder::new(&self.project_root)
+            .follow_links(true)
+            .hidden(false)
+            .git_ignore(true)
+            .build();
+
+        let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
+        for entry in walker.flatten() {
+            let path = entry.path();
+            let Some(ft) = entry.file_type() else {
+                continue;
+            };
+            if !ft.is_file() {
+                continue;
+            }
+            if path
+                .extension()
+                .is_none_or(|ext| !tracey_core::is_supported_extension(ext))
+            {
+                continue;
+            }
+            let Ok(content) = std::fs::read_to_string(path) else {
+                continue;
+            };
+            let edits = Self::replacement_edits_for_file(&content, &old_id, new_rule);
+            if edits.is_empty() {
+                continue;
+            }
+            let Ok(uri) = Url::from_file_path(path) else {
+                continue;
+            };
+            changes.insert(uri, edits);
+        }
+
+        if changes.is_empty() {
+            return Ok(());
+        }
+
+        let edit = WorkspaceEdit {
+            changes: Some(changes),
+            document_changes: None,
+            change_annotations: None,
+        };
+        let _ = self.client.apply_edit(edit).await?;
+        Ok(())
     }
 
     /// Publish diagnostics for a document by calling daemon.
@@ -327,6 +445,10 @@ impl LanguageServer for Backend {
                 document_symbol_provider: Some(OneOf::Left(true)),
                 workspace_symbol_provider: Some(OneOf::Left(true)),
                 code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
+                execute_command_provider: Some(ExecuteCommandOptions {
+                    commands: vec!["tracey.renameUnknownRequirement".to_string()],
+                    work_done_progress_options: Default::default(),
+                }),
                 code_lens_provider: Some(CodeLensOptions {
                     resolve_provider: Some(false),
                 }),
@@ -889,6 +1011,22 @@ impl LanguageServer for Backend {
             .collect();
 
         Ok(Some(lsp_actions))
+    }
+
+    async fn execute_command(
+        &self,
+        params: ExecuteCommandParams,
+    ) -> LspResult<Option<serde_json::Value>> {
+        if params.command == "tracey.renameUnknownRequirement" {
+            let args = params.arguments;
+            if args.len() >= 2
+                && let (Some(old_rule), Some(new_rule)) = (args[0].as_str(), args[1].as_str())
+            {
+                self.apply_unknown_requirement_rename(old_rule, new_rule)
+                    .await?;
+            }
+        }
+        Ok(None)
     }
 
     async fn code_lens(&self, params: CodeLensParams) -> LspResult<Option<Vec<CodeLens>>> {
