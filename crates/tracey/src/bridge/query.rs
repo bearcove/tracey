@@ -9,6 +9,12 @@ use crate::daemon::{DaemonClient, new_client};
 use tracey_core::parse_rule_id;
 use tracey_proto::*;
 
+#[derive(Debug, Clone, Copy)]
+pub enum Caller {
+    Cli,
+    Mcp,
+}
+
 /// Format config error as a warning banner to prepend to responses
 fn format_config_error_banner(error: &str) -> String {
     format!(
@@ -33,12 +39,79 @@ fn parse_spec_impl(spec_impl: Option<&str>) -> (Option<String>, Option<String>) 
 #[derive(Clone)]
 pub struct QueryClient {
     client: DaemonClient,
+    caller: Caller,
 }
 
 impl QueryClient {
     pub fn new(project_root: PathBuf) -> Self {
+        Self::for_caller(project_root, Caller::Cli)
+    }
+
+    pub fn for_caller(project_root: PathBuf, caller: Caller) -> Self {
         Self {
             client: new_client(project_root),
+            caller,
+        }
+    }
+
+    fn hint_uncovered(&self) -> &'static str {
+        match self.caller {
+            Caller::Cli => {
+                "→ Run `tracey query uncovered` to see rules without implementation references."
+            }
+            Caller::Mcp => {
+                "→ Use `tracey_uncovered` to see rules without implementation references."
+            }
+        }
+    }
+
+    fn hint_untested(&self) -> &'static str {
+        match self.caller {
+            Caller::Cli => {
+                "→ Run `tracey query untested` to see rules without verification references."
+            }
+            Caller::Mcp => "→ Use `tracey_untested` to see rules without verification references.",
+        }
+    }
+
+    fn hint_unmapped(&self) -> &'static str {
+        match self.caller {
+            Caller::Cli => {
+                "→ Run `tracey query unmapped` to see source files without requirement references."
+            }
+            Caller::Mcp => {
+                "→ Use `tracey_unmapped` to see source files without requirement references."
+            }
+        }
+    }
+
+    fn hint_rule(&self) -> &'static str {
+        match self.caller {
+            Caller::Cli => "→ Run `tracey query rule <rule_id>` to see details for one rule.",
+            Caller::Mcp => "→ Use `tracey_rule` to see details for one rule.",
+        }
+    }
+
+    fn hint_unmapped_path(&self) -> &'static str {
+        match self.caller {
+            Caller::Cli => "→ Pass `--path <dir-or-file>` to zoom into a directory or file.",
+            Caller::Mcp => "→ Use the `path` parameter to zoom into a directory or file.",
+        }
+    }
+
+    fn hint_validate_target(&self) -> &'static str {
+        match self.caller {
+            Caller::Cli => "→ Run `tracey query validate <spec/impl>` to validate a specific pair.",
+            Caller::Mcp => {
+                "→ Use the `spec_impl` parameter to validate a specific one (e.g., \"my-spec/rust\")."
+            }
+        }
+    }
+
+    fn hint_validate_all(&self) -> &'static str {
+        match self.caller {
+            Caller::Cli => "→ Run `tracey query validate` to see which requirements are stale.",
+            Caller::Mcp => "→ Use `tracey_validate` to see which requirements are stale.",
         }
     }
 
@@ -60,28 +133,47 @@ impl QueryClient {
 
     /// Get coverage status for all specs/implementations
     pub async fn status(&self) -> String {
-        let output = match self.client.status().await {
-            Ok(status) => {
+        let (status_result, config_result) =
+            tokio::join!(self.client.status(), self.client.config());
+        let output = match (status_result, config_result) {
+            (Ok(status), Ok(config)) => {
                 let mut output = String::new();
+                output.push_str("Reading config from .config/tracey/config.styx.\n\n");
+
                 for impl_status in &status.impls {
+                    let spec_info = config.specs.iter().find(|s| s.name == impl_status.spec);
+                    let source_description = spec_info
+                        .and_then(|s| s.source.as_deref().or(s.source_url.as_deref()))
+                        .unwrap_or("the configured specification source");
+                    let prefix = spec_info.map(|s| s.prefix.as_str()).unwrap_or("r");
+
                     let impl_pct = if impl_status.total_rules > 0 {
-                        impl_status.covered_rules as f64 / impl_status.total_rules as f64 * 100.0
+                        impl_status.impl_rules as f64 / impl_status.total_rules as f64 * 100.0
                     } else {
                         0.0
                     };
                     let verify_pct = if impl_status.total_rules > 0 {
-                        impl_status.verified_rules as f64 / impl_status.total_rules as f64 * 100.0
+                        impl_status.verify_rules as f64 / impl_status.total_rules as f64 * 100.0
                     } else {
                         0.0
                     };
+                    let missing_impl = impl_status
+                        .total_rules
+                        .saturating_sub(impl_status.impl_rules + impl_status.stale_rules);
+
                     output.push_str(&format!(
-                        "{}/{}: impl {:.0}%, verify {:.0}% ({}/{} rules)\n",
+                        "This project tracks requirements for \"{}\" in {}. Code references use {}[...] annotations.\n",
                         impl_status.spec,
-                        impl_status.impl_name,
-                        impl_pct,
-                        verify_pct,
-                        impl_status.covered_rules,
-                        impl_status.total_rules
+                        source_description,
+                        prefix
+                    ));
+                    output.push_str(&format!(
+                        "For {}/{}: {} of {} requirements are covered ({:.0}%). {} are stale and {} have no implementation reference.\n",
+                        impl_status.spec, impl_status.impl_name, impl_status.impl_rules, impl_status.total_rules, impl_pct, impl_status.stale_rules, missing_impl
+                    ));
+                    output.push_str(&format!(
+                        "Verification: {} of {} requirements have verify references ({:.0}%).\n\n",
+                        impl_status.verify_rules, impl_status.total_rules, verify_pct
                     ));
                 }
 
@@ -89,13 +181,19 @@ impl QueryClient {
                     "No specs configured".to_string()
                 } else {
                     output.push_str("\n---\n");
-                    output.push_str("→ Use tracey_uncovered to see rules without implementation\n");
-                    output.push_str("→ Use tracey_untested to see rules without verification\n");
-                    output.push_str("→ Use tracey_unmapped to see code without requirements\n");
+                    output.push_str(self.hint_validate_all());
+                    output.push('\n');
+                    output.push_str(self.hint_uncovered());
+                    output.push('\n');
+                    output.push_str(self.hint_untested());
+                    output.push('\n');
+                    output.push_str(self.hint_unmapped());
+                    output.push('\n');
                     output
                 }
             }
-            Err(e) => format!("Error: {e}"),
+            (Err(e), _) => format!("Error: {e}"),
+            (_, Err(e)) => format!("Error: {e}"),
         };
 
         self.with_config_banner(output).await
@@ -114,10 +212,10 @@ impl QueryClient {
         let output = match self.client.uncovered(req).await {
             Ok(response) => {
                 let mut output = format!(
-                    "{}/{}: {} uncovered out of {} rules\n\n",
+                    "{}/{}: {} rules missing implementation references out of {} total\n\n",
                     response.spec,
                     response.impl_name,
-                    response.uncovered_count,
+                    response.missing_impl_count,
                     response.total_rules
                 );
 
@@ -132,8 +230,9 @@ impl QueryClient {
                 }
 
                 output.push_str("---\n");
-                output.push_str("→ Use tracey_rule to see details about a specific rule\n");
-                output.push_str("→ Use prefix parameter to filter by rule ID prefix\n");
+                output.push_str(self.hint_rule());
+                output.push('\n');
+                output.push_str("→ Use the `prefix` parameter to filter by rule ID prefix.\n");
 
                 output
             }
@@ -156,10 +255,10 @@ impl QueryClient {
         let output = match self.client.untested(req).await {
             Ok(response) => {
                 let mut output = format!(
-                    "{}/{}: {} untested (impl but no verify) out of {} rules\n\n",
+                    "{}/{}: {} rules have implementation refs but no verify refs out of {} total\n\n",
                     response.spec,
                     response.impl_name,
-                    response.untested_count,
+                    response.missing_verify_count,
                     response.total_rules
                 );
 
@@ -174,8 +273,9 @@ impl QueryClient {
                 }
 
                 output.push_str("---\n");
-                output.push_str("→ Use tracey_rule to see details about a specific rule\n");
-                output.push_str("→ Use prefix parameter to filter by rule ID prefix\n");
+                output.push_str(self.hint_rule());
+                output.push('\n');
+                output.push_str("→ Use the `prefix` parameter to filter by rule ID prefix.\n");
 
                 output
             }
@@ -250,7 +350,8 @@ impl QueryClient {
                 }
 
                 output.push_str("\n---\n");
-                output.push_str("→ Use path parameter to zoom into a directory or file\n");
+                output.push_str(self.hint_unmapped_path());
+                output.push('\n');
 
                 output
             }
@@ -391,9 +492,8 @@ impl QueryClient {
                     status.impls.len(),
                     total_errors
                 ));
-                output.push_str(
-                    "→ Use spec_impl parameter to validate a specific one (e.g., \"my-spec/rust\")\n",
-                );
+                output.push_str(self.hint_validate_target());
+                output.push('\n');
                 output
             }
         };

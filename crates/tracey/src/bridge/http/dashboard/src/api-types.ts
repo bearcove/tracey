@@ -244,6 +244,7 @@ export interface ApiRule {
   implRefs: ApiCodeRef[];
   verifyRefs: ApiCodeRef[];
   dependsRefs: ApiCodeRef[];
+  isStale?: boolean;
 }
 
 export interface ApiSpecForward {

@@ -209,8 +209,9 @@ impl TraceyDaemon for TraceyService {
                     spec,
                     impl_name,
                     total_rules: s.total_rules,
-                    covered_rules: s.impl_covered,
-                    verified_rules: s.verify_covered,
+                    impl_rules: s.impl_covered,
+                    verify_rules: s.verify_covered,
+                    stale_rules: s.stale_covered,
                 })
                 .collect(),
         }
@@ -230,7 +231,7 @@ impl TraceyDaemon for TraceyService {
                 spec: result.spec,
                 impl_name: result.impl_name,
                 total_rules: result.stats.total_rules,
-                uncovered_count: result.total_uncovered,
+                missing_impl_count: result.total_uncovered,
                 by_section: result
                     .by_section
                     .into_iter()
@@ -251,7 +252,7 @@ impl TraceyDaemon for TraceyService {
                 spec,
                 impl_name,
                 total_rules: 0,
-                uncovered_count: 0,
+                missing_impl_count: 0,
                 by_section: vec![],
             }
         }
@@ -270,7 +271,7 @@ impl TraceyDaemon for TraceyService {
                 spec: result.spec,
                 impl_name: result.impl_name,
                 total_rules: result.stats.total_rules,
-                untested_count: result.total_untested,
+                missing_verify_count: result.total_untested,
                 by_section: result
                     .by_section
                     .into_iter()
@@ -291,7 +292,7 @@ impl TraceyDaemon for TraceyService {
                 spec,
                 impl_name,
                 total_rules: 0,
-                untested_count: 0,
+                missing_verify_count: 0,
                 by_section: vec![],
             }
         }

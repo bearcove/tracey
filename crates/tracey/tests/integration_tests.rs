@@ -77,19 +77,22 @@ async fn test_status_coverage_percentages() {
     for impl_status in &status.impls {
         // Covered rules should not exceed total
         assert!(
-            impl_status.covered_rules <= impl_status.total_rules,
+            impl_status.impl_rules <= impl_status.total_rules,
             "Covered rules ({}) exceeds total ({})",
-            impl_status.covered_rules,
+            impl_status.impl_rules,
             impl_status.total_rules
         );
 
         // Verified rules should not exceed total
         assert!(
-            impl_status.verified_rules <= impl_status.total_rules,
+            impl_status.verify_rules <= impl_status.total_rules,
             "Verified rules ({}) exceeds total ({})",
-            impl_status.verified_rules,
+            impl_status.verify_rules,
             impl_status.total_rules
         );
+
+        // Stale rules should not exceed total.
+        assert!(impl_status.stale_rules <= impl_status.total_rules);
     }
 }
 
@@ -112,7 +115,7 @@ async fn test_uncovered_returns_rules() {
     assert_eq!(response.impl_name, "rust");
     // We have some uncovered rules (data.format, error.logging)
     assert!(
-        response.uncovered_count > 0,
+        response.missing_impl_count > 0,
         "Expected some uncovered rules"
     );
 }
@@ -154,7 +157,10 @@ async fn test_untested_returns_rules() {
     assert_eq!(response.spec, "test");
     assert_eq!(response.impl_name, "rust");
     // auth.session and auth.logout are implemented but not verified
-    assert!(response.untested_count > 0, "Expected some untested rules");
+    assert!(
+        response.missing_verify_count > 0,
+        "Expected some untested rules"
+    );
 }
 
 // ============================================================================

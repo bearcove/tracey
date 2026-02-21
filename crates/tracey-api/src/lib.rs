@@ -90,6 +90,8 @@ pub struct ApiRule {
     pub impl_refs: Vec<ApiCodeRef>,
     pub verify_refs: Vec<ApiCodeRef>,
     pub depends_refs: Vec<ApiCodeRef>,
+    #[facet(default)]
+    pub is_stale: bool,
 }
 
 #[derive(Debug, Clone, Facet)]

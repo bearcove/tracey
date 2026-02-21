@@ -14,7 +14,7 @@ pub use tracey_api::*;
 /// Protocol version — bump this whenever any RPC method is added, removed, or changed.
 /// The daemon writes this into its PID file; connectors compare it before connecting
 /// to detect stale daemons running an incompatible build.
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 
 // ============================================================================
 // Request/Response types for the TraceyDaemon service
@@ -42,7 +42,7 @@ pub struct UncoveredResponse {
     pub spec: String,
     pub impl_name: String,
     pub total_rules: usize,
-    pub uncovered_count: usize,
+    pub missing_impl_count: usize,
     /// Rules grouped by section
     pub by_section: Vec<SectionRules>,
 }
@@ -82,7 +82,7 @@ pub struct UntestedResponse {
     pub spec: String,
     pub impl_name: String,
     pub total_rules: usize,
-    pub untested_count: usize,
+    pub missing_verify_count: usize,
     pub by_section: Vec<SectionRules>,
 }
 
@@ -149,8 +149,9 @@ pub struct ImplStatus {
     pub spec: String,
     pub impl_name: String,
     pub total_rules: usize,
-    pub covered_rules: usize,
-    pub verified_rules: usize,
+    pub impl_rules: usize,
+    pub verify_rules: usize,
+    pub stale_rules: usize,
 }
 
 /// Information about a specific rule

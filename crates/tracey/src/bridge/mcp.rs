@@ -24,6 +24,7 @@ use rust_mcp_sdk::{McpServer, StdioTransport, ToMcpServerHandler, TransportOptio
 use serde::{Deserialize, Serialize};
 
 use crate::bridge::query;
+use crate::bridge::query::Caller;
 
 // ============================================================================
 // Tool Definitions (same as mcp.rs)
@@ -177,7 +178,7 @@ struct TraceyHandler {
 impl TraceyHandler {
     pub fn new(project_root: PathBuf) -> Self {
         Self {
-            client: query::QueryClient::new(project_root),
+            client: query::QueryClient::for_caller(project_root, Caller::Mcp),
         }
     }
 }

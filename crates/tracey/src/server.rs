@@ -36,6 +36,7 @@ pub struct CoverageStats {
     pub total_rules: usize,
     pub impl_covered: usize,
     pub verify_covered: usize,
+    pub stale_covered: usize,
     pub fully_covered: usize, // both impl and verify
     pub impl_percent: f64,
     pub verify_percent: f64,
@@ -44,17 +45,25 @@ pub struct CoverageStats {
 impl CoverageStats {
     pub fn from_rules(rules: &[ApiRule]) -> Self {
         let total = rules.len();
-        let impl_covered = rules.iter().filter(|r| !r.impl_refs.is_empty()).count();
-        let verify_covered = rules.iter().filter(|r| !r.verify_refs.is_empty()).count();
+        let stale_covered = rules.iter().filter(|r| r.is_stale).count();
+        let impl_covered = rules
+            .iter()
+            .filter(|r| !r.impl_refs.is_empty() && !r.is_stale)
+            .count();
+        let verify_covered = rules
+            .iter()
+            .filter(|r| !r.verify_refs.is_empty() && !r.is_stale)
+            .count();
         let fully_covered = rules
             .iter()
-            .filter(|r| !r.impl_refs.is_empty() && !r.verify_refs.is_empty())
+            .filter(|r| !r.impl_refs.is_empty() && !r.verify_refs.is_empty() && !r.is_stale)
             .count();
 
         Self {
             total_rules: total,
             impl_covered,
             verify_covered,
+            stale_covered,
             fully_covered,
             impl_percent: if total > 0 {
                 (impl_covered as f64 / total as f64) * 100.0
@@ -123,11 +132,13 @@ impl Delta {
             for new_rule in &new_forward.rules {
                 let old_rule = old_rules.get(&new_rule.id);
 
-                let was_impl_covered = old_rule.is_some_and(|r| !r.impl_refs.is_empty());
-                let is_impl_covered = !new_rule.impl_refs.is_empty();
+                let was_impl_covered =
+                    old_rule.is_some_and(|r| !r.impl_refs.is_empty() && !r.is_stale);
+                let is_impl_covered = !new_rule.impl_refs.is_empty() && !new_rule.is_stale;
 
-                let was_verify_covered = old_rule.is_some_and(|r| !r.verify_refs.is_empty());
-                let is_verify_covered = !new_rule.verify_refs.is_empty();
+                let was_verify_covered =
+                    old_rule.is_some_and(|r| !r.verify_refs.is_empty() && !r.is_stale);
+                let is_verify_covered = !new_rule.verify_refs.is_empty() && !new_rule.is_stale;
 
                 // Check for newly covered (impl)
                 if !was_impl_covered

@@ -67,7 +67,7 @@ async fn test_mcp_status_tool() {
     // Verify coverage metrics are reasonable
     let impl_status = test_impl.unwrap();
     assert!(impl_status.total_rules > 0);
-    assert!(impl_status.covered_rules <= impl_status.total_rules);
+    assert!(impl_status.impl_rules <= impl_status.total_rules);
 }
 
 // ============================================================================
@@ -89,7 +89,7 @@ async fn test_mcp_uncovered_tool_no_filter() {
     assert_eq!(response.spec, "test");
     assert_eq!(response.impl_name, "rust");
     // We have some uncovered rules in the fixture
-    assert!(response.uncovered_count > 0);
+    assert!(response.missing_impl_count > 0);
 }
 
 #[tokio::test]
@@ -152,7 +152,7 @@ async fn test_mcp_untested_tool() {
     assert_eq!(response.spec, "test");
     assert_eq!(response.impl_name, "rust");
     // Some rules are implemented but not tested
-    assert!(response.untested_count > 0);
+    assert!(response.missing_verify_count > 0);
 }
 
 // ============================================================================
