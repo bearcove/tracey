@@ -208,7 +208,8 @@ enum QueryCommand {
 // Embed the config schema for zero-execution discovery by styx tooling
 styx_embed::embed_outdir_file!("schema.styx");
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let config = args::builder::<Args>()
         .map_err(|e| eyre!("failed to initialize CLI parser: {e}"))?
         .cli(|cli| cli.args(std::env::args().skip(1)))
@@ -233,14 +234,7 @@ fn main() -> Result<()> {
                 log_file: None,
                 enable_console: true,
             })?;
-            let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(bridge::http::run(
-                root,
-                config,
-                port.unwrap_or(3000),
-                open,
-                dev,
-            ))
+            bridge::http::run(root, config, port.unwrap_or(3000), open, dev).await
         }
         // r[impl cli.mcp]
         // r[impl daemon.cli.mcp]
@@ -261,8 +255,7 @@ fn main() -> Result<()> {
                 log_file = %log_path.display(),
                 "starting tracey bridge"
             );
-            let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(bridge::mcp::run(Some(project_root), config))
+            bridge::mcp::run(Some(project_root), config).await
         }
         // r[impl daemon.cli.lsp]
         Command::Lsp { root, config } => {
@@ -282,8 +275,7 @@ fn main() -> Result<()> {
                 log_file = %log_path.display(),
                 "starting tracey bridge"
             );
-            let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(bridge::lsp::run(Some(project_root), config))
+            bridge::lsp::run(Some(project_root), config).await
         }
         // r[impl daemon.cli.daemon]
         Command::Daemon { root, config } => {
@@ -298,8 +290,7 @@ fn main() -> Result<()> {
                 enable_console: true,
             })?;
 
-            let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(daemon::run(project_root, config_path))
+            daemon::run(project_root, config_path).await
         }
         // r[impl daemon.cli.logs]
         Command::Logs {
@@ -308,15 +299,9 @@ fn main() -> Result<()> {
             lines,
         } => show_logs(root, follow, lines.unwrap_or(50)),
         // r[impl daemon.cli.status]
-        Command::Status { root } => {
-            let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(show_status(root))
-        }
+        Command::Status { root } => show_status(root).await,
         // r[impl daemon.cli.kill]
-        Command::Kill { root } => {
-            let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(kill_daemon(root))
-        }
+        Command::Kill { root } => kill_daemon(root).await,
 
         // r[impl cli.skill.install]
         Command::Skill { action } => match action {
@@ -327,37 +312,34 @@ fn main() -> Result<()> {
         Command::Query { root, query } => {
             let project_root = root.unwrap_or_else(|| find_project_root().unwrap_or_default());
             let query_client = bridge::query::QueryClient::new(project_root);
-            let rt = tokio::runtime::Runtime::new()?;
             init_tracing(TracingConfig {
                 log_file: None,
                 enable_console: true,
             })?;
 
-            let output = rt.block_on(async {
-                match query {
-                    QueryCommand::Status => query_client.status().await,
-                    QueryCommand::Uncovered { spec_impl, prefix } => {
-                        query_client
-                            .uncovered(spec_impl.as_deref(), prefix.as_deref())
-                            .await
-                    }
-                    QueryCommand::Untested { spec_impl, prefix } => {
-                        query_client
-                            .untested(spec_impl.as_deref(), prefix.as_deref())
-                            .await
-                    }
-                    QueryCommand::Unmapped { spec_impl, path } => {
-                        query_client
-                            .unmapped(spec_impl.as_deref(), path.as_deref())
-                            .await
-                    }
-                    QueryCommand::Rule { rule_id } => query_client.rule(&rule_id).await,
-                    QueryCommand::Config => query_client.config().await,
-                    QueryCommand::Validate { spec_impl } => {
-                        query_client.validate(spec_impl.as_deref()).await
-                    }
+            let output = match query {
+                QueryCommand::Status => query_client.status().await,
+                QueryCommand::Uncovered { spec_impl, prefix } => {
+                    query_client
+                        .uncovered(spec_impl.as_deref(), prefix.as_deref())
+                        .await
                 }
-            });
+                QueryCommand::Untested { spec_impl, prefix } => {
+                    query_client
+                        .untested(spec_impl.as_deref(), prefix.as_deref())
+                        .await
+                }
+                QueryCommand::Unmapped { spec_impl, path } => {
+                    query_client
+                        .unmapped(spec_impl.as_deref(), path.as_deref())
+                        .await
+                }
+                QueryCommand::Rule { rule_id } => query_client.rule(&rule_id).await,
+                QueryCommand::Config => query_client.config().await,
+                QueryCommand::Validate { spec_impl } => {
+                    query_client.validate(spec_impl.as_deref()).await
+                }
+            };
 
             println!("{}", output);
             Ok(())
