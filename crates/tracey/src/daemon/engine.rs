@@ -11,9 +11,9 @@
 use eyre::Result;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
-use tokio::sync::{RwLock, watch};
+use tokio::sync::{RwLock, mpsc, watch};
 use tracing::{debug, error, info, warn};
 
 use crate::config::Config;
@@ -50,8 +50,8 @@ pub struct Engine {
     build_cache: Arc<tokio::sync::Mutex<BuildCache>>,
     /// Current full-text search index, rebuilt asynchronously
     search_index: Arc<RwLock<Arc<dyn SearchIndex>>>,
-    /// Monotonic generation for async search reindex jobs
-    search_index_generation: Arc<AtomicU64>,
+    /// Coalescing queue for async search reindex requests
+    search_reindex_tx: mpsc::UnboundedSender<Arc<DashboardData>>,
     /// Whether search has ever been requested in this daemon lifecycle
     search_activated: Arc<AtomicBool>,
 }
@@ -137,8 +137,38 @@ impl Engine {
         // Create watch channel for broadcasting updates
         let (update_tx, update_rx) = watch::channel(Arc::clone(&data));
         let search_index = Arc::new(RwLock::new(search::empty_index()));
-        let search_index_generation = Arc::new(AtomicU64::new(0));
+        let (search_reindex_tx, mut search_reindex_rx) =
+            mpsc::unbounded_channel::<Arc<DashboardData>>();
         let search_activated = Arc::new(AtomicBool::new(false));
+        let search_index_for_worker = Arc::clone(&search_index);
+        let project_root_for_worker = project_root.clone();
+        tokio::spawn(async move {
+            while let Some(mut snapshot) = search_reindex_rx.recv().await {
+                // Debounce and coalesce bursts; keep only latest snapshot.
+                tokio::time::sleep(Duration::from_millis(150)).await;
+                while let Ok(next) = search_reindex_rx.try_recv() {
+                    snapshot = next;
+                }
+
+                let start = Instant::now();
+                let built = search::build_index(
+                    &project_root_for_worker,
+                    &snapshot.search_files,
+                    &snapshot.search_rules,
+                );
+                let built: Arc<dyn SearchIndex> = Arc::from(built);
+                {
+                    let mut idx = search_index_for_worker.write().await;
+                    *idx = built;
+                }
+                info!(
+                    "dashboard async search index ready files={} rules={} elapsed_ms={}",
+                    snapshot.search_files.len(),
+                    snapshot.search_rules.len(),
+                    start.elapsed().as_millis()
+                );
+            }
+        });
 
         let engine = Self {
             data: Arc::new(RwLock::new(data)),
@@ -152,7 +182,7 @@ impl Engine {
             config_error: Arc::new(RwLock::new(config_error)),
             build_cache: Arc::new(tokio::sync::Mutex::new(build_cache)),
             search_index,
-            search_index_generation,
+            search_reindex_tx,
             search_activated,
         };
         Ok(engine)
@@ -368,33 +398,7 @@ impl Engine {
     }
 
     fn spawn_search_reindex(&self, snapshot: Arc<DashboardData>) {
-        let generation = self.search_index_generation.fetch_add(1, Ordering::Relaxed) + 1;
-        let current_generation = Arc::clone(&self.search_index_generation);
-        let search_index = Arc::clone(&self.search_index);
-        let project_root = self.project_root.clone();
-        tokio::spawn(async move {
-            let start = Instant::now();
-            let built = search::build_index(
-                &project_root,
-                &snapshot.search_files,
-                &snapshot.search_rules,
-            );
-            let built: Arc<dyn SearchIndex> = Arc::from(built);
-            if current_generation.load(Ordering::Relaxed) != generation {
-                return;
-            }
-            {
-                let mut idx = search_index.write().await;
-                *idx = built;
-            }
-            info!(
-                "dashboard async search index ready generation={} files={} rules={} elapsed_ms={}",
-                generation,
-                snapshot.search_files.len(),
-                snapshot.search_rules.len(),
-                start.elapsed().as_millis()
-            );
-        });
+        let _ = self.search_reindex_tx.send(snapshot);
     }
 
     /// Check for deprecated config files (YAML, KDL) and return an error message if found.

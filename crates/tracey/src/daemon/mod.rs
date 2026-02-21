@@ -308,6 +308,7 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
                     let relative_paths: Vec<_> = changed_files
                         .iter()
                         .filter_map(|p| p.strip_prefix(&project_root_for_rebuild).ok())
+                        .filter(|p| !is_temporary_edit_artifact(p))
                         .filter(|p| {
                             // Keep paths that are NOT ignored by gitignore
                             let full_path = project_root_for_rebuild.join(p);
@@ -522,6 +523,23 @@ fn build_gitignore(project_root: &Path) -> ignore::gitignore::Gitignore {
         warn!("Failed to build gitignore matcher: {}", e);
         ignore::gitignore::Gitignore::empty()
     })
+}
+
+fn is_temporary_edit_artifact(path: &Path) -> bool {
+    let path_str = path.to_string_lossy();
+    if path_str.contains(".tmp.") {
+        return true;
+    }
+    let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+        return false;
+    };
+    name.contains(".tmp.")
+        || name.ends_with(".tmp")
+        || name.ends_with('~')
+        || name.ends_with(".swp")
+        || name.ends_with(".swo")
+        || name.ends_with(".swx")
+        || name.starts_with(".#")
 }
 
 /// Run the smart file watcher, sending events to the channel.
