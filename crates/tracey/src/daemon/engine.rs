@@ -45,13 +45,21 @@ pub struct Engine {
 }
 
 impl Engine {
+    fn format_config_error(config_path: &Path, error: impl std::fmt::Display) -> String {
+        format!(
+            "Config file {} has errors:\n{}",
+            config_path.display(),
+            error
+        )
+    }
+
     /// Create a new engine for the given project root.
     pub async fn new(project_root: PathBuf, config_path: PathBuf) -> Result<Self> {
         // Check for deprecated config files first
         let deprecated_error = Self::check_deprecated_configs(&project_root);
 
         // Load initial config - record errors but continue with empty config
-        let (config, config_error) = if let Some(err) = deprecated_error {
+        let (mut config, mut config_error) = if let Some(err) = deprecated_error {
             // Deprecated config found - use empty config and record error
             (Config::default(), Some(err))
         } else {
@@ -60,8 +68,7 @@ impl Engine {
                     Ok(config) => (config, None),
                     Err(e) => {
                         // Config has errors - use empty config and record error
-                        let err =
-                            format!("Config file {} has errors:\n{}", config_path.display(), e);
+                        let err = Self::format_config_error(&config_path, e);
                         (Config::default(), Some(err))
                     }
                 },
@@ -80,10 +87,23 @@ impl Engine {
             }
         };
 
-        // Build initial data
+        // Build initial data. If config is semantically invalid, keep daemon alive
+        // with an empty config and surface the error through health/LSP diagnostics.
         let overlay = FileOverlay::new();
         let data =
-            build_dashboard_data_with_overlay(&project_root, &config, 1, false, &overlay).await?;
+            match build_dashboard_data_with_overlay(&project_root, &config, 1, false, &overlay)
+                .await
+            {
+                Ok(data) => data,
+                Err(e) => {
+                    let semantic_error = Self::format_config_error(&config_path, e);
+                    warn!("Initial config failed validation: {}", semantic_error);
+                    config_error = Some(semantic_error);
+                    config = Config::default();
+                    build_dashboard_data_with_overlay(&project_root, &config, 1, false, &overlay)
+                        .await?
+                }
+            };
         let data = Arc::new(data);
 
         // Create watch channel for broadcasting updates
@@ -175,11 +195,7 @@ impl Engine {
             Ok(content) => match facet_styx::from_str(&content) {
                 Ok(config) => (Some(config), None),
                 Err(e) => {
-                    let error_msg = format!(
-                        "Config file {} has errors: {}",
-                        self.config_path.display(),
-                        e
-                    );
+                    let error_msg = Self::format_config_error(&self.config_path, e);
                     warn!("{}", error_msg);
                     (None, Some(error_msg))
                 }
@@ -209,31 +225,34 @@ impl Engine {
             None => self.config.read().await.clone(),
         };
 
-        // Update config error state
-        {
-            let mut err = self.config_error.write().await;
-            *err = new_config_error;
-        }
-
         // Get current VFS overlay
         let overlay = self.vfs.read().await.clone();
 
-        // Increment version
-        let new_version = self
-            .version
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-            + 1;
+        let new_version = self.version() + 1;
 
-        // Build new data (this is the expensive part)
-        let new_data = build_dashboard_data_with_overlay(
+        // Build new data (this is the expensive part). Semantic config errors
+        // should not fail the daemon; keep the previous snapshot and record error.
+        let build_result = build_dashboard_data_with_overlay(
             &self.project_root,
             &config,
             new_version,
             true,
             &overlay,
         )
-        .await?;
-        let new_data = Arc::new(new_data);
+        .await;
+        let new_data = match build_result {
+            Ok(data) => Arc::new(data),
+            Err(e) => {
+                let semantic_error = Self::format_config_error(&self.config_path, e);
+                warn!(
+                    "Rebuild failed due to config validation error: {}",
+                    semantic_error
+                );
+                let mut err = self.config_error.write().await;
+                *err = Some(semantic_error);
+                return Ok((self.version(), start.elapsed()));
+            }
+        };
 
         // Acquire write lock and update (blocks all reads)
         {
@@ -246,6 +265,16 @@ impl Engine {
             let mut cfg = self.config.write().await;
             *cfg = config;
         }
+
+        // Update config error state only after successful rebuild.
+        {
+            let mut err = self.config_error.write().await;
+            *err = new_config_error;
+        }
+
+        // Increment version after successful rebuild.
+        self.version
+            .store(new_version, std::sync::atomic::Ordering::Relaxed);
 
         // Broadcast to subscribers
         let _ = self.update_tx.send(new_data);

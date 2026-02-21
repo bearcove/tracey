@@ -42,6 +42,22 @@ async fn create_test_service() -> common::RpcTestService {
     common::create_test_rpc_service(service).await
 }
 
+/// Helper to create an isolated test project with its own engine.
+async fn create_isolated_test_service() -> (tempfile::TempDir, common::RpcTestService) {
+    let temp = common::create_temp_project();
+    let project_root = temp.path().to_path_buf();
+    let config_path = project_root.join("config.styx");
+
+    let engine = Arc::new(
+        tracey::daemon::Engine::new(project_root, config_path)
+            .await
+            .expect("Failed to create engine"),
+    );
+    let service = tracey::daemon::TraceyService::new(engine);
+    let rpc = common::create_test_rpc_service(service).await;
+    (temp, rpc)
+}
+
 fn rid(id: &str) -> tracey_core::RuleId {
     parse_rule_id(id).expect("valid rule id")
 }
@@ -204,6 +220,94 @@ async fn test_config_returns_project_info() {
     assert!(
         spec.implementations.contains(&"rust".to_string()),
         "Expected rust implementation"
+    );
+}
+
+#[tokio::test]
+async fn test_daemon_starts_with_semantically_invalid_config() {
+    let temp = common::create_temp_project();
+    std::fs::write(
+        temp.path().join("config.styx"),
+        r#"
+specs (
+  {
+    name test
+    prefix r
+    include (spec.md)
+    impls (
+      {
+        name rust
+        include (src/**/*.rs)
+      }
+    )
+  }
+)
+"#,
+    )
+    .expect("Failed to write config");
+
+    let engine = Arc::new(
+        tracey::daemon::Engine::new(temp.path().to_path_buf(), temp.path().join("config.styx"))
+            .await
+            .expect("Engine should initialize even with invalid semantic config"),
+    );
+    let service = tracey::daemon::TraceyService::new(engine);
+    let rpc_service = common::create_test_rpc_service(service).await;
+
+    let health = rpc(rpc_service.client.health().await);
+    let config_error = health.config_error.unwrap_or_default();
+    assert!(
+        config_error.contains("deprecated `prefix r`"),
+        "Expected config error about deprecated prefix, got: {config_error}"
+    );
+
+    // Service remains responsive even when config is invalid.
+    let _status = rpc(rpc_service.client.status().await);
+}
+
+#[tokio::test]
+async fn test_reload_with_semantically_invalid_config_keeps_previous_data() {
+    let (temp, service) = create_isolated_test_service().await;
+    let before = rpc(service.client.status().await);
+    assert!(
+        !before.impls.is_empty(),
+        "Expected fixture project to have initial coverage data"
+    );
+
+    std::fs::write(
+        temp.path().join("config.styx"),
+        r#"
+specs (
+  {
+    name test
+    prefix r
+    include (spec.md)
+    impls (
+      {
+        name rust
+        include (src/**/*.rs)
+      }
+    )
+  }
+)
+"#,
+    )
+    .expect("Failed to write invalid config");
+
+    let _reload = rpc(service.client.reload().await);
+
+    let health = rpc(service.client.health().await);
+    let config_error = health.config_error.unwrap_or_default();
+    assert!(
+        config_error.contains("deprecated `prefix r`"),
+        "Expected config error about deprecated prefix, got: {config_error}"
+    );
+
+    // Last known good data remains available after failed semantic rebuild.
+    let after = rpc(service.client.status().await);
+    assert!(
+        !after.impls.is_empty(),
+        "Expected previous data to remain available after failed rebuild"
     );
 }
 
