@@ -1620,24 +1620,18 @@ impl TraceyDaemon for TraceyService {
             let (start_line, start_char, end_line, end_char) =
                 span_to_range(&req.content, reference.span.offset, reference.span.length);
 
-            // Check for unknown prefix
+            // Unknown-prefix diagnostics are currently noisy and can become sticky
+            // in editor UIs when ranges drift. Keep strict prefix validation in
+            // `query validate`, but suppress this LSP diagnostic until range/source
+            // attribution is made deterministic.
             if !known_prefixes.contains(reference.prefix.as_str()) {
                 debug!(
-                    "lsp_diagnostics unknown-prefix path={} ref_prefix={} ref_id={} known_prefixes={:?}",
+                    "lsp_diagnostics suppressed unknown-prefix path={} ref_prefix={} ref_id={} known_prefixes={:?}",
                     path.display(),
                     reference.prefix,
                     reference.req_id,
                     known_prefixes
                 );
-                diagnostics.push(LspDiagnostic {
-                    severity: "error".to_string(),
-                    code: "unknown-prefix".to_string(),
-                    message: format!("Unknown prefix: '{}'", reference.prefix),
-                    start_line,
-                    start_char,
-                    end_line,
-                    end_char,
-                });
                 continue;
             }
 
