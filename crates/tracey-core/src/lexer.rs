@@ -338,9 +338,13 @@ fn extract_references_from_text(
     base_line: usize,
     reqs: &mut Reqs,
 ) {
+    let code_mask = crate::markdown::markdown_code_mask(text);
     let mut chars = text.char_indices().peekable();
 
     while let Some((start_idx, ch)) = chars.next() {
+        if crate::markdown::is_code_index(start_idx, &code_mask) {
+            continue;
+        }
         // r[impl ref.syntax.brackets+2]
         // r[impl ref.prefix.matching+2]
         // Match any valid prefix (alphanumeric) followed by '['
@@ -698,5 +702,35 @@ mod tests {
         assert_eq!(reqs.references[0].prefix, "r");
         assert_eq!(reqs.references[0].verb, RefVerb::Impl);
         assert_eq!(reqs.references[0].req_id, "dashboard.header.search");
+    }
+
+    #[test]
+    fn test_ignore_refs_inside_inline_backticks_in_comments() {
+        let content = r#"
+            // See `r[impl ignored.inline]` for docs
+            // r[impl visible.ref]
+            fn test() {}
+        "#;
+
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs.references[0].req_id, "visible.ref");
+    }
+
+    #[test]
+    fn test_ignore_refs_inside_fenced_code_in_comments() {
+        let content = r#"
+            /*
+            ```markdown
+            r[impl ignored.fenced]
+            ```
+            r[impl visible.ref]
+            */
+            fn test() {}
+        "#;
+
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs.references[0].req_id, "visible.ref");
     }
 }

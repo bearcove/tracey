@@ -36,6 +36,7 @@ reverse = [
 facet = { workspace = true }
 eyre = { workspace = true }
 marq = { workspace = true }
+pulldown-cmark = "0.13"
 
 # Optional
 ignore = { workspace = true, optional = true }
