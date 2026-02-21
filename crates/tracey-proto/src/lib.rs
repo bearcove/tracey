@@ -14,7 +14,7 @@ pub use tracey_api::*;
 /// Protocol version — bump this whenever any RPC method is added, removed, or changed.
 /// The daemon writes this into its PID file; connectors compare it before connecting
 /// to detect stale daemons running an incompatible build.
-pub const PROTOCOL_VERSION: u32 = 3;
+pub const PROTOCOL_VERSION: u32 = 4;
 
 // ============================================================================
 // Request/Response types for the TraceyDaemon service
@@ -84,6 +84,47 @@ pub struct UntestedResponse {
     pub total_rules: usize,
     pub untested_count: usize,
     pub by_section: Vec<SectionRules>,
+}
+
+/// Request for stale references query
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct StaleRequest {
+    /// Spec name (optional if only one spec configured)
+    #[facet(default)]
+    pub spec: Option<String>,
+    /// Implementation name (optional if only one impl configured)
+    #[facet(default)]
+    pub impl_name: Option<String>,
+    /// Filter rules by ID prefix (case-insensitive)
+    #[facet(default)]
+    pub prefix: Option<String>,
+}
+
+/// Response for stale references query
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct StaleResponse {
+    pub spec: String,
+    pub impl_name: String,
+    pub total_rules: usize,
+    pub stale_count: usize,
+    /// Flat list of stale entries (sorted by file, then line)
+    pub refs: Vec<StaleEntry>,
+}
+
+/// A single stale reference entry
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct StaleEntry {
+    /// Current rule ID (latest version in the spec)
+    pub current_id: RuleId,
+    /// File containing the stale reference
+    pub file: String,
+    /// Line number of the stale reference
+    pub line: usize,
+    /// The rule ID referenced in code (older version)
+    pub reference_id: RuleId,
 }
 
 /// Request for unmapped code query
@@ -608,6 +649,9 @@ pub trait TraceyDaemon {
 
     /// Get untested rules (rules with impl but no verify references)
     async fn untested(&self, req: UntestedRequest) -> UntestedResponse;
+
+    /// Get stale references (code pointing to older rule versions)
+    async fn stale(&self, req: StaleRequest) -> StaleResponse;
 
     /// Get unmapped code (code units without requirement references)
     async fn unmapped(&self, req: UnmappedRequest) -> UnmappedResponse;

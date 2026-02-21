@@ -253,6 +253,22 @@ export interface ApiRule {
    * A stale rule is not counted as covered.
    */
   isStale?: boolean;
+  /**
+   * Stale references pointing to older versions of this rule.
+   */
+  staleRefs?: ApiStaleRef[];
+}
+
+/**
+ * A stale reference: code points to an older version of a rule.
+ */
+export interface ApiStaleRef {
+  file: string;
+  line: number;
+  /**
+   * The rule ID referenced in code (older version)
+   */
+  reference_id: RuleId;
 }
 
 export interface ApiSpecForward {

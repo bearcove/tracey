@@ -161,8 +161,8 @@ impl QueryClient {
 
                 if status.impls.iter().any(|s| s.stale_rules > 0) {
                     output.push_str(&self.hint(
-                        "tracey query validate",
-                        "tracey_validate to see which requirements are stale",
+                        "tracey query stale",
+                        "tracey_stale to list stale references with file:line details",
                     ));
                 }
 
@@ -354,6 +354,69 @@ impl QueryClient {
                 ));
 
                 output
+            }
+            Err(e) => format!("Error: {e}"),
+        };
+
+        self.with_config_banner(output).await
+    }
+
+    /// Get stale references (code pointing to older rule versions)
+    pub async fn stale(&self, spec_impl: Option<&str>, prefix: Option<&str>) -> String {
+        let (spec, impl_name) = parse_spec_impl(spec_impl);
+
+        let req = StaleRequest {
+            spec,
+            impl_name,
+            prefix: prefix.map(String::from),
+        };
+
+        let output = match self.client.stale(req).await {
+            Ok(response) => {
+                if response.stale_count == 0 {
+                    format!(
+                        "{}/{}: no stale references ({} rules total)\n",
+                        response.spec, response.impl_name, response.total_rules
+                    )
+                } else {
+                    let mut output = format!(
+                        "# Stale references in {}/{}\n\n{} stale reference(s) across {} file(s)\n\n",
+                        response.spec,
+                        response.impl_name,
+                        response.stale_count,
+                        {
+                            let mut files: Vec<&str> =
+                                response.refs.iter().map(|r| r.file.as_str()).collect();
+                            files.dedup();
+                            files.len()
+                        }
+                    );
+
+                    // Group by file
+                    let mut current_file = String::new();
+                    for entry in &response.refs {
+                        if entry.file != current_file {
+                            output.push_str(&format!("## {}\n", entry.file));
+                            current_file = entry.file.clone();
+                        }
+                        output.push_str(&format!(
+                            "  - line {}: references '{}' — current is '{}'\n",
+                            entry.line, entry.reference_id, entry.current_id
+                        ));
+                    }
+
+                    output.push_str("\n---\n");
+                    output.push_str(&self.hint(
+                        "tracey query rule <rule-id>",
+                        "tracey_rule to see the full rule text and version diff",
+                    ));
+                    output.push_str(&self.hint(
+                        "tracey query stale --prefix <prefix>",
+                        "tracey_stale with a prefix parameter to filter by rule ID prefix",
+                    ));
+
+                    output
+                }
             }
             Err(e) => format!("Error: {e}"),
         };

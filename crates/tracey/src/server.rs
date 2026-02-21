@@ -316,6 +316,50 @@ impl<'a> QueryEngine<'a> {
         })
     }
 
+    /// Get stale references for a spec/impl, optionally filtered by rule ID prefix
+    pub fn stale(
+        &self,
+        spec: &str,
+        impl_name: &str,
+        prefix_filter: Option<&str>,
+    ) -> Option<StaleResult> {
+        let key: ImplKey = (spec.to_string(), impl_name.to_string());
+        let forward = self.data.forward_by_impl.get(&key)?;
+
+        let stats = CoverageStats::from_rules(&forward.rules);
+
+        let mut entries: Vec<StaleEntryResult> = Vec::new();
+
+        for rule in &forward.rules {
+            if rule.stale_refs.is_empty() {
+                continue;
+            }
+            if let Some(p) = prefix_filter
+                && !rule.id.base.to_lowercase().starts_with(&p.to_lowercase())
+            {
+                continue;
+            }
+            for sr in &rule.stale_refs {
+                entries.push(StaleEntryResult {
+                    current_id: rule.id.clone(),
+                    file: sr.file.clone(),
+                    line: sr.line,
+                    reference_id: sr.reference_id.clone(),
+                });
+            }
+        }
+
+        // Sort by file, then line
+        entries.sort_by(|a, b| a.file.cmp(&b.file).then(a.line.cmp(&b.line)));
+
+        Some(StaleResult {
+            spec: spec.to_string(),
+            impl_name: impl_name.to_string(),
+            stats,
+            entries,
+        })
+    }
+
     /// Get unmapped code tree for a spec/impl, optionally filtered by path
     pub fn unmapped(
         &self,
@@ -493,6 +537,22 @@ pub struct UntestedResult {
 pub struct RuleRef {
     pub id: RuleId,
     pub impl_refs: Vec<ApiCodeRef>,
+}
+
+#[derive(Debug, Clone)]
+pub struct StaleResult {
+    pub spec: String,
+    pub impl_name: String,
+    pub stats: CoverageStats,
+    pub entries: Vec<StaleEntryResult>,
+}
+
+#[derive(Debug, Clone)]
+pub struct StaleEntryResult {
+    pub current_id: RuleId,
+    pub file: String,
+    pub line: usize,
+    pub reference_id: RuleId,
 }
 
 #[derive(Debug, Clone)]

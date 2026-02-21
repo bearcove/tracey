@@ -94,12 +94,24 @@ pub struct ApiRule {
     /// A stale rule is not counted as covered.
     #[facet(default)]
     pub is_stale: bool,
+    /// Stale references pointing to older versions of this rule.
+    #[facet(default)]
+    pub stale_refs: Vec<ApiStaleRef>,
 }
 
 #[derive(Debug, Clone, Facet)]
 pub struct ApiCodeRef {
     pub file: String,
     pub line: usize,
+}
+
+/// A stale reference: code points to an older version of a rule.
+#[derive(Debug, Clone, Facet)]
+pub struct ApiStaleRef {
+    pub file: String,
+    pub line: usize,
+    /// The rule ID referenced in code (older version)
+    pub reference_id: RuleId,
 }
 
 /// Reverse traceability: file tree with coverage info

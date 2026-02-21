@@ -210,6 +210,17 @@ enum QueryCommand {
         path: Option<String>,
     },
 
+    /// List stale references (code pointing to older rule versions)
+    Stale {
+        /// Spec/impl to query (e.g., "my-spec/rust"). Optional if only one exists.
+        #[facet(args::named, default)]
+        spec_impl: Option<String>,
+
+        /// Filter by rule ID prefix
+        #[facet(args::named, default)]
+        prefix: Option<String>,
+    },
+
     /// Show details about a specific rule
     Rule {
         /// Rule identifier to inspect
@@ -394,6 +405,11 @@ async fn main() -> Result<()> {
                 QueryCommand::Unmapped { spec_impl, path } => {
                     query_client
                         .unmapped(spec_impl.as_deref(), path.as_deref())
+                        .await
+                }
+                QueryCommand::Stale { spec_impl, prefix } => {
+                    query_client
+                        .stale(spec_impl.as_deref(), prefix.as_deref())
                         .await
                 }
                 QueryCommand::Rule { rule_id } => query_client.rule(&rule_id).await,

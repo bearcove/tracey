@@ -297,6 +297,42 @@ impl TraceyDaemon for TraceyService {
         }
     }
 
+    /// Get stale references
+    async fn stale(&self, _cx: &Context, req: StaleRequest) -> StaleResponse {
+        let data = self.inner.engine.data().await;
+        let query = QueryEngine::new(&data);
+
+        let (spec, impl_name) =
+            self.resolve_spec_impl(req.spec.as_deref(), req.impl_name.as_deref(), &data.config);
+
+        if let Some(result) = query.stale(&spec, &impl_name, req.prefix.as_deref()) {
+            StaleResponse {
+                spec: result.spec,
+                impl_name: result.impl_name,
+                total_rules: result.stats.total_rules,
+                stale_count: result.entries.len(),
+                refs: result
+                    .entries
+                    .into_iter()
+                    .map(|e| StaleEntry {
+                        current_id: e.current_id,
+                        file: e.file,
+                        line: e.line,
+                        reference_id: e.reference_id,
+                    })
+                    .collect(),
+            }
+        } else {
+            StaleResponse {
+                spec,
+                impl_name,
+                total_rules: 0,
+                stale_count: 0,
+                refs: vec![],
+            }
+        }
+    }
+
     /// Get unmapped code
     async fn unmapped(&self, _cx: &Context, req: UnmappedRequest) -> UnmappedResponse {
         let data = self.inner.engine.data().await;

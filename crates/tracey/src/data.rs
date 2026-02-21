@@ -37,8 +37,8 @@ use crate::search::{self, SearchIndex};
 // Re-export API types from tracey-api crate
 pub use tracey_api::{
     ApiCodeRef, ApiCodeUnit, ApiConfig, ApiFileData, ApiFileEntry, ApiForwardData, ApiReverseData,
-    ApiRule, ApiSpecData, ApiSpecForward, ApiSpecInfo, GitStatus, OutlineCoverage, OutlineEntry,
-    SpecSection,
+    ApiRule, ApiSpecData, ApiSpecForward, ApiSpecInfo, ApiStaleRef, GitStatus, OutlineCoverage,
+    OutlineEntry, SpecSection,
 };
 
 // ============================================================================
@@ -717,6 +717,7 @@ pub async fn build_dashboard_data_with_overlay(
                 let mut impl_refs = Vec::new();
                 let mut verify_refs = Vec::new();
                 let mut depends_refs = Vec::new();
+                let mut stale_refs = Vec::new();
 
                 for r in &reqs.references {
                     // r[impl ref.prefix.coverage+2]
@@ -737,7 +738,7 @@ pub async fn build_dashboard_data_with_overlay(
                             };
 
                         let code_ref = ApiCodeRef {
-                            file: relative_display,
+                            file: relative_display.clone(),
                             line: r.line,
                         };
                         let Some(rule_id) = parse_rule_id(&extracted.def.id.to_string()) else {
@@ -757,10 +758,20 @@ pub async fn build_dashboard_data_with_overlay(
                                 RefVerb::Impl | RefVerb::Define => {
                                     impl_refs.push(code_ref);
                                     stale_rule_ids.insert(rule_id.clone());
+                                    stale_refs.push(ApiStaleRef {
+                                        file: relative_display,
+                                        line: r.line,
+                                        reference_id: r.req_id.clone(),
+                                    });
                                 }
                                 RefVerb::Verify => {
                                     verify_refs.push(code_ref);
                                     stale_rule_ids.insert(rule_id.clone());
+                                    stale_refs.push(ApiStaleRef {
+                                        file: relative_display,
+                                        line: r.line,
+                                        reference_id: r.req_id.clone(),
+                                    });
                                 }
                                 RefVerb::Depends | RefVerb::Related => {}
                             },
@@ -791,6 +802,7 @@ pub async fn build_dashboard_data_with_overlay(
                     verify_refs,
                     depends_refs,
                     is_stale: false, // set in second pass below, after stale_rule_ids is complete
+                    stale_refs,
                 });
             }
 

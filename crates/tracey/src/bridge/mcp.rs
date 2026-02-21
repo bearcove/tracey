@@ -63,6 +63,19 @@ pub struct UntestedTool {
     pub prefix: Option<String>,
 }
 
+/// List stale references (code pointing to older rule versions)
+#[mcp_tool(
+    name = "tracey_stale",
+    description = "List references that point to older rule versions. These need code updates to match the current spec, then annotation bumps."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct StaleTool {
+    #[serde(default)]
+    pub spec_impl: Option<String>,
+    #[serde(default)]
+    pub prefix: Option<String>,
+}
+
 /// Get code units without rule references
 #[mcp_tool(
     name = "tracey_unmapped",
@@ -155,6 +168,7 @@ tool_box!(
         StatusTool,
         UncoveredTool,
         UntestedTool,
+        StaleTool,
         UnmappedTool,
         RuleTool,
         ConfigTool,
@@ -214,6 +228,11 @@ impl ServerHandler for TraceyHandler {
                 let spec_impl = args.get("spec_impl").and_then(|v| v.as_str());
                 let prefix = args.get("prefix").and_then(|v| v.as_str());
                 self.client.untested(spec_impl, prefix).await
+            }
+            "tracey_stale" => {
+                let spec_impl = args.get("spec_impl").and_then(|v| v.as_str());
+                let prefix = args.get("prefix").and_then(|v| v.as_str());
+                self.client.stale(spec_impl, prefix).await
             }
             "tracey_unmapped" => {
                 let spec_impl = args.get("spec_impl").and_then(|v| v.as_str());
