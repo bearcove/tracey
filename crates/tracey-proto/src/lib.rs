@@ -372,10 +372,10 @@ pub struct HoverInfo {
     pub range_start_char: u32,
     pub range_end_line: u32,
     pub range_end_char: u32,
-    /// Diff between the previous rule version and the current one.
-    /// Only present when the annotation is current (tail) and the rule has version > 1.
+    /// Diff between a previous rule version and the current one (inline markdown format).
+    /// Present for tail annotations (current version, version > 1) and stale annotations.
     #[facet(default)]
-    pub tail_diff: Option<String>,
+    pub version_diff: Option<String>,
 }
 
 /// A completion item

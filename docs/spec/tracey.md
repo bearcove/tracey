@@ -1305,8 +1305,8 @@ The server MUST publish diagnostics for stale requirement references, with sever
 > r[lsp.diagnostics.stale.message-prefix]
 > Stale-reference diagnostics MUST start with this exact sentence: `Implementation must be changed to match updated rule text — and ONLY ONCE THAT'S DONE must the code annotation be bumped`.
 
-> r[lsp.diagnostics.stale.diff]
-> When rule history is available, stale-reference diagnostics MUST include previous rule text, current rule text, and a textual diff between them. When unavailable, they MUST include an explicit fallback note.
+> r[lsp.diagnostics.stale.diff+2]
+> LSP stale-reference diagnostics MUST be concise: just the prefix sentence and a note identifying the stale reference and current rule ID. The detailed diff (previous text, current text, textual diff) is deferred to hover information. Validation and MCP output retains the verbose format including previous/current text and diff.
 
 r[lsp.diagnostics.on-change]
 Diagnostics MUST be updated when files are modified, using debouncing to avoid excessive recomputation.
@@ -1333,13 +1333,16 @@ Hovering over a requirement reference in source code MUST display the requiremen
 r[lsp.hover.prefix]
 Hovering over a requirement reference MUST include the spec name and source URL (if configured) alongside the requirement info, allowing users to see which specification the prefix maps to.
 
-r[lsp.hover.tail-diff]
+r[lsp.hover.tail-diff+2]
 When hovering over a requirement reference that is "tail" — meaning the referenced version exactly matches the current rule version, and that version is greater than 1 — the hover MUST include a diff between the previous version of the rule text (N-1) and the current version (N).
 
-> r[lsp.hover.tail-diff.format]
-> The diff MUST be presented as a fenced `diff` code block with unified line-level format (lines prefixed with `-`, `+`, or ` `).
+r[lsp.hover.stale-diff]
+When hovering over a stale requirement reference — meaning the referenced version is older than the current rule version — the hover MUST include a diff between the stale reference version's text and the current rule text.
 
-> r[lsp.hover.tail-diff.fallback]
+> r[lsp.hover.tail-diff.format+2]
+> For both tail and stale annotations, the diff MUST be presented as inline markdown with ~~strikethrough~~ for removed words and **bold** for added words, rendered under a "Changes from previous version" heading.
+
+> r[lsp.hover.tail-diff.fallback+2]
 > When the previous rule text cannot be retrieved (e.g., shallow git history or missing commits), the diff section MUST be omitted silently — no error or placeholder shown.
 
 ### Document Highlight

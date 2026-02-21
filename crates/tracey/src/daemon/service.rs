@@ -1090,24 +1090,37 @@ impl TraceyDaemon for TraceyService {
             rule_at_pos.span_length,
         );
 
-        // r[impl lsp.hover.tail-diff]
-        // r[impl lsp.hover.tail-diff.fallback]
-        // For tail annotations (current version, version > 1), show the diff from N-1 to N
-        let tail_diff = if rule.id.version > 1
-            && classify_reference_for_rule(&rule.id, &rule_at_pos.req_id) == RuleIdMatch::Exact
-        {
-            let prev_id = RuleId::new(rule.id.base.clone(), rule.id.version - 1)
-                .expect("version - 1 >= 1 since version > 1");
-            if let Some(source_file) = rule.source_file.as_deref() {
-                let project_root = self.inner.engine.project_root();
-                load_previous_rule_text_from_git(project_root, source_file, &prev_id)
-                    .await
-                    .map(|historical| build_rule_text_diff(&historical.text, &rule.raw))
-            } else {
-                None
+        // r[impl lsp.hover.tail-diff+2]
+        // r[impl lsp.hover.tail-diff.fallback+2]
+        // r[impl lsp.hover.stale-diff]
+        // Compute version_diff for both tail and stale annotations
+        let match_kind = classify_reference_for_rule(&rule.id, &rule_at_pos.req_id);
+        let version_diff = match match_kind {
+            // Tail: exact match, version > 1 — diff from N-1 to N
+            RuleIdMatch::Exact if rule.id.version > 1 => {
+                let prev_id = RuleId::new(rule.id.base.clone(), rule.id.version - 1)
+                    .expect("version - 1 >= 1 since version > 1");
+                if let Some(source_file) = rule.source_file.as_deref() {
+                    let project_root = self.inner.engine.project_root();
+                    load_previous_rule_text_from_git(project_root, source_file, &prev_id)
+                        .await
+                        .map(|historical| build_markdown_word_diff(&historical.text, &rule.raw))
+                } else {
+                    None
+                }
             }
-        } else {
-            None
+            // Stale: reference points to an older version — diff from stale version to current
+            RuleIdMatch::Stale => {
+                if let Some(source_file) = rule.source_file.as_deref() {
+                    let project_root = self.inner.engine.project_root();
+                    load_previous_rule_text_from_git(project_root, source_file, &rule_at_pos.req_id)
+                        .await
+                        .map(|historical| build_markdown_word_diff(&historical.text, &rule.raw))
+                } else {
+                    None
+                }
+            }
+            _ => None,
         };
 
         Some(HoverInfo {
@@ -1124,7 +1137,7 @@ impl TraceyDaemon for TraceyService {
             range_start_char: start_char,
             range_end_line: end_line,
             range_end_char: end_char,
-            tail_diff,
+            version_diff,
         })
     }
 
@@ -1424,12 +1437,6 @@ impl TraceyDaemon for TraceyService {
                 }
             }
         }
-        let mut stale_message_cache: std::collections::HashMap<
-            (RuleId, RuleId),
-            Option<HistoricalRuleText>,
-        > = std::collections::HashMap::new();
-        let project_root = self.inner.engine.project_root();
-
         for reference in &reqs.references {
             let (start_line, start_char, end_line, end_char) =
                 span_to_range(&req.content, reference.span.offset, reference.span.length);
@@ -1457,14 +1464,11 @@ impl TraceyDaemon for TraceyService {
                 KnownRuleMatch::Stale(current_rule_id) => {
                     // r[impl lsp.diagnostics.stale]
                     // r[impl lsp.diagnostics.stale.message-prefix]
-                    // r[impl lsp.diagnostics.stale.diff]
-                    let message = stale_requirement_message(
-                        project_root,
+                    // r[impl lsp.diagnostics.stale.diff+2]
+                    let message = stale_diagnostic_message_short(
                         &reference.req_id,
                         rules_by_id.get(&current_rule_id),
-                        &mut stale_message_cache,
-                    )
-                    .await;
+                    );
                     diagnostics.push(LspDiagnostic {
                         severity: "warning".to_string(),
                         code: "stale".to_string(),
@@ -2546,6 +2550,114 @@ fn build_rule_text_diff(old_text: &str, new_text: &str) -> String {
     out
 }
 
+enum WordDiffOp<'a> {
+    Equal(&'a str),
+    Remove(&'a str),
+    Add(&'a str),
+}
+
+fn word_diff<'a>(old: &'a str, new: &'a str) -> Vec<WordDiffOp<'a>> {
+    let old_words: Vec<&str> = old.split_whitespace().collect();
+    let new_words: Vec<&str> = new.split_whitespace().collect();
+    let n = old_words.len();
+    let m = new_words.len();
+
+    // LCS table
+    let mut lcs = vec![vec![0usize; m + 1]; n + 1];
+    for i in (0..n).rev() {
+        for j in (0..m).rev() {
+            lcs[i][j] = if old_words[i] == new_words[j] {
+                lcs[i + 1][j + 1] + 1
+            } else {
+                lcs[i + 1][j].max(lcs[i][j + 1])
+            };
+        }
+    }
+
+    let mut i = 0;
+    let mut j = 0;
+    let mut out = Vec::new();
+    while i < n && j < m {
+        if old_words[i] == new_words[j] {
+            out.push(WordDiffOp::Equal(old_words[i]));
+            i += 1;
+            j += 1;
+        } else if lcs[i + 1][j] >= lcs[i][j + 1] {
+            out.push(WordDiffOp::Remove(old_words[i]));
+            i += 1;
+        } else {
+            out.push(WordDiffOp::Add(new_words[j]));
+            j += 1;
+        }
+    }
+    while i < n {
+        out.push(WordDiffOp::Remove(old_words[i]));
+        i += 1;
+    }
+    while j < m {
+        out.push(WordDiffOp::Add(new_words[j]));
+        j += 1;
+    }
+
+    out
+}
+
+fn build_markdown_word_diff(old_text: &str, new_text: &str) -> String {
+    let ops = word_diff(old_text, new_text);
+    let mut out = String::new();
+    let mut need_space = false;
+
+    for op in ops {
+        match op {
+            WordDiffOp::Equal(word) => {
+                if need_space {
+                    out.push(' ');
+                }
+                out.push_str(word);
+                need_space = true;
+            }
+            WordDiffOp::Remove(word) => {
+                if need_space {
+                    out.push(' ');
+                }
+                out.push_str("~~");
+                out.push_str(word);
+                out.push_str("~~");
+                need_space = true;
+            }
+            WordDiffOp::Add(word) => {
+                if need_space {
+                    out.push(' ');
+                }
+                out.push_str("**");
+                out.push_str(word);
+                out.push_str("**");
+                need_space = true;
+            }
+        }
+    }
+
+    out
+}
+
+/// Short stale diagnostic for LSP — just the prefix and reference info, no diff.
+fn stale_diagnostic_message_short(
+    reference_rule_id: &RuleId,
+    current_rule: Option<&ApiRule>,
+) -> String {
+    let mut message = String::from(STALE_IMPLEMENTATION_MUST_CHANGE_PREFIX);
+    if let Some(current_rule) = current_rule {
+        message.push_str(&format!(
+            ". Reference '{}' is stale; current rule is '{}'.",
+            reference_rule_id, current_rule.id
+        ));
+    } else {
+        message.push_str(". The referenced annotation is stale, but the latest matching rule could not be loaded.");
+    }
+    message
+}
+
+/// Verbose stale message for validation/MCP — includes previous/current text and diff.
 async fn stale_requirement_message(
     project_root: &Path,
     reference_rule_id: &RuleId,
