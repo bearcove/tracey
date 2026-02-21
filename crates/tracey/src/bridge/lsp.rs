@@ -421,6 +421,46 @@ impl Backend {
                 .await;
         }
     }
+
+    /// Clear diagnostics for workspace files on startup so clients don't retain stale diagnostics
+    /// from a previous LSP session.
+    async fn clear_workspace_diagnostics_on_startup(&self) {
+        {
+            let mut state = self.doc_state.lock().unwrap();
+            state.files_with_diagnostics.clear();
+        }
+
+        let config_path = self.project_root.join(".config/tracey/config.styx");
+        if let Ok(uri) = Url::from_file_path(&config_path) {
+            self.client.publish_diagnostics(uri, vec![], None).await;
+        }
+
+        let walker = ignore::WalkBuilder::new(&self.project_root)
+            .follow_links(true)
+            .hidden(false)
+            .git_ignore(true)
+            .build();
+
+        for entry in walker.flatten() {
+            let path = entry.path();
+            let Some(ft) = entry.file_type() else {
+                continue;
+            };
+            if !ft.is_file() {
+                continue;
+            }
+            let should_clear = path.extension().is_some_and(|ext| {
+                ext == "md" || ext == "styx" || tracey_core::is_supported_extension(ext)
+            });
+            if !should_clear {
+                continue;
+            }
+            let Ok(uri) = Url::from_file_path(path) else {
+                continue;
+            };
+            self.client.publish_diagnostics(uri, vec![], None).await;
+        }
+    }
 }
 
 #[tower_lsp::async_trait]
@@ -479,6 +519,9 @@ impl LanguageServer for Backend {
         self.client
             .log_message(MessageType::INFO, "tracey LSP bridge initialized")
             .await;
+
+        // Startup reset for clients that persist diagnostics across server restarts.
+        self.clear_workspace_diagnostics_on_startup().await;
 
         // Publish workspace-wide diagnostics for all files on startup
         self.publish_workspace_diagnostics().await;
