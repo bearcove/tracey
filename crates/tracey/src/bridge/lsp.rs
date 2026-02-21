@@ -317,6 +317,17 @@ impl Backend {
             .ok()
             .and_then(|h| h.config_error);
 
+        let open_paths: HashSet<String> = {
+            let state = self.doc_state.lock().unwrap();
+            state
+                .documents
+                .keys()
+                .filter_map(|uri| Url::parse(uri).ok())
+                .filter_map(|uri| uri.to_file_path().ok())
+                .map(|path| path.to_string_lossy().into_owned())
+                .collect()
+        };
+
         let all_diagnostics = match rpc(self.daemon_client.lsp_workspace_diagnostics().await) {
             Ok(d) => d,
             Err(_) => return,
@@ -330,6 +341,7 @@ impl Backend {
                     .to_string_lossy()
                     .into_owned()
             })
+            .filter(|path| !open_paths.contains(path))
             .collect();
 
         let files_to_clear: Vec<String> = {
@@ -337,10 +349,21 @@ impl Backend {
             let to_clear: Vec<String> = state
                 .files_with_diagnostics
                 .iter()
-                .filter(|path| !current_paths_with_diagnostics.contains(*path))
+                .filter(|path| {
+                    !open_paths.contains(*path) && !current_paths_with_diagnostics.contains(*path)
+                })
                 .cloned()
                 .collect();
-            state.files_with_diagnostics = current_paths_with_diagnostics;
+            let open_with_diagnostics: HashSet<String> = state
+                .files_with_diagnostics
+                .iter()
+                .filter(|path| open_paths.contains(*path))
+                .cloned()
+                .collect();
+            state.files_with_diagnostics = current_paths_with_diagnostics
+                .union(&open_with_diagnostics)
+                .cloned()
+                .collect();
             to_clear
         };
 
@@ -385,6 +408,10 @@ impl Backend {
         // Publish diagnostics for files that currently have issues
         for file_diag in all_diagnostics {
             let abs_path = self.project_root.join(&file_diag.path);
+            let abs_path_str = abs_path.to_string_lossy().into_owned();
+            if open_paths.contains(&abs_path_str) {
+                continue;
+            }
             let Ok(uri) = Url::from_file_path(&abs_path) else {
                 continue;
             };
