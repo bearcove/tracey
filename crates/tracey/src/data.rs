@@ -1343,78 +1343,92 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
             // Build forward data for this impl
             let forward_start = Instant::now();
             let mut api_rules = Vec::new();
-            let mut stale_rule_ids: std::collections::HashSet<RuleId> =
-                std::collections::HashSet::new();
+            struct IndexedRef {
+                verb: RefVerb,
+                req_id: RuleId,
+                code_ref: ApiCodeRef,
+                relative_file: String,
+                line: usize,
+            }
+            let mut indexed_refs: Vec<IndexedRef> = Vec::new();
+            let mut refs_by_base: HashMap<String, Vec<usize>> = HashMap::new();
+            for r in &refs {
+                if r.prefix != inferred_prefix {
+                    continue;
+                }
+                let canonical_ref = r.file.canonicalize().unwrap_or_else(|_| r.file.clone());
+                let relative_display = if let Ok(rel) = canonical_ref.strip_prefix(&abs_root) {
+                    rel.display().to_string()
+                } else {
+                    compute_relative_path(&abs_root, &canonical_ref)
+                };
+                let idx = indexed_refs.len();
+                indexed_refs.push(IndexedRef {
+                    verb: r.verb,
+                    req_id: r.req_id.clone(),
+                    code_ref: ApiCodeRef {
+                        file: relative_display.clone(),
+                        line: r.line,
+                    },
+                    relative_file: relative_display,
+                    line: r.line,
+                });
+                refs_by_base
+                    .entry(r.req_id.base.clone())
+                    .or_default()
+                    .push(idx);
+            }
+
             for extracted in &extracted_rules {
+                let Some(rule_id) = parse_rule_id(&extracted.def.id.to_string()) else {
+                    continue;
+                };
                 let mut impl_refs = Vec::new();
                 let mut verify_refs = Vec::new();
                 let mut depends_refs = Vec::new();
                 let mut stale_refs = Vec::new();
 
-                for r in &refs {
-                    // r[impl ref.prefix.coverage+2]
-                    if r.prefix == inferred_prefix {
-                        // r[impl ref.cross-workspace.graceful]
-                        // Canonicalize the reference file path for consistent matching
-                        // Uses unwrap_or_else to gracefully handle missing files
-                        let canonical_ref =
-                            r.file.canonicalize().unwrap_or_else(|_| r.file.clone());
-
-                        // Compute relative path, preserving ../ for cross-workspace files
-                        let relative_display =
-                            if let Ok(rel) = canonical_ref.strip_prefix(&abs_root) {
-                                rel.display().to_string()
-                            } else {
-                                // Cross-workspace file: compute relative path from abs_root
-                                compute_relative_path(&abs_root, &canonical_ref)
-                            };
-
-                        let code_ref = ApiCodeRef {
-                            file: relative_display.clone(),
-                            line: r.line,
-                        };
-                        let Some(rule_id) = parse_rule_id(&extracted.def.id.to_string()) else {
-                            continue;
-                        };
-                        match classify_reference_for_rule(&rule_id, &r.req_id) {
-                            RuleIdMatch::Exact => match r.verb {
-                                RefVerb::Impl | RefVerb::Define => {
-                                    impl_refs.push(code_ref);
-                                }
-                                RefVerb::Verify => {
-                                    verify_refs.push(code_ref);
-                                }
-                                RefVerb::Depends | RefVerb::Related => depends_refs.push(code_ref),
-                            },
-                            RuleIdMatch::Stale => match r.verb {
-                                RefVerb::Impl | RefVerb::Define => {
-                                    impl_refs.push(code_ref);
-                                    stale_rule_ids.insert(rule_id.clone());
-                                    stale_refs.push(ApiStaleRef {
-                                        file: relative_display,
-                                        line: r.line,
-                                        reference_id: r.req_id.clone(),
-                                    });
-                                }
-                                RefVerb::Verify => {
-                                    verify_refs.push(code_ref);
-                                    stale_rule_ids.insert(rule_id.clone());
-                                    stale_refs.push(ApiStaleRef {
-                                        file: relative_display,
-                                        line: r.line,
-                                        reference_id: r.req_id.clone(),
-                                    });
-                                }
-                                RefVerb::Depends | RefVerb::Related => {}
-                            },
-                            RuleIdMatch::NoMatch => {}
-                        }
+                let candidate_idxs = refs_by_base
+                    .get(&rule_id.base)
+                    .map(Vec::as_slice)
+                    .unwrap_or(&[]);
+                for idx in candidate_idxs {
+                    let entry = &indexed_refs[*idx];
+                    match classify_reference_for_rule(&rule_id, &entry.req_id) {
+                        RuleIdMatch::Exact => match entry.verb {
+                            RefVerb::Impl | RefVerb::Define => {
+                                impl_refs.push(entry.code_ref.clone());
+                            }
+                            RefVerb::Verify => {
+                                verify_refs.push(entry.code_ref.clone());
+                            }
+                            RefVerb::Depends | RefVerb::Related => {
+                                depends_refs.push(entry.code_ref.clone())
+                            }
+                        },
+                        RuleIdMatch::Stale => match entry.verb {
+                            RefVerb::Impl | RefVerb::Define => {
+                                impl_refs.push(entry.code_ref.clone());
+                                stale_refs.push(ApiStaleRef {
+                                    file: entry.relative_file.clone(),
+                                    line: entry.line,
+                                    reference_id: entry.req_id.clone(),
+                                });
+                            }
+                            RefVerb::Verify => {
+                                verify_refs.push(entry.code_ref.clone());
+                                stale_refs.push(ApiStaleRef {
+                                    file: entry.relative_file.clone(),
+                                    line: entry.line,
+                                    reference_id: entry.req_id.clone(),
+                                });
+                            }
+                            RefVerb::Depends | RefVerb::Related => {}
+                        },
+                        RuleIdMatch::NoMatch => {}
                     }
                 }
 
-                let Some(rule_id) = parse_rule_id(&extracted.def.id.to_string()) else {
-                    continue;
-                };
                 api_rules.push(ApiRule {
                     id: rule_id,
                     raw: extracted.def.raw.clone(),
@@ -1433,7 +1447,7 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
                     impl_refs,
                     verify_refs,
                     depends_refs,
-                    is_stale: false, // set in second pass below, after stale_rule_ids is complete
+                    is_stale: !stale_refs.is_empty(),
                     stale_refs,
                 });
             }
@@ -1449,10 +1463,6 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
                 });
             }
 
-            // Annotate api_rules with is_stale (any stale ref taints the whole rule)
-            for rule in &mut api_rules {
-                rule.is_stale = stale_rule_ids.contains(&rule.id);
-            }
             let forward_elapsed_ms = forward_start.elapsed().as_millis();
 
             // Build coverage map for this impl
