@@ -39,11 +39,24 @@ fn parse_spec_impl(spec_impl: Option<&str>) -> (Option<String>, Option<String>) 
     }
 }
 
-fn unknown_rule_id_from_message(message: &str) -> Option<String> {
+fn unknown_rule_reference_from_message(message: &str) -> Option<(String, String)> {
+    let contextual_prefix = "Unknown rule reference ";
+    if let Some(rest) = message.strip_prefix(contextual_prefix) {
+        let end = rest.find(']')?;
+        let full_ref = &rest[..=end];
+        let open = full_ref.find('[')?;
+        let inside = &full_ref[open + 1..full_ref.len() - 1];
+        let mut parts = inside.split_whitespace();
+        let _verb = parts.next()?;
+        let rule_id = parts.next()?.to_string();
+        return Some((rule_id, full_ref.to_string()));
+    }
+
     let prefix = "Reference to unknown rule '";
     let rest = message.strip_prefix(prefix)?;
     let end = rest.find('\'')?;
-    Some(rest[..end].to_string())
+    let rule_id = rest[..end].to_string();
+    Some((rule_id.clone(), rule_id))
 }
 
 /// Shared query client used by both MCP and CLI.
@@ -542,7 +555,7 @@ impl QueryClient {
                 let mut output = String::new();
                 let mut total_errors = 0;
                 let mut unique_unknown_rules: BTreeSet<String> = BTreeSet::new();
-                let mut unknown_rule_counts: BTreeMap<String, usize> = BTreeMap::new();
+                let mut unknown_reference_counts: BTreeMap<String, usize> = BTreeMap::new();
 
                 for impl_status in &status.impls {
                     let req = ValidateRequest {
@@ -557,12 +570,14 @@ impl QueryClient {
                             let mut non_unknown_errors = Vec::new();
                             for error in &result.errors {
                                 if error.code == ValidationErrorCode::UnknownRequirement {
-                                    if let Some(rule_id) =
-                                        unknown_rule_id_from_message(&error.message)
+                                    if let Some((rule_id, reference_text)) =
+                                        unknown_rule_reference_from_message(&error.message)
                                     {
                                         unknown_for_impl += 1;
                                         unique_unknown_rules.insert(rule_id.clone());
-                                        *unknown_rule_counts.entry(rule_id).or_insert(0) += 1;
+                                        *unknown_reference_counts
+                                            .entry(reference_text)
+                                            .or_insert(0) += 1;
                                     } else {
                                         non_unknown_errors.push(error.clone());
                                     }
@@ -622,17 +637,17 @@ impl QueryClient {
                     status.impls.len(),
                     total_errors
                 ));
-                if !unknown_rule_counts.is_empty() {
+                if !unknown_reference_counts.is_empty() {
                     output.push_str(&format!(
                         "Unique unknown rules: {} ({} total occurrences)\n",
                         unique_unknown_rules.len(),
-                        unknown_rule_counts.values().sum::<usize>()
+                        unknown_reference_counts.values().sum::<usize>()
                     ));
-                    output.push_str("Top unknown rules:\n");
-                    let mut top = unknown_rule_counts.into_iter().collect::<Vec<_>>();
+                    output.push_str("Top unknown references:\n");
+                    let mut top = unknown_reference_counts.into_iter().collect::<Vec<_>>();
                     top.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-                    for (rule_id, count) in top.into_iter().take(20) {
-                        output.push_str(&format!("  - {} ({}x)\n", rule_id, count));
+                    for (reference, count) in top.into_iter().take(20) {
+                        output.push_str(&format!("  - {} ({}x)\n", reference, count));
                     }
                 }
                 output.push_str(&self.hint(

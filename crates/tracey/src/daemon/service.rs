@@ -1127,7 +1127,9 @@ impl TraceyDaemon for TraceyService {
                                                 // It will be checked when that spec is validated.
                                             }
                                             KnownRuleMatch::Missing => {
-                                                let message = unknown_rule_message_with_suggestions(
+                                                let message = unknown_rule_message_with_context(
+                                                    &reference.prefix,
+                                                    &reference.verb,
                                                     &reference.req_id,
                                                     &known_rule_ids_for_prefix,
                                                 );
@@ -1581,6 +1583,11 @@ impl TraceyDaemon for TraceyService {
             .iter()
             .map(|s| s.prefix.as_str())
             .collect();
+        // If no prefixes are loaded (e.g. during transient startup/config fallback),
+        // unknown-prefix diagnostics are not actionable and often false positives.
+        if known_prefixes.is_empty() {
+            return diagnostics;
+        }
         debug!(
             "lsp_diagnostics path={} refs={} known_prefixes={:?} specs={}",
             path.display(),
@@ -2618,6 +2625,29 @@ fn unknown_rule_message_with_suggestions(
         format!(
             "Reference to unknown rule '{}' (did you mean: {})",
             reference_id,
+            suggestions
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    }
+}
+
+fn unknown_rule_message_with_context(
+    prefix: &str,
+    verb: &tracey_core::RefVerb,
+    reference_id: &RuleId,
+    known_rule_ids: &[RuleId],
+) -> String {
+    let suggestions = suggest_similar_rule_ids(reference_id, known_rule_ids, 3);
+    let reference = format!("{}[{} {}]", prefix, verb, reference_id);
+    if suggestions.is_empty() {
+        format!("Unknown rule reference {}", reference)
+    } else {
+        format!(
+            "Unknown rule reference {} (did you mean: {})",
+            reference,
             suggestions
                 .iter()
                 .map(ToString::to_string)
