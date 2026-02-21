@@ -32,7 +32,7 @@ use marq::{
 };
 
 use crate::config::Config;
-use crate::search::{self, SearchIndex};
+use crate::search;
 
 // ============================================================================
 // JSON API Types
@@ -65,8 +65,10 @@ pub struct DashboardData {
     pub specs_content_by_impl: BTreeMap<ImplKey, ApiSpecData>,
     /// Spec include patterns by spec name
     pub spec_includes_by_name: BTreeMap<String, Vec<String>>,
-    /// Full-text search index for source files
-    pub search_index: Box<dyn SearchIndex>,
+    /// Source files for full-text index construction
+    pub search_files: BTreeMap<PathBuf, String>,
+    /// Rules for full-text index construction
+    pub search_rules: Vec<search::RuleEntry>,
     /// Version number (incremented only when content actually changes)
     pub version: u64,
     /// Hash of forward + reverse JSON for change detection
@@ -1577,13 +1579,10 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
     all_search_rules.dedup_by(|a, b| a.id == b.id);
 
     // Build search index with all sources and rules
-    let index_start = Instant::now();
-    let search_index = search::build_index(project_root, &all_file_contents, &all_search_rules);
     info!(
-        "dashboard build search index done files={} rules={} elapsed_ms={}",
+        "dashboard build search index deferred files={} rules={}",
         all_file_contents.len(),
-        all_search_rules.len(),
-        index_start.elapsed().as_millis()
+        all_search_rules.len()
     );
 
     // Compute content hash for change detection (hash all forward/reverse data)
@@ -1622,7 +1621,8 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
         code_units_by_impl,
         specs_content_by_impl,
         spec_includes_by_name,
-        search_index,
+        search_files: all_file_contents,
+        search_rules: all_search_rules,
         version,
         content_hash,
         delta: crate::server::Delta::default(),

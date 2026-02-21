@@ -745,10 +745,11 @@ impl TraceyDaemon for TraceyService {
 
     /// Search rules and files
     async fn search(&self, _cx: &Context, query: String, limit: u32) -> Vec<SearchResult> {
-        let data = self.inner.engine.data().await;
-        let raw_results: Vec<_> = data
-            .search_index
+        let raw_results: Vec<_> = self
+            .inner
+            .engine
             .search(&query, limit as usize)
+            .await
             .into_iter()
             .collect();
 

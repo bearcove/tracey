@@ -11,6 +11,7 @@
 use eyre::Result;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::{RwLock, watch};
 use tracing::{debug, error, info, warn};
@@ -19,6 +20,7 @@ use crate::config::Config;
 use crate::data::{
     BuildCache, DashboardData, FileOverlay, build_dashboard_data_with_overlay_and_cache,
 };
+use crate::search::{self, SearchIndex, SearchResult};
 
 /// The core tracey engine.
 ///
@@ -46,6 +48,10 @@ pub struct Engine {
     config_error: Arc<RwLock<Option<String>>>,
     /// Persistent per-file build cache reused across rebuilds
     build_cache: Arc<tokio::sync::Mutex<BuildCache>>,
+    /// Current full-text search index, rebuilt asynchronously
+    search_index: Arc<RwLock<Arc<dyn SearchIndex>>>,
+    /// Monotonic generation for async search reindex jobs
+    search_index_generation: Arc<AtomicU64>,
 }
 
 impl Engine {
@@ -128,8 +134,10 @@ impl Engine {
 
         // Create watch channel for broadcasting updates
         let (update_tx, update_rx) = watch::channel(Arc::clone(&data));
+        let search_index = Arc::new(RwLock::new(search::empty_index()));
+        let search_index_generation = Arc::new(AtomicU64::new(0));
 
-        Ok(Self {
+        let engine = Self {
             data: Arc::new(RwLock::new(data)),
             update_tx,
             update_rx,
@@ -140,7 +148,12 @@ impl Engine {
             version: Arc::new(std::sync::atomic::AtomicU64::new(1)),
             config_error: Arc::new(RwLock::new(config_error)),
             build_cache: Arc::new(tokio::sync::Mutex::new(build_cache)),
-        })
+            search_index,
+            search_index_generation,
+        };
+        let snapshot = engine.data().await;
+        engine.spawn_search_reindex(snapshot);
+        Ok(engine)
     }
 
     /// Get the current dashboard data.
@@ -306,6 +319,8 @@ impl Engine {
 
         // Broadcast to subscribers
         let _ = self.update_tx.send(new_data);
+        let snapshot = self.data().await;
+        self.spawn_search_reindex(snapshot);
 
         let elapsed = start.elapsed();
         info!(
@@ -337,6 +352,41 @@ impl Engine {
     /// Get the current config error, if any.
     pub async fn config_error(&self) -> Option<String> {
         self.config_error.read().await.clone()
+    }
+
+    pub async fn search(&self, query: &str, limit: usize) -> Vec<SearchResult> {
+        let index = self.search_index.read().await.clone();
+        index.search(query, limit)
+    }
+
+    fn spawn_search_reindex(&self, snapshot: Arc<DashboardData>) {
+        let generation = self.search_index_generation.fetch_add(1, Ordering::Relaxed) + 1;
+        let current_generation = Arc::clone(&self.search_index_generation);
+        let search_index = Arc::clone(&self.search_index);
+        let project_root = self.project_root.clone();
+        tokio::spawn(async move {
+            let start = Instant::now();
+            let built = search::build_index(
+                &project_root,
+                &snapshot.search_files,
+                &snapshot.search_rules,
+            );
+            let built: Arc<dyn SearchIndex> = Arc::from(built);
+            if current_generation.load(Ordering::Relaxed) != generation {
+                return;
+            }
+            {
+                let mut idx = search_index.write().await;
+                *idx = built;
+            }
+            info!(
+                "dashboard async search index ready generation={} files={} rules={} elapsed_ms={}",
+                generation,
+                snapshot.search_files.len(),
+                snapshot.search_rules.len(),
+                start.elapsed().as_millis()
+            );
+        });
     }
 
     /// Check for deprecated config files (YAML, KDL) and return an error message if found.
