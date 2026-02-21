@@ -22,7 +22,7 @@ Auto-starts the daemon if it isn't running.
 
 ### `tracey lsp`
 
-Start the LSP server for editor integration.
+Start the LSP server for editor integration. Typically not run manually.
 
 ```
 tracey lsp [--config PATH] [ROOT]
@@ -42,7 +42,7 @@ Communicates over stdio. See [AI Integration](ai-integration.md) for setup.
 
 ## Daemon management
 
-Tracey uses a persistent daemon process per workspace. All bridges (web, LSP, MCP) connect to the daemon as clients. The daemon is auto-started by bridges, so you rarely need to manage it directly.
+Tracey uses a persistent daemon process per workspace. All bridges (web, LSP, MCP, CLI) connect to the daemon as clients. The daemon is auto-started by bridges, so you rarely need to manage it directly.
 
 ### `tracey daemon`
 
@@ -52,7 +52,7 @@ Start the daemon in the foreground.
 tracey daemon [--config PATH] [ROOT]
 ```
 
-Listens on `.tracey/daemon.sock`. Logs to `.tracey/daemon.log`.
+Writes `.tracey/daemon.pid` (contains PID and wire protocol version). Logs to `.tracey/daemon.log`. Managed by `tracey kill`.
 
 ### `tracey status`
 
