@@ -365,9 +365,7 @@ impl TraceyDaemon for TraceyService {
         let data = self.inner.engine.data().await;
         let query = QueryEngine::new(&data);
 
-        let Some(info) = query.rule(&rule_id) else {
-            return None;
-        };
+        let info = query.rule(&rule_id)?;
 
         // Compute version diff only when references are stale
         let version_diff = if info.is_stale && info.id.version > 1 {
