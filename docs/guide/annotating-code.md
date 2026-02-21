@@ -161,7 +161,15 @@ If your config uses the `test_include` field to designate test files, those file
 
 ## Ignore directives
 
-Sometimes source code mentions requirement syntax in documentation, test fixtures, or string literals where it shouldn't be extracted. Use ignore directives to suppress extraction:
+Sometimes source code mentions requirement syntax in documentation, test fixtures, or string literals where it shouldn't be extracted. There are several ways to suppress extraction.
+
+### Backticks
+
+Annotations inside backticks in comments are ignored:
+
+```rust
+// This is `r[impl not.an.annotation]`, just a comment
+```
 
 ### Ignore next line
 
