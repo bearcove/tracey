@@ -328,6 +328,10 @@ fn main() -> Result<()> {
             let project_root = root.unwrap_or_else(|| find_project_root().unwrap_or_default());
             let query_client = bridge::query::QueryClient::new(project_root);
             let rt = tokio::runtime::Runtime::new()?;
+            init_tracing(TracingConfig {
+                log_file: None,
+                enable_console: true,
+            })?;
 
             let output = rt.block_on(async {
                 match query {

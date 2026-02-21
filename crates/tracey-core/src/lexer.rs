@@ -341,8 +341,8 @@ fn extract_references_from_text(
     let mut chars = text.char_indices().peekable();
 
     while let Some((start_idx, ch)) = chars.next() {
-        // r[impl ref.syntax.brackets]
-        // r[impl ref.prefix.matching]
+        // r[impl ref.syntax.brackets+2]
+        // r[impl ref.prefix.matching+2]
         // Match any valid prefix (alphanumeric) followed by '['
         if ch.is_ascii_lowercase() || ch.is_ascii_digit() {
             let prefix_start = start_idx;

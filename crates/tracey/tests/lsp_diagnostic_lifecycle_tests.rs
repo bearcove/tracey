@@ -688,7 +688,7 @@ fn second() {}"#;
 async fn test_unknown_prefix_diagnostic() {
     let service = create_test_service().await;
 
-    // Content with an unknown prefix (not 'r' or 'o')
+    // Content with an unknown prefix (not recognized from configured specs)
     let content = r#"/// x[impl some.rule]
 fn test_func() {}"#;
 

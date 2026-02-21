@@ -3,7 +3,6 @@
 specs (
   {
     name test
-    prefix r
     include (spec.md)
     impls (
       {
@@ -14,16 +13,15 @@ specs (
     )
   }
 
-  // Second spec with a different prefix, for testing multi-spec prefix filtering
-  // r[verify ref.prefix.filter]
+  // Second spec sharing the same marker prefix, for testing multi-spec filtering
+  // r[verify ref.prefix.filter+2]
   {
     name other
-    prefix o
     include (other-spec.md)
     impls (
       {
         name rust
-        // Same source files as test/rust - exercises the prefix filtering
+        // Same source files as test/rust - exercises multi-spec filtering
         include (src/**/*.rs)
       }
     )

@@ -880,7 +880,7 @@ impl TraceyDaemon for TraceyService {
                 }
             }
 
-            // r[impl ref.prefix.unknown]
+            // r[impl ref.prefix.unknown+2]
             // Check for references with unknown prefixes
             // This requires checking the reverse data for any files that have
             // references to rules not in the rule_ids set
@@ -894,7 +894,7 @@ impl TraceyDaemon for TraceyService {
                     .map(|s| s.prefix.as_str())
                     .collect();
 
-                // r[impl ref.prefix.filter]
+                // r[impl ref.prefix.filter+2]
                 // Find the prefix for the current spec being validated
                 let current_spec_prefix: Option<&str> = data
                     .config
@@ -902,6 +902,25 @@ impl TraceyDaemon for TraceyService {
                     .iter()
                     .find(|s| s.name == spec)
                     .map(|s| s.prefix.as_str());
+                // r[impl config.multi-spec.prefix-namespace+2]
+                let known_rule_ids_for_prefix: Vec<RuleId> =
+                    if let Some(prefix) = current_spec_prefix {
+                        let spec_names: std::collections::HashSet<&str> = data
+                            .config
+                            .specs
+                            .iter()
+                            .filter(|s| s.prefix == prefix)
+                            .map(|s| s.name.as_str())
+                            .collect();
+
+                        data.forward_by_impl
+                            .iter()
+                            .filter(|((spec_name, _), _)| spec_names.contains(spec_name.as_str()))
+                            .flat_map(|(_, forward)| forward.rules.iter().map(|r| r.id.clone()))
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
 
                 // Check files for unknown references
                 for file_entry in &reverse_data.files {
@@ -911,7 +930,9 @@ impl TraceyDaemon for TraceyService {
                         for reference in &reqs.references {
                             // Check if prefix is known
                             if !known_prefixes.contains(reference.prefix.as_str()) {
-                                let available: Vec<_> = known_prefixes.iter().copied().collect();
+                                let mut available: Vec<_> =
+                                    known_prefixes.iter().copied().collect();
+                                available.sort_unstable();
                                 errors.push(ValidationError {
                                     code: ValidationErrorCode::UnknownPrefix,
                                     message: format!(
@@ -925,7 +946,7 @@ impl TraceyDaemon for TraceyService {
                                     related_rules: vec![],
                                 });
                             }
-                            // r[impl ref.prefix.filter]
+                            // r[impl ref.prefix.filter+2]
                             // Only validate references whose prefix matches the current spec
                             // Skip references that belong to a different spec (different prefix)
                             else if current_spec_prefix == Some(reference.prefix.as_str()) {
@@ -953,17 +974,28 @@ impl TraceyDaemon for TraceyService {
                                         });
                                     }
                                     KnownRuleMatch::Missing => {
-                                        errors.push(ValidationError {
-                                            code: ValidationErrorCode::UnknownRequirement,
-                                            message: format!(
-                                                "Reference to unknown rule '{}'",
-                                                reference.req_id
-                                            ),
-                                            file: Some(file_entry.path.clone()),
-                                            line: Some(reference.line),
-                                            column: None,
-                                            related_rules: vec![],
-                                        });
+                                        match classify_reference_against_known_rules(
+                                            &reference.req_id,
+                                            &known_rule_ids_for_prefix,
+                                        ) {
+                                            KnownRuleMatch::Exact | KnownRuleMatch::Stale(_) => {
+                                                // Valid in another spec sharing this prefix.
+                                                // It will be checked when that spec is validated.
+                                            }
+                                            KnownRuleMatch::Missing => {
+                                                errors.push(ValidationError {
+                                                    code: ValidationErrorCode::UnknownRequirement,
+                                                    message: format!(
+                                                        "Reference to unknown rule '{}'",
+                                                        reference.req_id
+                                                    ),
+                                                    file: Some(file_entry.path.clone()),
+                                                    line: Some(reference.line),
+                                                    column: None,
+                                                    related_rules: vec![],
+                                                });
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -1356,7 +1388,9 @@ impl TraceyDaemon for TraceyService {
         let mut rules_by_id: std::collections::HashMap<RuleId, ApiRule> =
             std::collections::HashMap::new();
         for spec_cfg in &data.config.specs {
-            let mut rule_ids = Vec::new();
+            let rule_ids = known_rules_by_prefix
+                .entry(spec_cfg.prefix.as_str())
+                .or_default();
             for ((spec_name, _), forward_data) in &data.forward_by_impl {
                 if spec_name == &spec_cfg.name {
                     for rule in &forward_data.rules {
@@ -1367,7 +1401,6 @@ impl TraceyDaemon for TraceyService {
                     }
                 }
             }
-            known_rules_by_prefix.insert(spec_cfg.prefix.as_str(), rule_ids);
         }
         let mut stale_message_cache: std::collections::HashMap<
             (RuleId, RuleId),

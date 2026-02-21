@@ -8,6 +8,7 @@
 use eyre::Result;
 use owo_colors::OwoColorize;
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -577,6 +578,17 @@ pub async fn build_dashboard_data_with_overlay(
         let spec_name = &spec_config.name;
         let include_patterns: Vec<&str> = spec_config.include.iter().map(|i| i.as_str()).collect();
 
+        if let Some(prefix) = &spec_config.prefix {
+            // r[impl config.spec.prefix+2]
+            return Err(eyre::eyre!(
+                "Spec '{}' uses deprecated `prefix {}` in config.\n\n\
+                 Remove the `prefix` field from this spec config. Tracey now infers prefixes \
+                 directly from requirement markers in spec files (for example `r[...]`).",
+                spec_name,
+                prefix
+            ));
+        }
+
         // Validate that spec has at least one implementation
         if spec_config.impls.is_empty() {
             return Err(eyre::eyre!(
@@ -584,7 +596,6 @@ pub async fn build_dashboard_data_with_overlay(
                 Add at least one impl block to your config:\n\n\
                 spec {{\n    \
                     name \"{}\"\n    \
-                    prefix \"{}\"\n    \
                     include \"docs/spec/**/*.md\"\n\n    \
                     impl {{\n        \
                         name \"main\"\n        \
@@ -592,18 +603,9 @@ pub async fn build_dashboard_data_with_overlay(
                     }}\n\
                 }}",
                 spec_name,
-                spec_name,
-                spec_config.prefix
+                spec_name
             ));
         }
-
-        api_config.specs.push(ApiSpecInfo {
-            name: spec_name.clone(),
-            prefix: spec_config.prefix.clone(),
-            source: Some(include_patterns.join(", ")),
-            source_url: spec_config.source_url.clone(),
-            implementations: spec_config.impls.iter().map(|i| i.name.clone()).collect(),
-        });
 
         // Extract requirements directly from markdown files (shared across impls)
         if !quiet {
@@ -615,6 +617,35 @@ pub async fn build_dashboard_data_with_overlay(
         }
         let extracted_rules =
             crate::load_rules_from_globs(project_root, &include_patterns, quiet).await?;
+
+        let unique_prefixes: BTreeSet<String> =
+            extracted_rules.iter().map(|r| r.prefix.clone()).collect();
+        let inferred_prefix = match unique_prefixes.len() {
+            0 => {
+                return Err(eyre::eyre!(
+                    "Spec '{}' has no requirement definitions, so tracey cannot infer its marker prefix.",
+                    spec_name
+                ));
+            }
+            1 => unique_prefixes.into_iter().next().unwrap(),
+            _ => {
+                let prefixes = unique_prefixes.into_iter().collect::<Vec<_>>().join(", ");
+                return Err(eyre::eyre!(
+                    "Spec '{}' uses multiple requirement marker prefixes ({}). \
+                     Use a single prefix per spec.",
+                    spec_name,
+                    prefixes
+                ));
+            }
+        };
+
+        api_config.specs.push(ApiSpecInfo {
+            name: spec_name.clone(),
+            prefix: inferred_prefix.clone(),
+            source: Some(include_patterns.join(", ")),
+            source_url: spec_config.source_url.clone(),
+            implementations: spec_config.impls.iter().map(|i| i.name.clone()).collect(),
+        });
 
         // Build data for each implementation
         let mut extraction_tasks = Vec::with_capacity(spec_config.impls.len());
@@ -690,8 +721,8 @@ pub async fn build_dashboard_data_with_overlay(
                 let mut depends_refs = Vec::new();
 
                 for r in &reqs.references {
-                    // r[impl ref.prefix.coverage]
-                    if r.prefix == spec_config.prefix {
+                    // r[impl ref.prefix.coverage+2]
+                    if r.prefix == inferred_prefix {
                         // r[impl ref.cross-workspace.graceful]
                         // Canonicalize the reference file path for consistent matching
                         // Uses unwrap_or_else to gracefully handle missing files

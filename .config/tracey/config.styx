@@ -3,7 +3,6 @@
 specs (
     {
         name tracey
-        prefix r
         source_url https://github.com/bearcove/tracey
         include (docs/spec/**/*.md)
         impls (

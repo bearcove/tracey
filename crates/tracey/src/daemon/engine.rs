@@ -314,7 +314,6 @@ impl Engine {
                     specs (
                       {
                         name my-spec
-                        prefix r
                         include (docs/**/*.md)
                         impls (
                           {

@@ -23,6 +23,8 @@ use marq::{RenderOptions, render};
 pub struct ExtractedRule {
     pub def: ReqDefinition,
     pub source_file: String,
+    /// Marker prefix used by this requirement definition (e.g., "r" in r[foo.bar])
+    pub prefix: String,
     /// 1-indexed column where the rule marker starts
     pub column: Option<usize>,
     /// Section slug (heading ID) that this rule belongs to
@@ -40,10 +42,22 @@ fn compute_column(content: &str, byte_offset: usize) -> usize {
     before[line_start..].chars().count() + 1
 }
 
+fn extract_marker_prefix(content: &str, marker_span: marq::SourceSpan) -> Option<String> {
+    let start = marker_span.offset;
+    let end = start.checked_add(marker_span.length)?;
+    let marker = content.get(start..end)?;
+    let bracket = marker.find('[')?;
+    let prefix = marker[..bracket].trim();
+    if prefix.is_empty() {
+        return None;
+    }
+    Some(prefix.to_string())
+}
+
 /// Load rules from markdown files matching a glob pattern.
 ///
 /// marq implements markdown rule extraction:
-/// r[impl markdown.syntax.marker]
+/// r[impl markdown.syntax.marker+2]
 /// r[impl markdown.syntax.inline-ignored]
 pub async fn load_rules_from_glob(
     root: &std::path::Path,
@@ -187,12 +201,20 @@ pub async fn load_rules_from_glob(
             // Add requirements with their source file, computed column, and section
             for req in doc.reqs {
                 let column = Some(compute_column(&content, req.span.offset));
+                let prefix = extract_marker_prefix(&content, req.marker_span).ok_or_else(|| {
+                    eyre::eyre!(
+                        "Failed to determine requirement marker prefix in {} at line {}",
+                        display_path,
+                        req.line
+                    )
+                })?;
                 let (section, section_title) = rule_sections
                     .remove(&req.id.to_string())
                     .unwrap_or((None, None));
                 rules.push(ExtractedRule {
                     def: req,
                     source_file: display_path.clone(),
+                    prefix,
                     column,
                     section,
                     section_title,
@@ -305,7 +327,6 @@ pub fn load_config(path: &PathBuf) -> Result<Config> {
              specs (\n  \
                {{\n    \
                  name my-spec\n    \
-                 prefix r\n    \
                  include (docs/**/*.md)\n    \
                  impls (\n      \
                    {{\n        \

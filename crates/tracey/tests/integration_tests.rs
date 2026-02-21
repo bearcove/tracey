@@ -484,8 +484,8 @@ pub fn login() {}"#;
 }
 
 // ============================================================================
-// Multi-Spec Prefix Filtering Tests
-// r[verify ref.prefix.filter]
+// Multi-Spec Same-Prefix Filtering Tests
+// r[verify ref.prefix.filter+2]
 // ============================================================================
 
 #[tokio::test]
@@ -493,8 +493,8 @@ async fn test_validate_ignores_other_spec_prefixes() {
     let service = create_test_service().await;
 
     // @tracey:ignore-start
-    // Validate test/rust - should NOT report errors for o[...] references
-    // The fixtures/src/lib.rs has both r[impl auth.login] and o[impl api.fetch]
+    // Validate test/rust - should NOT report errors for references owned by other spec
+    // The fixtures/src/lib.rs has both r[impl auth.login] and r[impl api.fetch]
     // @tracey:ignore-end
     let req = ValidateRequest {
         spec: Some("test".to_string()),
@@ -504,7 +504,7 @@ async fn test_validate_ignores_other_spec_prefixes() {
     let result = rpc(service.client.validate(req).await);
 
     // @tracey:ignore-start
-    // Should not have any UnknownRequirement errors for o[impl api.fetch]
+    // Should not have any UnknownRequirement errors for r[impl api.fetch]
     // because that reference belongs to the "other" spec, not "test"
     // @tracey:ignore-end
     let unknown_api_errors: Vec<_> = result
@@ -518,7 +518,7 @@ async fn test_validate_ignores_other_spec_prefixes() {
     assert!(
         unknown_api_errors.is_empty(),
         // @tracey:ignore-next-line
-        "Validation of test/rust should NOT report errors for o[...] references. \
+        "Validation of test/rust should NOT report errors for other-spec references. \
          Found errors: {:?}",
         unknown_api_errors
     );
@@ -529,7 +529,7 @@ async fn test_validate_other_spec_validates_its_own_prefix() {
     let service = create_test_service().await;
 
     // @tracey:ignore-next-line
-    // Validate other/rust - should properly validate o[...] references
+    // Validate other/rust - should properly validate its own references
     let req = ValidateRequest {
         spec: Some("other".to_string()),
         impl_name: Some("rust".to_string()),
@@ -538,7 +538,7 @@ async fn test_validate_other_spec_validates_its_own_prefix() {
     let result = rpc(service.client.validate(req).await);
 
     // @tracey:ignore-start
-    // Should not have UnknownRequirement errors for o[impl api.fetch]
+    // Should not have UnknownRequirement errors for r[impl api.fetch]
     // because api.fetch exists in the other spec
     // @tracey:ignore-end
     let unknown_api_errors: Vec<_> = result
@@ -552,7 +552,7 @@ async fn test_validate_other_spec_validates_its_own_prefix() {
     assert!(
         unknown_api_errors.is_empty(),
         // @tracey:ignore-next-line
-        "Validation of other/rust should NOT report errors for valid o[...] references. \
+        "Validation of other/rust should NOT report errors for valid api.fetch references. \
          Found errors: {:?}",
         unknown_api_errors
     );

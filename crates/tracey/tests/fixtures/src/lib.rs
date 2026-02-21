@@ -4,7 +4,7 @@
 ///
 /// r[impl auth.login]
 /// This function also implements the fetch API requirement from the other spec.
-/// o[impl api.fetch]
+/// r[impl api.fetch]
 pub fn login(username: &str, password: &str) -> Result<Session, Error> {
     if username.is_empty() || password.is_empty() {
         return Err(Error::InvalidCredentials);

@@ -22,10 +22,11 @@ pub struct SpecConfig {
     /// r[impl config.spec.name]
     pub name: String,
 
-    /// Prefix used to identify this spec in annotations (e.g., "r" for r[req.id])
-    /// r[impl config.spec.prefix]
-    /// r[impl config.multi-spec.prefix-namespace]
-    pub prefix: String,
+    /// Deprecated: prefix is now inferred from requirement markers in spec files.
+    ///
+    /// If present in config, tracey will report an error and ask you to remove it.
+    #[facet(default)]
+    pub prefix: Option<String>,
 
     /// Canonical URL for the specification (e.g., a GitHub repository)
     /// r[impl config.spec.source-url]

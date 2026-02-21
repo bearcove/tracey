@@ -62,7 +62,6 @@ Create `.config/tracey/config.styx`:
 specs (
   {
     name my-spec
-    prefix r
     include (docs/spec/**/*.md)
     impls (
       {

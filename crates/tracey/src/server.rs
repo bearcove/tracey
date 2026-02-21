@@ -1066,7 +1066,6 @@ fn do_foo_baz() {}
         let config_content = r#"specs (
   {
     name test-spec
-    prefix r
     include (docs/spec/**/*.md)
     impls (
       {
@@ -1215,7 +1214,6 @@ fn only_b() {}
         let config_content = r#"specs (
   {
     name test-spec
-    prefix r
     include (docs/spec/**/*.md)
     impls (
       {

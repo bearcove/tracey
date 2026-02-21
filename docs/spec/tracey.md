@@ -41,12 +41,12 @@ This section specifies the annotation language: how to define requirements in ma
 
 ## Requirement Definitions in Markdown
 
-Requirements are defined in markdown specification documents using the syntax `PREFIX[REQ]` where PREFIX is the spec's configured prefix and REQ is a requirement ID.
+Requirements are defined in markdown specification documents using the syntax `PREFIX[REQ]` where PREFIX is the marker written in the spec file and REQ is a requirement ID.
 
 ### Markdown Requirement Syntax
 
-> r[markdown.syntax.marker]
-> A requirement definition MUST be written as `PREFIX[REQ]` in one of two contexts: as a standalone paragraph starting at column 0, or inside a blockquote. The PREFIX identifies which spec this requirement belongs to (configured via `prefix` in the spec configuration). The VERB is implicitly "define" in markdown (unlike source code which uses explicit verbs like `r[impl REQ]`).
+> r[markdown.syntax.marker+2]
+> A requirement definition MUST be written as `PREFIX[REQ]` in one of two contexts: as a standalone paragraph starting at column 0, or inside a blockquote. The PREFIX MAY be any lowercase alphanumeric marker (for example `r`, `req`, or `h2`) and is inferred directly from the markdown marker itself. The VERB is implicitly "define" in markdown (unlike source code which uses explicit verbs like `r[impl REQ]`).
 >
 > Valid (standalone):
 > ```markdown
@@ -121,12 +121,12 @@ Requirements are defined in markdown specification documents using the syntax `P
 
 ## Requirement References in Source Code
 
-Requirement references are extracted from source code comments using the syntax `PREFIX[VERB REQ]` where PREFIX matches a configured spec's prefix.
+Requirement references are extracted from source code comments using the syntax `PREFIX[VERB REQ]` where PREFIX matches a spec marker inferred from requirement definitions.
 
 ### Basic Syntax
 
-r[ref.syntax.brackets]
-A requirement reference MUST be written as `PREFIX[VERB REQ]` within a comment, where PREFIX identifies which spec is being referenced (matching the `prefix` field in the spec configuration).
+r[ref.syntax.brackets+2]
+A requirement reference MUST be written as `PREFIX[VERB REQ]` within a comment, where PREFIX identifies which spec is being referenced (matching a marker prefix inferred from spec requirement definitions).
 
 > r[ref.syntax.verb]
 > VERB indicates the relationship type (impl, verify, depends, related).
@@ -347,17 +347,17 @@ References to requirement IDs not present in the manifest MUST be reported as in
 r[ref.verb.unknown]
 When an unrecognized verb is encountered, tracey MUST emit a warning but SHOULD still extract the requirement reference.
 
-r[ref.prefix.unknown]
-When a reference uses a prefix that does not match any configured spec, tracey MUST report an error indicating the unknown prefix and list the available spec prefixes.
+r[ref.prefix.unknown+2]
+When a reference uses a prefix that does not match any inferred spec marker prefix, tracey MUST report an error indicating the unknown prefix and list the available marker prefixes.
 
-r[ref.prefix.matching]
-When extracting references from source code, tracey MUST match the prefix against configured specs to determine which spec's requirement namespace to query.
+r[ref.prefix.matching+2]
+When extracting references from source code, tracey MUST match the reference prefix against marker prefixes inferred from loaded specs to determine which spec requirement sets are candidates.
 
-r[ref.prefix.coverage]
-When computing coverage, a reference MUST only be counted as covering a requirement if the reference's prefix matches the spec's configured prefix. References with non-matching prefixes MUST be ignored for that spec's coverage computation.
+r[ref.prefix.coverage+2]
+When computing coverage, a reference MUST only be counted as covering a requirement if the reference prefix matches the spec's inferred marker prefix and the requirement ID matches a rule in that spec. References with non-matching prefixes MUST be ignored for that spec's coverage computation.
 
-r[ref.prefix.filter]
-When validating a spec/implementation pair, tracey MUST only report "unknown requirement" errors for references whose prefix matches the spec being validated. References with prefixes that belong to other configured specs MUST be silently skipped, as they will be validated when those respective specs are checked.
+r[ref.prefix.filter+2]
+When validating a spec/implementation pair, tracey MUST only report "unknown requirement" errors for references whose prefix matches the spec being validated. References with prefixes that belong to other specs MUST be skipped for that validation target (including references that match rules in another spec sharing the same prefix).
 
 ## Cross-Workspace Implementation References
 
@@ -459,7 +459,6 @@ When started without a configuration file, tracey MUST watch for the creation of
 > specs (
 >   {
 >     name tracey
->     prefix r
 >     include (docs/spec/**/*.md)
 >     impls (
 >       {
@@ -472,7 +471,6 @@ When started without a configuration file, tracey MUST watch for the creation of
 >
 >   {
 >     name messaging-protocol
->     prefix m
 >     include (vendor/messaging-spec/**/*.md)
 >     source_url https://github.com/example/messaging-spec
 >     impls (
@@ -488,8 +486,8 @@ When started without a configuration file, tracey MUST watch for the creation of
 r[config.spec.name]
 Each spec configuration MUST have a `name` field with the spec name.
 
-r[config.spec.prefix]
-Each spec configuration MUST have a `prefix` field specifying the single-character or multi-character prefix used to identify this spec in markdown and source code annotations.
+r[config.spec.prefix+2]
+The `prefix` field in spec configuration is deprecated and MUST be rejected with an error if present. Tracey MUST infer each spec prefix directly from requirement markers in the spec markdown files.
 
 r[config.spec.include]
 Each spec configuration MUST have an `include` field with one or more glob patterns for markdown files containing requirement definitions.
@@ -518,7 +516,6 @@ Example configuration separating implementation and test files:
 specs (
   {
     name myapp
-    prefix r
     include (docs/spec/**/*.md)
     impls (
       {
@@ -535,11 +532,11 @@ In this example, `src/auth.rs` may contain `r[impl auth.token]` but `tests/auth_
 
 ### Multiple Specs
 
-r[config.multi-spec.prefix-namespace]
-When multiple specs are configured, the prefix serves as the namespace to disambiguate which spec a requirement belongs to.
+r[config.multi-spec.prefix-namespace+2]
+When multiple specs are configured, prefixes are inferred per spec from markdown requirement markers and used to route references to candidate specs. Specs MAY share a prefix; in that case, requirement ID matching determines whether a reference belongs to the validated spec.
 
 r[config.multi-spec.unique-within-spec]
-Requirement IDs MUST be unique within a single spec, but MAY be duplicated across different specs (since they use different prefixes).
+Requirement IDs MUST be unique within a single spec. They MAY be duplicated across different specs.
 
 Example: implementing both your own spec and an external specification:
 
@@ -548,7 +545,6 @@ specs (
   // Your project's internal specification
   {
     name myapp
-    prefix r
     include (docs/spec/**/*.md)
     impls (
       {
@@ -562,7 +558,6 @@ specs (
   // External HTTP/2 specification (obtained via git submodule)
   {
     name http2
-    prefix h2
     source_url https://github.com/http2/spec
     include (vendor/http2-spec/docs/**/*.md)
     impls (

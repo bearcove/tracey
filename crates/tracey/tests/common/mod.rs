@@ -66,6 +66,11 @@ pub fn create_temp_project() -> tempfile::TempDir {
     // Copy spec.md
     std::fs::copy(fixtures.join("spec.md"), temp.path().join("spec.md"))
         .expect("Failed to copy spec.md");
+    std::fs::copy(
+        fixtures.join("other-spec.md"),
+        temp.path().join("other-spec.md"),
+    )
+    .expect("Failed to copy other-spec.md");
 
     // Copy config.styx
     std::fs::copy(
