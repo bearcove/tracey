@@ -149,7 +149,11 @@ pub struct ImplStatus {
     pub spec: String,
     pub impl_name: String,
     pub total_rules: usize,
+    /// Rules with at least one exact implementation reference (not stale).
     pub covered_rules: usize,
+    /// Rules where any reference is stale (points to an older rule version).
+    /// Not included in covered_rules. covered_rules + stale_rules + uncovered = total.
+    pub stale_rules: usize,
     pub verified_rules: usize,
 }
 

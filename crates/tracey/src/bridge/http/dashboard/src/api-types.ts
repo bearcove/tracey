@@ -244,6 +244,11 @@ export interface ApiRule {
   implRefs: ApiCodeRef[];
   verifyRefs: ApiCodeRef[];
   dependsRefs: ApiCodeRef[];
+  /**
+   * True if any reference to this rule is stale (points to an older version).
+   * A stale rule is not counted as covered.
+   */
+  isStale?: boolean;
 }
 
 export interface ApiSpecForward {

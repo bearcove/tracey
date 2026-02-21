@@ -311,7 +311,8 @@ async fn main() -> Result<()> {
         // r[impl daemon.cli.query]
         Command::Query { root, query } => {
             let project_root = root.unwrap_or_else(|| find_project_root().unwrap_or_default());
-            let query_client = bridge::query::QueryClient::new(project_root);
+            let query_client =
+                bridge::query::QueryClient::new(project_root, bridge::query::Caller::Cli);
             init_tracing(TracingConfig {
                 log_file: None,
                 enable_console: true,

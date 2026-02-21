@@ -34,7 +34,10 @@ pub struct CoverageChange {
 #[derive(Debug, Clone, Default)]
 pub struct CoverageStats {
     pub total_rules: usize,
+    /// Rules with at least one exact implementation reference (not stale).
     pub impl_covered: usize,
+    /// Rules where any reference is stale. Mutually exclusive with impl_covered.
+    pub stale_covered: usize,
     pub verify_covered: usize,
     pub fully_covered: usize, // both impl and verify
     pub impl_percent: f64,
@@ -44,16 +47,22 @@ pub struct CoverageStats {
 impl CoverageStats {
     pub fn from_rules(rules: &[ApiRule]) -> Self {
         let total = rules.len();
-        let impl_covered = rules.iter().filter(|r| !r.impl_refs.is_empty()).count();
+        // A rule is stale if is_stale is set; stale rules are NOT counted as impl_covered.
+        let stale_covered = rules.iter().filter(|r| r.is_stale).count();
+        let impl_covered = rules
+            .iter()
+            .filter(|r| !r.is_stale && !r.impl_refs.is_empty())
+            .count();
         let verify_covered = rules.iter().filter(|r| !r.verify_refs.is_empty()).count();
         let fully_covered = rules
             .iter()
-            .filter(|r| !r.impl_refs.is_empty() && !r.verify_refs.is_empty())
+            .filter(|r| !r.is_stale && !r.impl_refs.is_empty() && !r.verify_refs.is_empty())
             .count();
 
         Self {
             total_rules: total,
             impl_covered,
+            stale_covered,
             verify_covered,
             fully_covered,
             impl_percent: if total > 0 {

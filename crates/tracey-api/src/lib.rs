@@ -90,6 +90,10 @@ pub struct ApiRule {
     pub impl_refs: Vec<ApiCodeRef>,
     pub verify_refs: Vec<ApiCodeRef>,
     pub depends_refs: Vec<ApiCodeRef>,
+    /// True if any reference to this rule is stale (points to an older version).
+    /// A stale rule is not counted as covered.
+    #[facet(default)]
+    pub is_stale: bool,
 }
 
 #[derive(Debug, Clone, Facet)]

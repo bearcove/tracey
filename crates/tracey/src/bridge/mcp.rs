@@ -177,7 +177,7 @@ struct TraceyHandler {
 impl TraceyHandler {
     pub fn new(project_root: PathBuf) -> Self {
         Self {
-            client: query::QueryClient::new(project_root),
+            client: query::QueryClient::new(project_root, query::Caller::Mcp),
         }
     }
 }

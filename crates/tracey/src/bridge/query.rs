@@ -9,6 +9,15 @@ use crate::daemon::{DaemonClient, new_client};
 use tracey_core::parse_rule_id;
 use tracey_proto::*;
 
+/// Who is calling the query client — affects hint formatting.
+#[derive(Clone, Copy)]
+pub enum Caller {
+    /// Called from the CLI (`tracey query …`). Hints use subcommand syntax.
+    Cli,
+    /// Called from the MCP server. Hints use MCP tool-call names.
+    Mcp,
+}
+
 /// Format config error as a warning banner to prepend to responses
 fn format_config_error_banner(error: &str) -> String {
     format!(
@@ -33,12 +42,14 @@ fn parse_spec_impl(spec_impl: Option<&str>) -> (Option<String>, Option<String>) 
 #[derive(Clone)]
 pub struct QueryClient {
     client: DaemonClient,
+    caller: Caller,
 }
 
 impl QueryClient {
-    pub fn new(project_root: PathBuf) -> Self {
+    pub fn new(project_root: PathBuf, caller: Caller) -> Self {
         Self {
             client: new_client(project_root),
+            caller,
         }
     }
 
@@ -58,42 +69,117 @@ impl QueryClient {
         }
     }
 
+    fn hint(&self, cli_text: &str, mcp_text: &str) -> String {
+        match self.caller {
+            Caller::Cli => format!("→ Run `{cli_text}`\n"),
+            Caller::Mcp => format!("→ Use {mcp_text}\n"),
+        }
+    }
+
     /// Get coverage status for all specs/implementations
     pub async fn status(&self) -> String {
-        let output = match self.client.status().await {
+        // Fetch status and config concurrently.
+        let (status_result, config_result) =
+            tokio::join!(self.client.status(), self.client.config());
+
+        let output = match status_result {
             Ok(status) => {
+                if status.impls.is_empty() {
+                    return "No specs configured".to_string();
+                }
+
                 let mut output = String::new();
+
+                // Render a plain-English config summary for each spec/impl,
+                // so agents and new users understand what is being analyzed.
+                if let Ok(config) = config_result {
+                    for spec in &config.specs {
+                        let example_rule =
+                            format!("{}[{}.some-requirement]", spec.prefix, spec.name);
+                        output.push_str(&format!(
+                            "This project tracks requirements for \"{}\". ",
+                            spec.name
+                        ));
+                        if let Some(source) = &spec.source {
+                            output
+                                .push_str(&format!("The requirements are defined in {} ", source));
+                        }
+                        output.push_str(&format!(
+                            "and are referenced in code using {}[...] annotations \
+                             (for example, {}).\n",
+                            spec.prefix, example_rule
+                        ));
+                        output.push_str(&format!(
+                            "The implementation{} being checked: {}.\n",
+                            if spec.implementations.len() == 1 {
+                                ""
+                            } else {
+                                "s"
+                            },
+                            spec.implementations.join(", ")
+                        ));
+                        output.push('\n');
+                    }
+                }
+
+                // Coverage numbers, one line per spec/impl combination.
                 for impl_status in &status.impls {
-                    let impl_pct = if impl_status.total_rules > 0 {
-                        impl_status.covered_rules as f64 / impl_status.total_rules as f64 * 100.0
-                    } else {
-                        0.0
-                    };
-                    let verify_pct = if impl_status.total_rules > 0 {
-                        impl_status.verified_rules as f64 / impl_status.total_rules as f64 * 100.0
-                    } else {
-                        0.0
-                    };
+                    let total = impl_status.total_rules;
+                    let covered = impl_status.covered_rules;
+                    let stale = impl_status.stale_rules;
+                    let uncovered = total.saturating_sub(covered + stale);
+                    let verified = impl_status.verified_rules;
+
                     output.push_str(&format!(
-                        "{}/{}: impl {:.0}%, verify {:.0}% ({}/{} rules)\n",
-                        impl_status.spec,
-                        impl_status.impl_name,
-                        impl_pct,
-                        verify_pct,
-                        impl_status.covered_rules,
-                        impl_status.total_rules
+                        "{} of {} requirements are covered.",
+                        covered, total
+                    ));
+
+                    if stale > 0 {
+                        output.push_str(&format!(
+                            " {} are stale — the spec has been updated since the code was last \
+                             annotated, and the code needs to be adjusted accordingly before its \
+                             annotations are bumped.",
+                            stale
+                        ));
+                    }
+
+                    if uncovered > 0 {
+                        output.push_str(&format!(
+                            " {} have no implementation reference at all.",
+                            uncovered
+                        ));
+                    }
+
+                    output.push_str(&format!(
+                        " {} of {} have a verification reference.\n",
+                        verified, total
                     ));
                 }
 
-                if output.is_empty() {
-                    "No specs configured".to_string()
-                } else {
-                    output.push_str("\n---\n");
-                    output.push_str("→ Use tracey_uncovered to see rules without implementation\n");
-                    output.push_str("→ Use tracey_untested to see rules without verification\n");
-                    output.push_str("→ Use tracey_unmapped to see code without requirements\n");
-                    output
+                output.push_str("\n---\n");
+
+                if status.impls.iter().any(|s| s.stale_rules > 0) {
+                    output.push_str(&self.hint(
+                        "tracey query validate",
+                        "tracey_validate to see which requirements are stale",
+                    ));
                 }
+
+                output.push_str(&self.hint(
+                    "tracey query uncovered",
+                    "tracey_uncovered to see which requirements have no implementation references yet",
+                ));
+                output.push_str(&self.hint(
+                    "tracey query untested",
+                    "tracey_untested to see which requirements have no verification references yet",
+                ));
+                output.push_str(&self.hint(
+                    "tracey query unmapped",
+                    "tracey_unmapped to see which source files have no requirement references",
+                ));
+
+                output
             }
             Err(e) => format!("Error: {e}"),
         };
@@ -132,8 +218,14 @@ impl QueryClient {
                 }
 
                 output.push_str("---\n");
-                output.push_str("→ Use tracey_rule to see details about a specific rule\n");
-                output.push_str("→ Use prefix parameter to filter by rule ID prefix\n");
+                output.push_str(&self.hint(
+                    "tracey query rule <rule-id>",
+                    "tracey_rule to see details about a specific rule",
+                ));
+                output.push_str(&self.hint(
+                    "tracey query uncovered --prefix <prefix>",
+                    "tracey_uncovered with a prefix parameter to filter by rule ID prefix",
+                ));
 
                 output
             }
@@ -174,8 +266,14 @@ impl QueryClient {
                 }
 
                 output.push_str("---\n");
-                output.push_str("→ Use tracey_rule to see details about a specific rule\n");
-                output.push_str("→ Use prefix parameter to filter by rule ID prefix\n");
+                output.push_str(&self.hint(
+                    "tracey query rule <rule-id>",
+                    "tracey_rule to see details about a specific rule",
+                ));
+                output.push_str(&self.hint(
+                    "tracey query untested --prefix <prefix>",
+                    "tracey_untested with a prefix parameter to filter by rule ID prefix",
+                ));
 
                 output
             }
@@ -250,7 +348,10 @@ impl QueryClient {
                 }
 
                 output.push_str("\n---\n");
-                output.push_str("→ Use path parameter to zoom into a directory or file\n");
+                output.push_str(&self.hint(
+                    "tracey query unmapped --path <path>",
+                    "tracey_unmapped with a path parameter to zoom into a directory or file",
+                ));
 
                 output
             }
@@ -391,9 +492,10 @@ impl QueryClient {
                     status.impls.len(),
                     total_errors
                 ));
-                output.push_str(
-                    "→ Use spec_impl parameter to validate a specific one (e.g., \"my-spec/rust\")\n",
-                );
+                output.push_str(&self.hint(
+                    "tracey query validate <spec>/<impl>",
+                    "tracey_validate with a spec_impl parameter to validate a specific one (e.g., \"my-spec/rust\")",
+                ));
                 output
             }
         };

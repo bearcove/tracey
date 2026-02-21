@@ -210,6 +210,7 @@ impl TraceyDaemon for TraceyService {
                     impl_name,
                     total_rules: s.total_rules,
                     covered_rules: s.impl_covered,
+                    stale_rules: s.stale_covered,
                     verified_rules: s.verify_covered,
                 })
                 .collect(),

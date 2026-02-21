@@ -713,8 +713,6 @@ pub async fn build_dashboard_data_with_overlay(
             let mut api_rules = Vec::new();
             let mut stale_rule_ids: std::collections::HashSet<RuleId> =
                 std::collections::HashSet::new();
-            let mut exact_rule_ids: std::collections::HashSet<RuleId> =
-                std::collections::HashSet::new();
             for extracted in &extracted_rules {
                 let mut impl_refs = Vec::new();
                 let mut verify_refs = Vec::new();
@@ -749,11 +747,9 @@ pub async fn build_dashboard_data_with_overlay(
                             RuleIdMatch::Exact => match r.verb {
                                 RefVerb::Impl | RefVerb::Define => {
                                     impl_refs.push(code_ref);
-                                    exact_rule_ids.insert(rule_id.clone());
                                 }
                                 RefVerb::Verify => {
                                     verify_refs.push(code_ref);
-                                    exact_rule_ids.insert(rule_id.clone());
                                 }
                                 RefVerb::Depends | RefVerb::Related => depends_refs.push(code_ref),
                             },
@@ -794,6 +790,7 @@ pub async fn build_dashboard_data_with_overlay(
                     impl_refs,
                     verify_refs,
                     depends_refs,
+                    is_stale: false, // set in second pass below, after stale_rule_ids is complete
                 });
             }
 
@@ -808,15 +805,19 @@ pub async fn build_dashboard_data_with_overlay(
                 });
             }
 
+            // Annotate api_rules with is_stale (any stale ref taints the whole rule)
+            for rule in &mut api_rules {
+                rule.is_stale = stale_rule_ids.contains(&rule.id);
+            }
+
             // Build coverage map for this impl
             let mut coverage: BTreeMap<String, RuleCoverage> = BTreeMap::new();
             for rule in &api_rules {
                 let rule_id_string = rule.id.to_string();
                 let has_impl = !rule.impl_refs.is_empty();
                 let has_verify = !rule.verify_refs.is_empty();
-                let has_stale = stale_rule_ids.contains(&rule.id);
-                let has_exact = exact_rule_ids.contains(&rule.id);
-                let status = if has_stale && !has_exact {
+                let has_stale = rule.is_stale;
+                let status = if has_stale {
                     "stale"
                 } else if has_impl && has_verify {
                     "covered"
