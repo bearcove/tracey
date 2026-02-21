@@ -534,6 +534,7 @@ impl LanguageServer for Backend {
             markdown.push_str("\n\n*No implementations or verifications*");
         }
 
+        // r[impl lsp.hover.tail-diff.format]
         // Show diff from previous rule version for tail (current-version) annotations
         if let Some(diff) = &info.tail_diff {
             markdown.push_str("\n\n**Changes from previous version:**\n```diff\n");

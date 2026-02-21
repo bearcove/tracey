@@ -1090,6 +1090,8 @@ impl TraceyDaemon for TraceyService {
             rule_at_pos.span_length,
         );
 
+        // r[impl lsp.hover.tail-diff]
+        // r[impl lsp.hover.tail-diff.fallback]
         // For tail annotations (current version, version > 1), show the diff from N-1 to N
         let tail_diff = if rule.id.version > 1
             && classify_reference_for_rule(&rule.id, &rule_at_pos.req_id) == RuleIdMatch::Exact

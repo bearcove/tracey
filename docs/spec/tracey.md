@@ -1333,6 +1333,15 @@ Hovering over a requirement reference in source code MUST display the requiremen
 r[lsp.hover.prefix]
 Hovering over a requirement reference MUST include the spec name and source URL (if configured) alongside the requirement info, allowing users to see which specification the prefix maps to.
 
+r[lsp.hover.tail-diff]
+When hovering over a requirement reference that is "tail" — meaning the referenced version exactly matches the current rule version, and that version is greater than 1 — the hover MUST include a diff between the previous version of the rule text (N-1) and the current version (N).
+
+> r[lsp.hover.tail-diff.format]
+> The diff MUST be presented as a fenced `diff` code block with unified line-level format (lines prefixed with `-`, `+`, or ` `).
+
+> r[lsp.hover.tail-diff.fallback]
+> When the previous rule text cannot be retrieved (e.g., shallow git history or missing commits), the diff section MUST be omitted silently — no error or placeholder shown.
+
 ### Document Highlight
 
 r[lsp.highlight.full-range]
