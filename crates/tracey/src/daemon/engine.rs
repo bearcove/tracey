@@ -11,7 +11,7 @@
 use eyre::Result;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::{RwLock, watch};
 use tracing::{debug, error, info, warn};
@@ -52,6 +52,8 @@ pub struct Engine {
     search_index: Arc<RwLock<Arc<dyn SearchIndex>>>,
     /// Monotonic generation for async search reindex jobs
     search_index_generation: Arc<AtomicU64>,
+    /// Whether search has ever been requested in this daemon lifecycle
+    search_activated: Arc<AtomicBool>,
 }
 
 impl Engine {
@@ -136,6 +138,7 @@ impl Engine {
         let (update_tx, update_rx) = watch::channel(Arc::clone(&data));
         let search_index = Arc::new(RwLock::new(search::empty_index()));
         let search_index_generation = Arc::new(AtomicU64::new(0));
+        let search_activated = Arc::new(AtomicBool::new(false));
 
         let engine = Self {
             data: Arc::new(RwLock::new(data)),
@@ -150,9 +153,8 @@ impl Engine {
             build_cache: Arc::new(tokio::sync::Mutex::new(build_cache)),
             search_index,
             search_index_generation,
+            search_activated,
         };
-        let snapshot = engine.data().await;
-        engine.spawn_search_reindex(snapshot);
         Ok(engine)
     }
 
@@ -319,8 +321,10 @@ impl Engine {
 
         // Broadcast to subscribers
         let _ = self.update_tx.send(new_data);
-        let snapshot = self.data().await;
-        self.spawn_search_reindex(snapshot);
+        if self.search_activated.load(Ordering::Relaxed) {
+            let snapshot = self.data().await;
+            self.spawn_search_reindex(snapshot);
+        }
 
         let elapsed = start.elapsed();
         info!(
@@ -355,6 +359,10 @@ impl Engine {
     }
 
     pub async fn search(&self, query: &str, limit: usize) -> Vec<SearchResult> {
+        if !self.search_activated.swap(true, Ordering::SeqCst) {
+            let snapshot = self.data().await;
+            self.spawn_search_reindex(snapshot);
+        }
         let index = self.search_index.read().await.clone();
         index.search(query, limit)
     }

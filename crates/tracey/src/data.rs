@@ -1067,6 +1067,190 @@ async fn scan_impl_files(
     )
 }
 
+struct ImplComputedOutput {
+    impl_name: String,
+    api_rules: Vec<ApiRule>,
+    all_search_rules: Vec<search::RuleEntry>,
+    impl_code_units: BTreeMap<PathBuf, Vec<CodeUnit>>,
+    reverse_data: ApiReverseData,
+    refs_len: usize,
+    code_files: usize,
+    total_units: usize,
+    covered_units: usize,
+    forward_elapsed_ms: u128,
+    reverse_elapsed_ms: u128,
+    elapsed_ms: u128,
+}
+
+fn compute_impl_output(
+    abs_root: &Path,
+    _spec_name: &str,
+    impl_name: String,
+    inferred_prefix: &str,
+    extracted_rules: &[crate::ExtractedRule],
+    refs: Vec<ReqReference>,
+    impl_code_units: BTreeMap<PathBuf, Vec<CodeUnit>>,
+) -> ImplComputedOutput {
+    let impl_start = Instant::now();
+    let forward_start = Instant::now();
+    struct IndexedRef {
+        verb: RefVerb,
+        req_id: RuleId,
+        code_ref: ApiCodeRef,
+        relative_file: String,
+        line: usize,
+    }
+    let mut indexed_refs: Vec<IndexedRef> = Vec::new();
+    let mut refs_by_base: HashMap<String, Vec<usize>> = HashMap::new();
+    for r in &refs {
+        if r.prefix != inferred_prefix {
+            continue;
+        }
+        let canonical_ref = r.file.canonicalize().unwrap_or_else(|_| r.file.clone());
+        let relative_display = if let Ok(rel) = canonical_ref.strip_prefix(abs_root) {
+            rel.display().to_string()
+        } else {
+            compute_relative_path(abs_root, &canonical_ref)
+        };
+        let idx = indexed_refs.len();
+        indexed_refs.push(IndexedRef {
+            verb: r.verb,
+            req_id: r.req_id.clone(),
+            code_ref: ApiCodeRef {
+                file: relative_display.clone(),
+                line: r.line,
+            },
+            relative_file: relative_display,
+            line: r.line,
+        });
+        refs_by_base
+            .entry(r.req_id.base.clone())
+            .or_default()
+            .push(idx);
+    }
+
+    let mut api_rules = Vec::new();
+    for extracted in extracted_rules {
+        let Some(rule_id) = parse_rule_id(&extracted.def.id.to_string()) else {
+            continue;
+        };
+        let mut impl_refs = Vec::new();
+        let mut verify_refs = Vec::new();
+        let mut depends_refs = Vec::new();
+        let mut stale_refs = Vec::new();
+
+        let candidate_idxs = refs_by_base
+            .get(&rule_id.base)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        for idx in candidate_idxs {
+            let entry = &indexed_refs[*idx];
+            match classify_reference_for_rule(&rule_id, &entry.req_id) {
+                RuleIdMatch::Exact => match entry.verb {
+                    RefVerb::Impl | RefVerb::Define => impl_refs.push(entry.code_ref.clone()),
+                    RefVerb::Verify => verify_refs.push(entry.code_ref.clone()),
+                    RefVerb::Depends | RefVerb::Related => {
+                        depends_refs.push(entry.code_ref.clone())
+                    }
+                },
+                RuleIdMatch::Stale => match entry.verb {
+                    RefVerb::Impl | RefVerb::Define => {
+                        impl_refs.push(entry.code_ref.clone());
+                        stale_refs.push(ApiStaleRef {
+                            file: entry.relative_file.clone(),
+                            line: entry.line,
+                            reference_id: entry.req_id.clone(),
+                        });
+                    }
+                    RefVerb::Verify => {
+                        verify_refs.push(entry.code_ref.clone());
+                        stale_refs.push(ApiStaleRef {
+                            file: entry.relative_file.clone(),
+                            line: entry.line,
+                            reference_id: entry.req_id.clone(),
+                        });
+                    }
+                    RefVerb::Depends | RefVerb::Related => {}
+                },
+                RuleIdMatch::NoMatch => {}
+            }
+        }
+
+        api_rules.push(ApiRule {
+            id: rule_id,
+            raw: extracted.def.raw.clone(),
+            html: extracted.def.html.clone(),
+            status: extracted
+                .def
+                .metadata
+                .status
+                .map(|s| s.as_str().to_string()),
+            level: extracted.def.metadata.level.map(|l| l.as_str().to_string()),
+            source_file: Some(extracted.source_file.clone()),
+            source_line: Some(extracted.def.line),
+            source_column: extracted.column,
+            section: extracted.section.clone(),
+            section_title: extracted.section_title.clone(),
+            impl_refs,
+            verify_refs,
+            depends_refs,
+            is_stale: !stale_refs.is_empty(),
+            stale_refs,
+        });
+    }
+    api_rules.sort_by(|a, b| a.id.cmp(&b.id));
+    let all_search_rules = api_rules
+        .iter()
+        .map(|r| search::RuleEntry {
+            id: r.id.to_string(),
+            raw: r.raw.clone(),
+        })
+        .collect::<Vec<_>>();
+    let forward_elapsed_ms = forward_start.elapsed().as_millis();
+
+    let reverse_start = Instant::now();
+    let mut total_units = 0;
+    let mut covered_units = 0;
+    let mut file_entries = Vec::new();
+    for (path, units) in &impl_code_units {
+        let relative_display = if let Ok(rel) = path.strip_prefix(abs_root) {
+            rel.display().to_string()
+        } else {
+            compute_relative_path(abs_root, path)
+        };
+        let file_total = units.len();
+        let file_covered = units.iter().filter(|u| !u.req_refs.is_empty()).count();
+        total_units += file_total;
+        covered_units += file_covered;
+        file_entries.push(ApiFileEntry {
+            path: relative_display,
+            total_units: file_total,
+            covered_units: file_covered,
+        });
+    }
+    file_entries.sort_by(|a, b| a.path.cmp(&b.path));
+    let reverse_elapsed_ms = reverse_start.elapsed().as_millis();
+
+    ImplComputedOutput {
+        impl_name,
+        api_rules,
+        all_search_rules,
+        code_files: impl_code_units.len(),
+        impl_code_units,
+        reverse_data: ApiReverseData {
+            total_units,
+            covered_units,
+            files: file_entries,
+        },
+        refs_len: refs.len(),
+        total_units,
+        covered_units,
+        forward_elapsed_ms,
+        reverse_elapsed_ms,
+        elapsed_ms: impl_start.elapsed().as_millis(),
+    }
+}
+
 pub async fn build_dashboard_data(
     project_root: &Path,
     config: &Config,
@@ -1286,14 +1470,22 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
         spec_includes_by_name.insert(spec_name.clone(), include_patterns.clone());
 
         // Build data for each implementation
+        struct ImplComputeTaskMeta {
+            impl_key: ImplKey,
+            impl_name: String,
+            warning_count: usize,
+            scan_elapsed_ms: u128,
+            impl_walk_full_scan: bool,
+        }
+        let mut impl_compute_tasks = Vec::new();
+        let mut impl_compute_meta = Vec::new();
+
         for impl_config in &spec_config.impls {
-            let impl_start = Instant::now();
             let scan_start = Instant::now();
             let impl_name = impl_config.name.clone();
             if !quiet {
                 eprintln!("   {} {} implementation", "Scanning".green(), impl_name);
             }
-            // r[impl walk.default-include] - default to **/*.rs when no include patterns
             let include: Vec<String> = if impl_config.include.is_empty() {
                 vec!["**/*.rs".to_string()]
             } else {
@@ -1321,14 +1513,11 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
             let warning_count = scan_warnings.len();
             let scan_elapsed_ms = scan_start.elapsed().as_millis();
 
-            // r[impl ref.cross-workspace.cli-warnings]
-            // Print warnings for missing cross-workspace paths
             for warning in &scan_warnings {
                 if !quiet {
                     eprintln!("{}", warning.yellow());
                 }
             }
-
             total_source_refs += refs.len();
             for (path, content) in impl_file_contents {
                 all_file_contents.insert(path, content);
@@ -1342,229 +1531,75 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
                 );
             }
 
-            // Build forward data for this impl
-            let forward_start = Instant::now();
-            let mut api_rules = Vec::new();
-            struct IndexedRef {
-                verb: RefVerb,
-                req_id: RuleId,
-                code_ref: ApiCodeRef,
-                relative_file: String,
-                line: usize,
-            }
-            let mut indexed_refs: Vec<IndexedRef> = Vec::new();
-            let mut refs_by_base: HashMap<String, Vec<usize>> = HashMap::new();
-            for r in &refs {
-                if r.prefix != inferred_prefix {
-                    continue;
-                }
-                let canonical_ref = r.file.canonicalize().unwrap_or_else(|_| r.file.clone());
-                let relative_display = if let Ok(rel) = canonical_ref.strip_prefix(&abs_root) {
-                    rel.display().to_string()
-                } else {
-                    compute_relative_path(&abs_root, &canonical_ref)
-                };
-                let idx = indexed_refs.len();
-                indexed_refs.push(IndexedRef {
-                    verb: r.verb,
-                    req_id: r.req_id.clone(),
-                    code_ref: ApiCodeRef {
-                        file: relative_display.clone(),
-                        line: r.line,
-                    },
-                    relative_file: relative_display,
-                    line: r.line,
-                });
-                refs_by_base
-                    .entry(r.req_id.base.clone())
-                    .or_default()
-                    .push(idx);
-            }
+            let abs_root_cloned = abs_root.clone();
+            let spec_name_cloned = spec_name.clone();
+            let inferred_prefix_cloned = inferred_prefix.clone();
+            let extracted_rules_cloned = extracted_rules.clone();
+            let impl_name_cloned = impl_name.clone();
+            impl_compute_tasks.push(tokio::task::spawn_blocking(move || {
+                compute_impl_output(
+                    &abs_root_cloned,
+                    &spec_name_cloned,
+                    impl_name_cloned,
+                    &inferred_prefix_cloned,
+                    &extracted_rules_cloned,
+                    refs,
+                    impl_code_units,
+                )
+            }));
+            impl_compute_meta.push(ImplComputeTaskMeta {
+                impl_key,
+                impl_name,
+                warning_count,
+                scan_elapsed_ms,
+                impl_walk_full_scan,
+            });
+        }
 
-            for extracted in &extracted_rules {
-                let Some(rule_id) = parse_rule_id(&extracted.def.id.to_string()) else {
-                    continue;
-                };
-                let mut impl_refs = Vec::new();
-                let mut verify_refs = Vec::new();
-                let mut depends_refs = Vec::new();
-                let mut stale_refs = Vec::new();
+        for (task, meta) in impl_compute_tasks
+            .into_iter()
+            .zip(impl_compute_meta.into_iter())
+        {
+            let out = task
+                .await
+                .map_err(|err| eyre::eyre!("Implementation compute task failed: {err}"))?;
+            total_code_files += out.code_files;
+            total_code_units += out.total_units;
+            all_search_rules.extend(out.all_search_rules);
 
-                let candidate_idxs = refs_by_base
-                    .get(&rule_id.base)
-                    .map(Vec::as_slice)
-                    .unwrap_or(&[]);
-                for idx in candidate_idxs {
-                    let entry = &indexed_refs[*idx];
-                    match classify_reference_for_rule(&rule_id, &entry.req_id) {
-                        RuleIdMatch::Exact => match entry.verb {
-                            RefVerb::Impl | RefVerb::Define => {
-                                impl_refs.push(entry.code_ref.clone());
-                            }
-                            RefVerb::Verify => {
-                                verify_refs.push(entry.code_ref.clone());
-                            }
-                            RefVerb::Depends | RefVerb::Related => {
-                                depends_refs.push(entry.code_ref.clone())
-                            }
-                        },
-                        RuleIdMatch::Stale => match entry.verb {
-                            RefVerb::Impl | RefVerb::Define => {
-                                impl_refs.push(entry.code_ref.clone());
-                                stale_refs.push(ApiStaleRef {
-                                    file: entry.relative_file.clone(),
-                                    line: entry.line,
-                                    reference_id: entry.req_id.clone(),
-                                });
-                            }
-                            RefVerb::Verify => {
-                                verify_refs.push(entry.code_ref.clone());
-                                stale_refs.push(ApiStaleRef {
-                                    file: entry.relative_file.clone(),
-                                    line: entry.line,
-                                    reference_id: entry.req_id.clone(),
-                                });
-                            }
-                            RefVerb::Depends | RefVerb::Related => {}
-                        },
-                        RuleIdMatch::NoMatch => {}
-                    }
-                }
-
-                api_rules.push(ApiRule {
-                    id: rule_id,
-                    raw: extracted.def.raw.clone(),
-                    html: extracted.def.html.clone(),
-                    status: extracted
-                        .def
-                        .metadata
-                        .status
-                        .map(|s| s.as_str().to_string()),
-                    level: extracted.def.metadata.level.map(|l| l.as_str().to_string()),
-                    source_file: Some(extracted.source_file.clone()),
-                    source_line: Some(extracted.def.line),
-                    source_column: extracted.column,
-                    section: extracted.section.clone(),
-                    section_title: extracted.section_title.clone(),
-                    impl_refs,
-                    verify_refs,
-                    depends_refs,
-                    is_stale: !stale_refs.is_empty(),
-                    stale_refs,
-                });
-            }
-
-            // Sort rules by ID
-            api_rules.sort_by(|a, b| a.id.cmp(&b.id));
-
-            // Collect rules for search index (deduplicated later)
-            for r in &api_rules {
-                all_search_rules.push(search::RuleEntry {
-                    id: r.id.to_string(),
-                    raw: r.raw.clone(),
-                });
-            }
-
-            let forward_elapsed_ms = forward_start.elapsed().as_millis();
-
-            // Build coverage map for this impl
-            let mut coverage: BTreeMap<String, RuleCoverage> = BTreeMap::new();
-            for rule in &api_rules {
-                let rule_id_string = rule.id.to_string();
-                let has_impl = !rule.impl_refs.is_empty();
-                let has_verify = !rule.verify_refs.is_empty();
-                let has_stale = rule.is_stale;
-                let status = if has_stale {
-                    "stale"
-                } else if has_impl && has_verify {
-                    "covered"
-                } else if has_impl || has_verify {
-                    "partial"
-                } else {
-                    "uncovered"
-                };
-                coverage.insert(
-                    rule_id_string,
-                    RuleCoverage {
-                        status,
-                        impl_refs: rule.impl_refs.clone(),
-                        verify_refs: rule.verify_refs.clone(),
-                    },
-                );
-            }
-
-            forward_by_impl.insert(
-                impl_key.clone(),
-                ApiSpecForward {
-                    name: spec_name.clone(),
-                    rules: api_rules,
-                },
-            );
-
-            // Build reverse data for this impl
-            let reverse_start = Instant::now();
-            let mut total_units = 0;
-            let mut covered_units = 0;
-            let mut file_entries = Vec::new();
-
-            for (path, units) in &impl_code_units {
-                // Compute relative path, preserving ../ for cross-workspace files
-                let relative_display = if let Ok(rel) = path.strip_prefix(&abs_root) {
-                    rel.display().to_string()
-                } else {
-                    compute_relative_path(&abs_root, path)
-                };
-
-                let file_total = units.len();
-                let file_covered = units.iter().filter(|u| !u.req_refs.is_empty()).count();
-
-                total_units += file_total;
-                covered_units += file_covered;
-
-                file_entries.push(ApiFileEntry {
-                    path: relative_display,
-                    total_units: file_total,
-                    covered_units: file_covered,
-                });
-            }
-            total_code_files += impl_code_units.len();
-            total_code_units += total_units;
             info!(
                 "dashboard build impl processed spec={} impl={} refs={} warnings={} code_files={} code_units={} covered_units={} elapsed_ms={}",
                 spec_name,
-                impl_name,
-                refs.len(),
-                warning_count,
-                impl_code_units.len(),
-                total_units,
-                covered_units,
-                impl_start.elapsed().as_millis()
+                out.impl_name,
+                out.refs_len,
+                meta.warning_count,
+                out.code_files,
+                out.total_units,
+                out.covered_units,
+                out.elapsed_ms
             );
             info!(
                 "dashboard build impl cache spec={} impl={} walk_full_scan={} files_scanned={}",
-                spec_name,
-                impl_name,
-                impl_walk_full_scan,
-                impl_code_units.len()
+                spec_name, out.impl_name, meta.impl_walk_full_scan, out.code_files
             );
-
-            file_entries.sort_by(|a, b| a.path.cmp(&b.path));
-
-            reverse_by_impl.insert(
-                impl_key.clone(),
-                ApiReverseData {
-                    total_units,
-                    covered_units,
-                    files: file_entries,
-                },
-            );
-            let reverse_elapsed_ms = reverse_start.elapsed().as_millis();
-
-            code_units_by_impl.insert(impl_key, impl_code_units);
             info!(
                 "dashboard build impl phases spec={} impl={} scan_ms={} forward_ms={} reverse_ms={} render_ms=0",
-                spec_name, impl_name, scan_elapsed_ms, forward_elapsed_ms, reverse_elapsed_ms
+                spec_name,
+                out.impl_name,
+                meta.scan_elapsed_ms,
+                out.forward_elapsed_ms,
+                out.reverse_elapsed_ms
             );
+
+            forward_by_impl.insert(
+                meta.impl_key.clone(),
+                ApiSpecForward {
+                    name: spec_name.clone(),
+                    rules: out.api_rules,
+                },
+            );
+            reverse_by_impl.insert(meta.impl_key.clone(), out.reverse_data);
+            code_units_by_impl.insert(meta.impl_key, out.impl_code_units);
         }
         info!(
             "dashboard build spec done spec={} impls={} elapsed_ms={}",
