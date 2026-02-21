@@ -217,6 +217,21 @@ When spec text changes and the version is bumped to `+4`, tracey reports the `+3
 
 Tracey scans comments in: Rust, Swift, TypeScript, TSX, JavaScript, JSX, Go, C, C++, Objective-C, Objective-C++, Java, Kotlin, Scala, Groovy, C#, Zig, PHP.
 
+## Documentation
+
+See the [User Guide](docs/guide/README.md) for detailed documentation:
+
+- [Getting Started](docs/guide/getting-started.md) — install and first coverage report
+- [Writing Specs](docs/guide/writing-specs.md) — defining requirements in markdown
+- [Annotating Code](docs/guide/annotating-code.md) — referencing requirements from source code
+- [Configuration](docs/guide/configuration.md) — config file reference
+- [Dashboard](docs/guide/dashboard.md) — the web UI
+- [Editor Integration](docs/guide/editor-integration.md) — LSP setup for Zed, VS Code, etc.
+- [AI Integration](docs/guide/ai-integration.md) — MCP for Claude Code and other AI assistants
+- [Versioning](docs/guide/versioning.md) — tracking spec changes over time
+- [CLI Reference](docs/guide/cli-reference.md) — all commands and flags
+
+For the formal specification, see [docs/spec/tracey.md](docs/spec/tracey.md).
 ## License
 
 [MIT](LICENSE-MIT) OR [Apache-2.0](LICENSE-APACHE)
