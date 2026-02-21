@@ -149,6 +149,7 @@ enum SkillAction {
 }
 
 #[derive(Debug, facet::Facet)]
+#[repr(u8)]
 enum QueryCommand {
     /// coverage overview
     Status,

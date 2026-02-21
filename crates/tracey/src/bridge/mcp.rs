@@ -24,7 +24,6 @@ use rust_mcp_sdk::{McpServer, StdioTransport, ToMcpServerHandler, TransportOptio
 use serde::{Deserialize, Serialize};
 
 use crate::bridge::query;
-use tracey_proto::*;
 
 // ============================================================================
 // Tool Definitions (same as mcp.rs)
