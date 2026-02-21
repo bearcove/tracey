@@ -2507,7 +2507,7 @@ dependencies = [
 [[package]]
 name = "marq"
 version = "0.1.0"
-source = "git+https://github.com/bearcove/marq?rev=5c7488052e22d5c16c629d51e932af6d4fd12529#5c7488052e22d5c16c629d51e932af6d4fd12529"
+source = "git+https://github.com/bearcove/marq?branch=main#86fd18a5da01b6ff675c79331dc4c51e051709ad"
 dependencies = [
  "aasvg",
  "arborium",
