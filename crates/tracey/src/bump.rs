@@ -14,6 +14,7 @@ use crate::config::Config;
 use crate::matches_glob;
 
 /// A rule whose text changed in the staged index but whose version was not bumped.
+#[derive(Debug)]
 pub struct ChangedRule {
     /// Spec file path, relative to project root.
     pub file: PathBuf,
@@ -42,11 +43,13 @@ pub fn git_capture(project_root: &Path, args: &[&str]) -> Result<String> {
         bail!("git {} failed: {}", args.join(" "), stderr.trim());
     }
 
-    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    String::from_utf8(out.stdout)
+        .wrap_err_with(|| format!("git {} output is not valid UTF-8", args.join(" ")))
 }
 
 /// Get a file's content from the git index (`:path`) or HEAD (`HEAD:path`).
 /// Returns `None` if the file doesn't exist at that revision (e.g. new file).
+/// Returns `Err` if the file exists but is not valid UTF-8.
 pub fn git_show(project_root: &Path, revision: &str, path: &str) -> Result<Option<String>> {
     let spec = format!("{revision}:{path}");
     let out = std::process::Command::new("git")
@@ -59,7 +62,9 @@ pub fn git_show(project_root: &Path, revision: &str, path: &str) -> Result<Optio
         return Ok(None);
     }
 
-    Ok(Some(String::from_utf8_lossy(&out.stdout).into_owned()))
+    String::from_utf8(out.stdout)
+        .map(Some)
+        .wrap_err_with(|| format!("content of {revision}:{path} is not valid UTF-8"))
 }
 
 /// Parse a spec markdown string and return a map from rule **base** ID → `ReqDefinition`.

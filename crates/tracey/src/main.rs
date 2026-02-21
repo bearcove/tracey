@@ -335,7 +335,7 @@ async fn main() -> Result<()> {
         Command::PreCommit { root, config } => {
             let project_root = root.unwrap_or_else(|| find_project_root().unwrap_or_default());
             let config_path = project_root.join(&config);
-            let cfg = tracey::load_config(&config_path)?;
+            let cfg = load_bump_config(&config_path);
             let passed = tracey::bump::pre_commit(&project_root, &cfg).await?;
             if !passed {
                 std::process::exit(1);
@@ -347,7 +347,7 @@ async fn main() -> Result<()> {
         Command::Bump { root, config } => {
             let project_root = root.unwrap_or_else(|| find_project_root().unwrap_or_default());
             let config_path = project_root.join(&config);
-            let cfg = tracey::load_config(&config_path)?;
+            let cfg = load_bump_config(&config_path);
             let bumped = tracey::bump::bump(&project_root, &cfg).await?;
             if bumped.is_empty() {
                 println!("No staged rule changes require a version bump.");
@@ -695,6 +695,23 @@ fn install_skill(claude_only: bool, codex_only: bool) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Load config for pre-commit / bump: silently no-op if missing, warn if unparseable.
+fn load_bump_config(config_path: &std::path::Path) -> tracey::config::Config {
+    if !config_path.exists() {
+        return tracey::config::Config::default();
+    }
+    match tracey::load_config(&config_path.to_path_buf()) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            eprintln!(
+                "warning: failed to parse tracey config at {}: {e}",
+                config_path.display()
+            );
+            tracey::config::Config::default()
+        }
+    }
 }
 
 fn install_skill_to(skill_dir: &std::path::Path) -> Result<()> {

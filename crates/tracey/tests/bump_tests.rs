@@ -327,6 +327,178 @@ async fn test_non_spec_staged_files_are_ignored() {
     );
 }
 
+/// `detect_changed_rules` with no config (empty spec list) always returns empty.
+#[tokio::test]
+async fn test_no_config_is_noop() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+
+    git_init(root);
+    fs::write(root.join("spec.md"), INITIAL_SPEC).unwrap();
+    git_commit_all(root, "initial");
+
+    let modified = INITIAL_SPEC.replace(
+        "Users MUST provide valid credentials to log in.",
+        "Users MUST provide valid credentials and MFA to log in.",
+    );
+    fs::write(root.join("spec.md"), &modified).unwrap();
+    git_add(root, "spec.md");
+
+    let empty_config = Config { specs: vec![] };
+    let changes = detect_changed_rules(root, &empty_config).await.unwrap();
+    assert!(changes.is_empty(), "empty config should produce no changes");
+}
+
+/// Staging a spec file that contains no rule markers produces no changes.
+#[tokio::test]
+async fn test_spec_file_with_no_rules() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+
+    git_init(root);
+    fs::write(root.join("spec.md"), "# Spec\n\nNo rules here.\n").unwrap();
+    git_commit_all(root, "initial");
+
+    fs::write(
+        root.join("spec.md"),
+        "# Spec\n\nStill no rules, but edited.\n",
+    )
+    .unwrap();
+    git_add(root, "spec.md");
+
+    let config = simple_config();
+    let changes = detect_changed_rules(root, &config).await.unwrap();
+    assert!(
+        changes.is_empty(),
+        "file with no rules should produce no changes"
+    );
+}
+
+/// First ever commit (no HEAD): staged spec rules have no prior version to compare against.
+#[tokio::test]
+async fn test_initial_commit_no_head() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+
+    git_init(root);
+    // Stage the spec WITHOUT committing — no HEAD exists yet.
+    fs::write(root.join("spec.md"), INITIAL_SPEC).unwrap();
+    git_add(root, "spec.md");
+
+    let config = simple_config();
+    let changes = detect_changed_rules(root, &config).await.unwrap();
+    assert!(
+        changes.is_empty(),
+        "with no HEAD there is nothing to compare against; expected no changes, got {}",
+        changes.len()
+    );
+}
+
+/// Renaming a spec file does not produce false positives.
+///
+/// git diff --cached --name-only reports the old name (deleted) and the new
+/// name (added). The old name has no staged content (deleted), so it is
+/// skipped. The new name has no HEAD content (new file), so it is also
+/// treated as having no prior version.
+#[tokio::test]
+async fn test_renamed_spec_file_not_flagged() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+
+    git_init(root);
+    fs::write(root.join("spec.md"), INITIAL_SPEC).unwrap();
+    git_commit_all(root, "initial");
+
+    // Simulate a rename via git rm + write + git add.
+    let status = Command::new("git")
+        .args(["rm", "spec.md"])
+        .current_dir(root)
+        .status()
+        .expect("git not found");
+    assert!(status.success(), "git rm failed");
+
+    fs::write(root.join("spec2.md"), INITIAL_SPEC).unwrap();
+    git_add(root, "spec2.md");
+
+    // A wildcard config that matches both names.
+    let wildcard_config = Config {
+        specs: vec![SpecConfig {
+            name: "test".to_string(),
+            prefix: None,
+            source_url: None,
+            include: vec!["**/*.md".to_string()],
+            impls: vec![],
+        }],
+    };
+    let changes = detect_changed_rules(root, &wildcard_config).await.unwrap();
+    assert!(
+        changes.is_empty(),
+        "renamed spec file should not be flagged as having unbumped changes"
+    );
+}
+
+/// Running `bump` twice in a row without staging new changes is a no-op on the
+/// second call: the first bump increments the version, so the version check
+/// no longer flags the rule.
+#[tokio::test]
+async fn test_bump_idempotency() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+
+    git_init(root);
+    fs::write(root.join("spec.md"), INITIAL_SPEC).unwrap();
+    git_commit_all(root, "initial");
+
+    let modified = INITIAL_SPEC.replace(
+        "Users MUST provide valid credentials to log in.",
+        "Users MUST provide valid credentials and MFA to log in.",
+    );
+    fs::write(root.join("spec.md"), &modified).unwrap();
+    git_add(root, "spec.md");
+
+    let config = simple_config();
+
+    let first = bump(root, &config).await.unwrap();
+    assert_eq!(first.len(), 1, "first bump should fix one rule");
+
+    // Second call: the staged file now has the bumped marker, so version
+    // differs from HEAD and the rule is not flagged again.
+    let second = bump(root, &config).await.unwrap();
+    assert!(
+        second.is_empty(),
+        "second bump with no new changes should be a no-op"
+    );
+}
+
+/// Staged spec content that is not valid UTF-8 produces a clear error.
+#[tokio::test]
+async fn test_non_utf8_staged_content_returns_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+
+    git_init(root);
+    fs::write(root.join("spec.md"), INITIAL_SPEC).unwrap();
+    git_commit_all(root, "initial");
+
+    // Append an invalid UTF-8 byte sequence to the staged version.
+    let mut content = INITIAL_SPEC.as_bytes().to_vec();
+    content.push(0xFF); // lone 0xFF is never valid UTF-8
+    fs::write(root.join("spec.md"), &content).unwrap();
+    git_add(root, "spec.md");
+
+    let config = simple_config();
+    let result = detect_changed_rules(root, &config).await;
+    assert!(
+        result.is_err(),
+        "non-UTF-8 staged content should return an error"
+    );
+    let msg = result.unwrap_err().to_string();
+    assert!(
+        msg.to_lowercase().contains("utf-8") || msg.to_lowercase().contains("utf8"),
+        "error should mention UTF-8, got: {msg}"
+    );
+}
+
 /// After `bump` the file is re-staged, so a subsequent `pre_commit` passes.
 #[tokio::test]
 async fn test_bump_then_pre_commit_passes() {
