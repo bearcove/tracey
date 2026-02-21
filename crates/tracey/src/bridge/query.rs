@@ -78,9 +78,11 @@ impl QueryClient {
 
     /// Get coverage status for all specs/implementations
     pub async fn status(&self) -> String {
-        // Fetch status and config concurrently.
-        let (status_result, config_result) =
-            tokio::join!(self.client.status(), self.client.config());
+        // Fetch status first to establish a single connection/startup path.
+        // Running status+config concurrently on a cold client can race daemon
+        // autostart and introduce extra startup delays.
+        let status_result = self.client.status().await;
+        let config_result = self.client.config().await;
 
         let output = match status_result {
             Ok(status) => {

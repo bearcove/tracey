@@ -7,7 +7,7 @@ use std::fs::OpenOptions;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use super::{local_endpoint, pid_file_path};
 
@@ -52,6 +52,44 @@ impl Drop for StartupLock {
 }
 
 impl DaemonConnector {
+    async fn wait_for_existing_daemon(
+        &self,
+        pid: u32,
+        endpoint: &(impl AsRef<std::path::Path> + std::fmt::Debug),
+        timeout: Duration,
+    ) -> io::Result<Option<roam_local::LocalStream>> {
+        let start = Instant::now();
+        let mut last_error: Option<String> = None;
+
+        while start.elapsed() < timeout {
+            if !is_pid_alive(pid) {
+                debug!(
+                    "Daemon PID {} exited while waiting for socket {:?}",
+                    pid, endpoint
+                );
+                return Ok(None);
+            }
+
+            match roam_local::connect(endpoint).await {
+                Ok(stream) => return Ok(Some(stream)),
+                Err(e) => {
+                    last_error = Some(e.to_string());
+                }
+            }
+
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+
+        warn!(
+            "Daemon PID {} remained alive but socket {:?} stayed unavailable for {}s (last error: {})",
+            pid,
+            endpoint,
+            timeout.as_secs(),
+            last_error.unwrap_or_else(|| "unknown".to_string())
+        );
+        Ok(None)
+    }
+
     /// Create a new connector for the given project root.
     pub fn new(project_root: PathBuf) -> Self {
         Self { project_root }
@@ -110,6 +148,7 @@ impl DaemonConnector {
                 Ok(mut file) => {
                     use std::io::Write;
                     writeln!(file, "pid={}", std::process::id())?;
+                    debug!("Acquired daemon startup lock at {}", lock_path.display());
                     return Ok(StartupLock {
                         path: lock_path,
                         file,
@@ -120,6 +159,10 @@ impl DaemonConnector {
                         && let Ok(modified) = meta.modified()
                         && modified.elapsed().unwrap_or_default() > Duration::from_secs(30)
                     {
+                        warn!(
+                            "Removing stale daemon startup lock at {}",
+                            lock_path.display()
+                        );
                         let _ = std::fs::remove_file(&lock_path);
                         continue;
                     }
@@ -159,8 +202,10 @@ impl DaemonConnector {
                 return Err(io::Error::new(
                     io::ErrorKind::TimedOut,
                     format!(
-                        "Daemon failed to start within {}s. Check logs at {}/.tracey/daemon.log",
+                        "Daemon failed to start within {}s (last connect error: {}). \
+                         Check logs at {}/.tracey/daemon.log",
                         timeout.as_secs(),
+                        "unavailable",
                         self.project_root.display()
                     ),
                 ));
@@ -215,6 +260,13 @@ fn read_pid_file(project_root: &Path) -> Option<(u32, u32)> {
     }
 }
 
+fn pid_file_age(project_root: &Path) -> Option<Duration> {
+    let path = pid_file_path(project_root);
+    let meta = std::fs::metadata(path).ok()?;
+    let modified = meta.modified().ok()?;
+    modified.elapsed().ok()
+}
+
 /// Check whether a process with the given PID is alive.
 #[cfg(unix)]
 fn is_pid_alive(pid: u32) -> bool {
@@ -249,16 +301,49 @@ impl Connector for DaemonConnector {
 
     async fn connect(&self) -> io::Result<Self::Transport> {
         let endpoint = local_endpoint(&self.project_root);
+        debug!(
+            "DaemonConnector::connect project_root={} endpoint={:?}",
+            self.project_root.display(),
+            endpoint
+        );
 
         match read_pid_file(&self.project_root) {
             Some((pid, version)) => {
                 let alive = is_pid_alive(pid);
                 let version_ok = version == tracey_proto::PROTOCOL_VERSION;
+                debug!(
+                    "PID file found pid={} version={} alive={} version_ok={}",
+                    pid, version, alive, version_ok
+                );
 
                 if alive && version_ok {
                     // Happy path: daemon should be running.
-                    if let Ok(stream) = roam_local::connect(&endpoint).await {
-                        return Ok(stream);
+                    match roam_local::connect(&endpoint).await {
+                        Ok(stream) => return Ok(stream),
+                        Err(e) => {
+                            let age = pid_file_age(&self.project_root);
+                            let startup_grace = Duration::from_secs(20);
+                            if let Some(age) = age
+                                && age < startup_grace
+                            {
+                                let wait_for = startup_grace - age;
+                                debug!(
+                                    "Daemon PID {} alive but socket connect failed ({}); PID file age {:?}, waiting {:?} for startup",
+                                    pid, e, age, wait_for
+                                );
+                                if let Some(stream) = self
+                                    .wait_for_existing_daemon(pid, &endpoint, wait_for)
+                                    .await?
+                                {
+                                    return Ok(stream);
+                                }
+                            }
+
+                            warn!(
+                                "Daemon PID {} alive but socket unavailable (connect error: {}); removing endpoint+pid and restarting",
+                                pid, e
+                            );
+                        }
                     }
                     // Socket connect failed despite live PID — stale socket.
                     let _ = roam_local::remove_endpoint(&endpoint);
@@ -278,15 +363,21 @@ impl Connector for DaemonConnector {
                 }
             }
             None => {
+                debug!("No PID file found for {}", self.project_root.display());
                 // No PID file — remove stale socket if present.
                 // r[impl daemon.lifecycle.stale-socket]
                 if roam_local::endpoint_exists(&endpoint) {
+                    warn!(
+                        "No PID file but endpoint exists at {:?}; removing stale endpoint",
+                        endpoint
+                    );
                     let _ = roam_local::remove_endpoint(&endpoint);
                 }
             }
         }
 
         // Daemon is not running. Serialize startup across concurrent connectors.
+        debug!("Acquiring startup lock for {}", self.project_root.display());
         let _startup_lock = self.acquire_startup_lock(Duration::from_secs(5))?;
 
         // Re-check: another process may have started the daemon while we waited for the lock.
@@ -295,9 +386,17 @@ impl Connector for DaemonConnector {
             && version == tracey_proto::PROTOCOL_VERSION
             && let Ok(stream) = roam_local::connect(&endpoint).await
         {
+            debug!(
+                "Daemon became available while waiting for startup lock (pid={})",
+                pid
+            );
             return Ok(stream);
         }
 
+        debug!(
+            "Daemon still unavailable after startup lock; spawning process for {}",
+            self.project_root.display()
+        );
         self.spawn_daemon()?;
         self.wait_and_connect().await
     }

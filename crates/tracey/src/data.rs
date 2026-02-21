@@ -15,11 +15,15 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::time::Instant;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tracey_core::code_units::CodeUnit;
 use tracey_core::is_supported_extension;
 use tracey_core::{
-    RefVerb, ReqDefinition, Reqs, RuleId, RuleIdMatch, classify_reference_for_rule, parse_rule_id,
+    ParseWarning, RefVerb, ReqDefinition, ReqReference, Reqs, RuleId, RuleIdMatch,
+    classify_reference_for_rule, parse_rule_id,
 };
+use tracing::info;
 
 // Markdown rendering
 use marq::{
@@ -59,6 +63,8 @@ pub struct DashboardData {
     pub code_units_by_impl: BTreeMap<ImplKey, BTreeMap<PathBuf, Vec<CodeUnit>>>,
     /// Spec content per implementation (coverage info varies by impl)
     pub specs_content_by_impl: BTreeMap<ImplKey, ApiSpecData>,
+    /// Spec include patterns by spec name
+    pub spec_includes_by_name: BTreeMap<String, Vec<String>>,
     /// Full-text search index for source files
     pub search_index: Box<dyn SearchIndex>,
     /// Version number (incremented only when content actually changes)
@@ -70,6 +76,59 @@ pub struct DashboardData {
     /// Files matched by test_include patterns (only verify allowed)
     /// r[impl config.impl.test_include]
     pub test_files: std::collections::HashSet<PathBuf>,
+}
+
+#[derive(Default)]
+pub struct BuildCache {
+    source_files: HashMap<PathBuf, CachedSourceFile>,
+    impl_scan_paths: HashMap<ImplScanKey, CachedScanPaths>,
+    spec_scan_paths: HashMap<SpecScanKey, CachedScanPaths>,
+    markdown_files: HashMap<PathBuf, CachedMarkdownFile>,
+}
+
+#[derive(Clone)]
+struct CachedSourceFile {
+    content_hash: u64,
+    file_len: u64,
+    modified_nanos: Option<u128>,
+    content: String,
+    refs: Vec<ReqReference>,
+    parse_warnings: Vec<ParseWarning>,
+    code_units: Vec<CodeUnit>,
+}
+
+#[derive(Default)]
+struct CacheStats {
+    metadata_hits: usize,
+    hash_hits: usize,
+    misses: usize,
+    reparsed: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ImplScanKey {
+    project_root: PathBuf,
+    include: Vec<String>,
+    exclude: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct SpecScanKey {
+    project_root: PathBuf,
+    include: Vec<String>,
+}
+
+#[derive(Default, Clone)]
+struct CachedScanPaths {
+    files: BTreeSet<PathBuf>,
+}
+
+#[derive(Clone)]
+struct CachedMarkdownFile {
+    content_hash: u64,
+    file_len: u64,
+    modified_nanos: Option<u128>,
+    extracted_rules: Vec<crate::ExtractedRule>,
 }
 
 /// Escape HTML special characters
@@ -493,14 +552,536 @@ async fn read_file_with_overlay(path: &Path, overlay: &FileOverlay) -> std::io::
     tokio::fs::read_to_string(path).await
 }
 
+fn file_modified_nanos(modified: SystemTime) -> Option<u128> {
+    modified
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .map(|d| d.as_nanos())
+}
+
+fn compute_content_hash(content: &str) -> u64 {
+    simple_hash(content)
+}
+
+fn compute_column_for_content(content: &str, byte_offset: usize) -> usize {
+    let before = &content[..byte_offset.min(content.len())];
+    let line_start = before.rfind('\n').map(|i| i + 1).unwrap_or(0);
+    before[line_start..].chars().count() + 1
+}
+
+fn extract_marker_prefix_from_content(
+    content: &str,
+    marker_span: marq::SourceSpan,
+) -> Option<String> {
+    let start = marker_span.offset;
+    let end = start.checked_add(marker_span.length)?;
+    let marker = content.get(start..end)?;
+    let bracket = marker.find('[')?;
+    let prefix = marker[..bracket].trim();
+    if prefix.is_empty() {
+        return None;
+    }
+    Some(prefix.to_string())
+}
+
+async fn get_cached_source_file(
+    path: &Path,
+    overlay: &FileOverlay,
+    cache: &mut BuildCache,
+    stats: &mut CacheStats,
+) -> std::io::Result<CachedSourceFile> {
+    let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+
+    let overlay_content = overlay
+        .get(path)
+        .or_else(|| overlay.get(&canonical))
+        .cloned();
+
+    if let Some(content) = overlay_content {
+        let content_hash = compute_content_hash(&content);
+        if let Some(entry) = cache.source_files.get(&canonical)
+            && entry.content_hash == content_hash
+        {
+            stats.hash_hits += 1;
+            return Ok(entry.clone());
+        }
+
+        let reqs = Reqs::extract_from_content(&canonical, &content);
+        let code_units = tracey_core::code_units::extract(&canonical, &content).units;
+        let parsed = CachedSourceFile {
+            content_hash,
+            file_len: content.len() as u64,
+            modified_nanos: None,
+            content,
+            refs: reqs.references,
+            parse_warnings: reqs.warnings,
+            code_units,
+        };
+        stats.misses += 1;
+        stats.reparsed += 1;
+        cache.source_files.insert(canonical, parsed.clone());
+        return Ok(parsed);
+    }
+
+    let metadata = tokio::fs::metadata(&canonical).await?;
+    let file_len = metadata.len();
+    let modified_nanos = metadata.modified().ok().and_then(file_modified_nanos);
+
+    if let Some(entry) = cache.source_files.get(&canonical)
+        && entry.file_len == file_len
+        && entry.modified_nanos == modified_nanos
+    {
+        stats.metadata_hits += 1;
+        return Ok(entry.clone());
+    }
+
+    let content = read_file_with_overlay(&canonical, overlay).await?;
+    let content_hash = compute_content_hash(&content);
+
+    if let Some(entry) = cache.source_files.get(&canonical)
+        && entry.content_hash == content_hash
+    {
+        let mut updated = entry.clone();
+        updated.file_len = file_len;
+        updated.modified_nanos = modified_nanos;
+        cache.source_files.insert(canonical, updated.clone());
+        stats.hash_hits += 1;
+        return Ok(updated);
+    }
+
+    let reqs = Reqs::extract_from_content(&canonical, &content);
+    let code_units = tracey_core::code_units::extract(&canonical, &content).units;
+    let parsed = CachedSourceFile {
+        content_hash,
+        file_len,
+        modified_nanos,
+        content,
+        refs: reqs.references,
+        parse_warnings: reqs.warnings,
+        code_units,
+    };
+    stats.misses += 1;
+    stats.reparsed += 1;
+    cache.source_files.insert(canonical, parsed.clone());
+    Ok(parsed)
+}
+
+#[derive(Clone)]
+struct ScanRootPattern {
+    root: PathBuf,
+    pattern: String,
+}
+
+fn build_scan_roots(
+    project_root: &Path,
+    include: &[String],
+) -> (Vec<ScanRootPattern>, Vec<String>) {
+    let mut roots = Vec::new();
+    let mut warnings = Vec::new();
+
+    if include.is_empty() {
+        roots.push(ScanRootPattern {
+            root: project_root.to_path_buf(),
+            pattern: "**/*".to_string(),
+        });
+        return (roots, warnings);
+    }
+
+    for pattern in include {
+        if pattern.starts_with("../") {
+            let base_path =
+                if let Some(wildcard_pos) = pattern.find("**").or_else(|| pattern.find('*')) {
+                    pattern[..wildcard_pos].trim_end_matches('/')
+                } else {
+                    pattern.as_str()
+                };
+            let resolved_path = project_root.join(base_path);
+            if !resolved_path.exists() {
+                warnings.push(format!(
+                    "Warning: Cross-workspace path not found: {}\n  Pattern: {}",
+                    base_path, pattern
+                ));
+                continue;
+            }
+            let adjusted_pattern = if let Some(suffix) = pattern.strip_prefix(base_path) {
+                suffix.trim_start_matches('/').to_string()
+            } else {
+                pattern.to_string()
+            };
+            roots.push(ScanRootPattern {
+                root: resolved_path,
+                pattern: adjusted_pattern,
+            });
+        } else {
+            roots.push(ScanRootPattern {
+                root: project_root.to_path_buf(),
+                pattern: pattern.clone(),
+            });
+        }
+    }
+
+    (roots, warnings)
+}
+
+fn path_matches_root_pattern(path: &Path, root_pattern: &ScanRootPattern) -> bool {
+    let Ok(relative) = path.strip_prefix(&root_pattern.root) else {
+        return false;
+    };
+    let relative_str = relative.to_string_lossy();
+    glob_match(&relative_str, &root_pattern.pattern)
+}
+
+fn path_matches_any_root(path: &Path, roots: &[ScanRootPattern]) -> bool {
+    roots.iter().any(|r| path_matches_root_pattern(path, r))
+}
+
+fn path_matches_excludes(path: &Path, roots: &[ScanRootPattern], exclude: &[String]) -> bool {
+    roots.iter().any(|r| {
+        let Ok(relative) = path.strip_prefix(&r.root) else {
+            return false;
+        };
+        let relative_str = relative.to_string_lossy();
+        exclude
+            .iter()
+            .any(|pattern| glob_match(&relative_str, pattern))
+    })
+}
+
+fn full_walk_for_roots(
+    roots: &[ScanRootPattern],
+    include_supported_ext_only: bool,
+    include_markdown_only: bool,
+    exclude: &[String],
+) -> BTreeSet<PathBuf> {
+    let mut out = BTreeSet::new();
+    for root_pattern in roots {
+        let walker = ignore::WalkBuilder::new(&root_pattern.root)
+            .follow_links(true)
+            .hidden(false)
+            .git_ignore(true)
+            .build();
+
+        for entry in walker.flatten() {
+            let path = entry.path();
+            let Some(ft) = entry.file_type() else {
+                continue;
+            };
+            if !ft.is_file() {
+                continue;
+            }
+            if include_markdown_only && path.extension().is_none_or(|ext| ext != "md") {
+                continue;
+            }
+            if include_supported_ext_only
+                && path
+                    .extension()
+                    .is_none_or(|ext| !is_supported_extension(ext))
+            {
+                continue;
+            }
+            if !path_matches_root_pattern(path, root_pattern) {
+                continue;
+            }
+            if path_matches_excludes(path, roots, exclude) {
+                continue;
+            }
+            let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+            out.insert(canonical);
+        }
+    }
+    out
+}
+
+fn update_cached_scan_paths(
+    existing: &mut CachedScanPaths,
+    roots: &[ScanRootPattern],
+    changed_files: &[PathBuf],
+    include_supported_ext_only: bool,
+    include_markdown_only: bool,
+    exclude: &[String],
+) {
+    for changed in changed_files {
+        let canonical = changed
+            .canonicalize()
+            .unwrap_or_else(|_| changed.to_path_buf());
+        let exists = canonical.exists();
+        let ext_ok = if include_markdown_only {
+            canonical.extension().is_some_and(|ext| ext == "md")
+        } else if include_supported_ext_only {
+            canonical.extension().is_some_and(is_supported_extension)
+        } else {
+            true
+        };
+        let included = ext_ok
+            && path_matches_any_root(&canonical, roots)
+            && !path_matches_excludes(&canonical, roots, exclude);
+
+        if exists && included {
+            existing.files.insert(canonical);
+        } else {
+            existing.files.remove(&canonical);
+        }
+    }
+}
+
+fn get_cached_impl_scan_paths(
+    project_root: &Path,
+    include: &[String],
+    exclude: &[String],
+    changed_files: &[PathBuf],
+    cache: &mut BuildCache,
+) -> (BTreeSet<PathBuf>, Vec<String>, bool) {
+    let key = ImplScanKey {
+        project_root: project_root.to_path_buf(),
+        include: include.to_vec(),
+        exclude: exclude.to_vec(),
+    };
+    let (roots, warnings) = build_scan_roots(project_root, include);
+    let entry = cache.impl_scan_paths.entry(key).or_default();
+    let did_full_walk;
+    if entry.files.is_empty() {
+        entry.files = full_walk_for_roots(&roots, true, false, exclude);
+        did_full_walk = true;
+    } else if !changed_files.is_empty() {
+        update_cached_scan_paths(entry, &roots, changed_files, true, false, exclude);
+        did_full_walk = false;
+    } else {
+        entry.files = full_walk_for_roots(&roots, true, false, exclude);
+        did_full_walk = true;
+    }
+    (entry.files.clone(), warnings, did_full_walk)
+}
+
+fn get_cached_spec_scan_paths(
+    project_root: &Path,
+    include: &[String],
+    changed_files: &[PathBuf],
+    cache: &mut BuildCache,
+) -> (BTreeSet<PathBuf>, Vec<String>, bool) {
+    let key = SpecScanKey {
+        project_root: project_root.to_path_buf(),
+        include: include.to_vec(),
+    };
+    let (roots, warnings) = build_scan_roots(project_root, include);
+    let entry = cache.spec_scan_paths.entry(key).or_default();
+    let did_full_walk;
+    if entry.files.is_empty() {
+        entry.files = full_walk_for_roots(&roots, false, true, &[]);
+        did_full_walk = true;
+    } else if !changed_files.is_empty() {
+        update_cached_scan_paths(entry, &roots, changed_files, false, true, &[]);
+        did_full_walk = false;
+    } else {
+        entry.files = full_walk_for_roots(&roots, false, true, &[]);
+        did_full_walk = true;
+    }
+    (entry.files.clone(), warnings, did_full_walk)
+}
+
+async fn extract_markdown_rules_cached(
+    project_root: &Path,
+    path: &Path,
+    overlay: &FileOverlay,
+    cache: &mut BuildCache,
+    quiet: bool,
+    stats: &mut CacheStats,
+) -> Result<Vec<crate::ExtractedRule>> {
+    let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let metadata = tokio::fs::metadata(&canonical).await.ok();
+    let file_len = metadata.as_ref().map_or(0, std::fs::Metadata::len);
+    let modified_nanos = metadata
+        .as_ref()
+        .and_then(|m| m.modified().ok())
+        .and_then(file_modified_nanos);
+
+    let content = read_file_with_overlay(&canonical, overlay).await?;
+    let content_hash = compute_content_hash(&content);
+    if let Some(entry) = cache.markdown_files.get(&canonical) {
+        if entry.file_len == file_len && entry.modified_nanos == modified_nanos {
+            stats.metadata_hits += 1;
+            return Ok(entry.extracted_rules.clone());
+        }
+        if entry.content_hash == content_hash {
+            let updated = CachedMarkdownFile {
+                content_hash,
+                file_len,
+                modified_nanos,
+                extracted_rules: entry.extracted_rules.clone(),
+            };
+            cache.markdown_files.insert(canonical, updated.clone());
+            stats.hash_hits += 1;
+            return Ok(updated.extracted_rules);
+        }
+    }
+
+    let relative_display = if let Ok(rel) = canonical.strip_prefix(project_root) {
+        rel.display().to_string()
+    } else {
+        compute_relative_path(project_root, &canonical)
+    };
+
+    let doc = render(&content, &RenderOptions::default())
+        .await
+        .map_err(|e| eyre::eyre!("Failed to process {}: {}", canonical.display(), e))?;
+
+    if !quiet && !doc.reqs.is_empty() {
+        eprintln!(
+            "   {} {} requirements from {}",
+            "Found".green(),
+            doc.reqs.len(),
+            relative_display
+        );
+    }
+
+    let mut extracted = Vec::new();
+    if !doc.reqs.is_empty() {
+        use marq::DocElement;
+        let mut rule_sections: HashMap<String, (Option<String>, Option<String>)> = HashMap::new();
+        let mut current_section: Option<(String, String)> = None;
+        for element in &doc.elements {
+            match element {
+                DocElement::Heading(h) => current_section = Some((h.id.clone(), h.title.clone())),
+                DocElement::Req(r) => {
+                    if let Some((slug, title)) = &current_section {
+                        rule_sections
+                            .insert(r.id.to_string(), (Some(slug.clone()), Some(title.clone())));
+                    }
+                }
+                DocElement::Paragraph(_) => {}
+            }
+        }
+
+        for req in doc.reqs {
+            let column = Some(compute_column_for_content(&content, req.span.offset));
+            let prefix =
+                extract_marker_prefix_from_content(&content, req.marker_span).ok_or_else(|| {
+                    eyre::eyre!(
+                        "Failed to determine requirement marker prefix in {} at line {}",
+                        relative_display,
+                        req.line
+                    )
+                })?;
+            let (section, section_title) = rule_sections
+                .remove(&req.id.to_string())
+                .unwrap_or((None, None));
+            extracted.push(crate::ExtractedRule {
+                def: req,
+                source_file: relative_display.clone(),
+                prefix,
+                column,
+                section,
+                section_title,
+            });
+        }
+    }
+
+    cache.markdown_files.insert(
+        canonical,
+        CachedMarkdownFile {
+            content_hash,
+            file_len,
+            modified_nanos,
+            extracted_rules: extracted.clone(),
+        },
+    );
+    stats.misses += 1;
+    stats.reparsed += 1;
+    Ok(extracted)
+}
+
+async fn load_rules_from_includes_cached(
+    project_root: &Path,
+    include_patterns: &[String],
+    overlay: &FileOverlay,
+    cache: &mut BuildCache,
+    quiet: bool,
+    changed_files: &[PathBuf],
+    stats: &mut CacheStats,
+) -> Result<(Vec<crate::ExtractedRule>, bool)> {
+    let (spec_paths, _warnings, did_full_walk) =
+        get_cached_spec_scan_paths(project_root, include_patterns, changed_files, cache);
+
+    let mut all_rules = Vec::new();
+    let mut seen_ids: BTreeSet<String> = BTreeSet::new();
+    for path in spec_paths {
+        let extracted =
+            extract_markdown_rules_cached(project_root, &path, overlay, cache, quiet, stats)
+                .await?;
+        for rule in extracted {
+            let id = rule.def.id.to_string();
+            if seen_ids.contains(&id) {
+                eyre::bail!(
+                    "Duplicate requirement '{}' found in {}",
+                    rule.def.id.red(),
+                    rule.source_file
+                );
+            }
+            seen_ids.insert(id);
+            all_rules.push(rule);
+        }
+    }
+    Ok((all_rules, did_full_walk))
+}
+
+async fn scan_impl_files(
+    project_root: &Path,
+    include: &[String],
+    exclude: &[String],
+    overlay: &FileOverlay,
+    cache: &mut BuildCache,
+    changed_files: &[PathBuf],
+    stats: &mut CacheStats,
+) -> (
+    Vec<ReqReference>,
+    Vec<ParseWarning>,
+    Vec<String>,
+    BTreeMap<PathBuf, Vec<CodeUnit>>,
+    BTreeMap<PathBuf, String>,
+    bool,
+) {
+    let (files, warnings, did_full_walk) =
+        get_cached_impl_scan_paths(project_root, include, exclude, changed_files, cache);
+    let mut refs = Vec::new();
+    let mut parse_warnings = Vec::new();
+    let mut code_units_by_file: BTreeMap<PathBuf, Vec<CodeUnit>> = BTreeMap::new();
+    let mut file_contents: BTreeMap<PathBuf, String> = BTreeMap::new();
+    for path in files {
+        if let Ok(parsed) = get_cached_source_file(&path, overlay, cache, stats).await {
+            refs.extend(parsed.refs);
+            parse_warnings.extend(parsed.parse_warnings);
+            if !parsed.code_units.is_empty() {
+                code_units_by_file.insert(path.clone(), parsed.code_units);
+            }
+            file_contents.insert(path, parsed.content);
+        }
+    }
+    (
+        refs,
+        parse_warnings,
+        warnings,
+        code_units_by_file,
+        file_contents,
+        did_full_walk,
+    )
+}
+
 pub async fn build_dashboard_data(
     project_root: &Path,
     config: &Config,
     version: u64,
     quiet: bool,
 ) -> Result<DashboardData> {
-    build_dashboard_data_with_overlay(project_root, config, version, quiet, &FileOverlay::new())
-        .await
+    let mut cache = BuildCache::default();
+    build_dashboard_data_with_overlay_and_cache(
+        project_root,
+        config,
+        version,
+        quiet,
+        &FileOverlay::new(),
+        &mut cache,
+        &[],
+    )
+    .await
 }
 
 pub async fn build_dashboard_data_with_overlay(
@@ -510,18 +1091,33 @@ pub async fn build_dashboard_data_with_overlay(
     quiet: bool,
     overlay: &FileOverlay,
 ) -> Result<DashboardData> {
-    struct ImplExtraction {
-        impl_name: String,
-        include: Vec<String>,
-        exclude: Vec<String>,
-        extraction_result: tracey_core::ExtractionResult,
-    }
+    let mut cache = BuildCache::default();
+    build_dashboard_data_with_overlay_and_cache(
+        project_root,
+        config,
+        version,
+        quiet,
+        overlay,
+        &mut cache,
+        &[],
+    )
+    .await
+}
 
-    use tracey_core::WalkSources;
-
+pub async fn build_dashboard_data_with_overlay_and_cache(
+    project_root: &Path,
+    config: &Config,
+    version: u64,
+    quiet: bool,
+    overlay: &FileOverlay,
+    cache: &mut BuildCache,
+    changed_files: &[PathBuf],
+) -> Result<DashboardData> {
+    let build_start = Instant::now();
     let abs_root = project_root
         .canonicalize()
         .unwrap_or_else(|_| project_root.to_path_buf());
+    let mut cache_stats = CacheStats::default();
 
     let mut api_config = ApiConfig {
         project_root: abs_root.display().to_string(),
@@ -532,12 +1128,27 @@ pub async fn build_dashboard_data_with_overlay(
     let mut reverse_by_impl: BTreeMap<ImplKey, ApiReverseData> = BTreeMap::new();
     let mut code_units_by_impl: BTreeMap<ImplKey, BTreeMap<PathBuf, Vec<CodeUnit>>> =
         BTreeMap::new();
-    let mut specs_content_by_impl: BTreeMap<ImplKey, ApiSpecData> = BTreeMap::new();
+    let specs_content_by_impl: BTreeMap<ImplKey, ApiSpecData> = BTreeMap::new();
+    let mut spec_includes_by_name: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut all_file_contents: BTreeMap<PathBuf, String> = BTreeMap::new();
     let mut all_search_rules: Vec<search::RuleEntry> = Vec::new();
+    let mut total_extracted_rules = 0usize;
+    let mut total_source_refs = 0usize;
+    let mut total_code_files = 0usize;
+    let mut total_code_units = 0usize;
+    let total_impls: usize = config.specs.iter().map(|s| s.impls.len()).sum();
+
+    info!(
+        "dashboard build start version={} specs={} impls={} overlay_files={}",
+        version,
+        config.specs.len(),
+        total_impls,
+        overlay.len()
+    );
 
     // r[impl config.impl.test_include]
     // Collect all test file patterns and find matching files
+    let test_files_start = Instant::now();
     let mut test_files: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
     for spec_config in &config.specs {
         for impl_config in &spec_config.impls {
@@ -573,10 +1184,16 @@ pub async fn build_dashboard_data_with_overlay(
             }
         }
     }
+    info!(
+        "dashboard build test file scan done test_files={} elapsed_ms={}",
+        test_files.len(),
+        test_files_start.elapsed().as_millis()
+    );
 
     for spec_config in &config.specs {
+        let spec_start = Instant::now();
         let spec_name = &spec_config.name;
-        let include_patterns: Vec<&str> = spec_config.include.iter().map(|i| i.as_str()).collect();
+        let include_patterns: Vec<String> = spec_config.include.to_vec();
 
         if let Some(prefix) = &spec_config.prefix {
             // r[impl config.spec.prefix+2]
@@ -615,8 +1232,17 @@ pub async fn build_dashboard_data_with_overlay(
                 include_patterns
             );
         }
-        let extracted_rules =
-            crate::load_rules_from_globs(project_root, &include_patterns, quiet).await?;
+        let (extracted_rules, spec_walk_full_scan) = load_rules_from_includes_cached(
+            project_root,
+            &include_patterns,
+            overlay,
+            cache,
+            quiet,
+            changed_files,
+            &mut cache_stats,
+        )
+        .await?;
+        total_extracted_rules += extracted_rules.len();
 
         let unique_prefixes: BTreeSet<String> =
             extracted_rules.iter().map(|r| r.prefix.clone()).collect();
@@ -638,6 +1264,15 @@ pub async fn build_dashboard_data_with_overlay(
                 ));
             }
         };
+        info!(
+            "dashboard build spec extracted spec={} rules={} inferred_prefix={} includes={} walk_full_scan={} elapsed_ms={}",
+            spec_name,
+            extracted_rules.len(),
+            inferred_prefix,
+            include_patterns.len(),
+            spec_walk_full_scan,
+            spec_start.elapsed().as_millis()
+        );
 
         api_config.specs.push(ApiSpecInfo {
             name: spec_name.clone(),
@@ -646,19 +1281,16 @@ pub async fn build_dashboard_data_with_overlay(
             source_url: spec_config.source_url.clone(),
             implementations: spec_config.impls.iter().map(|i| i.name.clone()).collect(),
         });
+        spec_includes_by_name.insert(spec_name.clone(), include_patterns.clone());
 
         // Build data for each implementation
-        let mut extraction_tasks = Vec::with_capacity(spec_config.impls.len());
         for impl_config in &spec_config.impls {
+            let impl_start = Instant::now();
+            let scan_start = Instant::now();
+            let impl_name = impl_config.name.clone();
             if !quiet {
-                eprintln!(
-                    "   {} {} implementation",
-                    "Scanning".green(),
-                    impl_config.name
-                );
+                eprintln!("   {} {} implementation", "Scanning".green(), impl_name);
             }
-
-            // Get include/exclude patterns for this impl
             // r[impl walk.default-include] - default to **/*.rs when no include patterns
             let include: Vec<String> = if impl_config.include.is_empty() {
                 vec!["**/*.rs".to_string()]
@@ -666,50 +1298,50 @@ pub async fn build_dashboard_data_with_overlay(
                 impl_config.include.to_vec()
             };
             let exclude: Vec<String> = impl_config.exclude.to_vec();
-            let impl_name = impl_config.name.clone();
-            let root = project_root.to_path_buf();
-
-            extraction_tasks.push(tokio::task::spawn_blocking(
-                move || -> Result<ImplExtraction> {
-                    // r[impl ref.cross-workspace.paths]
-                    // Extract requirement references from this impl's source files
-                    let extraction_result = Reqs::extract(
-                        WalkSources::new(root)
-                            .include(include.clone())
-                            .exclude(exclude.clone()),
-                    )?;
-
-                    Ok(ImplExtraction {
-                        impl_name,
-                        include,
-                        exclude,
-                        extraction_result,
-                    })
-                },
-            ));
-        }
-
-        for extraction_task in futures_util::future::join_all(extraction_tasks).await {
-            let ImplExtraction {
-                impl_name,
-                include,
-                exclude,
-                extraction_result,
-            } = extraction_task
-                .map_err(|err| eyre::eyre!("Implementation scan task failed: {err}"))??;
             let impl_key: ImplKey = (spec_name.clone(), impl_name.clone());
+            let (
+                refs,
+                parse_warnings,
+                scan_warnings,
+                impl_code_units,
+                impl_file_contents,
+                impl_walk_full_scan,
+            ) = scan_impl_files(
+                project_root,
+                &include,
+                &exclude,
+                overlay,
+                cache,
+                changed_files,
+                &mut cache_stats,
+            )
+            .await;
+            let warning_count = scan_warnings.len();
+            let scan_elapsed_ms = scan_start.elapsed().as_millis();
 
             // r[impl ref.cross-workspace.cli-warnings]
             // Print warnings for missing cross-workspace paths
-            for warning in &extraction_result.warnings {
+            for warning in &scan_warnings {
                 if !quiet {
                     eprintln!("{}", warning.yellow());
                 }
             }
 
-            let reqs = extraction_result.reqs;
+            total_source_refs += refs.len();
+            for (path, content) in impl_file_contents {
+                all_file_contents.insert(path, content);
+            }
+            if !parse_warnings.is_empty() {
+                info!(
+                    "dashboard build impl parse warnings spec={} impl={} count={}",
+                    spec_name,
+                    impl_name,
+                    parse_warnings.len()
+                );
+            }
 
             // Build forward data for this impl
+            let forward_start = Instant::now();
             let mut api_rules = Vec::new();
             let mut stale_rule_ids: std::collections::HashSet<RuleId> =
                 std::collections::HashSet::new();
@@ -719,7 +1351,7 @@ pub async fn build_dashboard_data_with_overlay(
                 let mut depends_refs = Vec::new();
                 let mut stale_refs = Vec::new();
 
-                for r in &reqs.references {
+                for r in &refs {
                     // r[impl ref.prefix.coverage+2]
                     if r.prefix == inferred_prefix {
                         // r[impl ref.cross-workspace.graceful]
@@ -821,6 +1453,7 @@ pub async fn build_dashboard_data_with_overlay(
             for rule in &mut api_rules {
                 rule.is_stale = stale_rule_ids.contains(&rule.id);
             }
+            let forward_elapsed_ms = forward_start.elapsed().as_millis();
 
             // Build coverage map for this impl
             let mut coverage: BTreeMap<String, RuleCoverage> = BTreeMap::new();
@@ -848,22 +1481,6 @@ pub async fn build_dashboard_data_with_overlay(
                 );
             }
 
-            // Load spec content with coverage-aware rendering for this impl
-            let mut impl_specs_content: BTreeMap<String, ApiSpecData> = BTreeMap::new();
-            load_spec_content(
-                project_root,
-                &include_patterns,
-                spec_name,
-                &impl_name,
-                &coverage,
-                &mut impl_specs_content,
-                overlay,
-            )
-            .await?;
-            if let Some(spec_data) = impl_specs_content.remove(spec_name) {
-                specs_content_by_impl.insert(impl_key.clone(), spec_data);
-            }
-
             forward_by_impl.insert(
                 impl_key.clone(),
                 ApiSpecForward {
@@ -872,95 +1489,8 @@ pub async fn build_dashboard_data_with_overlay(
                 },
             );
 
-            // Extract code units for reverse traceability
-            let mut impl_code_units: BTreeMap<PathBuf, Vec<CodeUnit>> = BTreeMap::new();
-
-            // Separate include patterns into local and cross-workspace
-            let (local_includes, cross_workspace_includes): (Vec<_>, Vec<_>) =
-                include.iter().partition(|p| !p.starts_with("../"));
-
-            // Helper to process a file
-            let mut process_file = async |path: &Path, root: &Path, patterns: &[&String]| {
-                if path.extension().is_some_and(is_supported_extension) {
-                    let relative = path.strip_prefix(root).unwrap_or(path);
-                    let relative_str = relative.to_string_lossy();
-
-                    let included = patterns
-                        .iter()
-                        .any(|pattern| glob_match(&relative_str, pattern));
-
-                    let excluded = exclude
-                        .iter()
-                        .any(|pattern| glob_match(&relative_str, pattern));
-
-                    if included
-                        && !excluded
-                        && let Ok(content) = read_file_with_overlay(path, overlay).await
-                    {
-                        // Use canonicalized path as key for consistent lookups
-                        let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-
-                        let code_units = tracey_core::code_units::extract(path, &content);
-                        if !code_units.is_empty() {
-                            impl_code_units.insert(canonical.clone(), code_units.units);
-                        }
-                        // Also collect for search index
-                        all_file_contents.insert(canonical, content);
-                    }
-                }
-            };
-
-            // Walk local patterns from project root
-            if !local_includes.is_empty() || include.is_empty() {
-                let walker = ignore::WalkBuilder::new(project_root)
-                    .follow_links(true)
-                    .hidden(false)
-                    .git_ignore(true)
-                    .build();
-
-                for entry in walker.flatten() {
-                    process_file(entry.path(), project_root, &local_includes).await;
-                }
-            }
-
-            // Walk cross-workspace patterns
-            for pattern in cross_workspace_includes {
-                // Extract base path (e.g., "../marq" from "../marq/**/*.rs")
-                let base_path =
-                    if let Some(wildcard_pos) = pattern.find("**").or_else(|| pattern.find('*')) {
-                        pattern[..wildcard_pos].trim_end_matches('/')
-                    } else {
-                        pattern.as_str()
-                    };
-
-                let resolved_path = project_root.join(base_path);
-
-                // Check if path exists
-                if !resolved_path.exists() {
-                    eprintln!("Warning: Cross-workspace path not found: {}", base_path);
-                    eprintln!("  Pattern: {}", pattern);
-                    continue;
-                }
-
-                let walker = ignore::WalkBuilder::new(&resolved_path)
-                    .follow_links(true)
-                    .hidden(false)
-                    .git_ignore(true)
-                    .build();
-
-                // Adjust pattern to be relative to resolved path
-                let adjusted_pattern = if let Some(suffix) = pattern.strip_prefix(base_path) {
-                    suffix.trim_start_matches('/').to_string()
-                } else {
-                    pattern.to_string()
-                };
-
-                for entry in walker.flatten() {
-                    process_file(entry.path(), &resolved_path, &[&adjusted_pattern]).await;
-                }
-            }
-
             // Build reverse data for this impl
+            let reverse_start = Instant::now();
             let mut total_units = 0;
             let mut covered_units = 0;
             let mut file_entries = Vec::new();
@@ -985,6 +1515,26 @@ pub async fn build_dashboard_data_with_overlay(
                     covered_units: file_covered,
                 });
             }
+            total_code_files += impl_code_units.len();
+            total_code_units += total_units;
+            info!(
+                "dashboard build impl processed spec={} impl={} refs={} warnings={} code_files={} code_units={} covered_units={} elapsed_ms={}",
+                spec_name,
+                impl_name,
+                refs.len(),
+                warning_count,
+                impl_code_units.len(),
+                total_units,
+                covered_units,
+                impl_start.elapsed().as_millis()
+            );
+            info!(
+                "dashboard build impl cache spec={} impl={} walk_full_scan={} files_scanned={}",
+                spec_name,
+                impl_name,
+                impl_walk_full_scan,
+                impl_code_units.len()
+            );
 
             file_entries.sort_by(|a, b| a.path.cmp(&b.path));
 
@@ -996,9 +1546,20 @@ pub async fn build_dashboard_data_with_overlay(
                     files: file_entries,
                 },
             );
+            let reverse_elapsed_ms = reverse_start.elapsed().as_millis();
 
             code_units_by_impl.insert(impl_key, impl_code_units);
+            info!(
+                "dashboard build impl phases spec={} impl={} scan_ms={} forward_ms={} reverse_ms={} render_ms=0",
+                spec_name, impl_name, scan_elapsed_ms, forward_elapsed_ms, reverse_elapsed_ms
+            );
         }
+        info!(
+            "dashboard build spec done spec={} impls={} elapsed_ms={}",
+            spec_name,
+            spec_config.impls.len(),
+            spec_start.elapsed().as_millis()
+        );
     }
 
     // Deduplicate search rules by ID
@@ -1006,7 +1567,14 @@ pub async fn build_dashboard_data_with_overlay(
     all_search_rules.dedup_by(|a, b| a.id == b.id);
 
     // Build search index with all sources and rules
+    let index_start = Instant::now();
     let search_index = search::build_index(project_root, &all_file_contents, &all_search_rules);
+    info!(
+        "dashboard build search index done files={} rules={} elapsed_ms={}",
+        all_file_contents.len(),
+        all_search_rules.len(),
+        index_start.elapsed().as_millis()
+    );
 
     // Compute content hash for change detection (hash all forward/reverse data)
     let mut content_hash: u64 = 0;
@@ -1019,12 +1587,31 @@ pub async fn build_dashboard_data_with_overlay(
         content_hash ^= simple_hash(&format!("{:?}:{}", key, json));
     }
 
+    let elapsed = build_start.elapsed();
+    info!(
+        "dashboard build done version={} specs={} impls={} rules={} refs={} code_files={} code_units={} cache_metadata_hits={} cache_hash_hits={} cache_misses={} reparsed_files={} cache_entries={} elapsed_ms={}",
+        version,
+        api_config.specs.len(),
+        forward_by_impl.len(),
+        total_extracted_rules,
+        total_source_refs,
+        total_code_files,
+        total_code_units,
+        cache_stats.metadata_hits,
+        cache_stats.hash_hits,
+        cache_stats.misses,
+        cache_stats.reparsed,
+        cache.source_files.len(),
+        elapsed.as_millis()
+    );
+
     Ok(DashboardData {
         config: api_config,
         forward_by_impl,
         reverse_by_impl,
         code_units_by_impl,
         specs_content_by_impl,
+        spec_includes_by_name,
         search_index,
         version,
         content_hash,
@@ -1166,6 +1753,54 @@ async fn load_spec_content(
     }
 
     Ok(())
+}
+
+pub async fn render_spec_content_for_impl(
+    project_root: &Path,
+    include_patterns: &[String],
+    spec_name: &str,
+    impl_name: &str,
+    forward: &ApiSpecForward,
+) -> Result<ApiSpecData> {
+    let mut coverage: BTreeMap<String, RuleCoverage> = BTreeMap::new();
+    for rule in &forward.rules {
+        let rule_id_string = rule.id.to_string();
+        let has_impl = !rule.impl_refs.is_empty();
+        let has_verify = !rule.verify_refs.is_empty();
+        let has_stale = rule.is_stale;
+        let status = if has_stale {
+            "stale"
+        } else if has_impl && has_verify {
+            "covered"
+        } else if has_impl || has_verify {
+            "partial"
+        } else {
+            "uncovered"
+        };
+        coverage.insert(
+            rule_id_string,
+            RuleCoverage {
+                status,
+                impl_refs: rule.impl_refs.clone(),
+                verify_refs: rule.verify_refs.clone(),
+            },
+        );
+    }
+
+    let include_pattern_refs: Vec<&str> = include_patterns.iter().map(|s| s.as_str()).collect();
+    let mut map = BTreeMap::new();
+    load_spec_content(
+        project_root,
+        &include_pattern_refs,
+        spec_name,
+        impl_name,
+        &coverage,
+        &mut map,
+        &FileOverlay::new(),
+    )
+    .await?;
+    map.remove(spec_name)
+        .ok_or_else(|| eyre::eyre!("Spec content not found for {spec_name}/{impl_name}"))
 }
 
 /// Build an outline with coverage info from document elements.

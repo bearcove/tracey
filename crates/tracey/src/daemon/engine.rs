@@ -16,7 +16,9 @@ use tokio::sync::{RwLock, watch};
 use tracing::{debug, error, info, warn};
 
 use crate::config::Config;
-use crate::data::{DashboardData, FileOverlay, build_dashboard_data_with_overlay};
+use crate::data::{
+    BuildCache, DashboardData, FileOverlay, build_dashboard_data_with_overlay_and_cache,
+};
 
 /// The core tracey engine.
 ///
@@ -42,6 +44,8 @@ pub struct Engine {
     version: Arc<std::sync::atomic::AtomicU64>,
     /// Current config error (if config file has errors)
     config_error: Arc<RwLock<Option<String>>>,
+    /// Persistent per-file build cache reused across rebuilds
+    build_cache: Arc<tokio::sync::Mutex<BuildCache>>,
 }
 
 impl Engine {
@@ -90,20 +94,36 @@ impl Engine {
         // Build initial data. If config is semantically invalid, keep daemon alive
         // with an empty config and surface the error through health/LSP diagnostics.
         let overlay = FileOverlay::new();
-        let data =
-            match build_dashboard_data_with_overlay(&project_root, &config, 1, false, &overlay)
-                .await
-            {
-                Ok(data) => data,
-                Err(e) => {
-                    let semantic_error = Self::format_config_error(&config_path, e);
-                    warn!("Initial config failed validation: {}", semantic_error);
-                    config_error = Some(semantic_error);
-                    config = Config::default();
-                    build_dashboard_data_with_overlay(&project_root, &config, 1, false, &overlay)
-                        .await?
-                }
-            };
+        let mut build_cache = BuildCache::default();
+        let data = match build_dashboard_data_with_overlay_and_cache(
+            &project_root,
+            &config,
+            1,
+            false,
+            &overlay,
+            &mut build_cache,
+            &[],
+        )
+        .await
+        {
+            Ok(data) => data,
+            Err(e) => {
+                let semantic_error = Self::format_config_error(&config_path, e);
+                warn!("Initial config failed validation: {}", semantic_error);
+                config_error = Some(semantic_error);
+                config = Config::default();
+                build_dashboard_data_with_overlay_and_cache(
+                    &project_root,
+                    &config,
+                    1,
+                    false,
+                    &overlay,
+                    &mut build_cache,
+                    &[],
+                )
+                .await?
+            }
+        };
         let data = Arc::new(data);
 
         // Create watch channel for broadcasting updates
@@ -119,6 +139,7 @@ impl Engine {
             config: Arc::new(RwLock::new(config)),
             version: Arc::new(std::sync::atomic::AtomicU64::new(1)),
             config_error: Arc::new(RwLock::new(config_error)),
+            build_cache: Arc::new(tokio::sync::Mutex::new(build_cache)),
         })
     }
 
@@ -149,7 +170,7 @@ impl Engine {
         debug!("VFS: opened {}", path.display());
         // Trigger rebuild
         drop(vfs);
-        if let Err(e) = self.rebuild().await {
+        if let Err(e) = self.rebuild_with_changes(&[path]).await {
             error!("Rebuild failed after vfs_open: {}", e);
         }
     }
@@ -163,7 +184,7 @@ impl Engine {
         debug!("VFS: changed {}", path.display());
         // Trigger rebuild
         drop(vfs);
-        if let Err(e) = self.rebuild().await {
+        if let Err(e) = self.rebuild_with_changes(&[path]).await {
             error!("Rebuild failed after vfs_change: {}", e);
         }
     }
@@ -177,7 +198,7 @@ impl Engine {
         debug!("VFS: closed {}", path.display());
         // Trigger rebuild
         drop(vfs);
-        if let Err(e) = self.rebuild().await {
+        if let Err(e) = self.rebuild_with_changes(&[path]).await {
             error!("Rebuild failed after vfs_close: {}", e);
         }
     }
@@ -188,6 +209,10 @@ impl Engine {
     /// Config errors are recorded but don't fail the rebuild - the previous
     /// config is retained.
     pub async fn rebuild(&self) -> Result<(u64, Duration)> {
+        self.rebuild_with_changes(&[]).await
+    }
+
+    pub async fn rebuild_with_changes(&self, changed_files: &[PathBuf]) -> Result<(u64, Duration)> {
         let start = Instant::now();
 
         // Reload config - record errors but continue with current config
@@ -227,17 +252,20 @@ impl Engine {
 
         // Get current VFS overlay
         let overlay = self.vfs.read().await.clone();
+        let mut build_cache = self.build_cache.lock().await;
 
         let new_version = self.version() + 1;
 
         // Build new data (this is the expensive part). Semantic config errors
         // should not fail the daemon; keep the previous snapshot and record error.
-        let build_result = build_dashboard_data_with_overlay(
+        let build_result = build_dashboard_data_with_overlay_and_cache(
             &self.project_root,
             &config,
             new_version,
             true,
             &overlay,
+            &mut build_cache,
+            changed_files,
         )
         .await;
         let new_data = match build_result {

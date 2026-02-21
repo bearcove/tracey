@@ -260,7 +260,7 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
                     debug!("Rebuilt gitignore matcher");
 
                     // Trigger rebuild (watcher reconfiguration happens in the watcher thread)
-                    if let Err(e) = engine_for_rebuild.rebuild().await {
+                    if let Err(e) = engine_for_rebuild.rebuild_with_changes(&[]).await {
                         error!("Rebuild failed: {}", e);
                     }
                 }
@@ -372,7 +372,11 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
                         );
                     }
 
-                    if let Err(e) = engine_for_rebuild.rebuild().await {
+                    let changed_abs: Vec<PathBuf> = relative_paths
+                        .iter()
+                        .map(|p| project_root_for_rebuild.join(p))
+                        .collect();
+                    if let Err(e) = engine_for_rebuild.rebuild_with_changes(&changed_abs).await {
                         error!("Rebuild failed: {}", e);
                     }
                 }

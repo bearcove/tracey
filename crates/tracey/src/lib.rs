@@ -21,6 +21,7 @@ use tracey_core::ReqDefinition;
 use marq::{RenderOptions, render};
 
 /// Extracted rule with source location info
+#[derive(Clone)]
 pub struct ExtractedRule {
     pub def: ReqDefinition,
     pub source_file: String,

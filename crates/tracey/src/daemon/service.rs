@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tracey_core::{RuleId, RuleIdMatch, classify_reference_for_rule, parse_rule_id};
 use tracey_proto::*;
+use tracing::debug;
 
 use super::engine::Engine;
 use super::watcher::WatcherState;
@@ -719,7 +720,27 @@ impl TraceyDaemon for TraceyService {
         impl_name: String,
     ) -> Option<ApiSpecData> {
         let data = self.inner.engine.data().await;
-        data.specs_content_by_impl.get(&(spec, impl_name)).cloned()
+        if let Some(cached) = data
+            .specs_content_by_impl
+            .get(&(spec.clone(), impl_name.clone()))
+            .cloned()
+        {
+            return Some(cached);
+        }
+
+        let forward = data
+            .forward_by_impl
+            .get(&(spec.clone(), impl_name.clone()))?;
+        let include_patterns = data.spec_includes_by_name.get(&spec)?;
+        crate::data::render_spec_content_for_impl(
+            self.inner.engine.project_root(),
+            include_patterns,
+            &spec,
+            &impl_name,
+            forward,
+        )
+        .await
+        .ok()
     }
 
     /// Search rules and files
@@ -982,6 +1003,14 @@ impl TraceyDaemon for TraceyService {
                     .iter()
                     .find(|s| s.name == spec)
                     .map(|s| s.prefix.as_str());
+                debug!(
+                    "validate spec={} impl={} current_spec_prefix={:?} known_prefixes={:?} files={}",
+                    spec,
+                    impl_name,
+                    current_spec_prefix,
+                    known_prefixes,
+                    reverse_data.files.len()
+                );
                 // r[impl config.multi-spec.prefix-namespace+2]
                 let known_rule_ids_for_prefix: Vec<RuleId> =
                     if let Some(prefix) = current_spec_prefix {
@@ -1007,12 +1036,25 @@ impl TraceyDaemon for TraceyService {
                     let file_path = project_root.join(&file_entry.path);
                     if let Ok(content) = std::fs::read_to_string(&file_path) {
                         let reqs = tracey_core::Reqs::extract_from_content(&file_path, &content);
+                        debug!(
+                            "validate scanning file={} refs={} warnings={}",
+                            file_entry.path,
+                            reqs.references.len(),
+                            reqs.warnings.len()
+                        );
                         for reference in &reqs.references {
                             // Check if prefix is known
                             if !known_prefixes.contains(reference.prefix.as_str()) {
                                 let mut available: Vec<_> =
                                     known_prefixes.iter().copied().collect();
                                 available.sort_unstable();
+                                debug!(
+                                    "validate unknown-prefix file={} line={} prefix={} available={}",
+                                    file_entry.path,
+                                    reference.line,
+                                    reference.prefix,
+                                    available.join(", ")
+                                );
                                 errors.push(ValidationError {
                                     code: ValidationErrorCode::UnknownPrefix,
                                     message: format!(
@@ -1062,6 +1104,13 @@ impl TraceyDaemon for TraceyService {
                                                 // It will be checked when that spec is validated.
                                             }
                                             KnownRuleMatch::Missing => {
+                                                debug!(
+                                                    "validate unknown-rule file={} line={} prefix={} req_id={}",
+                                                    file_entry.path,
+                                                    reference.line,
+                                                    reference.prefix,
+                                                    reference.req_id
+                                                );
                                                 errors.push(ValidationError {
                                                     code: ValidationErrorCode::UnknownRequirement,
                                                     message: format!(
@@ -1496,6 +1545,13 @@ impl TraceyDaemon for TraceyService {
             .iter()
             .map(|s| s.prefix.as_str())
             .collect();
+        debug!(
+            "lsp_diagnostics path={} refs={} known_prefixes={:?} specs={}",
+            path.display(),
+            reqs.references.len(),
+            known_prefixes,
+            data.config.specs.len()
+        );
 
         // Build known rules by prefix (using all implementations for each spec).
         let mut known_rules_by_prefix: std::collections::HashMap<&str, Vec<RuleId>> =
@@ -1523,6 +1579,13 @@ impl TraceyDaemon for TraceyService {
 
             // Check for unknown prefix
             if !known_prefixes.contains(reference.prefix.as_str()) {
+                debug!(
+                    "lsp_diagnostics unknown-prefix path={} ref_prefix={} ref_id={} known_prefixes={:?}",
+                    path.display(),
+                    reference.prefix,
+                    reference.req_id,
+                    known_prefixes
+                );
                 diagnostics.push(LspDiagnostic {
                     severity: "error".to_string(),
                     code: "unknown-prefix".to_string(),
