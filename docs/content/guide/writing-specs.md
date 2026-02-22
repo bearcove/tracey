@@ -119,6 +119,20 @@ r[channel.lifecycle.close]
 Either peer may close a channel at any time. The closing peer must send a close frame.
 ```
 
+## Diagrams
+
+Spec files support [Mermaid](https://mermaid.js.org/) diagrams using fenced code blocks with the `mermaid` language tag:
+
+~~~markdown
+```mermaid
+graph TD
+    A[Client] -->|request| B[Server]
+    B -->|response| A
+```
+~~~
+
+The diagram is rendered client-side by Mermaid.js when the spec is viewed in the dashboard. The source text is stored in the spec file as-is, so it's readable and diffable in plain text.
+
 ## Avoiding duplicates
 
 **Same file:** The same requirement ID appearing twice in one file is an error.
