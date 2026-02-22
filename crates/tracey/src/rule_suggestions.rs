@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+use strsim::levenshtein;
 use tracey_core::RuleId;
 
 pub(crate) fn suggest_similar_rule_ids(
@@ -50,30 +51,4 @@ pub(crate) fn suggest_similar_rule_ids(
 
 fn common_prefix_len(a: &str, b: &str) -> usize {
     a.bytes().zip(b.bytes()).take_while(|(x, y)| x == y).count()
-}
-
-fn levenshtein(a: &str, b: &str) -> usize {
-    if a.is_empty() {
-        return b.chars().count();
-    }
-    if b.is_empty() {
-        return a.chars().count();
-    }
-
-    let b_chars: Vec<char> = b.chars().collect();
-    let mut prev: Vec<usize> = (0..=b_chars.len()).collect();
-    let mut curr = vec![0usize; b_chars.len() + 1];
-
-    for (i, ca) in a.chars().enumerate() {
-        curr[0] = i + 1;
-        for (j, cb) in b_chars.iter().enumerate() {
-            let cost = if ca == *cb { 0 } else { 1 };
-            let insert = curr[j] + 1;
-            let delete = prev[j + 1] + 1;
-            let replace = prev[j] + cost;
-            curr[j + 1] = insert.min(delete).min(replace);
-        }
-        std::mem::swap(&mut prev, &mut curr);
-    }
-    prev[b_chars.len()]
 }
