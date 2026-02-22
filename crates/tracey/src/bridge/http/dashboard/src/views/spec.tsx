@@ -317,7 +317,7 @@ export function SpecView({
     if (!spec?.head_injections?.length) return;
     const injected: HTMLElement[] = [];
     for (const html of spec.head_injections) {
-      const key = `tracey-head-${btoa(html).slice(0, 16)}`;
+      const key = `tracey-head-${btoa(encodeURIComponent(html)).slice(0, 16)}`;
       if (document.getElementById(key)) {
         console.log("[tracey] head injection already present, skipping:", key);
         continue;
