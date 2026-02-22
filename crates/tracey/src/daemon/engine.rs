@@ -67,6 +67,9 @@ struct RebuildCoalesceState {
     pending_full_rebuild: bool,
     pending_changed_files: BTreeSet<PathBuf>,
     generation: u64,
+    next_ticket: u64,
+    pending_ticket: u64,
+    applied_ticket: u64,
     last_result: Option<std::result::Result<(u64, Duration), String>>,
 }
 
@@ -282,8 +285,11 @@ impl Engine {
         changed_files: &[PathBuf],
         wait_for_completion: bool,
     ) -> Result<(u64, Duration)> {
-        let waiter_generation = {
+        let waiter_ticket = {
             let mut state = self.rebuild_state.lock().await;
+            state.next_ticket = state.next_ticket.saturating_add(1);
+            let request_ticket = state.next_ticket;
+
             if changed_files.is_empty() {
                 state.pending_full_rebuild = true;
             } else {
@@ -291,10 +297,11 @@ impl Engine {
                     .pending_changed_files
                     .extend(changed_files.iter().cloned());
             }
+            state.pending_ticket = state.pending_ticket.max(request_ticket);
 
             if state.in_progress {
                 if wait_for_completion {
-                    Some(state.generation + 1)
+                    Some(request_ticket)
                 } else {
                     return Ok((self.version(), Duration::ZERO));
                 }
@@ -304,35 +311,41 @@ impl Engine {
             }
         };
 
-        if let Some(target_generation) = waiter_generation {
+        if let Some(target_ticket) = waiter_ticket {
             loop {
-                self.rebuild_notify.notified().await;
-                let state = self.rebuild_state.lock().await;
-                if state.generation >= target_generation {
-                    if let Some(result) = &state.last_result {
-                        return match result {
-                            Ok(ok) => Ok(*ok),
-                            Err(e) => Err(eyre::eyre!(e.clone())),
-                        };
+                {
+                    let state = self.rebuild_state.lock().await;
+                    if state.applied_ticket >= target_ticket {
+                        if let Some(result) = &state.last_result {
+                            return match result {
+                                Ok(ok) => Ok(*ok),
+                                Err(e) => Err(eyre::eyre!(e.clone())),
+                            };
+                        }
+                        return Ok((self.version(), Duration::ZERO));
                     }
-                    return Ok((self.version(), Duration::ZERO));
                 }
+                self.rebuild_notify.notified().await;
             }
         }
 
         loop {
-            let changed_batch = {
+            let (changed_batch, batch_ticket) = {
                 let mut state = self.rebuild_state.lock().await;
                 let pending_full = state.pending_full_rebuild;
                 state.pending_full_rebuild = false;
+                let ticket = state.pending_ticket;
 
                 if pending_full {
                     state.pending_changed_files.clear();
-                    Vec::new()
+                    (Vec::new(), ticket)
                 } else {
-                    std::mem::take(&mut state.pending_changed_files)
-                        .into_iter()
-                        .collect::<Vec<_>>()
+                    (
+                        std::mem::take(&mut state.pending_changed_files)
+                            .into_iter()
+                            .collect::<Vec<_>>(),
+                        ticket,
+                    )
                 }
             };
 
@@ -344,6 +357,7 @@ impl Engine {
                     Err(e) => Err(e.to_string()),
                 });
                 state.generation = state.generation.saturating_add(1);
+                state.applied_ticket = state.applied_ticket.max(batch_ticket);
                 self.rebuild_notify.notify_waiters();
 
                 let has_pending =

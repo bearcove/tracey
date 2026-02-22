@@ -58,11 +58,17 @@ pub trait SearchIndex: Send + Sync {
     }
 }
 
+struct EmptyIndex;
+
+impl SearchIndex for EmptyIndex {
+    fn search(&self, _query: &str, _limit: usize) -> Vec<SearchResult> {
+        Vec::new()
+    }
+}
+
 /// Create an empty search index instance.
 pub fn empty_index() -> Arc<dyn SearchIndex> {
-    let files: BTreeMap<PathBuf, String> = BTreeMap::new();
-    let rules: Vec<RuleEntry> = Vec::new();
-    Arc::from(build_index(Path::new("."), &files, &rules))
+    Arc::new(EmptyIndex)
 }
 
 // ============================================================================

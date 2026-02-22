@@ -190,12 +190,9 @@ impl DaemonConnector {
         let start = Instant::now();
         let timeout = Duration::from_secs(5);
         let mut last_print_secs = 0u64;
+        let mut last_connect_error: Option<String> = None;
 
         loop {
-            if let Ok(stream) = roam_local::connect(&endpoint).await {
-                return Ok(stream);
-            }
-
             let elapsed = start.elapsed();
 
             if elapsed > timeout {
@@ -205,10 +202,17 @@ impl DaemonConnector {
                         "Daemon failed to start within {}s (last connect error: {}). \
                          Check logs at {}/.tracey/daemon.log",
                         timeout.as_secs(),
-                        "unavailable",
+                        last_connect_error.as_deref().unwrap_or("unavailable"),
                         self.project_root.display()
                     ),
                 ));
+            }
+
+            match roam_local::connect(&endpoint).await {
+                Ok(stream) => return Ok(stream),
+                Err(e) => {
+                    last_connect_error = Some(e.to_string());
+                }
             }
 
             // Print a progress line once per second so CLI users know we're waiting.

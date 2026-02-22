@@ -812,20 +812,20 @@ fn update_cached_scan_paths(
     exclude: &[String],
 ) {
     for changed in changed_files {
-        let canonical = changed
-            .canonicalize()
-            .unwrap_or_else(|_| changed.to_path_buf());
-        let exists = canonical.exists();
+        let exists = changed.exists();
         let ext_ok = if include_markdown_only {
-            canonical.extension().is_some_and(|ext| ext == "md")
+            changed.extension().is_some_and(|ext| ext == "md")
         } else if include_supported_ext_only {
-            canonical.extension().is_some_and(is_supported_extension)
+            changed.extension().is_some_and(is_supported_extension)
         } else {
             true
         };
         let included = ext_ok
-            && path_matches_any_root(&canonical, roots)
-            && !path_matches_excludes(&canonical, roots, exclude);
+            && path_matches_any_root(changed, roots)
+            && !path_matches_excludes(changed, roots, exclude);
+        let canonical = changed
+            .canonicalize()
+            .unwrap_or_else(|_| changed.to_path_buf());
 
         if exists && included {
             existing.files.insert(canonical);
