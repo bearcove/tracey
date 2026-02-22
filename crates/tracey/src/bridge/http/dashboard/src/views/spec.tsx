@@ -312,6 +312,7 @@ export function SpecView({
   // Inject head scripts (e.g. mermaid.js) from server-side rendered content.
   // Must use createElement("script") — scripts created via innerHTML do not execute.
   useEffect(() => {
+    console.log("[tracey] spec keys:", spec ? Object.keys(spec) : "no spec");
     console.log("[tracey] head_injections:", spec?.head_injections);
     if (!spec?.head_injections?.length) return;
     const injected: HTMLElement[] = [];
