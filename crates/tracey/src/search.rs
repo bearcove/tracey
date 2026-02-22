@@ -9,6 +9,7 @@
 use facet::Facet;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 /// Result type for unified search
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Facet)]
@@ -55,6 +56,19 @@ pub trait SearchIndex: Send + Sync {
     fn is_available(&self) -> bool {
         true
     }
+}
+
+struct EmptyIndex;
+
+impl SearchIndex for EmptyIndex {
+    fn search(&self, _query: &str, _limit: usize) -> Vec<SearchResult> {
+        Vec::new()
+    }
+}
+
+/// Create an empty search index instance.
+pub fn empty_index() -> Arc<dyn SearchIndex> {
+    Arc::new(EmptyIndex)
 }
 
 // ============================================================================

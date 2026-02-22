@@ -215,33 +215,8 @@ When spec text changes and the version is bumped to `+4`, tracey reports the `+3
 
 ## Supported Languages
 
-Tracey scans comments in 39 languages:
+Tracey scans comments in: Rust, Swift, TypeScript, TSX, JavaScript, JSX, Go, C, C++, Objective-C, Objective-C++, Java, Kotlin, Scala, Groovy, C#, Zig, PHP.
 
-- **Systems:** Rust, C, C++, D, Zig, Assembly
-- **JVM:** Java, Kotlin, Scala, Groovy
-- **Web:** TypeScript, JavaScript, TSX, JSX, Dart, PHP
-- **Scripting:** Python, Ruby, Perl, Lua, Bash, PowerShell, R
-- **Functional:** Haskell, OCaml, F#, Elixir, Erlang, Clojure
-- **.NET:** C#, Visual Basic
-- **Apple:** Swift, Objective-C, Objective-C++
-- **Scientific:** Julia, MATLAB
-- **Other:** Go, COBOL, CMake
-
-## Documentation
-
-See the [User Guide](docs/guide/README.md) for detailed documentation:
-
-- [Getting Started](docs/guide/getting-started.md) — install and first coverage report
-- [Writing Specs](docs/guide/writing-specs.md) — defining requirements in markdown
-- [Annotating Code](docs/guide/annotating-code.md) — referencing requirements from source code
-- [Configuration](docs/guide/configuration.md) — config file reference
-- [Dashboard](docs/guide/dashboard.md) — the web UI
-- [Editor Integration](docs/guide/editor-integration.md) — LSP setup for Zed, VS Code, etc.
-- [AI Integration](docs/guide/ai-integration.md) — MCP for Claude Code and other AI assistants
-- [Versioning](docs/guide/versioning.md) — tracking spec changes over time
-- [CLI Reference](docs/guide/cli-reference.md) — all commands and flags
-
-For the formal specification, see [docs/spec/tracey.md](docs/spec/tracey.md).
 ## License
 
 [MIT](LICENSE-MIT) OR [Apache-2.0](LICENSE-APACHE)

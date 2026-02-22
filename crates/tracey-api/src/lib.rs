@@ -236,9 +236,12 @@ pub struct ValidationError {
     /// Related rule IDs (for dependency errors)
     #[facet(default)]
     pub related_rules: Vec<RuleId>,
-    /// The stale reference's rule ID (for StaleRequirement errors)
+    /// The referenced rule ID (for StaleRequirement/UnknownRequirement errors)
     #[facet(default)]
     pub reference_rule_id: Option<RuleId>,
+    /// Original annotation text for unknown references (for example `r[impl auth.logn]`).
+    #[facet(default)]
+    pub reference_text: Option<String>,
 }
 
 /// Error codes for validation errors

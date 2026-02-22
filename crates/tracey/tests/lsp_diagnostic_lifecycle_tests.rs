@@ -563,6 +563,9 @@ fn broken() {}"#;
         .vfs_close(test_file.display().to_string())
         .await);
 
+    // Ensure diagnostics are rebuilt from on-disk state (no VFS overlay)
+    rpc(service.client.reload().await);
+
     // Workspace diagnostics should still include this file since it has errors on disk
     let workspace_diags = rpc(service.client.lsp_workspace_diagnostics().await);
 

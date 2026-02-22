@@ -4433,6 +4433,7 @@ dependencies = [
  "rust-mcp-sdk",
  "serde",
  "serde_json",
+ "strsim",
  "styx-embed",
  "tantivy",
  "tempfile",

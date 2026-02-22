@@ -49,6 +49,7 @@ facet-error = { workspace = true }
 
 # Pretty output
 owo-colors = { workspace = true }
+strsim = { workspace = true }
 indoc = "2"
 
 # File walking (for include patterns)

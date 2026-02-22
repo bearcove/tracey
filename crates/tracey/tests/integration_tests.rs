@@ -42,6 +42,22 @@ async fn create_test_service() -> common::RpcTestService {
     common::create_test_rpc_service(service).await
 }
 
+/// Helper to create an isolated test project with its own engine.
+async fn create_isolated_test_service() -> (tempfile::TempDir, common::RpcTestService) {
+    let temp = common::create_temp_project();
+    let project_root = temp.path().to_path_buf();
+    let config_path = project_root.join("config.styx");
+
+    let engine = Arc::new(
+        tracey::daemon::Engine::new(project_root, config_path)
+            .await
+            .expect("Failed to create engine"),
+    );
+    let service = tracey::daemon::TraceyService::new(engine);
+    let rpc = common::create_test_rpc_service(service).await;
+    (temp, rpc)
+}
+
 fn rid(id: &str) -> tracey_core::RuleId {
     parse_rule_id(id).expect("valid rule id")
 }
@@ -204,6 +220,94 @@ async fn test_config_returns_project_info() {
     assert!(
         spec.implementations.contains(&"rust".to_string()),
         "Expected rust implementation"
+    );
+}
+
+#[tokio::test]
+async fn test_daemon_starts_with_semantically_invalid_config() {
+    let temp = common::create_temp_project();
+    std::fs::write(
+        temp.path().join("config.styx"),
+        r#"
+specs (
+  {
+    name test
+    prefix r
+    include (spec.md)
+    impls (
+      {
+        name rust
+        include (src/**/*.rs)
+      }
+    )
+  }
+)
+"#,
+    )
+    .expect("Failed to write config");
+
+    let engine = Arc::new(
+        tracey::daemon::Engine::new(temp.path().to_path_buf(), temp.path().join("config.styx"))
+            .await
+            .expect("Engine should initialize even with invalid semantic config"),
+    );
+    let service = tracey::daemon::TraceyService::new(engine);
+    let rpc_service = common::create_test_rpc_service(service).await;
+
+    let health = rpc(rpc_service.client.health().await);
+    let config_error = health.config_error.unwrap_or_default();
+    assert!(
+        config_error.contains("deprecated `prefix r`"),
+        "Expected config error about deprecated prefix, got: {config_error}"
+    );
+
+    // Service remains responsive even when config is invalid.
+    let _status = rpc(rpc_service.client.status().await);
+}
+
+#[tokio::test]
+async fn test_reload_with_semantically_invalid_config_keeps_previous_data() {
+    let (temp, service) = create_isolated_test_service().await;
+    let before = rpc(service.client.status().await);
+    assert!(
+        !before.impls.is_empty(),
+        "Expected fixture project to have initial coverage data"
+    );
+
+    std::fs::write(
+        temp.path().join("config.styx"),
+        r#"
+specs (
+  {
+    name test
+    prefix r
+    include (spec.md)
+    impls (
+      {
+        name rust
+        include (src/**/*.rs)
+      }
+    )
+  }
+)
+"#,
+    )
+    .expect("Failed to write invalid config");
+
+    let _reload = rpc(service.client.reload().await);
+
+    let health = rpc(service.client.health().await);
+    let config_error = health.config_error.unwrap_or_default();
+    assert!(
+        config_error.contains("deprecated `prefix r`"),
+        "Expected config error about deprecated prefix, got: {config_error}"
+    );
+
+    // Last known good data remains available after failed semantic rebuild.
+    let after = rpc(service.client.status().await);
+    assert!(
+        !after.impls.is_empty(),
+        "Expected previous data to remain available after failed rebuild"
     );
 }
 
@@ -618,4 +722,225 @@ fn test_func() {}"#;
         orphaned.is_some(),
         "Expected orphaned diagnostic for r[impl nonexistent.rule]"
     );
+}
+
+#[tokio::test]
+async fn test_validate_handles_multiple_specs_with_distinct_prefixes() {
+    let temp = tempfile::tempdir().expect("Failed to create temp dir");
+    let root = temp.path();
+
+    std::fs::create_dir_all(root.join("src")).expect("Failed to create src dir");
+    std::fs::write(
+        root.join("config.styx"),
+        r#"
+specs (
+  {
+    name alpha
+    include (alpha-spec.md)
+    impls (
+      {
+        name rust
+        include (src/**/*.rs)
+      }
+    )
+  }
+  {
+    name beta
+    include (beta-spec.md)
+    impls (
+      {
+        name rust
+        include (src/**/*.rs)
+      }
+    )
+  }
+)
+"#,
+    )
+    .expect("Failed to write config");
+    std::fs::write(
+        root.join("alpha-spec.md"),
+        r#"
+> r[alpha.rule]
+> Alpha rule definition.
+"#,
+    )
+    .expect("Failed to write alpha spec");
+    std::fs::write(
+        root.join("beta-spec.md"),
+        r#"
+> shm[beta.rule]
+> Beta rule definition.
+"#,
+    )
+    .expect("Failed to write beta spec");
+    std::fs::write(
+        root.join("src/lib.rs"),
+        r#"
+// r[impl alpha.rule]
+pub fn alpha_impl() {}
+
+// shm[impl beta.rule]
+pub fn beta_impl() {}
+"#,
+    )
+    .expect("Failed to write source file");
+
+    let engine = Arc::new(
+        tracey::daemon::Engine::new(root.to_path_buf(), root.join("config.styx"))
+            .await
+            .expect("Failed to create engine"),
+    );
+    let service = tracey::daemon::TraceyService::new(engine);
+    let rpc_service = common::create_test_rpc_service(service).await;
+
+    let config = rpc(rpc_service.client.config().await);
+    let alpha = config
+        .specs
+        .iter()
+        .find(|s| s.name == "alpha")
+        .expect("Missing alpha spec");
+    let beta = config
+        .specs
+        .iter()
+        .find(|s| s.name == "beta")
+        .expect("Missing beta spec");
+    assert_eq!(alpha.prefix, "r", "alpha should infer r prefix");
+    assert_eq!(beta.prefix, "shm", "beta should infer shm prefix");
+
+    let alpha_result = rpc(rpc_service
+        .client
+        .validate(ValidateRequest {
+            spec: Some("alpha".to_string()),
+            impl_name: Some("rust".to_string()),
+        })
+        .await);
+    assert!(
+        alpha_result.errors.is_empty(),
+        "alpha/rust should validate cleanly, got: {:?}",
+        alpha_result.errors
+    );
+
+    let beta_result = rpc(rpc_service
+        .client
+        .validate(ValidateRequest {
+            spec: Some("beta".to_string()),
+            impl_name: Some("rust".to_string()),
+        })
+        .await);
+    assert!(
+        beta_result.errors.is_empty(),
+        "beta/rust should validate cleanly, got: {:?}",
+        beta_result.errors
+    );
+
+    let content = std::fs::read_to_string(root.join("src/lib.rs")).expect("Failed to read source");
+    let diagnostics = rpc(rpc_service
+        .client
+        .lsp_diagnostics(LspDocumentRequest {
+            path: root.join("src/lib.rs").display().to_string(),
+            content,
+        })
+        .await);
+
+    let unknown_prefix_errors: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.code == "unknown-prefix")
+        .collect();
+    assert!(
+        unknown_prefix_errors.is_empty(),
+        "Known prefixes r/shm should not produce unknown-prefix diagnostics: {:?}",
+        unknown_prefix_errors
+    );
+}
+
+#[tokio::test]
+async fn test_config_infers_distinct_prefixes_from_nested_globs() {
+    let temp = tempfile::tempdir().expect("Failed to create temp dir");
+    let root = temp.path();
+
+    std::fs::create_dir_all(root.join("docs/content/alpha-spec"))
+        .expect("Failed to create alpha spec dir");
+    std::fs::create_dir_all(root.join("docs/content/shm-spec"))
+        .expect("Failed to create shm spec dir");
+    std::fs::create_dir_all(root.join("rust")).expect("Failed to create rust dir");
+
+    std::fs::write(
+        root.join("config.styx"),
+        r#"
+specs (
+  {
+    name alpha
+    include (docs/content/alpha-spec/**/*.md)
+    impls (
+      {
+        name rust
+        include (rust/**/*.rs)
+      }
+    )
+  }
+  {
+    name shm
+    include (docs/content/shm-spec/**/*.md)
+    impls (
+      {
+        name rust
+        include (rust/**/*.rs)
+      }
+    )
+  }
+)
+"#,
+    )
+    .expect("Failed to write config");
+    std::fs::write(
+        root.join("docs/content/alpha-spec/_index.md"),
+        r#"
+> r[alpha.rule]
+> Alpha rule definition.
+"#,
+    )
+    .expect("Failed to write alpha spec");
+    std::fs::write(
+        root.join("docs/content/shm-spec/_index.md"),
+        r#"
+> shm[shm.rule]
+> SHM rule definition.
+"#,
+    )
+    .expect("Failed to write shm spec");
+    std::fs::write(
+        root.join("rust/lib.rs"),
+        r#"
+// r[impl alpha.rule]
+pub fn alpha_impl() {}
+
+// shm[impl shm.rule]
+pub fn shm_impl() {}
+"#,
+    )
+    .expect("Failed to write source file");
+
+    let engine = Arc::new(
+        tracey::daemon::Engine::new(root.to_path_buf(), root.join("config.styx"))
+            .await
+            .expect("Failed to create engine"),
+    );
+    let service = tracey::daemon::TraceyService::new(engine);
+    let rpc_service = common::create_test_rpc_service(service).await;
+
+    let config = rpc(rpc_service.client.config().await);
+    let alpha = config
+        .specs
+        .iter()
+        .find(|s| s.name == "alpha")
+        .expect("Missing alpha spec");
+    let shm = config
+        .specs
+        .iter()
+        .find(|s| s.name == "shm")
+        .expect("Missing shm spec");
+
+    assert_eq!(alpha.prefix, "r", "alpha should infer r prefix");
+    assert_eq!(shm.prefix, "shm", "shm should infer shm prefix");
 }

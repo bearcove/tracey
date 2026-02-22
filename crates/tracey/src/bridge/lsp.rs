@@ -8,7 +8,8 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use eyre::Result;
 use tower_lsp::jsonrpc::Result as LspResult;
@@ -16,6 +17,7 @@ use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 use crate::daemon::{DaemonClient, new_client};
+use tracey_core::{RefVerb, parse_rule_id};
 use tracey_proto::*;
 
 /// Convert roam RPC result to a simple Result
@@ -60,14 +62,16 @@ async fn run_lsp_server(project_root: PathBuf) -> Result<()> {
 
     let daemon_client = new_client(project_root.clone());
 
+    let doc_state = Arc::new(Mutex::new(LspDocState {
+        documents: HashMap::new(),
+        files_with_diagnostics: HashSet::new(),
+    }));
+
     let (service, socket) = LspService::new(|client| Backend {
         client,
-        daemon_client,
+        daemon_client: daemon_client.clone(),
         project_root: project_root.clone(),
-        doc_state: Mutex::new(LspDocState {
-            documents: HashMap::new(),
-            files_with_diagnostics: HashSet::new(),
-        }),
+        doc_state: Arc::clone(&doc_state),
     });
     Server::new(stdin, stdout, socket).serve(service).await;
 
@@ -78,7 +82,7 @@ struct Backend {
     client: Client,
     daemon_client: DaemonClient,
     project_root: PathBuf,
-    doc_state: Mutex<LspDocState>,
+    doc_state: Arc<Mutex<LspDocState>>,
 }
 
 /// Document-tracking state requiring mutual exclusion.
@@ -101,66 +105,121 @@ impl Backend {
         Some((path, content))
     }
 
-    /// Publish diagnostics for a document by calling daemon.
-    ///
-    /// r[impl lsp.diagnostics.broken-refs]
-    /// r[impl lsp.diagnostics.broken-refs-message]
-    /// r[impl lsp.diagnostics.unknown-prefix]
-    /// r[impl lsp.diagnostics.unknown-prefix-message]
-    /// r[impl lsp.diagnostics.unknown-verb]
-    async fn publish_diagnostics(&self, uri: Url) {
-        let Some((path, content)) = self.get_path_and_content(&uri) else {
-            return;
-        };
-
-        let req = LspDocumentRequest {
-            path: path.clone(),
-            content,
-        };
-        let Ok(daemon_diagnostics) = rpc(self.daemon_client.lsp_diagnostics(req).await) else {
-            return;
-        };
-
-        // Convert daemon diagnostics to LSP diagnostics
-        let diagnostics: Vec<Diagnostic> = daemon_diagnostics
-            .into_iter()
-            .map(|d| Diagnostic {
-                range: Range {
-                    start: Position {
-                        line: d.start_line,
-                        character: d.start_char,
-                    },
-                    end: Position {
-                        line: d.end_line,
-                        character: d.end_char,
-                    },
-                },
-                severity: Some(match d.severity.as_str() {
-                    "error" => DiagnosticSeverity::ERROR,
-                    "warning" => DiagnosticSeverity::WARNING,
-                    "info" => DiagnosticSeverity::INFORMATION,
-                    _ => DiagnosticSeverity::HINT,
-                }),
-                code: Some(NumberOrString::String(d.code)),
-                source: Some("tracey".into()),
-                message: d.message,
-                ..Default::default()
-            })
-            .collect();
-
-        // Track files with non-empty diagnostics for clearing later
-        {
-            let mut state = self.doc_state.lock().unwrap();
-            if diagnostics.is_empty() {
-                state.files_with_diagnostics.remove(&path);
+    fn offset_to_line_col(content: &str, offset: usize) -> (u32, u32) {
+        let mut line: u32 = 0;
+        let mut col: u32 = 0;
+        for (i, ch) in content.char_indices() {
+            if i >= offset {
+                break;
+            }
+            if ch == '\n' {
+                line += 1;
+                col = 0;
             } else {
-                state.files_with_diagnostics.insert(path);
+                col += 1;
             }
         }
+        (line, col)
+    }
 
-        self.client
-            .publish_diagnostics(uri, diagnostics, None)
-            .await;
+    fn replacement_edits_for_file(
+        content: &str,
+        old_id: &tracey_core::RuleId,
+        new_id: &str,
+    ) -> Vec<TextEdit> {
+        let reqs = tracey_core::Reqs::extract_from_content(&PathBuf::new(), content);
+        let old_text = old_id.to_string();
+        let mut edits = Vec::new();
+        for reference in &reqs.references {
+            if reference.verb == RefVerb::Define || reference.req_id != *old_id {
+                continue;
+            }
+            let start = reference.span.offset;
+            let end = start.saturating_add(reference.span.length);
+            let Some(span_text) = content.get(start..end) else {
+                continue;
+            };
+            let Some(local_idx) = span_text.find(&old_text) else {
+                continue;
+            };
+            let abs_start = start + local_idx;
+            let abs_end = abs_start + old_text.len();
+            let (start_line, start_char) = Self::offset_to_line_col(content, abs_start);
+            let (end_line, end_char) = Self::offset_to_line_col(content, abs_end);
+            edits.push(TextEdit {
+                range: Range {
+                    start: Position {
+                        line: start_line,
+                        character: start_char,
+                    },
+                    end: Position {
+                        line: end_line,
+                        character: end_char,
+                    },
+                },
+                new_text: new_id.to_string(),
+            });
+        }
+        edits
+    }
+
+    async fn apply_unknown_requirement_rename(
+        &self,
+        old_rule: &str,
+        new_rule: &str,
+    ) -> LspResult<()> {
+        let Some(old_id) = parse_rule_id(old_rule) else {
+            return Ok(());
+        };
+        if parse_rule_id(new_rule).is_none() {
+            return Ok(());
+        }
+
+        let walker = ignore::WalkBuilder::new(&self.project_root)
+            .follow_links(true)
+            .hidden(false)
+            .git_ignore(true)
+            .build();
+
+        let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
+        for entry in walker.flatten() {
+            let path = entry.path();
+            let Some(ft) = entry.file_type() else {
+                continue;
+            };
+            if !ft.is_file() {
+                continue;
+            }
+            if path
+                .extension()
+                .is_none_or(|ext| !tracey_core::is_supported_extension(ext))
+            {
+                continue;
+            }
+            let Ok(content) = std::fs::read_to_string(path) else {
+                continue;
+            };
+            let edits = Self::replacement_edits_for_file(&content, &old_id, new_rule);
+            if edits.is_empty() {
+                continue;
+            }
+            let Ok(uri) = Url::from_file_path(path) else {
+                continue;
+            };
+            changes.insert(uri, edits);
+        }
+
+        if changes.is_empty() {
+            return Ok(());
+        }
+
+        let edit = WorkspaceEdit {
+            changes: Some(changes),
+            document_changes: None,
+            change_annotations: None,
+        };
+        let _ = self.client.apply_edit(edit).await?;
+        Ok(())
     }
 
     /// Notify daemon that a file was opened.
@@ -193,41 +252,38 @@ impl Backend {
         }
     }
 
-    /// Publish diagnostics for all files in the workspace.
-    async fn publish_workspace_diagnostics(&self) {
-        let config_error = rpc(self.daemon_client.health().await)
+    async fn publish_workspace_diagnostics_with(
+        client: &Client,
+        daemon_client: &DaemonClient,
+        project_root: &std::path::Path,
+        doc_state: &Arc<Mutex<LspDocState>>,
+    ) {
+        let config_error = rpc(daemon_client.health().await)
             .ok()
             .and_then(|h| h.config_error);
 
-        let all_diagnostics = match rpc(self.daemon_client.lsp_workspace_diagnostics().await) {
+        let all_diagnostics = match rpc(daemon_client.lsp_workspace_diagnostics().await) {
             Ok(d) => d,
             Err(_) => return,
         };
 
-        let current_paths_with_diagnostics: HashSet<String> = all_diagnostics
-            .iter()
-            .map(|fd| {
-                self.project_root
-                    .join(&fd.path)
-                    .to_string_lossy()
-                    .into_owned()
-            })
-            .collect();
-
+        // Workspace-wide mode: clear all previously published diagnostics first.
         let files_to_clear: Vec<String> = {
-            let mut state = self.doc_state.lock().unwrap();
-            let to_clear: Vec<String> = state
-                .files_with_diagnostics
-                .iter()
-                .filter(|path| !current_paths_with_diagnostics.contains(*path))
-                .cloned()
-                .collect();
-            state.files_with_diagnostics = current_paths_with_diagnostics;
+            let mut state = doc_state.lock().unwrap();
+            let to_clear: Vec<String> = state.files_with_diagnostics.iter().cloned().collect();
+            state.files_with_diagnostics.clear();
             to_clear
         };
 
+        for path in files_to_clear {
+            let Ok(uri) = Url::from_file_path(&path) else {
+                continue;
+            };
+            client.publish_diagnostics(uri, vec![], None).await;
+        }
+
         // Publish config error diagnostic on config file
-        let config_path = self.project_root.join(".config/tracey/config.styx");
+        let config_path = project_root.join(".config/tracey/config.styx");
         if let Ok(uri) = Url::from_file_path(&config_path) {
             if let Some(error_msg) = config_error {
                 let diagnostic = Diagnostic {
@@ -247,26 +303,19 @@ impl Backend {
                     message: error_msg,
                     ..Default::default()
                 };
-                self.client
+                client
                     .publish_diagnostics(uri, vec![diagnostic], None)
                     .await;
             } else {
-                // Clear config diagnostics if no error
-                self.client.publish_diagnostics(uri, vec![], None).await;
+                client.publish_diagnostics(uri, vec![], None).await;
             }
         }
 
-        // Clear diagnostics for files that no longer have issues
-        for path in files_to_clear {
-            let Ok(uri) = Url::from_file_path(&path) else {
-                continue;
-            };
-            self.client.publish_diagnostics(uri, vec![], None).await;
-        }
-
-        // Publish diagnostics for files that currently have issues
+        // Publish diagnostics for all files in the latest rebuild snapshot.
+        let mut published_paths = HashSet::new();
         for file_diag in all_diagnostics {
-            let abs_path = self.project_root.join(&file_diag.path);
+            let abs_path = project_root.join(&file_diag.path);
+            let abs_path_str = abs_path.to_string_lossy().into_owned();
             let Ok(uri) = Url::from_file_path(&abs_path) else {
                 continue;
             };
@@ -298,9 +347,95 @@ impl Backend {
                 })
                 .collect();
 
-            self.client
-                .publish_diagnostics(uri, diagnostics, None)
+            client.publish_diagnostics(uri, diagnostics, None).await;
+            published_paths.insert(abs_path_str);
+        }
+
+        let mut state = doc_state.lock().unwrap();
+        state.files_with_diagnostics = published_paths;
+    }
+
+    async fn watch_daemon_rebuilds(
+        client: Client,
+        daemon_client: DaemonClient,
+        project_root: PathBuf,
+        doc_state: Arc<Mutex<LspDocState>>,
+    ) {
+        let mut last_version: Option<u64> = None;
+
+        loop {
+            let (tx, mut rx) = roam::channel::<DataUpdate>();
+            let subscribe_client = daemon_client.clone();
+            let subscribe_task = tokio::spawn(async move { subscribe_client.subscribe(tx).await });
+
+            while let Ok(Some(update)) = rx.recv().await {
+                if last_version == Some(update.version) {
+                    continue;
+                }
+                last_version = Some(update.version);
+                Self::publish_workspace_diagnostics_with(
+                    &client,
+                    &daemon_client,
+                    &project_root,
+                    &doc_state,
+                )
                 .await;
+            }
+
+            subscribe_task.abort();
+            let _ = subscribe_task.await;
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+    }
+
+    /// Publish diagnostics for all files in the workspace.
+    async fn publish_workspace_diagnostics(&self) {
+        Self::publish_workspace_diagnostics_with(
+            &self.client,
+            &self.daemon_client,
+            &self.project_root,
+            &self.doc_state,
+        )
+        .await;
+    }
+
+    /// Clear diagnostics for workspace files on startup so clients don't retain stale diagnostics
+    /// from a previous LSP session.
+    async fn clear_workspace_diagnostics_on_startup(&self) {
+        {
+            let mut state = self.doc_state.lock().unwrap();
+            state.files_with_diagnostics.clear();
+        }
+
+        let config_path = self.project_root.join(".config/tracey/config.styx");
+        if let Ok(uri) = Url::from_file_path(&config_path) {
+            self.client.publish_diagnostics(uri, vec![], None).await;
+        }
+
+        let walker = ignore::WalkBuilder::new(&self.project_root)
+            .follow_links(true)
+            .hidden(false)
+            .git_ignore(true)
+            .build();
+
+        for entry in walker.flatten() {
+            let path = entry.path();
+            let Some(ft) = entry.file_type() else {
+                continue;
+            };
+            if !ft.is_file() {
+                continue;
+            }
+            let should_clear = path.extension().is_some_and(|ext| {
+                ext == "md" || ext == "styx" || tracey_core::is_supported_extension(ext)
+            });
+            if !should_clear {
+                continue;
+            }
+            let Ok(uri) = Url::from_file_path(path) else {
+                continue;
+            };
+            self.client.publish_diagnostics(uri, vec![], None).await;
         }
     }
 }
@@ -327,6 +462,10 @@ impl LanguageServer for Backend {
                 document_symbol_provider: Some(OneOf::Left(true)),
                 workspace_symbol_provider: Some(OneOf::Left(true)),
                 code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
+                execute_command_provider: Some(ExecuteCommandOptions {
+                    commands: vec!["tracey.renameUnknownRequirement".to_string()],
+                    work_done_progress_options: Default::default(),
+                }),
                 code_lens_provider: Some(CodeLensOptions {
                     resolve_provider: Some(false),
                 }),
@@ -358,8 +497,18 @@ impl LanguageServer for Backend {
             .log_message(MessageType::INFO, "tracey LSP bridge initialized")
             .await;
 
+        // Startup reset for clients that persist diagnostics across server restarts.
+        self.clear_workspace_diagnostics_on_startup().await;
+
         // Publish workspace-wide diagnostics for all files on startup
         self.publish_workspace_diagnostics().await;
+
+        tokio::spawn(Self::watch_daemon_rebuilds(
+            self.client.clone(),
+            self.daemon_client.clone(),
+            self.project_root.clone(),
+            Arc::clone(&self.doc_state),
+        ));
     }
 
     async fn shutdown(&self) -> LspResult<()> {
@@ -374,7 +523,6 @@ impl LanguageServer for Backend {
             state.documents.insert(uri.to_string(), content.clone());
         }
         self.notify_vfs_open(&uri, &content).await;
-        self.publish_diagnostics(uri).await;
     }
 
     /// r[impl lsp.diagnostics.on-change]
@@ -387,18 +535,15 @@ impl LanguageServer for Backend {
                 state.documents.insert(uri.to_string(), content.clone());
             }
             self.notify_vfs_change(&uri, &content).await;
-            self.publish_diagnostics(uri).await;
         }
     }
 
     /// r[impl lsp.diagnostics.on-save]
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         let uri = params.text_document.uri.clone();
-        self.publish_diagnostics(uri).await;
-
-        // Also refresh workspace-wide diagnostics, since saving one file
-        // can affect diagnostics in other files (e.g., covering a requirement)
-        self.publish_workspace_diagnostics().await;
+        if let Some(content) = params.text {
+            self.notify_vfs_change(&uri, &content).await;
+        }
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
@@ -408,9 +553,6 @@ impl LanguageServer for Backend {
             state.documents.remove(uri.as_str());
         }
         self.notify_vfs_close(&uri).await;
-        // Don't clear diagnostics on close - workspace diagnostics should persist
-        // for all files, not just open ones. The next publish_workspace_diagnostics
-        // call will update diagnostics based on current file state on disk.
     }
 
     /// r[impl lsp.completions.verb]
@@ -889,6 +1031,22 @@ impl LanguageServer for Backend {
             .collect();
 
         Ok(Some(lsp_actions))
+    }
+
+    async fn execute_command(
+        &self,
+        params: ExecuteCommandParams,
+    ) -> LspResult<Option<serde_json::Value>> {
+        if params.command == "tracey.renameUnknownRequirement" {
+            let args = params.arguments;
+            if args.len() >= 2
+                && let (Some(old_rule), Some(new_rule)) = (args[0].as_str(), args[1].as_str())
+            {
+                self.apply_unknown_requirement_rename(old_rule, new_rule)
+                    .await?;
+            }
+        }
+        Ok(None)
     }
 
     async fn code_lens(&self, params: CodeLensParams) -> LspResult<Option<Vec<CodeLens>>> {

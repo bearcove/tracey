@@ -9,14 +9,19 @@
 //! It provides blocking rebuild semantics - all requests wait during rebuild.
 
 use eyre::Result;
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
-use tokio::sync::{RwLock, watch};
+use tokio::sync::{Mutex, Notify, RwLock, mpsc, watch};
 use tracing::{debug, error, info, warn};
 
 use crate::config::Config;
-use crate::data::{DashboardData, FileOverlay, build_dashboard_data_with_overlay};
+use crate::data::{
+    BuildCache, DashboardData, FileOverlay, build_dashboard_data_with_overlay_and_cache,
+};
+use crate::search::{self, SearchIndex, SearchResult};
 
 /// The core tracey engine.
 ///
@@ -42,16 +47,48 @@ pub struct Engine {
     version: Arc<std::sync::atomic::AtomicU64>,
     /// Current config error (if config file has errors)
     config_error: Arc<RwLock<Option<String>>>,
+    /// Persistent per-file build cache reused across rebuilds
+    build_cache: Arc<tokio::sync::Mutex<BuildCache>>,
+    /// Current full-text search index, rebuilt asynchronously
+    search_index: Arc<RwLock<Arc<dyn SearchIndex>>>,
+    /// Coalescing queue for async search reindex requests
+    search_reindex_tx: mpsc::UnboundedSender<Arc<DashboardData>>,
+    /// Whether search has ever been requested in this daemon lifecycle
+    search_activated: Arc<AtomicBool>,
+    /// Rebuild coalescing state (single-flight + pending changed files)
+    rebuild_state: Arc<Mutex<RebuildCoalesceState>>,
+    /// Notifies waiters when a coalesced rebuild pass completes
+    rebuild_notify: Arc<Notify>,
+}
+
+#[derive(Default)]
+struct RebuildCoalesceState {
+    in_progress: bool,
+    pending_full_rebuild: bool,
+    pending_changed_files: BTreeSet<PathBuf>,
+    generation: u64,
+    next_ticket: u64,
+    pending_ticket: u64,
+    applied_ticket: u64,
+    last_result: Option<std::result::Result<(u64, Duration), String>>,
 }
 
 impl Engine {
+    fn format_config_error(config_path: &Path, error: impl std::fmt::Display) -> String {
+        format!(
+            "Config file {} has errors:\n{}",
+            config_path.display(),
+            error
+        )
+    }
+
     /// Create a new engine for the given project root.
     pub async fn new(project_root: PathBuf, config_path: PathBuf) -> Result<Self> {
         // Check for deprecated config files first
         let deprecated_error = Self::check_deprecated_configs(&project_root);
 
         // Load initial config - record errors but continue with empty config
-        let (config, config_error) = if let Some(err) = deprecated_error {
+        let (mut config, mut config_error) = if let Some(err) = deprecated_error {
             // Deprecated config found - use empty config and record error
             (Config::default(), Some(err))
         } else {
@@ -60,8 +97,7 @@ impl Engine {
                     Ok(config) => (config, None),
                     Err(e) => {
                         // Config has errors - use empty config and record error
-                        let err =
-                            format!("Config file {} has errors:\n{}", config_path.display(), e);
+                        let err = Self::format_config_error(&config_path, e);
                         (Config::default(), Some(err))
                     }
                 },
@@ -80,16 +116,78 @@ impl Engine {
             }
         };
 
-        // Build initial data
+        // Build initial data. If config is semantically invalid, keep daemon alive
+        // with an empty config and surface the error through health/LSP diagnostics.
         let overlay = FileOverlay::new();
-        let data =
-            build_dashboard_data_with_overlay(&project_root, &config, 1, false, &overlay).await?;
+        let mut build_cache = BuildCache::default();
+        let data = match build_dashboard_data_with_overlay_and_cache(
+            &project_root,
+            &config,
+            1,
+            false,
+            &overlay,
+            &mut build_cache,
+            &[],
+        )
+        .await
+        {
+            Ok(data) => data,
+            Err(e) => {
+                let semantic_error = Self::format_config_error(&config_path, e);
+                warn!("Initial config failed validation: {}", semantic_error);
+                config_error = Some(semantic_error);
+                config = Config::default();
+                build_dashboard_data_with_overlay_and_cache(
+                    &project_root,
+                    &config,
+                    1,
+                    false,
+                    &overlay,
+                    &mut build_cache,
+                    &[],
+                )
+                .await?
+            }
+        };
         let data = Arc::new(data);
 
         // Create watch channel for broadcasting updates
         let (update_tx, update_rx) = watch::channel(Arc::clone(&data));
+        let search_index = Arc::new(RwLock::new(search::empty_index()));
+        let (search_reindex_tx, mut search_reindex_rx) =
+            mpsc::unbounded_channel::<Arc<DashboardData>>();
+        let search_activated = Arc::new(AtomicBool::new(false));
+        let search_index_for_worker = Arc::clone(&search_index);
+        let project_root_for_worker = project_root.clone();
+        tokio::spawn(async move {
+            while let Some(mut snapshot) = search_reindex_rx.recv().await {
+                // Debounce and coalesce bursts; keep only latest snapshot.
+                tokio::time::sleep(Duration::from_millis(150)).await;
+                while let Ok(next) = search_reindex_rx.try_recv() {
+                    snapshot = next;
+                }
 
-        Ok(Self {
+                let start = Instant::now();
+                let built = search::build_index(
+                    &project_root_for_worker,
+                    &snapshot.search_files,
+                    &snapshot.search_rules,
+                );
+                let built: Arc<dyn SearchIndex> = Arc::from(built);
+                {
+                    let mut idx = search_index_for_worker.write().await;
+                    *idx = built;
+                }
+                info!(
+                    "dashboard async search index ready files={} rules={} elapsed_ms={}",
+                    snapshot.search_files.len(),
+                    snapshot.search_rules.len(),
+                    start.elapsed().as_millis()
+                );
+            }
+        });
+
+        let engine = Self {
             data: Arc::new(RwLock::new(data)),
             update_tx,
             update_rx,
@@ -99,7 +197,14 @@ impl Engine {
             config: Arc::new(RwLock::new(config)),
             version: Arc::new(std::sync::atomic::AtomicU64::new(1)),
             config_error: Arc::new(RwLock::new(config_error)),
-        })
+            build_cache: Arc::new(tokio::sync::Mutex::new(build_cache)),
+            search_index,
+            search_reindex_tx,
+            search_activated,
+            rebuild_state: Arc::new(Mutex::new(RebuildCoalesceState::default())),
+            rebuild_notify: Arc::new(Notify::new()),
+        };
+        Ok(engine)
     }
 
     /// Get the current dashboard data.
@@ -129,9 +234,7 @@ impl Engine {
         debug!("VFS: opened {}", path.display());
         // Trigger rebuild
         drop(vfs);
-        if let Err(e) = self.rebuild().await {
-            error!("Rebuild failed after vfs_open: {}", e);
-        }
+        self.schedule_rebuild_with_changes(&[path]).await;
     }
 
     /// Update a file in the VFS overlay (from LSP didChange).
@@ -143,9 +246,7 @@ impl Engine {
         debug!("VFS: changed {}", path.display());
         // Trigger rebuild
         drop(vfs);
-        if let Err(e) = self.rebuild().await {
-            error!("Rebuild failed after vfs_change: {}", e);
-        }
+        self.schedule_rebuild_with_changes(&[path]).await;
     }
 
     /// Remove a file from the VFS overlay (from LSP didClose).
@@ -157,9 +258,7 @@ impl Engine {
         debug!("VFS: closed {}", path.display());
         // Trigger rebuild
         drop(vfs);
-        if let Err(e) = self.rebuild().await {
-            error!("Rebuild failed after vfs_close: {}", e);
-        }
+        self.schedule_rebuild_with_changes(&[path]).await;
     }
 
     /// Force a rebuild of the dashboard data.
@@ -168,6 +267,114 @@ impl Engine {
     /// Config errors are recorded but don't fail the rebuild - the previous
     /// config is retained.
     pub async fn rebuild(&self) -> Result<(u64, Duration)> {
+        self.rebuild_with_changes(&[]).await
+    }
+
+    pub async fn rebuild_with_changes(&self, changed_files: &[PathBuf]) -> Result<(u64, Duration)> {
+        self.run_coalesced_rebuild(changed_files, true).await
+    }
+
+    pub async fn schedule_rebuild_with_changes(&self, changed_files: &[PathBuf]) {
+        if let Err(e) = self.run_coalesced_rebuild(changed_files, false).await {
+            error!("Scheduled rebuild failed: {}", e);
+        }
+    }
+
+    async fn run_coalesced_rebuild(
+        &self,
+        changed_files: &[PathBuf],
+        wait_for_completion: bool,
+    ) -> Result<(u64, Duration)> {
+        let waiter_ticket = {
+            let mut state = self.rebuild_state.lock().await;
+            state.next_ticket = state.next_ticket.saturating_add(1);
+            let request_ticket = state.next_ticket;
+
+            if changed_files.is_empty() {
+                state.pending_full_rebuild = true;
+            } else {
+                state
+                    .pending_changed_files
+                    .extend(changed_files.iter().cloned());
+            }
+            state.pending_ticket = state.pending_ticket.max(request_ticket);
+
+            if state.in_progress {
+                if wait_for_completion {
+                    Some(request_ticket)
+                } else {
+                    return Ok((self.version(), Duration::ZERO));
+                }
+            } else {
+                state.in_progress = true;
+                None
+            }
+        };
+
+        if let Some(target_ticket) = waiter_ticket {
+            loop {
+                {
+                    let state = self.rebuild_state.lock().await;
+                    if state.applied_ticket >= target_ticket {
+                        if let Some(result) = &state.last_result {
+                            return match result {
+                                Ok(ok) => Ok(*ok),
+                                Err(e) => Err(eyre::eyre!(e.clone())),
+                            };
+                        }
+                        return Ok((self.version(), Duration::ZERO));
+                    }
+                }
+                self.rebuild_notify.notified().await;
+            }
+        }
+
+        loop {
+            let (changed_batch, batch_ticket) = {
+                let mut state = self.rebuild_state.lock().await;
+                let pending_full = state.pending_full_rebuild;
+                state.pending_full_rebuild = false;
+                let ticket = state.pending_ticket;
+
+                if pending_full {
+                    state.pending_changed_files.clear();
+                    (Vec::new(), ticket)
+                } else {
+                    (
+                        std::mem::take(&mut state.pending_changed_files)
+                            .into_iter()
+                            .collect::<Vec<_>>(),
+                        ticket,
+                    )
+                }
+            };
+
+            let result = self.rebuild_once(&changed_batch).await;
+            let should_continue = {
+                let mut state = self.rebuild_state.lock().await;
+                state.last_result = Some(match &result {
+                    Ok(v) => Ok(*v),
+                    Err(e) => Err(e.to_string()),
+                });
+                state.generation = state.generation.saturating_add(1);
+                state.applied_ticket = state.applied_ticket.max(batch_ticket);
+                self.rebuild_notify.notify_waiters();
+
+                let has_pending =
+                    state.pending_full_rebuild || !state.pending_changed_files.is_empty();
+                if !has_pending {
+                    state.in_progress = false;
+                }
+                has_pending
+            };
+
+            if !should_continue {
+                return result;
+            }
+        }
+    }
+
+    async fn rebuild_once(&self, changed_files: &[PathBuf]) -> Result<(u64, Duration)> {
         let start = Instant::now();
 
         // Reload config - record errors but continue with current config
@@ -175,11 +382,7 @@ impl Engine {
             Ok(content) => match facet_styx::from_str(&content) {
                 Ok(config) => (Some(config), None),
                 Err(e) => {
-                    let error_msg = format!(
-                        "Config file {} has errors: {}",
-                        self.config_path.display(),
-                        e
-                    );
+                    let error_msg = Self::format_config_error(&self.config_path, e);
                     warn!("{}", error_msg);
                     (None, Some(error_msg))
                 }
@@ -209,31 +412,37 @@ impl Engine {
             None => self.config.read().await.clone(),
         };
 
-        // Update config error state
-        {
-            let mut err = self.config_error.write().await;
-            *err = new_config_error;
-        }
-
         // Get current VFS overlay
         let overlay = self.vfs.read().await.clone();
+        let mut build_cache = self.build_cache.lock().await;
 
-        // Increment version
-        let new_version = self
-            .version
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-            + 1;
+        let new_version = self.version() + 1;
 
-        // Build new data (this is the expensive part)
-        let new_data = build_dashboard_data_with_overlay(
+        // Build new data (this is the expensive part). Semantic config errors
+        // should not fail the daemon; keep the previous snapshot and record error.
+        let build_result = build_dashboard_data_with_overlay_and_cache(
             &self.project_root,
             &config,
             new_version,
             true,
             &overlay,
+            &mut build_cache,
+            changed_files,
         )
-        .await?;
-        let new_data = Arc::new(new_data);
+        .await;
+        let new_data = match build_result {
+            Ok(data) => Arc::new(data),
+            Err(e) => {
+                let semantic_error = Self::format_config_error(&self.config_path, e);
+                warn!(
+                    "Rebuild failed due to config validation error: {}",
+                    semantic_error
+                );
+                let mut err = self.config_error.write().await;
+                *err = Some(semantic_error);
+                return Ok((self.version(), start.elapsed()));
+            }
+        };
 
         // Acquire write lock and update (blocks all reads)
         {
@@ -247,8 +456,22 @@ impl Engine {
             *cfg = config;
         }
 
+        // Update config error state only after successful rebuild.
+        {
+            let mut err = self.config_error.write().await;
+            *err = new_config_error;
+        }
+
+        // Increment version after successful rebuild.
+        self.version
+            .store(new_version, std::sync::atomic::Ordering::Relaxed);
+
         // Broadcast to subscribers
         let _ = self.update_tx.send(new_data);
+        if self.search_activated.load(Ordering::Relaxed) {
+            let snapshot = self.data().await;
+            self.spawn_search_reindex(snapshot);
+        }
 
         let elapsed = start.elapsed();
         info!(
@@ -280,6 +503,28 @@ impl Engine {
     /// Get the current config error, if any.
     pub async fn config_error(&self) -> Option<String> {
         self.config_error.read().await.clone()
+    }
+
+    pub async fn search(&self, query: &str, limit: usize) -> Vec<SearchResult> {
+        if !self.search_activated.swap(true, Ordering::SeqCst) {
+            let snapshot = self.data().await;
+            let built = search::build_index(
+                &self.project_root,
+                &snapshot.search_files,
+                &snapshot.search_rules,
+            );
+            let built: Arc<dyn SearchIndex> = Arc::from(built);
+            {
+                let mut idx = self.search_index.write().await;
+                *idx = built;
+            }
+        }
+        let index = self.search_index.read().await.clone();
+        index.search(query, limit)
+    }
+
+    fn spawn_search_reindex(&self, snapshot: Arc<DashboardData>) {
+        let _ = self.search_reindex_tx.send(snapshot);
     }
 
     /// Check for deprecated config files (YAML, KDL) and return an error message if found.

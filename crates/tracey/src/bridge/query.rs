@@ -4,6 +4,7 @@
 //! MCP and terminal queries print the same markdown-like output.
 
 use std::path::PathBuf;
+use std::{collections::BTreeMap, collections::BTreeSet};
 
 use crate::daemon::{DaemonClient, new_client};
 use tracey_core::parse_rule_id;
@@ -36,6 +37,15 @@ fn parse_spec_impl(spec_impl: Option<&str>) -> (Option<String>, Option<String>) 
         Some(s) => (Some(s.to_string()), None),
         None => (None, None),
     }
+}
+
+fn unknown_rule_reference_from_error(error: &ValidationError) -> Option<(String, String)> {
+    let rule_id = error.reference_rule_id.as_ref()?.to_string();
+    let reference = error
+        .reference_text
+        .clone()
+        .unwrap_or_else(|| rule_id.clone());
+    Some((rule_id, reference))
 }
 
 /// Shared query client used by both MCP and CLI.
@@ -78,9 +88,11 @@ impl QueryClient {
 
     /// Get coverage status for all specs/implementations
     pub async fn status(&self) -> String {
-        // Fetch status and config concurrently.
-        let (status_result, config_result) =
-            tokio::join!(self.client.status(), self.client.config());
+        // Fetch status first to establish a single connection/startup path.
+        // Running status+config concurrently on a cold client can race daemon
+        // autostart and introduce extra startup delays.
+        let status_result = self.client.status().await;
+        let config_result = self.client.config().await;
 
         let output = match status_result {
             Ok(status) => {
@@ -131,8 +143,8 @@ impl QueryClient {
                     let verified = impl_status.verified_rules;
 
                     output.push_str(&format!(
-                        "{} of {} requirements are covered.",
-                        covered, total
+                        "{}/{}: {} of {} requirements are covered.",
+                        impl_status.spec, impl_status.impl_name, covered, total
                     ));
 
                     if stale > 0 {
@@ -531,6 +543,8 @@ impl QueryClient {
             } else {
                 let mut output = String::new();
                 let mut total_errors = 0;
+                let mut unique_unknown_rules: BTreeSet<String> = BTreeSet::new();
+                let mut unknown_reference_counts: BTreeMap<String, usize> = BTreeMap::new();
 
                 for impl_status in &status.impls {
                     let req = ValidateRequest {
@@ -541,8 +555,61 @@ impl QueryClient {
                     match self.client.validate(req).await {
                         Ok(result) => {
                             total_errors += result.error_count;
-                            output.push_str(&format_validation_result(&result));
-                            output.push('\n');
+                            let mut unknown_for_impl = 0usize;
+                            let mut non_unknown_errors = Vec::new();
+                            for error in &result.errors {
+                                if error.code == ValidationErrorCode::UnknownRequirement {
+                                    if let Some((rule_id, reference_text)) =
+                                        unknown_rule_reference_from_error(error)
+                                    {
+                                        unknown_for_impl += 1;
+                                        unique_unknown_rules.insert(rule_id.clone());
+                                        *unknown_reference_counts
+                                            .entry(reference_text)
+                                            .or_insert(0) += 1;
+                                    } else {
+                                        non_unknown_errors.push(error.clone());
+                                    }
+                                } else {
+                                    non_unknown_errors.push(error.clone());
+                                }
+                            }
+
+                            if non_unknown_errors.is_empty() {
+                                if unknown_for_impl == 0 {
+                                    output.push_str(&format!(
+                                        "✓ {}/{}: No validation errors found\n\n",
+                                        result.spec, result.impl_name
+                                    ));
+                                } else {
+                                    output.push_str(&format!(
+                                        "✗ {}/{}: {} unknown rule reference(s), details shown in global summary below\n\n",
+                                        result.spec, result.impl_name, unknown_for_impl
+                                    ));
+                                }
+                            } else {
+                                let non_unknown_result = ValidationResult {
+                                    spec: result.spec.clone(),
+                                    impl_name: result.impl_name.clone(),
+                                    errors: non_unknown_errors,
+                                    warning_count: result.warning_count,
+                                    error_count: result
+                                        .errors
+                                        .iter()
+                                        .filter(|e| {
+                                            e.code != ValidationErrorCode::UnknownRequirement
+                                        })
+                                        .count(),
+                                };
+                                output.push_str(&format_validation_result(&non_unknown_result));
+                                if unknown_for_impl > 0 {
+                                    output.push_str(&format!(
+                                        "\n  - [UnknownRequirement] {} repeated unknown rule reference(s) hidden; see global summary below\n",
+                                        unknown_for_impl
+                                    ));
+                                }
+                                output.push('\n');
+                            }
                         }
                         Err(e) => {
                             output.push_str(&format!(
@@ -559,6 +626,19 @@ impl QueryClient {
                     status.impls.len(),
                     total_errors
                 ));
+                if !unknown_reference_counts.is_empty() {
+                    output.push_str(&format!(
+                        "Unique unknown rules: {} ({} total occurrences)\n",
+                        unique_unknown_rules.len(),
+                        unknown_reference_counts.values().sum::<usize>()
+                    ));
+                    output.push_str("Top unknown references:\n");
+                    let mut top = unknown_reference_counts.into_iter().collect::<Vec<_>>();
+                    top.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+                    for (reference, count) in top.into_iter().take(20) {
+                        output.push_str(&format!("  - {} ({}x)\n", reference, count));
+                    }
+                }
                 output.push_str(&self.hint(
                     "tracey query validate <spec>/<impl>",
                     "tracey_validate with a spec_impl parameter to validate a specific one (e.g., \"my-spec/rust\")",
@@ -689,6 +769,7 @@ mod tests {
                 column: None,
                 related_rules: vec![parse_rule_id("spec.rule+2").expect("valid rule id")],
                 reference_rule_id: Some(parse_rule_id("spec.rule").expect("valid rule id")),
+                reference_text: None,
             }],
             warning_count: 0,
             error_count: 1,

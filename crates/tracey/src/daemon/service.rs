@@ -7,9 +7,11 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tracey_core::{RuleId, RuleIdMatch, classify_reference_for_rule, parse_rule_id};
 use tracey_proto::*;
+use tracing::debug;
 
 use super::engine::Engine;
 use super::watcher::WatcherState;
+use crate::rule_suggestions::suggest_similar_rule_ids;
 use crate::server::QueryEngine;
 use roam::{Context, Tx};
 
@@ -719,15 +721,36 @@ impl TraceyDaemon for TraceyService {
         impl_name: String,
     ) -> Option<ApiSpecData> {
         let data = self.inner.engine.data().await;
-        data.specs_content_by_impl.get(&(spec, impl_name)).cloned()
+        if let Some(cached) = data
+            .specs_content_by_impl
+            .get(&(spec.clone(), impl_name.clone()))
+            .cloned()
+        {
+            return Some(cached);
+        }
+
+        let forward = data
+            .forward_by_impl
+            .get(&(spec.clone(), impl_name.clone()))?;
+        let include_patterns = data.spec_includes_by_name.get(&spec)?;
+        crate::data::render_spec_content_for_impl(
+            self.inner.engine.project_root(),
+            include_patterns,
+            &spec,
+            &impl_name,
+            forward,
+        )
+        .await
+        .ok()
     }
 
     /// Search rules and files
     async fn search(&self, _cx: &Context, query: String, limit: u32) -> Vec<SearchResult> {
-        let data = self.inner.engine.data().await;
-        let raw_results: Vec<_> = data
-            .search_index
+        let raw_results: Vec<_> = self
+            .inner
+            .engine
             .search(&query, limit as usize)
+            .await
             .into_iter()
             .collect();
 
@@ -841,283 +864,19 @@ impl TraceyDaemon for TraceyService {
     /// r[impl mcp.validation.check]
     async fn validate(&self, _cx: &Context, req: ValidateRequest) -> ValidationResult {
         let data = self.inner.engine.data().await;
-        let project_root = self.inner.engine.project_root();
-
         let (spec, impl_name) =
             self.resolve_spec_impl(req.spec.as_deref(), req.impl_name.as_deref(), &data.config);
 
-        let mut errors = Vec::new();
-
-        // Get all rules for this spec/impl
-        if let Some(forward_data) = data.forward_by_impl.get(&(spec.clone(), impl_name.clone())) {
-            // Build a list of rule IDs for match classification.
-            let known_rule_ids: Vec<RuleId> =
-                forward_data.rules.iter().map(|r| r.id.clone()).collect();
-            let rules_by_id: std::collections::HashMap<RuleId, &ApiRule> = forward_data
-                .rules
-                .iter()
-                .map(|rule| (rule.id.clone(), rule))
-                .collect();
-            // r[impl config.multi-spec.unique-within-spec]
-            // Check for duplicate rule IDs and duplicate bases (within this spec)
-            let mut seen_ids: std::collections::HashMap<RuleId, (&Option<String>, Option<usize>)> =
-                std::collections::HashMap::new();
-            let mut seen_bases: std::collections::HashMap<
-                String,
-                (&RuleId, &Option<String>, Option<usize>),
-            > = std::collections::HashMap::new();
-            for rule in &forward_data.rules {
-                if let Some((prev_file, prev_line)) = seen_ids.get(&rule.id) {
-                    errors.push(ValidationError {
-                        code: ValidationErrorCode::DuplicateRequirement,
-                        message: format!(
-                            "Duplicate rule ID '{}' (first defined at {}:{})",
-                            rule.id,
-                            prev_file.as_deref().unwrap_or("?"),
-                            prev_line.unwrap_or(0)
-                        ),
-                        file: rule.source_file.clone(),
-                        line: rule.source_line,
-                        column: rule.source_column,
-                        related_rules: vec![rule.id.clone()],
-                        reference_rule_id: None,
-                    });
-                } else {
-                    seen_ids.insert(rule.id.clone(), (&rule.source_file, rule.source_line));
-                }
-
-                if let Some((prev_rule_id, prev_file, prev_line)) =
-                    seen_bases.get(rule.id.base.as_str())
-                {
-                    errors.push(ValidationError {
-                        code: ValidationErrorCode::DuplicateRequirement,
-                        message: format!(
-                            "Duplicate rule base '{}' across versions ('{}' and '{}') in same spec (first defined at {}:{})",
-                            rule.id.base,
-                            prev_rule_id,
-                            rule.id,
-                            prev_file.as_deref().unwrap_or("?"),
-                            prev_line.unwrap_or(0)
-                        ),
-                        file: rule.source_file.clone(),
-                        line: rule.source_line,
-                        column: rule.source_column,
-                        related_rules: vec![(*prev_rule_id).clone(), rule.id.clone()],
-                        reference_rule_id: None,
-                    });
-                } else {
-                    seen_bases.insert(
-                        rule.id.base.clone(),
-                        (&rule.id, &rule.source_file, rule.source_line),
-                    );
-                }
-            }
-
-            // Check each rule
-            for rule in &forward_data.rules {
-                // Check naming convention (dot-separated segments)
-                if !is_valid_rule_id(&rule.id) {
-                    errors.push(ValidationError {
-                        code: ValidationErrorCode::InvalidNaming,
-                        message: format!(
-                            "Rule ID '{}' doesn't follow naming convention (use dot-separated lowercase segments)",
-                            rule.id
-                        ),
-                        file: rule.source_file.clone(),
-                        line: rule.source_line,
-                        column: rule.source_column,
-                        related_rules: vec![],
-                        reference_rule_id: None,
-                    });
-                }
-
-                // r[impl config.impl.test_include.verify-only]
-                // Check that impl references are not in test files
-                for impl_ref in &rule.impl_refs {
-                    let ref_path = project_root.join(&impl_ref.file);
-                    if data.test_files.contains(&ref_path) {
-                        errors.push(ValidationError {
-                            code: ValidationErrorCode::ImplInTestFile,
-                            message: format!(
-                                "Test file contains impl annotation for '{}' - test files may only contain verify annotations",
-                                rule.id
-                            ),
-                            file: Some(impl_ref.file.clone()),
-                            line: Some(impl_ref.line),
-                            column: None,
-                            related_rules: vec![rule.id.clone()],
-                            reference_rule_id: None,
-                        });
-                    }
-                }
-
-                // Check depends references exist
-                for dep_ref in &rule.depends_refs {
-                    // Extract rule ID from the file path (this is a simplification)
-                    // In a full implementation, we'd track what rule ID each depends ref points to
-                    // For now, we just note that depends references exist
-                    let _ = dep_ref;
-                }
-            }
-
-            // r[impl ref.prefix.unknown+2]
-            // Check for references with unknown prefixes
-            // This requires checking the reverse data for any files that have
-            // references to rules not in the rule_ids set
-            if let Some(reverse_data) = data.reverse_by_impl.get(&(spec.clone(), impl_name.clone()))
-            {
-                // Get all prefixes from the config
-                let known_prefixes: std::collections::HashSet<&str> = data
-                    .config
-                    .specs
-                    .iter()
-                    .map(|s| s.prefix.as_str())
-                    .collect();
-
-                // r[impl ref.prefix.filter+2]
-                // Find the prefix for the current spec being validated
-                let current_spec_prefix: Option<&str> = data
-                    .config
-                    .specs
-                    .iter()
-                    .find(|s| s.name == spec)
-                    .map(|s| s.prefix.as_str());
-                // r[impl config.multi-spec.prefix-namespace+2]
-                let known_rule_ids_for_prefix: Vec<RuleId> =
-                    if let Some(prefix) = current_spec_prefix {
-                        let spec_names: std::collections::HashSet<&str> = data
-                            .config
-                            .specs
-                            .iter()
-                            .filter(|s| s.prefix == prefix)
-                            .map(|s| s.name.as_str())
-                            .collect();
-
-                        data.forward_by_impl
-                            .iter()
-                            .filter(|((spec_name, _), _)| spec_names.contains(spec_name.as_str()))
-                            .flat_map(|(_, forward)| forward.rules.iter().map(|r| r.id.clone()))
-                            .collect()
-                    } else {
-                        Vec::new()
-                    };
-
-                // Check files for unknown references
-                for file_entry in &reverse_data.files {
-                    let file_path = project_root.join(&file_entry.path);
-                    if let Ok(content) = std::fs::read_to_string(&file_path) {
-                        let reqs = tracey_core::Reqs::extract_from_content(&file_path, &content);
-                        for reference in &reqs.references {
-                            // Check if prefix is known
-                            if !known_prefixes.contains(reference.prefix.as_str()) {
-                                let mut available: Vec<_> =
-                                    known_prefixes.iter().copied().collect();
-                                available.sort_unstable();
-                                errors.push(ValidationError {
-                                    code: ValidationErrorCode::UnknownPrefix,
-                                    message: format!(
-                                        "Unknown prefix '{}' - available prefixes: {}",
-                                        reference.prefix,
-                                        available.join(", ")
-                                    ),
-                                    file: Some(file_entry.path.clone()),
-                                    line: Some(reference.line),
-                                    column: None,
-                                    related_rules: vec![],
-                                    reference_rule_id: None,
-                                });
-                            }
-                            // r[impl ref.prefix.filter+2]
-                            // Only validate references whose prefix matches the current spec
-                            // Skip references that belong to a different spec (different prefix)
-                            else if current_spec_prefix == Some(reference.prefix.as_str()) {
-                                match classify_reference_against_known_rules(
-                                    &reference.req_id,
-                                    &known_rule_ids,
-                                ) {
-                                    KnownRuleMatch::Exact => {}
-                                    KnownRuleMatch::Stale(current_rule_id) => {
-                                        // r[impl validation.stale.message-prefix]
-                                        let message = stale_diagnostic_message_short(
-                                            &reference.req_id,
-                                            rules_by_id.get(&current_rule_id).copied(),
-                                        );
-                                        errors.push(ValidationError {
-                                            code: ValidationErrorCode::StaleRequirement,
-                                            message,
-                                            file: Some(file_entry.path.clone()),
-                                            line: Some(reference.line),
-                                            column: None,
-                                            related_rules: vec![current_rule_id],
-                                            reference_rule_id: Some(reference.req_id.clone()),
-                                        });
-                                    }
-                                    KnownRuleMatch::Missing => {
-                                        match classify_reference_against_known_rules(
-                                            &reference.req_id,
-                                            &known_rule_ids_for_prefix,
-                                        ) {
-                                            KnownRuleMatch::Exact | KnownRuleMatch::Stale(_) => {
-                                                // Valid in another spec sharing this prefix.
-                                                // It will be checked when that spec is validated.
-                                            }
-                                            KnownRuleMatch::Missing => {
-                                                errors.push(ValidationError {
-                                                    code: ValidationErrorCode::UnknownRequirement,
-                                                    message: format!(
-                                                        "Reference to unknown rule '{}'",
-                                                        reference.req_id
-                                                    ),
-                                                    file: Some(file_entry.path.clone()),
-                                                    line: Some(reference.line),
-                                                    column: None,
-                                                    related_rules: vec![],
-                                                    reference_rule_id: None,
-                                                });
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            // References with different known prefixes are intentionally skipped
-                            // They belong to a different spec and will be validated when that spec is checked
-                        }
-                    }
-                }
-            }
-
-            // Check for circular dependencies
-            // Build dependency graph and detect cycles
-            let cycles = detect_circular_dependencies(forward_data);
-            for cycle in cycles {
-                errors.push(ValidationError {
-                    code: ValidationErrorCode::CircularDependency,
-                    message: format!(
-                        "Circular dependency detected: {}",
-                        cycle
-                            .iter()
-                            .map(ToString::to_string)
-                            .collect::<Vec<_>>()
-                            .join(" -> ")
-                    ),
-                    file: None,
-                    line: None,
-                    column: None,
-                    related_rules: cycle,
-                    reference_rule_id: None,
-                });
-            }
-        }
-
-        let error_count = errors.len();
-
-        ValidationResult {
-            spec,
-            impl_name,
-            errors,
-            warning_count: 0,
-            error_count,
-        }
+        data.validation_by_impl
+            .get(&(spec.clone(), impl_name.clone()))
+            .cloned()
+            .unwrap_or_else(|| ValidationResult {
+                spec,
+                impl_name,
+                errors: Vec::new(),
+                warning_count: 0,
+                error_count: 0,
+            })
     }
 
     // =========================================================================
@@ -1496,6 +1255,18 @@ impl TraceyDaemon for TraceyService {
             .iter()
             .map(|s| s.prefix.as_str())
             .collect();
+        // If no prefixes are loaded (e.g. during transient startup/config fallback),
+        // unknown-prefix diagnostics are not actionable and often false positives.
+        if known_prefixes.is_empty() {
+            return diagnostics;
+        }
+        debug!(
+            "lsp_diagnostics path={} refs={} known_prefixes={:?} specs={}",
+            path.display(),
+            reqs.references.len(),
+            known_prefixes,
+            data.config.specs.len()
+        );
 
         // Build known rules by prefix (using all implementations for each spec).
         let mut known_rules_by_prefix: std::collections::HashMap<&str, Vec<RuleId>> =
@@ -1523,6 +1294,13 @@ impl TraceyDaemon for TraceyService {
 
             // Check for unknown prefix
             if !known_prefixes.contains(reference.prefix.as_str()) {
+                debug!(
+                    "lsp_diagnostics unknown-prefix path={} ref_prefix={} ref_id={} known_prefixes={:?}",
+                    path.display(),
+                    reference.prefix,
+                    reference.req_id,
+                    known_prefixes
+                );
                 diagnostics.push(LspDiagnostic {
                     severity: "error".to_string(),
                     code: "unknown-prefix".to_string(),
@@ -1560,10 +1338,12 @@ impl TraceyDaemon for TraceyService {
                     });
                 }
                 KnownRuleMatch::Missing => {
+                    let message =
+                        unknown_rule_message_with_suggestions(&reference.req_id, known_for_prefix);
                     diagnostics.push(LspDiagnostic {
                         severity: "warning".to_string(),
                         code: "orphaned".to_string(),
-                        message: format!("Unknown requirement: '{}'", reference.req_id),
+                        message,
                         start_line,
                         start_char,
                         end_line,
@@ -1616,68 +1396,7 @@ impl TraceyDaemon for TraceyService {
     /// Get diagnostics for all files in the workspace
     async fn lsp_workspace_diagnostics(&self, _cx: &Context) -> Vec<LspFileDiagnostics> {
         let data = self.inner.engine.data().await;
-        let project_root = self.inner.engine.project_root();
-        let mut results = Vec::new();
-
-        // Collect unique spec files from forward data
-        let mut spec_files: std::collections::HashSet<String> = std::collections::HashSet::new();
-        for forward_data in data.forward_by_impl.values() {
-            for rule in &forward_data.rules {
-                if let Some(source_file) = &rule.source_file {
-                    spec_files.insert(source_file.clone());
-                }
-            }
-        }
-
-        // Process spec files
-        for spec_file in &spec_files {
-            let abs_path = project_root.join(spec_file);
-            if let Ok(content) = tokio::fs::read_to_string(&abs_path).await {
-                let req = LspDocumentRequest {
-                    path: abs_path.to_string_lossy().to_string(),
-                    content,
-                };
-                let diagnostics = self.lsp_diagnostics(_cx, req).await;
-                if !diagnostics.is_empty() {
-                    results.push(LspFileDiagnostics {
-                        path: spec_file.clone(),
-                        diagnostics,
-                    });
-                }
-            }
-        }
-
-        // Collect unique implementation files from code_units
-        let mut impl_files: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
-        for code_units_by_file in data.code_units_by_impl.values() {
-            for file_path in code_units_by_file.keys() {
-                impl_files.insert(file_path.clone());
-            }
-        }
-
-        // Process implementation files
-        for impl_file in &impl_files {
-            if let Ok(content) = tokio::fs::read_to_string(impl_file).await {
-                let req = LspDocumentRequest {
-                    path: impl_file.to_string_lossy().to_string(),
-                    content,
-                };
-                let diagnostics = self.lsp_diagnostics(_cx, req).await;
-                if !diagnostics.is_empty() {
-                    // Convert to relative path for consistency
-                    let rel_path = impl_file
-                        .strip_prefix(project_root)
-                        .map(|p| p.to_string_lossy().to_string())
-                        .unwrap_or_else(|_| impl_file.to_string_lossy().to_string());
-                    results.push(LspFileDiagnostics {
-                        path: rel_path,
-                        diagnostics,
-                    });
-                }
-            }
-        }
-
-        results
+        data.workspace_diagnostics.clone()
     }
 
     /// Get document symbols (requirement references) in a file
@@ -2118,12 +1837,44 @@ impl TraceyDaemon for TraceyService {
         {
             // Check if it's an orphaned reference
             if find_rule_in_data(&data, &rule_at_pos.req_id).is_none() {
+                if let Some(prefix) = rule_at_pos.prefix.as_deref() {
+                    let spec_names: std::collections::HashSet<&str> = data
+                        .config
+                        .specs
+                        .iter()
+                        .filter(|s| s.prefix == prefix)
+                        .map(|s| s.name.as_str())
+                        .collect();
+                    let known_rule_ids_for_prefix: Vec<RuleId> = data
+                        .forward_by_impl
+                        .iter()
+                        .filter(|((spec_name, _), _)| spec_names.contains(spec_name.as_str()))
+                        .flat_map(|(_, forward)| forward.rules.iter().map(|r| r.id.clone()))
+                        .collect();
+                    let suggestions = suggest_similar_rule_ids(
+                        &rule_at_pos.req_id,
+                        &known_rule_ids_for_prefix,
+                        1,
+                    );
+                    if let Some(best) = suggestions.first() {
+                        actions.push(LspCodeAction {
+                            title: format!(
+                                "Replace '{}' with '{}' (all impl annotations)",
+                                rule_at_pos.req_id, best
+                            ),
+                            kind: "quickfix".to_string(),
+                            command: "tracey.renameUnknownRequirement".to_string(),
+                            arguments: vec![rule_at_pos.req_id.to_string(), best.to_string()],
+                            is_preferred: true,
+                        });
+                    }
+                }
                 actions.push(LspCodeAction {
                     title: format!("Create requirement '{}'", rule_at_pos.req_id),
                     kind: "quickfix".to_string(),
                     command: "tracey.createRequirement".to_string(),
                     arguments: vec![rule_at_pos.req_id.to_string()],
-                    is_preferred: true,
+                    is_preferred: false,
                 });
             } else {
                 // Open dashboard for this requirement
@@ -2306,6 +2057,8 @@ impl TraceyDaemon for TraceyService {
 struct RuleAtPosition {
     /// The rule ID
     req_id: RuleId,
+    /// Prefix for source references (e.g. "r"); None for markdown definitions.
+    prefix: Option<String>,
     /// Byte offset in the content
     span_offset: usize,
     /// Length in bytes
@@ -2335,6 +2088,7 @@ async fn find_rule_at_position(
             if target_offset >= start && target_offset < end {
                 Some(RuleAtPosition {
                     req_id: parse_rule_id(&r.id.to_string())?,
+                    prefix: None,
                     span_offset: r.span.offset,
                     span_length: r.span.length,
                 })
@@ -2349,6 +2103,7 @@ async fn find_rule_at_position(
 
         Some(RuleAtPosition {
             req_id: ref_at_pos.req_id.clone(),
+            prefix: Some(ref_at_pos.prefix.clone()),
             span_offset: ref_at_pos.span.offset,
             span_length: ref_at_pos.span.length,
         })
@@ -2467,6 +2222,26 @@ fn classify_reference_against_known_rules(
         KnownRuleMatch::Stale(rule_id)
     } else {
         KnownRuleMatch::Missing
+    }
+}
+
+fn unknown_rule_message_with_suggestions(
+    reference_id: &RuleId,
+    known_rule_ids: &[RuleId],
+) -> String {
+    let suggestions = suggest_similar_rule_ids(reference_id, known_rule_ids, 3);
+    if suggestions.is_empty() {
+        format!("Reference to unknown rule '{}'", reference_id)
+    } else {
+        format!(
+            "Reference to unknown rule '{}' (did you mean: {})",
+            reference_id,
+            suggestions
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
     }
 }
 
@@ -2589,75 +2364,4 @@ fn is_valid_rule_id(id: &RuleId) -> bool {
     }
 
     true
-}
-
-/// Detect circular dependencies in the rule dependency graph
-fn detect_circular_dependencies(forward_data: &ApiSpecForward) -> Vec<Vec<RuleId>> {
-    use std::collections::{HashMap, HashSet};
-
-    // Build adjacency list from depends_refs
-    // Note: This is a simplified version - in a full implementation,
-    // we'd need to track which rule ID each depends ref points to
-    let mut graph: HashMap<RuleId, Vec<RuleId>> = HashMap::new();
-
-    for rule in &forward_data.rules {
-        // Initialize empty adjacency list for each rule
-        graph.entry(rule.id.clone()).or_default();
-
-        // For now, we can't easily extract dependency targets from depends_refs
-        // since they only contain file:line references, not rule IDs.
-        // A proper implementation would require parsing the depends comments
-        // to extract the target rule IDs.
-    }
-
-    // Detect cycles using DFS
-    let mut cycles = Vec::new();
-    let mut visited = HashSet::new();
-    let mut rec_stack = HashSet::new();
-    let mut path = Vec::new();
-
-    fn dfs(
-        node: &RuleId,
-        graph: &HashMap<RuleId, Vec<RuleId>>,
-        visited: &mut HashSet<RuleId>,
-        rec_stack: &mut HashSet<RuleId>,
-        path: &mut Vec<RuleId>,
-        cycles: &mut Vec<Vec<RuleId>>,
-    ) {
-        visited.insert(node.clone());
-        rec_stack.insert(node.clone());
-        path.push(node.clone());
-
-        if let Some(neighbors) = graph.get(node) {
-            for neighbor in neighbors {
-                if !visited.contains(neighbor) {
-                    dfs(neighbor, graph, visited, rec_stack, path, cycles);
-                } else if rec_stack.contains(neighbor) {
-                    // Found a cycle
-                    let cycle_start = path.iter().position(|n| n == neighbor).unwrap();
-                    let mut cycle: Vec<RuleId> = path[cycle_start..].to_vec();
-                    cycle.push(neighbor.clone());
-                    cycles.push(cycle);
-                }
-            }
-        }
-
-        path.pop();
-        rec_stack.remove(node);
-    }
-
-    for node in graph.keys().cloned().collect::<Vec<_>>() {
-        if !visited.contains(&node) {
-            dfs(
-                &node,
-                &graph,
-                &mut visited,
-                &mut rec_stack,
-                &mut path,
-                &mut cycles,
-            );
-        }
-    }
-
-    cycles
 }
