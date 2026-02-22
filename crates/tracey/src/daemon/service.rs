@@ -30,6 +30,12 @@ struct ValidationCache {
     entries: std::collections::HashMap<(String, String), ValidationResult>,
 }
 
+#[derive(Default)]
+struct FileReqsCache {
+    version: u64,
+    entries: std::collections::HashMap<PathBuf, tracey_core::Reqs>,
+}
+
 /// Inner service state shared via Arc.
 struct TraceyServiceInner {
     engine: Arc<Engine>,
@@ -43,6 +49,9 @@ struct TraceyServiceInner {
     shutdown_tx: tokio::sync::watch::Sender<bool>,
     /// Cached validation results keyed by (spec, impl) for the current build version.
     validation_cache: Mutex<ValidationCache>,
+    /// Cached parsed references per source file for the current build version.
+    /// This avoids reparsing the same files repeatedly during `query validate`.
+    file_reqs_cache: Mutex<FileReqsCache>,
 }
 
 /// Service implementation wrapping the Engine.
@@ -65,6 +74,7 @@ impl TraceyService {
                 start_time: Instant::now(),
                 shutdown_tx,
                 validation_cache: Mutex::new(ValidationCache::default()),
+                file_reqs_cache: Mutex::new(FileReqsCache::default()),
             }),
         }
     }
@@ -84,6 +94,7 @@ impl TraceyService {
                 start_time: Instant::now(),
                 shutdown_tx,
                 validation_cache: Mutex::new(ValidationCache::default()),
+                file_reqs_cache: Mutex::new(FileReqsCache::default()),
             }),
         };
         (service, shutdown_rx)
@@ -126,6 +137,37 @@ impl TraceyService {
         });
 
         (spec_name, impl_name)
+    }
+
+    fn cached_reqs_for_file(
+        &self,
+        data_version: u64,
+        file_path: &Path,
+    ) -> Option<tracey_core::Reqs> {
+        {
+            let mut cache = self.inner.file_reqs_cache.lock().unwrap();
+            if cache.version != data_version {
+                cache.entries.clear();
+                cache.version = data_version;
+            }
+            if let Some(reqs) = cache.entries.get(file_path) {
+                return Some(reqs.clone());
+            }
+        }
+
+        let content = std::fs::read_to_string(file_path).ok()?;
+        let reqs = tracey_core::Reqs::extract_from_content(file_path, &content);
+
+        {
+            let mut cache = self.inner.file_reqs_cache.lock().unwrap();
+            if cache.version != data_version {
+                cache.entries.clear();
+                cache.version = data_version;
+            }
+            cache.entries.insert(file_path.to_path_buf(), reqs.clone());
+        }
+
+        Some(reqs)
     }
 }
 
@@ -1057,8 +1099,7 @@ impl TraceyDaemon for TraceyService {
                 // Check files for unknown references
                 for file_entry in &reverse_data.files {
                     let file_path = project_root.join(&file_entry.path);
-                    if let Ok(content) = std::fs::read_to_string(&file_path) {
-                        let reqs = tracey_core::Reqs::extract_from_content(&file_path, &content);
+                    if let Some(reqs) = self.cached_reqs_for_file(data_version, &file_path) {
                         debug!(
                             "validate scanning file={} refs={} warnings={}",
                             file_entry.path,
