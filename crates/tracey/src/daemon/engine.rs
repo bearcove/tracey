@@ -494,7 +494,16 @@ impl Engine {
     pub async fn search(&self, query: &str, limit: usize) -> Vec<SearchResult> {
         if !self.search_activated.swap(true, Ordering::SeqCst) {
             let snapshot = self.data().await;
-            self.spawn_search_reindex(snapshot);
+            let built = search::build_index(
+                &self.project_root,
+                &snapshot.search_files,
+                &snapshot.search_rules,
+            );
+            let built: Arc<dyn SearchIndex> = Arc::from(built);
+            {
+                let mut idx = self.search_index.write().await;
+                *idx = built;
+            }
         }
         let index = self.search_index.read().await.clone();
         index.search(query, limit)

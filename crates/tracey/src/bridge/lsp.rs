@@ -368,25 +368,18 @@ impl Backend {
             let subscribe_client = daemon_client.clone();
             let subscribe_task = tokio::spawn(async move { subscribe_client.subscribe(tx).await });
 
-            loop {
-                match rx.recv().await {
-                    Ok(Some(update)) => {
-                        if last_version == Some(update.version) {
-                            continue;
-                        }
-                        last_version = Some(update.version);
-                        Self::publish_workspace_diagnostics_with(
-                            &client,
-                            &daemon_client,
-                            &project_root,
-                            &doc_state,
-                        )
-                        .await;
-                    }
-                    Ok(None) | Err(_) => {
-                        break;
-                    }
+            while let Ok(Some(update)) = rx.recv().await {
+                if last_version == Some(update.version) {
+                    continue;
                 }
+                last_version = Some(update.version);
+                Self::publish_workspace_diagnostics_with(
+                    &client,
+                    &daemon_client,
+                    &project_root,
+                    &doc_state,
+                )
+                .await;
             }
 
             subscribe_task.abort();
