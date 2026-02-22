@@ -639,7 +639,7 @@ mod tests {
                 return;
             }
 
-            // Create WalkSources with the same patterns as config.yaml
+            // Create WalkSources with the same patterns as config.styx
             let result = Reqs::extract(
                 WalkSources::new(project_root)
                     .include([

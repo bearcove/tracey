@@ -1269,7 +1269,7 @@ r[lsp.lifecycle.initialize]
 The server MUST respond to the `initialize` request with supported capabilities including diagnostics, hover, go-to-definition, and code actions.
 
 r[lsp.lifecycle.project-root]
-The server MUST use the project root (typically where `.config/tracey/config.yaml` is found) to locate the tracey configuration file.
+The server MUST use the project root (typically where `.config/tracey/config.styx` is found) to locate the tracey configuration file.
 
 ### Diagnostics
 
@@ -1498,7 +1498,7 @@ r[zed.filetypes.spec]
 The extension MUST activate for markdown files matching the spec patterns in the tracey configuration.
 
 r[zed.filetypes.config]
-The extension SHOULD activate for the tracey configuration file (`.config/tracey/config.yaml`).
+The extension SHOULD activate for the tracey configuration file (`.config/tracey/config.styx`).
 
 ### Installation
 

@@ -2331,9 +2331,9 @@ fn stale_diagnostic_message_short(
 /// Save config to file
 fn save_config(path: &Path, config: &crate::config::Config) -> eyre::Result<()> {
     use std::io::Write;
-    let yaml_string = facet_yaml::to_string(config)?;
+    let styx_string = facet_styx::to_string(config)?;
     let mut file = std::fs::File::create(path)?;
-    file.write_all(yaml_string.as_bytes())?;
+    file.write_all(styx_string.as_bytes())?;
     Ok(())
 }
 

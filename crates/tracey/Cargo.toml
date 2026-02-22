@@ -36,7 +36,6 @@ tracey-config = { workspace = true }
 
 # Facet ecosystem for config parsing and CLI
 facet = { workspace = true }
-facet-yaml = { workspace = true }
 facet-styx = { workspace = true }
 styx-embed = { workspace = true }
 facet-json = { workspace = true }

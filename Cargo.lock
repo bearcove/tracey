@@ -4416,7 +4416,6 @@ dependencies = [
  "facet-json",
  "facet-styx",
  "facet-typescript",
- "facet-yaml",
  "figue",
  "futures-util",
  "hyper-util",

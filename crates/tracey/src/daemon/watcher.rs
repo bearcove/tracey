@@ -13,7 +13,7 @@
 //!
 //! ## Reconfiguration
 //!
-//! When config.yaml or .gitignore changes, the watcher sends a
+//! When config.styx or .gitignore changes, the watcher sends a
 //! `Reconfigure` event. The rebuild loop then:
 //! 1. Rebuilds the gitignore matcher
 //! 2. Calls `WatcherManager::reconfigure()` to update watches
