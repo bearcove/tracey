@@ -19,6 +19,18 @@ fn main() {
 }
 
 fn install() {
+    // Build the dashboard frontend
+    let dashboard_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../crates/tracey/src/bridge/http/dashboard");
+    let status = Command::new("pnpm")
+        .args(["run", "build"])
+        .current_dir(&dashboard_dir)
+        .status()
+        .expect("Failed to run pnpm run build (is pnpm installed?)");
+    if !status.success() {
+        std::process::exit(status.code().unwrap_or(1));
+    }
+
     // Build release binary
     let status = Command::new("cargo")
         .args(["build", "--release", "-p", "tracey"])
