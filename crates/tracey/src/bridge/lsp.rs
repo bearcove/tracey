@@ -361,24 +361,37 @@ impl Backend {
         project_root: PathBuf,
         doc_state: Arc<Mutex<LspDocState>>,
     ) {
-        let mut last_version = rpc(daemon_client.version().await).ok();
+        let mut last_version: Option<u64> = None;
 
         loop {
-            tokio::time::sleep(Duration::from_millis(150)).await;
-            let Ok(version) = rpc(daemon_client.version().await) else {
-                continue;
-            };
-            if last_version == Some(version) {
-                continue;
+            let (tx, mut rx) = roam::channel::<DataUpdate>();
+            let subscribe_client = daemon_client.clone();
+            let subscribe_task = tokio::spawn(async move { subscribe_client.subscribe(tx).await });
+
+            loop {
+                match rx.recv().await {
+                    Ok(Some(update)) => {
+                        if last_version == Some(update.version) {
+                            continue;
+                        }
+                        last_version = Some(update.version);
+                        Self::publish_workspace_diagnostics_with(
+                            &client,
+                            &daemon_client,
+                            &project_root,
+                            &doc_state,
+                        )
+                        .await;
+                    }
+                    Ok(None) | Err(_) => {
+                        break;
+                    }
+                }
             }
-            last_version = Some(version);
-            Self::publish_workspace_diagnostics_with(
-                &client,
-                &daemon_client,
-                &project_root,
-                &doc_state,
-            )
-            .await;
+
+            subscribe_task.abort();
+            let _ = subscribe_task.await;
+            tokio::time::sleep(Duration::from_millis(250)).await;
         }
     }
 
