@@ -895,11 +895,7 @@ mod tests {
         }];
         let output = format_rule_info(&info);
         // Should have the spec/impl heading but no "Impl references:" section
-        assert!(
-            output.contains("## test-spec/main"),
-            "output:\n{}",
-            output
-        );
+        assert!(output.contains("## test-spec/main"), "output:\n{}", output);
         assert!(
             !output.contains("Impl references:"),
             "should not show impl refs header when empty:\n{}",

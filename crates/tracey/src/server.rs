@@ -1427,7 +1427,10 @@ fn only_b() {}
 
         // uncovered.rule: exists, not covered
         let uncovered = results[2].as_ref().expect("uncovered.rule should exist");
-        assert!(!uncovered.has_any_impl(), "uncovered.rule should not be covered");
+        assert!(
+            !uncovered.has_any_impl(),
+            "uncovered.rule should not be covered"
+        );
 
         // nonexistent.rule: does not exist
         assert!(results[3].is_none(), "nonexistent.rule should not exist");
