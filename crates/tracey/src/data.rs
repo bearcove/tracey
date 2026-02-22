@@ -27,8 +27,8 @@ use tracing::info;
 
 // Markdown rendering
 use marq::{
-    AasvgHandler, ArboriumHandler, CompareHandler, InlineCodeHandler, PikruHandler, RenderOptions,
-    ReqHandler, parse_frontmatter, render,
+    AasvgHandler, ArboriumHandler, CompareHandler, InlineCodeHandler, MermaidHandler, PikruHandler,
+    RenderOptions, ReqHandler, parse_frontmatter, render,
 };
 
 use crate::config::Config;
@@ -2386,6 +2386,7 @@ async fn load_spec_content(
         .with_handler(&["aasvg"], AasvgHandler::new())
         .with_handler(&["pikchr"], PikruHandler::new())
         .with_handler(&["compare"], CompareHandler::new())
+        .with_handler(&["mermaid"], MermaidHandler::new())
         .with_req_handler(rule_handler)
         .with_inline_code_handler(inline_code_handler);
 
