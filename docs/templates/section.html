@@ -2,27 +2,17 @@
 
 {% block title %}{{ section.title }} - Tracey{% endblock title %}
 
-{% block sidebar %}
-<aside class="sidebar">
-    <nav>
-        <h3><a href="{{ section.permalink }}">{{ section.title }}</a></h3>
-        <ul>
-        {% for page in section.pages %}
-            <li><a href="{{ page.path }}">{{ page.title }}</a></li>
-        {% endfor %}
-        </ul>
-    </nav>
-</aside>
-{% endblock sidebar %}
-
 {% block content %}
-{{ section.content | safe }}
+<article>
+    <h1>{{ section.title }}</h1>
+    {{ section.content | safe }}
 
-{% if section.pages %}
-<ul class="page-list">
-{% for page in section.pages %}
-    <li><a href="{{ page.path }}">{{ page.title }}</a></li>
-{% endfor %}
-</ul>
-{% endif %}
+    {% if section.pages %}
+    <ul class="page-list">
+    {% for page in section.pages %}
+        <li><a href="{{ page.path }}">{{ page.title }}</a></li>
+    {% endfor %}
+    </ul>
+    {% endif %}
+</article>
 {% endblock content %}

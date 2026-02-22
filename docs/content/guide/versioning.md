@@ -1,5 +1,6 @@
 +++
 title = "Versioning"
+weight = 8
 +++
 
 Specs change over time. When a requirement's text changes, the implementing code might need to change too. Tracey's versioning system tracks whether code has been reviewed against the latest version of each requirement.

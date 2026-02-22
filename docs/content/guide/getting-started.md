@@ -1,5 +1,6 @@
 +++
 title = "Getting Started"
+weight = 1
 +++
 
 This guide takes you from zero to a working tracey setup: a spec with requirements, annotated source code, and a coverage dashboard.

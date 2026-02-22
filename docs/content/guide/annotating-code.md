@@ -1,5 +1,6 @@
 +++
 title = "Annotating Code"
+weight = 3
 +++
 
 Requirement references link your source code back to the specification. They're written as comments using the syntax `PREFIX[VERB requirement.id]`.

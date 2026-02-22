@@ -1,5 +1,6 @@
 +++
 title = "Configuration"
+weight = 4
 +++
 
 Tracey is configured via `.config/tracey/config.styx` in your project root. The config file uses the [Styx](https://styx.bearcove.eu/) configuration language and defines which spec files to read and which source files to scan.
