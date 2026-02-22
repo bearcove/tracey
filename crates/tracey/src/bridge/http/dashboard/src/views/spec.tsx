@@ -309,7 +309,8 @@ export function SpecView({
     return spec.sections.map((s) => s.html).join("\n");
   }, [spec?.sections]);
 
-  // Inject head scripts (e.g. mermaid.js) from server-side rendered content
+  // Inject head scripts (e.g. mermaid.js) from server-side rendered content.
+  // Must use createElement("script") — scripts created via innerHTML do not execute.
   useEffect(() => {
     if (!spec?.head_injections?.length) return;
     const injected: HTMLElement[] = [];
@@ -318,8 +319,19 @@ export function SpecView({
       if (document.getElementById(key)) continue;
       const tmp = document.createElement("div");
       tmp.innerHTML = html;
-      const el = tmp.firstElementChild as HTMLElement | null;
-      if (!el) continue;
+      const parsed = tmp.firstElementChild;
+      if (!parsed) continue;
+      let el: HTMLElement;
+      if (parsed.tagName === "SCRIPT") {
+        const script = document.createElement("script");
+        for (const attr of parsed.attributes) {
+          script.setAttribute(attr.name, attr.value);
+        }
+        script.textContent = parsed.textContent;
+        el = script;
+      } else {
+        el = parsed as HTMLElement;
+      }
       el.id = key;
       document.head.appendChild(el);
       injected.push(el);
