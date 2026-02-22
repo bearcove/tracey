@@ -42,8 +42,9 @@ use crate::search;
 pub use tracey_api::{
     ApiCodeRef, ApiCodeUnit, ApiConfig, ApiFileData, ApiFileEntry, ApiForwardData, ApiReverseData,
     ApiRule, ApiSpecData, ApiSpecForward, ApiSpecInfo, ApiStaleRef, GitStatus, OutlineCoverage,
-    OutlineEntry, SpecSection,
+    OutlineEntry, SpecSection, ValidationError, ValidationErrorCode, ValidationResult,
 };
+use tracey_proto::{LspDiagnostic, LspFileDiagnostics};
 
 // ============================================================================
 // Core Types
@@ -67,8 +68,15 @@ pub struct DashboardData {
     pub spec_includes_by_name: BTreeMap<String, Vec<String>>,
     /// Source files for full-text index construction
     pub search_files: BTreeMap<PathBuf, String>,
+    /// Parsed requirement references and warnings by source file, captured during rebuild.
+    /// Includes all prefixes found in scanned files (not filtered to a spec prefix).
+    pub source_reqs_by_file: BTreeMap<PathBuf, Reqs>,
     /// Rules for full-text index construction
     pub search_rules: Vec<search::RuleEntry>,
+    /// Precomputed validation diagnostics by (spec, impl).
+    pub validation_by_impl: BTreeMap<ImplKey, ValidationResult>,
+    /// Precomputed workspace diagnostics for LSP publishing.
+    pub workspace_diagnostics: Vec<LspFileDiagnostics>,
     /// Version number (incremented only when content actually changes)
     pub version: u64,
     /// Hash of forward + reverse JSON for change detection
@@ -1065,6 +1073,7 @@ async fn scan_impl_files(
     Vec<String>,
     BTreeMap<PathBuf, Vec<CodeUnit>>,
     BTreeMap<PathBuf, String>,
+    BTreeMap<PathBuf, Reqs>,
     bool,
 ) {
     let (mut files, warnings, did_full_walk) =
@@ -1087,8 +1096,16 @@ async fn scan_impl_files(
     let mut parse_warnings = Vec::new();
     let mut code_units_by_file: BTreeMap<PathBuf, Vec<CodeUnit>> = BTreeMap::new();
     let mut file_contents: BTreeMap<PathBuf, String> = BTreeMap::new();
+    let mut reqs_by_file: BTreeMap<PathBuf, Reqs> = BTreeMap::new();
     for path in files {
         if let Ok(parsed) = get_cached_source_file(&path, overlay, cache, stats).await {
+            reqs_by_file.insert(
+                path.clone(),
+                Reqs {
+                    references: parsed.refs.clone(),
+                    warnings: parsed.parse_warnings.clone(),
+                },
+            );
             refs.extend(parsed.refs);
             parse_warnings.extend(parsed.parse_warnings);
             if !parsed.code_units.is_empty() {
@@ -1103,6 +1120,7 @@ async fn scan_impl_files(
         warnings,
         code_units_by_file,
         file_contents,
+        reqs_by_file,
         did_full_walk,
     )
 }
@@ -1120,6 +1138,665 @@ struct ImplComputedOutput {
     forward_elapsed_ms: u128,
     reverse_elapsed_ms: u128,
     elapsed_ms: u128,
+}
+
+const STALE_IMPLEMENTATION_MUST_CHANGE_PREFIX: &str = "Implementation must be changed to match updated rule text — and ONLY ONCE THAT'S DONE must the code annotation be bumped";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum KnownRuleMatch {
+    Exact,
+    Stale(RuleId),
+    Missing,
+}
+
+fn classify_reference_against_known_rules(
+    reference_id: &RuleId,
+    known_rule_ids: &[RuleId],
+) -> KnownRuleMatch {
+    let mut stale_target: Option<RuleId> = None;
+
+    for rule_id in known_rule_ids {
+        match classify_reference_for_rule(rule_id, reference_id) {
+            RuleIdMatch::Exact => return KnownRuleMatch::Exact,
+            RuleIdMatch::Stale => {
+                stale_target = Some(rule_id.clone());
+            }
+            RuleIdMatch::NoMatch => {}
+        }
+    }
+
+    if let Some(rule_id) = stale_target {
+        KnownRuleMatch::Stale(rule_id)
+    } else {
+        KnownRuleMatch::Missing
+    }
+}
+
+fn stale_diagnostic_message_short(
+    reference_rule_id: &RuleId,
+    current_rule: Option<&ApiRule>,
+) -> String {
+    let mut message = String::from(STALE_IMPLEMENTATION_MUST_CHANGE_PREFIX);
+    if let Some(current_rule) = current_rule {
+        message.push_str(&format!(
+            ". Reference '{}' is stale; current rule is '{}'.",
+            reference_rule_id, current_rule.id
+        ));
+    } else {
+        message.push_str(". The referenced annotation is stale, but the latest matching rule could not be loaded.");
+    }
+    message
+}
+
+fn common_prefix_len(a: &str, b: &str) -> usize {
+    a.bytes().zip(b.bytes()).take_while(|(x, y)| x == y).count()
+}
+
+fn levenshtein(a: &str, b: &str) -> usize {
+    if a.is_empty() {
+        return b.chars().count();
+    }
+    if b.is_empty() {
+        return a.chars().count();
+    }
+
+    let b_chars: Vec<char> = b.chars().collect();
+    let mut prev: Vec<usize> = (0..=b_chars.len()).collect();
+    let mut curr = vec![0usize; b_chars.len() + 1];
+
+    for (i, ca) in a.chars().enumerate() {
+        curr[0] = i + 1;
+        for (j, cb) in b_chars.iter().enumerate() {
+            let cost = if ca == *cb { 0 } else { 1 };
+            let insert = curr[j] + 1;
+            let delete = prev[j + 1] + 1;
+            let replace = prev[j] + cost;
+            curr[j + 1] = insert.min(delete).min(replace);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[b_chars.len()]
+}
+
+fn suggest_similar_rule_ids(
+    reference_id: &RuleId,
+    known_rule_ids: &[RuleId],
+    limit: usize,
+) -> Vec<RuleId> {
+    let mut latest_by_base: HashMap<String, RuleId> = HashMap::new();
+    for rule_id in known_rule_ids {
+        let entry = latest_by_base
+            .entry(rule_id.base.clone())
+            .or_insert_with(|| rule_id.clone());
+        if rule_id.version > entry.version {
+            *entry = rule_id.clone();
+        }
+    }
+
+    let target = reference_id.base.as_str();
+    let target_segments: std::collections::HashSet<&str> = target.split('.').collect();
+    let mut scored: Vec<(i32, RuleId)> = latest_by_base
+        .into_values()
+        .filter_map(|candidate| {
+            let cand = candidate.base.as_str();
+            let dist = levenshtein(target, cand) as i32;
+            let prefix = common_prefix_len(target, cand) as i32;
+            let cand_segments: std::collections::HashSet<&str> = cand.split('.').collect();
+            let overlap = target_segments.intersection(&cand_segments).count() as i32;
+            let version_delta = (candidate.version as i32 - reference_id.version as i32).abs();
+            let score = overlap * 40 + prefix - dist * 4 - version_delta;
+
+            let max_dist = (target.len().max(cand.len()) / 3).max(3) as i32;
+            let passes = overlap > 0 || prefix >= 5 || dist <= max_dist;
+            if passes {
+                Some((score, candidate))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    scored.sort_by(|(sa, a), (sb, b)| sb.cmp(sa).then_with(|| b.version.cmp(&a.version)));
+    scored
+        .into_iter()
+        .take(limit)
+        .map(|(_, rule_id)| rule_id)
+        .collect()
+}
+
+fn unknown_rule_message_with_context(
+    prefix: &str,
+    verb: &RefVerb,
+    reference_id: &RuleId,
+    known_rule_ids: &[RuleId],
+) -> String {
+    let suggestions = suggest_similar_rule_ids(reference_id, known_rule_ids, 3);
+    let reference = format!("{}[{} {}]", prefix, verb, reference_id);
+    if suggestions.is_empty() {
+        format!("Unknown rule reference {}", reference)
+    } else {
+        format!(
+            "Unknown rule reference {} (did you mean: {})",
+            reference,
+            suggestions
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    }
+}
+
+fn is_valid_rule_id(id: &RuleId) -> bool {
+    let base_id = &id.base;
+    for segment in base_id.split('.') {
+        if segment.is_empty() {
+            return false;
+        }
+        if !segment
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        {
+            return false;
+        }
+        if !segment
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_lowercase())
+        {
+            return false;
+        }
+    }
+    true
+}
+
+fn detect_circular_dependencies(forward_data: &ApiSpecForward) -> Vec<Vec<RuleId>> {
+    use std::collections::{HashMap, HashSet};
+
+    let mut graph: HashMap<RuleId, Vec<RuleId>> = HashMap::new();
+    for rule in &forward_data.rules {
+        graph.entry(rule.id.clone()).or_default();
+    }
+
+    let mut cycles = Vec::new();
+    let mut visited = HashSet::new();
+    let mut rec_stack = HashSet::new();
+    let mut path = Vec::new();
+
+    fn dfs(
+        node: &RuleId,
+        graph: &HashMap<RuleId, Vec<RuleId>>,
+        visited: &mut HashSet<RuleId>,
+        rec_stack: &mut HashSet<RuleId>,
+        path: &mut Vec<RuleId>,
+        cycles: &mut Vec<Vec<RuleId>>,
+    ) {
+        visited.insert(node.clone());
+        rec_stack.insert(node.clone());
+        path.push(node.clone());
+
+        if let Some(neighbors) = graph.get(node) {
+            for neighbor in neighbors {
+                if !visited.contains(neighbor) {
+                    dfs(neighbor, graph, visited, rec_stack, path, cycles);
+                } else if rec_stack.contains(neighbor) {
+                    let cycle_start = path.iter().position(|n| n == neighbor).unwrap_or(0);
+                    let mut cycle: Vec<RuleId> = path[cycle_start..].to_vec();
+                    cycle.push(neighbor.clone());
+                    cycles.push(cycle);
+                }
+            }
+        }
+
+        path.pop();
+        rec_stack.remove(node);
+    }
+
+    for node in graph.keys().cloned().collect::<Vec<_>>() {
+        if !visited.contains(&node) {
+            dfs(
+                &node,
+                &graph,
+                &mut visited,
+                &mut rec_stack,
+                &mut path,
+                &mut cycles,
+            );
+        }
+    }
+
+    cycles
+}
+
+fn span_to_range(content: &str, offset: usize, length: usize) -> (u32, u32, u32, u32) {
+    let mut line = 0u32;
+    let mut col = 0u32;
+    let mut start_line = 0u32;
+    let mut start_col = 0u32;
+    let mut found_start = false;
+
+    for (i, c) in content.char_indices() {
+        if i == offset {
+            start_line = line;
+            start_col = col;
+            found_start = true;
+        }
+        if i == offset + length {
+            return (start_line, start_col, line, col);
+        }
+        if c == '\n' {
+            line += 1;
+            col = 0;
+        } else {
+            col += 1;
+        }
+    }
+
+    if !found_start {
+        (line, col, line, col)
+    } else {
+        (start_line, start_col, line, col)
+    }
+}
+
+fn compute_validation_by_impl(
+    abs_root: &Path,
+    config: &ApiConfig,
+    forward_by_impl: &BTreeMap<ImplKey, ApiSpecForward>,
+    reverse_by_impl: &BTreeMap<ImplKey, ApiReverseData>,
+    source_reqs_by_file: &BTreeMap<PathBuf, Reqs>,
+    test_files: &std::collections::HashSet<PathBuf>,
+) -> BTreeMap<ImplKey, ValidationResult> {
+    let mut out = BTreeMap::new();
+    let known_prefixes: std::collections::HashSet<&str> =
+        config.specs.iter().map(|s| s.prefix.as_str()).collect();
+
+    for (impl_key, forward_data) in forward_by_impl {
+        let (spec, impl_name) = impl_key;
+        let mut errors = Vec::new();
+
+        let known_rule_ids: Vec<RuleId> = forward_data.rules.iter().map(|r| r.id.clone()).collect();
+        let rules_by_id: HashMap<RuleId, &ApiRule> = forward_data
+            .rules
+            .iter()
+            .map(|rule| (rule.id.clone(), rule))
+            .collect();
+
+        let mut seen_ids: HashMap<RuleId, (&Option<String>, Option<usize>)> = HashMap::new();
+        let mut seen_bases: HashMap<String, (&RuleId, &Option<String>, Option<usize>)> =
+            HashMap::new();
+
+        for rule in &forward_data.rules {
+            if let Some((prev_file, prev_line)) = seen_ids.get(&rule.id) {
+                errors.push(ValidationError {
+                    code: ValidationErrorCode::DuplicateRequirement,
+                    message: format!(
+                        "Duplicate rule ID '{}' (first defined at {}:{})",
+                        rule.id,
+                        prev_file.as_deref().unwrap_or("?"),
+                        prev_line.unwrap_or(0)
+                    ),
+                    file: rule.source_file.clone(),
+                    line: rule.source_line,
+                    column: rule.source_column,
+                    related_rules: vec![rule.id.clone()],
+                    reference_rule_id: None,
+                });
+            } else {
+                seen_ids.insert(rule.id.clone(), (&rule.source_file, rule.source_line));
+            }
+
+            if let Some((prev_rule_id, prev_file, prev_line)) =
+                seen_bases.get(rule.id.base.as_str())
+            {
+                errors.push(ValidationError {
+                    code: ValidationErrorCode::DuplicateRequirement,
+                    message: format!(
+                        "Duplicate rule base '{}' across versions ('{}' and '{}') in same spec (first defined at {}:{})",
+                        rule.id.base,
+                        prev_rule_id,
+                        rule.id,
+                        prev_file.as_deref().unwrap_or("?"),
+                        prev_line.unwrap_or(0)
+                    ),
+                    file: rule.source_file.clone(),
+                    line: rule.source_line,
+                    column: rule.source_column,
+                    related_rules: vec![(*prev_rule_id).clone(), rule.id.clone()],
+                    reference_rule_id: None,
+                });
+            } else {
+                seen_bases.insert(
+                    rule.id.base.clone(),
+                    (&rule.id, &rule.source_file, rule.source_line),
+                );
+            }
+        }
+
+        for rule in &forward_data.rules {
+            if !is_valid_rule_id(&rule.id) {
+                errors.push(ValidationError {
+                    code: ValidationErrorCode::InvalidNaming,
+                    message: format!(
+                        "Rule ID '{}' doesn't follow naming convention (use dot-separated lowercase segments)",
+                        rule.id
+                    ),
+                    file: rule.source_file.clone(),
+                    line: rule.source_line,
+                    column: rule.source_column,
+                    related_rules: vec![],
+                    reference_rule_id: None,
+                });
+            }
+
+            for impl_ref in &rule.impl_refs {
+                let ref_path = abs_root.join(&impl_ref.file);
+                if test_files.contains(&ref_path) {
+                    errors.push(ValidationError {
+                        code: ValidationErrorCode::ImplInTestFile,
+                        message: format!(
+                            "Test file contains impl annotation for '{}' - test files may only contain verify annotations",
+                            rule.id
+                        ),
+                        file: Some(impl_ref.file.clone()),
+                        line: Some(impl_ref.line),
+                        column: None,
+                        related_rules: vec![rule.id.clone()],
+                        reference_rule_id: None,
+                    });
+                }
+            }
+        }
+
+        if let Some(reverse_data) = reverse_by_impl.get(impl_key) {
+            let current_spec_prefix: Option<&str> = config
+                .specs
+                .iter()
+                .find(|s| s.name == *spec)
+                .map(|s| s.prefix.as_str());
+
+            let known_rule_ids_for_prefix: Vec<RuleId> = if let Some(prefix) = current_spec_prefix {
+                let spec_names: std::collections::HashSet<&str> = config
+                    .specs
+                    .iter()
+                    .filter(|s| s.prefix == prefix)
+                    .map(|s| s.name.as_str())
+                    .collect();
+
+                forward_by_impl
+                    .iter()
+                    .filter(|((spec_name, _), _)| spec_names.contains(spec_name.as_str()))
+                    .flat_map(|(_, forward)| forward.rules.iter().map(|r| r.id.clone()))
+                    .collect()
+            } else {
+                Vec::new()
+            };
+
+            let mut available_prefixes: Vec<_> = known_prefixes.iter().copied().collect();
+            available_prefixes.sort_unstable();
+            let available_prefixes_joined = available_prefixes.join(", ");
+
+            for file_entry in &reverse_data.files {
+                let file_path = abs_root.join(&file_entry.path);
+                let canonical = file_path
+                    .canonicalize()
+                    .unwrap_or_else(|_| file_path.clone());
+                let Some(reqs) = source_reqs_by_file
+                    .get(&canonical)
+                    .or_else(|| source_reqs_by_file.get(&file_path))
+                else {
+                    continue;
+                };
+
+                for reference in &reqs.references {
+                    if !known_prefixes.contains(reference.prefix.as_str()) {
+                        errors.push(ValidationError {
+                            code: ValidationErrorCode::UnknownPrefix,
+                            message: format!(
+                                "Unknown prefix '{}' - available prefixes: {}",
+                                reference.prefix, available_prefixes_joined
+                            ),
+                            file: Some(file_entry.path.clone()),
+                            line: Some(reference.line),
+                            column: None,
+                            related_rules: vec![],
+                            reference_rule_id: None,
+                        });
+                    } else if current_spec_prefix == Some(reference.prefix.as_str()) {
+                        match classify_reference_against_known_rules(
+                            &reference.req_id,
+                            &known_rule_ids,
+                        ) {
+                            KnownRuleMatch::Exact => {}
+                            KnownRuleMatch::Stale(current_rule_id) => {
+                                let message = stale_diagnostic_message_short(
+                                    &reference.req_id,
+                                    rules_by_id.get(&current_rule_id).copied(),
+                                );
+                                errors.push(ValidationError {
+                                    code: ValidationErrorCode::StaleRequirement,
+                                    message,
+                                    file: Some(file_entry.path.clone()),
+                                    line: Some(reference.line),
+                                    column: None,
+                                    related_rules: vec![current_rule_id],
+                                    reference_rule_id: Some(reference.req_id.clone()),
+                                });
+                            }
+                            KnownRuleMatch::Missing => {
+                                match classify_reference_against_known_rules(
+                                    &reference.req_id,
+                                    &known_rule_ids_for_prefix,
+                                ) {
+                                    KnownRuleMatch::Exact | KnownRuleMatch::Stale(_) => {}
+                                    KnownRuleMatch::Missing => {
+                                        let message = unknown_rule_message_with_context(
+                                            &reference.prefix,
+                                            &reference.verb,
+                                            &reference.req_id,
+                                            &known_rule_ids_for_prefix,
+                                        );
+                                        errors.push(ValidationError {
+                                            code: ValidationErrorCode::UnknownRequirement,
+                                            message,
+                                            file: Some(file_entry.path.clone()),
+                                            line: Some(reference.line),
+                                            column: None,
+                                            related_rules: vec![],
+                                            reference_rule_id: None,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for cycle in detect_circular_dependencies(forward_data) {
+            errors.push(ValidationError {
+                code: ValidationErrorCode::CircularDependency,
+                message: format!(
+                    "Circular dependency detected: {}",
+                    cycle
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(" -> ")
+                ),
+                file: None,
+                line: None,
+                column: None,
+                related_rules: cycle,
+                reference_rule_id: None,
+            });
+        }
+
+        let error_count = errors.len();
+        out.insert(
+            impl_key.clone(),
+            ValidationResult {
+                spec: spec.clone(),
+                impl_name: impl_name.clone(),
+                errors,
+                warning_count: 0,
+                error_count,
+            },
+        );
+    }
+
+    out
+}
+
+fn compute_workspace_diagnostics(
+    abs_root: &Path,
+    config: &ApiConfig,
+    forward_by_impl: &BTreeMap<ImplKey, ApiSpecForward>,
+    source_reqs_by_file: &BTreeMap<PathBuf, Reqs>,
+    file_contents: &BTreeMap<PathBuf, String>,
+    test_files: &std::collections::HashSet<PathBuf>,
+) -> Vec<LspFileDiagnostics> {
+    let known_prefixes: std::collections::HashSet<&str> =
+        config.specs.iter().map(|s| s.prefix.as_str()).collect();
+    if known_prefixes.is_empty() {
+        return Vec::new();
+    }
+
+    let mut known_rules_by_prefix: HashMap<&str, Vec<RuleId>> = HashMap::new();
+    let mut rules_by_id: HashMap<RuleId, ApiRule> = HashMap::new();
+    for spec_cfg in &config.specs {
+        let rule_ids = known_rules_by_prefix
+            .entry(spec_cfg.prefix.as_str())
+            .or_default();
+        for ((spec_name, _), forward_data) in forward_by_impl {
+            if spec_name == &spec_cfg.name {
+                for rule in &forward_data.rules {
+                    rule_ids.push(rule.id.clone());
+                    rules_by_id
+                        .entry(rule.id.clone())
+                        .or_insert_with(|| rule.clone());
+                }
+            }
+        }
+    }
+
+    let mut out = Vec::new();
+    for (path, reqs) in source_reqs_by_file {
+        let Some(content) = file_contents.get(path) else {
+            continue;
+        };
+        let is_test = test_files.contains(path);
+        let mut diagnostics = Vec::new();
+
+        for reference in &reqs.references {
+            let (start_line, start_char, end_line, end_char) =
+                span_to_range(content, reference.span.offset, reference.span.length);
+
+            if !known_prefixes.contains(reference.prefix.as_str()) {
+                diagnostics.push(LspDiagnostic {
+                    severity: "error".to_string(),
+                    code: "unknown-prefix".to_string(),
+                    message: format!("Unknown prefix: '{}'", reference.prefix),
+                    start_line,
+                    start_char,
+                    end_line,
+                    end_char,
+                });
+                continue;
+            }
+
+            let known_for_prefix = known_rules_by_prefix
+                .get(reference.prefix.as_str())
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
+            match classify_reference_against_known_rules(&reference.req_id, known_for_prefix) {
+                KnownRuleMatch::Exact => {}
+                KnownRuleMatch::Stale(current_rule_id) => {
+                    let message = stale_diagnostic_message_short(
+                        &reference.req_id,
+                        rules_by_id.get(&current_rule_id),
+                    );
+                    diagnostics.push(LspDiagnostic {
+                        severity: "warning".to_string(),
+                        code: "stale".to_string(),
+                        message,
+                        start_line,
+                        start_char,
+                        end_line,
+                        end_char,
+                    });
+                }
+                KnownRuleMatch::Missing => {
+                    let message = unknown_rule_message_with_context(
+                        &reference.prefix,
+                        &reference.verb,
+                        &reference.req_id,
+                        known_for_prefix,
+                    );
+                    diagnostics.push(LspDiagnostic {
+                        severity: "warning".to_string(),
+                        code: "orphaned".to_string(),
+                        message,
+                        start_line,
+                        start_char,
+                        end_line,
+                        end_char,
+                    });
+                }
+            }
+
+            if is_test && reference.verb == RefVerb::Impl {
+                diagnostics.push(LspDiagnostic {
+                    severity: "warning".to_string(),
+                    code: "impl-in-test".to_string(),
+                    message: "Implementation reference in test file (use 'verify' instead)"
+                        .to_string(),
+                    start_line,
+                    start_char,
+                    end_line,
+                    end_char,
+                });
+            }
+        }
+
+        for warning in &reqs.warnings {
+            let (start_line, start_char, end_line, end_char) =
+                span_to_range(content, warning.span.offset, warning.span.length);
+            let message = match &warning.kind {
+                tracey_core::WarningKind::UnknownVerb(verb) => {
+                    format!("Unknown verb: '{}'", verb)
+                }
+                tracey_core::WarningKind::MalformedReference => "Malformed reference".to_string(),
+            };
+
+            diagnostics.push(LspDiagnostic {
+                severity: "warning".to_string(),
+                code: "parse-warning".to_string(),
+                message,
+                start_line,
+                start_char,
+                end_line,
+                end_char,
+            });
+        }
+
+        if diagnostics.is_empty() {
+            continue;
+        }
+
+        let rel_path = path
+            .strip_prefix(abs_root)
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| compute_relative_path(abs_root, path));
+        out.push(LspFileDiagnostics {
+            path: rel_path,
+            diagnostics,
+        });
+    }
+
+    out.sort_by(|a, b| a.path.cmp(&b.path));
+    out
 }
 
 fn compute_impl_output(
@@ -1357,6 +2034,7 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
     let specs_content_by_impl: BTreeMap<ImplKey, ApiSpecData> = BTreeMap::new();
     let mut spec_includes_by_name: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut all_file_contents: BTreeMap<PathBuf, String> = BTreeMap::new();
+    let mut all_source_reqs_by_file: BTreeMap<PathBuf, Reqs> = BTreeMap::new();
     let mut all_search_rules: Vec<search::RuleEntry> = Vec::new();
     let mut total_extracted_rules = 0usize;
     let mut total_source_refs = 0usize;
@@ -1539,6 +2217,7 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
                 scan_warnings,
                 impl_code_units,
                 impl_file_contents,
+                impl_source_reqs_by_file,
                 impl_walk_full_scan,
             ) = scan_impl_files(
                 project_root,
@@ -1561,6 +2240,9 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
             total_source_refs += refs.len();
             for (path, content) in impl_file_contents {
                 all_file_contents.insert(path, content);
+            }
+            for (path, reqs) in impl_source_reqs_by_file {
+                all_source_reqs_by_file.entry(path).or_insert(reqs);
             }
             if !parse_warnings.is_empty() {
                 info!(
@@ -1671,6 +2353,23 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
         content_hash ^= simple_hash(&format!("{:?}:{}", key, json));
     }
 
+    let validation_by_impl = compute_validation_by_impl(
+        &abs_root,
+        &api_config,
+        &forward_by_impl,
+        &reverse_by_impl,
+        &all_source_reqs_by_file,
+        &test_files,
+    );
+    let workspace_diagnostics = compute_workspace_diagnostics(
+        &abs_root,
+        &api_config,
+        &forward_by_impl,
+        &all_source_reqs_by_file,
+        &all_file_contents,
+        &test_files,
+    );
+
     let elapsed = build_start.elapsed();
     info!(
         "dashboard build done version={} specs={} impls={} rules={} refs={} code_files={} code_units={} cache_metadata_hits={} cache_hash_hits={} cache_misses={} reparsed_files={} cache_entries={} elapsed_ms={}",
@@ -1697,7 +2396,10 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
         specs_content_by_impl,
         spec_includes_by_name,
         search_files: all_file_contents,
+        source_reqs_by_file: all_source_reqs_by_file,
         search_rules: all_search_rules,
+        validation_by_impl,
+        workspace_diagnostics,
         version,
         content_hash,
         delta: crate::server::Delta::default(),
