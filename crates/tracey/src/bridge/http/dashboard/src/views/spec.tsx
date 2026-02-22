@@ -312,15 +312,22 @@ export function SpecView({
   // Inject head scripts (e.g. mermaid.js) from server-side rendered content.
   // Must use createElement("script") — scripts created via innerHTML do not execute.
   useEffect(() => {
+    console.log("[tracey] head_injections:", spec?.head_injections);
     if (!spec?.head_injections?.length) return;
     const injected: HTMLElement[] = [];
     for (const html of spec.head_injections) {
       const key = `tracey-head-${btoa(html).slice(0, 16)}`;
-      if (document.getElementById(key)) continue;
+      if (document.getElementById(key)) {
+        console.log("[tracey] head injection already present, skipping:", key);
+        continue;
+      }
       const tmp = document.createElement("div");
       tmp.innerHTML = html;
       const parsed = tmp.firstElementChild;
-      if (!parsed) continue;
+      if (!parsed) {
+        console.warn("[tracey] head injection parsed to nothing:", html);
+        continue;
+      }
       let el: HTMLElement;
       if (parsed.tagName === "SCRIPT") {
         const script = document.createElement("script");
@@ -333,6 +340,7 @@ export function SpecView({
         el = parsed as HTMLElement;
       }
       el.id = key;
+      console.log("[tracey] injecting into head:", el.outerHTML.slice(0, 120));
       document.head.appendChild(el);
       injected.push(el);
     }
