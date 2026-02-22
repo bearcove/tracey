@@ -102,6 +102,26 @@ body {
     flex: 1;
 }
 
+.site-nav-link {
+    color: var(--fg-muted);
+    text-decoration: none;
+    font-size: 0.9rem;
+    font-weight: 500;
+    transition: color 0.15s;
+}
+
+.site-nav-link:hover {
+    color: var(--fg);
+}
+
+.site-nav-link:visited {
+    color: var(--fg-muted);
+}
+
+.site-nav-link:visited:hover {
+    color: var(--fg);
+}
+
 .site-nav-search {
     width: 240px;
     height: 36px;
@@ -759,7 +779,7 @@ pre,
     flex: 1;
 }
 
-.feature-text h3 {
+.feature-text h2 {
     font-family: var(--font-display);
     font-size: 2rem;
     font-weight: 900;
@@ -767,6 +787,9 @@ pre,
     color: var(--fg);
     letter-spacing: -0.03em;
     line-height: 1.1;
+    border-bottom: none;
+    padding-bottom: 0;
+    margin-top: 0;
 }
 
 .feature-text p {
@@ -774,15 +797,6 @@ pre,
     color: var(--fg-muted);
     line-height: 1.6;
     margin: 0 0 0.5rem;
-}
-
-.feature-text a {
-    color: var(--accent);
-    text-decoration: none;
-}
-
-.feature-text a:hover {
-    text-decoration: underline;
 }
 
 .feature-text code {
@@ -798,40 +812,8 @@ pre,
     min-width: 0;
 }
 
-.feature-code {
-    background: var(--code-bg);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 1rem 1.25rem;
-    font-family: var(--font-mono);
-    font-size: 0.8rem;
-    line-height: 1.5;
-    overflow-x: auto;
-    margin: 0;
-    color: var(--fg);
-}
-
-.feature-code code {
-    font-family: inherit;
-    font-size: inherit;
-    background: none;
-    padding: 0;
-}
-
-.feature-image {
-    width: 100%;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-}
-
-.feature-video {
-    width: 100%;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-}
-
-/* Code blocks inside feature visuals — compact sizing */
-.feature-visual .code-block {
+.feature-visual .code-block,
+.feature-visual pre {
     margin: 0;
 }
 
@@ -848,16 +830,6 @@ pre,
     font-family: var(--font-mono);
     font-size: 0.8rem;
     line-height: 1.5;
-}
-
-.feature-placeholder {
-    background: var(--code-bg);
-    border: 1px dashed var(--border);
-    border-radius: 6px;
-    padding: 3rem 1.5rem;
-    text-align: center;
-    color: var(--fg-muted);
-    font-size: 0.9rem;
 }
 
 /* ============================================
