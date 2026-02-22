@@ -1400,4 +1400,36 @@ fn only_b() {}
             "only.in.b should be covered in impl-b"
         );
     }
+
+    #[tokio::test]
+    async fn test_batch_rule_lookup() {
+        let (_tmp, root) = create_test_fixture().await;
+        let config_path = root.join(".config/tracey/config.styx");
+        let config = crate::load_config(&config_path).unwrap();
+
+        let data = crate::data::build_dashboard_data(&root, &config, 1, true)
+            .await
+            .unwrap();
+
+        let engine = QueryEngine::new(&data);
+
+        // Batch lookup of multiple rules — simulates what `tracey query rule id1 id2 id3` does
+        let ids = ["foo.bar", "foo.baz", "uncovered.rule", "nonexistent.rule"];
+        let results: Vec<Option<RuleInfo>> = ids.iter().map(|id| engine.rule(&rid(id))).collect();
+
+        // foo.bar: exists, covered
+        let foo_bar = results[0].as_ref().expect("foo.bar should exist");
+        assert!(foo_bar.has_any_impl(), "foo.bar should be covered");
+
+        // foo.baz: exists, covered
+        let foo_baz = results[1].as_ref().expect("foo.baz should exist");
+        assert!(foo_baz.has_any_impl(), "foo.baz should be covered");
+
+        // uncovered.rule: exists, not covered
+        let uncovered = results[2].as_ref().expect("uncovered.rule should exist");
+        assert!(!uncovered.has_any_impl(), "uncovered.rule should not be covered");
+
+        // nonexistent.rule: does not exist
+        assert!(results[3].is_none(), "nonexistent.rule should not exist");
+    }
 }

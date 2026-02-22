@@ -221,11 +221,11 @@ enum QueryCommand {
         prefix: Option<String>,
     },
 
-    /// Show details about a specific rule
+    /// Show details about one or more rules
     Rule {
-        /// Rule identifier to inspect
+        /// Rule identifiers to inspect (one or more)
         #[facet(args::positional)]
-        rule_id: String,
+        rule_ids: Vec<String>,
     },
 
     /// Display current configuration
@@ -412,7 +412,7 @@ async fn main() -> Result<()> {
                         .stale(spec_impl.as_deref(), prefix.as_deref())
                         .await
                 }
-                QueryCommand::Rule { rule_id } => query_client.rule(&rule_id).await,
+                QueryCommand::Rule { rule_ids } => query_client.rules(&rule_ids).await,
                 QueryCommand::Config => query_client.config().await,
                 QueryCommand::Validate { spec_impl } => {
                     query_client.validate(spec_impl.as_deref()).await

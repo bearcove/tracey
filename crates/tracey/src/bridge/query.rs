@@ -442,41 +442,31 @@ impl QueryClient {
         };
 
         let output = match self.client.rule(rule_id.clone()).await {
-            Ok(Some(info)) => {
-                let mut output = format!("# {}\n\n{}\n\n", info.id, info.raw);
-
-                if let Some(file) = &info.source_file
-                    && let Some(line) = info.source_line
-                {
-                    output.push_str(&format!("Defined in: {}:{}\n\n", file, line));
-                }
-
-                if let Some(diff) = &info.version_diff {
-                    output.push_str(&format!("## Changes from previous version\n\n{diff}\n\n"));
-                }
-
-                for cov in &info.coverage {
-                    output.push_str(&format!("\n## {}/{}\n", cov.spec, cov.impl_name));
-                    if !cov.impl_refs.is_empty() {
-                        output.push_str("Impl references:\n");
-                        for r in &cov.impl_refs {
-                            output.push_str(&format!("  - {}:{}\n", r.file, r.line));
-                        }
-                    }
-                    if !cov.verify_refs.is_empty() {
-                        output.push_str("Verify references:\n");
-                        for r in &cov.verify_refs {
-                            output.push_str(&format!("  - {}:{}\n", r.file, r.line));
-                        }
-                    }
-                }
-
-                output
-            }
+            Ok(Some(info)) => format_rule_info(&info),
             Ok(None) => format!("Rule not found: {}", rule_id),
             Err(e) => format!("Error: {e}"),
         };
 
+        self.with_config_banner(output).await
+    }
+
+    pub async fn rules(&self, rule_ids: &[String]) -> String {
+        let mut sections = Vec::new();
+
+        for raw_id in rule_ids {
+            let Some(rule_id) = parse_rule_id(raw_id) else {
+                sections.push(format!("Error: invalid rule ID '{}'", raw_id));
+                continue;
+            };
+
+            match self.client.rule(rule_id.clone()).await {
+                Ok(Some(info)) => sections.push(format_rule_info(&info)),
+                Ok(None) => sections.push(format!("Rule not found: {}", rule_id)),
+                Err(e) => sections.push(format!("Error querying '{}': {e}", rule_id)),
+            }
+        }
+
+        let output = sections.join("\n---\n\n");
         self.with_config_banner(output).await
     }
 
@@ -685,6 +675,39 @@ impl QueryClient {
     }
 }
 
+/// Format a single rule's information for display.
+fn format_rule_info(info: &RuleInfo) -> String {
+    let mut output = format!("# {}\n\n{}\n\n", info.id, info.raw);
+
+    if let Some(file) = &info.source_file
+        && let Some(line) = info.source_line
+    {
+        output.push_str(&format!("Defined in: {}:{}\n\n", file, line));
+    }
+
+    if let Some(diff) = &info.version_diff {
+        output.push_str(&format!("## Changes from previous version\n\n{diff}\n\n"));
+    }
+
+    for cov in &info.coverage {
+        output.push_str(&format!("\n## {}/{}\n", cov.spec, cov.impl_name));
+        if !cov.impl_refs.is_empty() {
+            output.push_str("Impl references:\n");
+            for r in &cov.impl_refs {
+                output.push_str(&format!("  - {}:{}\n", r.file, r.line));
+            }
+        }
+        if !cov.verify_refs.is_empty() {
+            output.push_str("Verify references:\n");
+            for r in &cov.verify_refs {
+                output.push_str(&format!("  - {}:{}\n", r.file, r.line));
+            }
+        }
+    }
+
+    output
+}
+
 /// Format a validation result for display.
 fn format_validation_result(result: &tracey_proto::ValidationResult) -> String {
     if result.errors.is_empty() {
@@ -752,9 +775,11 @@ fn format_validation_result(result: &tracey_proto::ValidationResult) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::format_validation_result;
+    use super::{format_rule_info, format_validation_result};
     use tracey_core::parse_rule_id;
-    use tracey_proto::{ValidationError, ValidationErrorCode, ValidationResult};
+    use tracey_proto::{
+        ApiCodeRef, RuleCoverage, RuleInfo, ValidationError, ValidationErrorCode, ValidationResult,
+    };
 
     #[test]
     fn stale_validation_output_is_concise() {
@@ -791,6 +816,93 @@ mod tests {
         assert!(
             !output.contains("ONLY ONCE THAT'S DONE"),
             "agent-directed prefix should not appear in CLI output:\n{}",
+            output
+        );
+    }
+
+    fn make_rule_info(base: &str, version: u32) -> RuleInfo {
+        RuleInfo {
+            id: parse_rule_id(&if version > 1 {
+                format!("{}+{}", base, version)
+            } else {
+                base.to_string()
+            })
+            .unwrap(),
+            raw: format!("Rule text for {}", base),
+            html: format!("<p>Rule text for {}</p>", base),
+            source_file: Some("docs/spec.md".to_string()),
+            source_line: Some(10),
+            coverage: vec![RuleCoverage {
+                spec: "test-spec".to_string(),
+                impl_name: "main".to_string(),
+                impl_refs: vec![ApiCodeRef {
+                    file: "src/lib.rs".to_string(),
+                    line: 42,
+                }],
+                verify_refs: vec![],
+            }],
+            version_diff: None,
+        }
+    }
+
+    #[test]
+    fn format_rule_info_includes_heading_and_text() {
+        let info = make_rule_info("foo.bar", 1);
+        let output = format_rule_info(&info);
+        assert!(output.starts_with("# foo.bar\n"), "output:\n{}", output);
+        assert!(
+            output.contains("Rule text for foo.bar"),
+            "output:\n{}",
+            output
+        );
+        assert!(
+            output.contains("Defined in: docs/spec.md:10"),
+            "output:\n{}",
+            output
+        );
+        assert!(
+            output.contains("src/lib.rs:42"),
+            "should include impl ref location:\n{}",
+            output
+        );
+    }
+
+    #[test]
+    fn format_rule_info_shows_version_diff() {
+        let mut info = make_rule_info("foo.bar", 2);
+        info.version_diff = Some("~~old text~~ **new text**".to_string());
+        let output = format_rule_info(&info);
+        assert!(
+            output.contains("## Changes from previous version"),
+            "output:\n{}",
+            output
+        );
+        assert!(
+            output.contains("~~old text~~ **new text**"),
+            "output:\n{}",
+            output
+        );
+    }
+
+    #[test]
+    fn format_rule_info_no_coverage() {
+        let mut info = make_rule_info("lonely.rule", 1);
+        info.coverage = vec![RuleCoverage {
+            spec: "test-spec".to_string(),
+            impl_name: "main".to_string(),
+            impl_refs: vec![],
+            verify_refs: vec![],
+        }];
+        let output = format_rule_info(&info);
+        // Should have the spec/impl heading but no "Impl references:" section
+        assert!(
+            output.contains("## test-spec/main"),
+            "output:\n{}",
+            output
+        );
+        assert!(
+            !output.contains("Impl references:"),
+            "should not show impl refs header when empty:\n{}",
             output
         );
     }
