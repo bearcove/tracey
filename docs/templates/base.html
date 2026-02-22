@@ -9,7 +9,14 @@
 </head>
 <body>
     <nav class="site-nav">
-        <a href="/" class="site-nav-brand">Tracey</a>
+        <button class="menu-toggle" aria-label="Toggle navigation" onclick="document.body.classList.toggle('sidebar-open')">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <line x1="3" y1="6" x2="21" y2="6"/>
+                <line x1="3" y1="12" x2="21" y2="12"/>
+                <line x1="3" y1="18" x2="21" y2="18"/>
+            </svg>
+        </button>
+        <a href="/" class="site-nav-brand">tracey</a>
         <div class="site-nav-spacer"></div>
         <a href="https://github.com/bearcove/tracey" class="site-nav-github" title="GitHub">
             <svg viewBox="0 0 16 16" width="24" height="24" fill="currentColor">

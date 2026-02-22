@@ -276,7 +276,88 @@ body {
     flex: 1;
     min-width: 0;
     padding: 2rem 3rem;
+}
+
+/* ============================================
+   Page Layout (article + TOC)
+   ============================================ */
+.page-layout {
+    display: flex;
+    gap: 2rem;
+}
+
+.page-main {
+    flex: 1;
+    min-width: 0;
     max-width: var(--content-max);
+}
+
+.page-toc {
+    width: 200px;
+    flex-shrink: 0;
+    position: sticky;
+    top: 53px;
+    height: calc(100vh - 53px);
+    overflow-y: auto;
+    padding: 2rem 0;
+    font-size: 0.75rem;
+    line-height: 1.4;
+}
+
+.page-toc h2 {
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--fg-muted);
+    margin-bottom: 0.5rem;
+    padding-bottom: 0;
+}
+
+.page-toc > nav > ul {
+    border-left: 1px solid var(--border);
+    padding-left: 0;
+}
+
+.page-toc nav ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.page-toc nav ul ul {
+    padding-left: 0;
+}
+
+.page-toc nav li {
+    margin-bottom: 0;
+}
+
+.page-toc nav a {
+    color: var(--fg-muted);
+    text-decoration: none;
+    display: block;
+    padding: 0.15rem 0 0.15rem 0.75rem;
+    border-left: 2px solid transparent;
+    margin-left: -1px;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+.page-toc nav ul ul a {
+    padding-left: 1.25rem;
+}
+
+.page-toc nav ul ul ul a {
+    padding-left: 1.75rem;
+}
+
+.page-toc nav a:hover {
+    color: var(--fg);
+    border-left-color: var(--fg-muted);
+}
+
+.page-toc nav a:visited {
+    color: var(--fg-muted);
 }
 
 article h1 {
@@ -446,11 +527,44 @@ footer a:hover {
 }
 
 /* ============================================
+   Menu Toggle (hidden on desktop)
+   ============================================ */
+.menu-toggle {
+    display: none;
+    background: none;
+    border: none;
+    color: var(--fg);
+    cursor: pointer;
+    padding: 0.25rem;
+    line-height: 0;
+}
+
+/* ============================================
    Responsive
    ============================================ */
 @media (max-width: 768px) {
+    .menu-toggle {
+        display: block;
+    }
+
     .sidebar {
         display: none;
+        position: fixed;
+        top: 53px;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        width: 100%;
+        height: calc(100vh - 53px);
+        background: var(--bg);
+        z-index: 99;
+        border-right: none;
+        overflow-y: auto;
+        padding: 1.5rem;
+    }
+
+    .sidebar-open .sidebar {
+        display: block;
     }
 
     .layout {
@@ -460,6 +574,14 @@ footer a:hover {
     .content {
         padding: 1.5rem;
         max-width: 100%;
+    }
+
+    .page-layout {
+        display: block;
+    }
+
+    .page-toc {
+        display: none;
     }
 
     .hero {
@@ -527,6 +649,48 @@ footer a:hover {
     to {
         opacity: 1;
     }
+}
+
+/* ============================================
+   Requirement Markers (fieldset style)
+   ============================================ */
+.req {
+    position: relative;
+    margin: 2rem 0;
+    padding: 1.25rem 1.25rem 1rem;
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+}
+
+.req-link {
+    position: absolute;
+    top: -0.65rem;
+    left: 0.75rem;
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--accent);
+    text-decoration: none;
+    background: var(--bg);
+    padding: 0 0.4em;
+    line-height: 1.3;
+}
+
+.req-link:hover {
+    text-decoration: underline;
+}
+
+.req-link:visited {
+    color: var(--accent);
+}
+
+.req p:first-of-type {
+    margin-top: 0;
+}
+
+.req p:last-child {
+    margin-bottom: 0;
 }
 
 /* Override visited link colors in sidebar */
