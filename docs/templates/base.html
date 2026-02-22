@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Tracey{% endblock title %}</title>
+    <meta name="description" content="{% block description %}Spec coverage tooling{% endblock description %}">
+    <link rel="stylesheet" href="{{ get_url(path='main.css') }}">
+</head>
+<body>
+    <nav class="site-nav">
+        <a href="/" class="site-brand">Tracey</a>
+        <div class="site-nav-links">
+            <a href="/guide/">Guide</a>
+            <a href="/spec/">Spec</a>
+            <a href="https://github.com/bearcove/tracey">GitHub</a>
+        </div>
+    </nav>
+
+    <div class="layout">
+        {% block sidebar %}{% endblock sidebar %}
+        <main class="content">
+            {% block content %}{% endblock content %}
+        </main>
+    </div>
+</body>
+</html>

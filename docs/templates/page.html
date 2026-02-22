@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page.title }} - Tracey{% endblock title %}
+
+{% block content %}
+<article>
+    {{ page.content | safe }}
+</article>
+{% endblock content %}
