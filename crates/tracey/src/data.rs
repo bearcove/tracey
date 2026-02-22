@@ -2461,6 +2461,7 @@ async fn load_spec_content(
     }
 
     let all_elements = doc.elements;
+    let head_injections = doc.head_injections;
 
     // Build outline from elements
     let outline = build_outline(&all_elements, coverage);
@@ -2472,6 +2473,7 @@ async fn load_spec_content(
                 name: spec_name.to_string(),
                 sections,
                 outline,
+                head_injections,
             },
         );
     }

@@ -100,6 +100,10 @@ export interface ApiSpecData {
    * Outline with coverage info
    */
   outline: OutlineEntry[];
+  /**
+   * HTML snippets to inject into the page head (e.g. mermaid.js loader)
+   */
+  head_injections?: string[];
 }
 
 /**

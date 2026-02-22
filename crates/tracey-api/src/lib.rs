@@ -207,6 +207,9 @@ pub struct ApiSpecData {
     pub sections: Vec<SpecSection>,
     /// Outline with coverage info
     pub outline: Vec<OutlineEntry>,
+    /// HTML snippets to inject into the page head (e.g. mermaid.js loader)
+    #[facet(default)]
+    pub head_injections: Vec<String>,
 }
 
 // ============================================================================

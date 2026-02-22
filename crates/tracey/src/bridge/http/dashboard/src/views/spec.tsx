@@ -309,6 +309,26 @@ export function SpecView({
     return spec.sections.map((s) => s.html).join("\n");
   }, [spec?.sections]);
 
+  // Inject head scripts (e.g. mermaid.js) from server-side rendered content
+  useEffect(() => {
+    if (!spec?.head_injections?.length) return;
+    const injected: HTMLElement[] = [];
+    for (const html of spec.head_injections) {
+      const key = `tracey-head-${btoa(html).slice(0, 16)}`;
+      if (document.getElementById(key)) continue;
+      const tmp = document.createElement("div");
+      tmp.innerHTML = html;
+      const el = tmp.firstElementChild as HTMLElement | null;
+      if (!el) continue;
+      el.id = key;
+      document.head.appendChild(el);
+      injected.push(el);
+    }
+    return () => {
+      for (const el of injected) el.remove();
+    };
+  }, [spec?.head_injections]);
+
   // Set up scroll-based heading tracking
   useEffect(() => {
     if (!contentRef.current || !contentBodyRef.current || outline.length === 0) return;
