@@ -1366,6 +1366,7 @@ fn compute_validation_by_impl(
                     column: rule.source_column,
                     related_rules: vec![rule.id.clone()],
                     reference_rule_id: None,
+                    reference_text: None,
                 });
             } else {
                 seen_ids.insert(rule.id.clone(), (&rule.source_file, rule.source_line));
@@ -1389,6 +1390,7 @@ fn compute_validation_by_impl(
                     column: rule.source_column,
                     related_rules: vec![(*prev_rule_id).clone(), rule.id.clone()],
                     reference_rule_id: None,
+                    reference_text: None,
                 });
             } else {
                 seen_bases.insert(
@@ -1411,6 +1413,7 @@ fn compute_validation_by_impl(
                     column: rule.source_column,
                     related_rules: vec![],
                     reference_rule_id: None,
+                    reference_text: None,
                 });
             }
 
@@ -1428,6 +1431,7 @@ fn compute_validation_by_impl(
                         column: None,
                         related_rules: vec![rule.id.clone()],
                         reference_rule_id: None,
+                        reference_text: None,
                     });
                 }
             }
@@ -1486,6 +1490,7 @@ fn compute_validation_by_impl(
                             column: None,
                             related_rules: vec![],
                             reference_rule_id: None,
+                            reference_text: None,
                         });
                     } else if current_spec_prefix == Some(reference.prefix.as_str()) {
                         match classify_reference_against_known_rules(
@@ -1506,6 +1511,7 @@ fn compute_validation_by_impl(
                                     column: None,
                                     related_rules: vec![current_rule_id],
                                     reference_rule_id: Some(reference.req_id.clone()),
+                                    reference_text: None,
                                 });
                             }
                             KnownRuleMatch::Missing => {
@@ -1528,7 +1534,11 @@ fn compute_validation_by_impl(
                                             line: Some(reference.line),
                                             column: None,
                                             related_rules: vec![],
-                                            reference_rule_id: None,
+                                            reference_rule_id: Some(reference.req_id.clone()),
+                                            reference_text: Some(format!(
+                                                "{}[{} {}]",
+                                                reference.prefix, reference.verb, reference.req_id
+                                            )),
                                         });
                                     }
                                 }
@@ -1555,6 +1565,7 @@ fn compute_validation_by_impl(
                 column: None,
                 related_rules: cycle,
                 reference_rule_id: None,
+                reference_text: None,
             });
         }
 

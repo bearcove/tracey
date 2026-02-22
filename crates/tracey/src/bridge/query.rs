@@ -39,24 +39,13 @@ fn parse_spec_impl(spec_impl: Option<&str>) -> (Option<String>, Option<String>) 
     }
 }
 
-fn unknown_rule_reference_from_message(message: &str) -> Option<(String, String)> {
-    let contextual_prefix = "Unknown rule reference ";
-    if let Some(rest) = message.strip_prefix(contextual_prefix) {
-        let end = rest.find(']')?;
-        let full_ref = &rest[..=end];
-        let open = full_ref.find('[')?;
-        let inside = &full_ref[open + 1..full_ref.len() - 1];
-        let mut parts = inside.split_whitespace();
-        let _verb = parts.next()?;
-        let rule_id = parts.next()?.to_string();
-        return Some((rule_id, full_ref.to_string()));
-    }
-
-    let prefix = "Reference to unknown rule '";
-    let rest = message.strip_prefix(prefix)?;
-    let end = rest.find('\'')?;
-    let rule_id = rest[..end].to_string();
-    Some((rule_id.clone(), rule_id))
+fn unknown_rule_reference_from_error(error: &ValidationError) -> Option<(String, String)> {
+    let rule_id = error.reference_rule_id.as_ref()?.to_string();
+    let reference = error
+        .reference_text
+        .clone()
+        .unwrap_or_else(|| rule_id.clone());
+    Some((rule_id, reference))
 }
 
 /// Shared query client used by both MCP and CLI.
@@ -571,7 +560,7 @@ impl QueryClient {
                             for error in &result.errors {
                                 if error.code == ValidationErrorCode::UnknownRequirement {
                                     if let Some((rule_id, reference_text)) =
-                                        unknown_rule_reference_from_message(&error.message)
+                                        unknown_rule_reference_from_error(error)
                                     {
                                         unknown_for_impl += 1;
                                         unique_unknown_rules.insert(rule_id.clone());
@@ -780,6 +769,7 @@ mod tests {
                 column: None,
                 related_rules: vec![parse_rule_id("spec.rule+2").expect("valid rule id")],
                 reference_rule_id: Some(parse_rule_id("spec.rule").expect("valid rule id")),
+                reference_text: None,
             }],
             warning_count: 0,
             error_count: 1,

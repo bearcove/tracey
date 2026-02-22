@@ -33,9 +33,13 @@ export interface ValidationError {
    */
   relatedRules?: RuleId[];
   /**
-   * The stale reference's rule ID (for StaleRequirement errors)
+   * The referenced rule ID (for StaleRequirement/UnknownRequirement errors)
    */
   referenceRuleId?: RuleId;
+  /**
+   * Original annotation text for unknown references (for example `r[impl auth.logn]`).
+   */
+  referenceText?: string;
 }
 
 /**
