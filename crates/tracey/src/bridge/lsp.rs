@@ -8,7 +8,8 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use eyre::Result;
 use tower_lsp::jsonrpc::Result as LspResult;
@@ -61,16 +62,16 @@ async fn run_lsp_server(project_root: PathBuf) -> Result<()> {
 
     let daemon_client = new_client(project_root.clone());
 
+    let doc_state = Arc::new(Mutex::new(LspDocState {
+        documents: HashMap::new(),
+        files_with_diagnostics: HashSet::new(),
+    }));
+
     let (service, socket) = LspService::new(|client| Backend {
         client,
-        daemon_client,
+        daemon_client: daemon_client.clone(),
         project_root: project_root.clone(),
-        doc_state: Mutex::new(LspDocState {
-            documents: HashMap::new(),
-            document_revisions: HashMap::new(),
-            next_revision: 1,
-            files_with_diagnostics: HashSet::new(),
-        }),
+        doc_state: Arc::clone(&doc_state),
     });
     Server::new(stdin, stdout, socket).serve(service).await;
 
@@ -81,7 +82,7 @@ struct Backend {
     client: Client,
     daemon_client: DaemonClient,
     project_root: PathBuf,
-    doc_state: Mutex<LspDocState>,
+    doc_state: Arc<Mutex<LspDocState>>,
 }
 
 /// Document-tracking state requiring mutual exclusion.
@@ -90,10 +91,6 @@ struct Backend {
 struct LspDocState {
     /// Document content cache: uri -> content
     documents: HashMap<String, String>,
-    /// Monotonic revision per open document used to drop stale async diagnostics.
-    document_revisions: HashMap<String, u64>,
-    /// Next monotonic revision value.
-    next_revision: u64,
     /// Files that have been published with non-empty diagnostics.
     /// Used to clear diagnostics when issues are fixed.
     files_with_diagnostics: HashSet<String>,
@@ -106,21 +103,6 @@ impl Backend {
         let content = state.documents.get(uri.as_str())?.clone();
         let path = uri.to_file_path().ok()?.to_string_lossy().into_owned();
         Some((path, content))
-    }
-
-    fn get_path_content_and_revision(&self, uri: &Url) -> Option<(String, String, u64)> {
-        let state = self.doc_state.lock().unwrap();
-        let content = state.documents.get(uri.as_str())?.clone();
-        let revision = *state.document_revisions.get(uri.as_str())?;
-        let path = uri.to_file_path().ok()?.to_string_lossy().into_owned();
-        Some((path, content, revision))
-    }
-
-    fn bump_document_revision(state: &mut LspDocState, uri: &Url) -> u64 {
-        let revision = state.next_revision;
-        state.next_revision = state.next_revision.saturating_add(1);
-        state.document_revisions.insert(uri.to_string(), revision);
-        revision
     }
 
     fn offset_to_line_col(content: &str, offset: usize) -> (u32, u32) {
@@ -240,75 +222,6 @@ impl Backend {
         Ok(())
     }
 
-    /// Publish diagnostics for a document by calling daemon.
-    ///
-    /// r[impl lsp.diagnostics.broken-refs]
-    /// r[impl lsp.diagnostics.broken-refs-message]
-    /// r[impl lsp.diagnostics.unknown-prefix]
-    /// r[impl lsp.diagnostics.unknown-prefix-message]
-    /// r[impl lsp.diagnostics.unknown-verb]
-    async fn publish_diagnostics(&self, uri: Url) {
-        let Some((path, content, request_revision)) = self.get_path_content_and_revision(&uri)
-        else {
-            return;
-        };
-
-        let req = LspDocumentRequest {
-            path: path.clone(),
-            content,
-        };
-        let Ok(daemon_diagnostics) = rpc(self.daemon_client.lsp_diagnostics(req).await) else {
-            return;
-        };
-
-        // Convert daemon diagnostics to LSP diagnostics
-        let diagnostics: Vec<Diagnostic> = daemon_diagnostics
-            .into_iter()
-            .map(|d| Diagnostic {
-                range: Range {
-                    start: Position {
-                        line: d.start_line,
-                        character: d.start_char,
-                    },
-                    end: Position {
-                        line: d.end_line,
-                        character: d.end_char,
-                    },
-                },
-                severity: Some(match d.severity.as_str() {
-                    "error" => DiagnosticSeverity::ERROR,
-                    "warning" => DiagnosticSeverity::WARNING,
-                    "info" => DiagnosticSeverity::INFORMATION,
-                    _ => DiagnosticSeverity::HINT,
-                }),
-                code: Some(NumberOrString::String(d.code)),
-                source: Some("tracey".into()),
-                message: d.message,
-                ..Default::default()
-            })
-            .collect();
-
-        // Drop stale async diagnostic responses for older document revisions.
-        {
-            let mut state = self.doc_state.lock().unwrap();
-            let Some(current_revision) = state.document_revisions.get(uri.as_str()).copied() else {
-                return;
-            };
-            if current_revision != request_revision {
-                return;
-            }
-            if diagnostics.is_empty() {
-                state.files_with_diagnostics.remove(&path);
-            } else {
-                state.files_with_diagnostics.insert(path);
-            }
-        }
-
-        self.client
-            .publish_diagnostics(uri, diagnostics, None)
-            .await;
-    }
-
     /// Notify daemon that a file was opened.
     async fn notify_vfs_open(&self, uri: &Url, content: &str) {
         if let Ok(path) = uri.to_file_path() {
@@ -339,64 +252,38 @@ impl Backend {
         }
     }
 
-    /// Publish diagnostics for all files in the workspace.
-    async fn publish_workspace_diagnostics(&self) {
-        let config_error = rpc(self.daemon_client.health().await)
+    async fn publish_workspace_diagnostics_with(
+        client: &Client,
+        daemon_client: &DaemonClient,
+        project_root: &std::path::Path,
+        doc_state: &Arc<Mutex<LspDocState>>,
+    ) {
+        let config_error = rpc(daemon_client.health().await)
             .ok()
             .and_then(|h| h.config_error);
 
-        let open_paths: HashSet<String> = {
-            let state = self.doc_state.lock().unwrap();
-            state
-                .documents
-                .keys()
-                .filter_map(|uri| Url::parse(uri).ok())
-                .filter_map(|uri| uri.to_file_path().ok())
-                .map(|path| path.to_string_lossy().into_owned())
-                .collect()
-        };
-
-        let all_diagnostics = match rpc(self.daemon_client.lsp_workspace_diagnostics().await) {
+        let all_diagnostics = match rpc(daemon_client.lsp_workspace_diagnostics().await) {
             Ok(d) => d,
             Err(_) => return,
         };
 
-        let current_paths_with_diagnostics: HashSet<String> = all_diagnostics
-            .iter()
-            .map(|fd| {
-                self.project_root
-                    .join(&fd.path)
-                    .to_string_lossy()
-                    .into_owned()
-            })
-            .filter(|path| !open_paths.contains(path))
-            .collect();
-
+        // Workspace-wide mode: clear all previously published diagnostics first.
         let files_to_clear: Vec<String> = {
-            let mut state = self.doc_state.lock().unwrap();
-            let to_clear: Vec<String> = state
-                .files_with_diagnostics
-                .iter()
-                .filter(|path| {
-                    !open_paths.contains(*path) && !current_paths_with_diagnostics.contains(*path)
-                })
-                .cloned()
-                .collect();
-            let open_with_diagnostics: HashSet<String> = state
-                .files_with_diagnostics
-                .iter()
-                .filter(|path| open_paths.contains(*path))
-                .cloned()
-                .collect();
-            state.files_with_diagnostics = current_paths_with_diagnostics
-                .union(&open_with_diagnostics)
-                .cloned()
-                .collect();
+            let mut state = doc_state.lock().unwrap();
+            let to_clear: Vec<String> = state.files_with_diagnostics.iter().cloned().collect();
+            state.files_with_diagnostics.clear();
             to_clear
         };
 
+        for path in files_to_clear {
+            let Ok(uri) = Url::from_file_path(&path) else {
+                continue;
+            };
+            client.publish_diagnostics(uri, vec![], None).await;
+        }
+
         // Publish config error diagnostic on config file
-        let config_path = self.project_root.join(".config/tracey/config.styx");
+        let config_path = project_root.join(".config/tracey/config.styx");
         if let Ok(uri) = Url::from_file_path(&config_path) {
             if let Some(error_msg) = config_error {
                 let diagnostic = Diagnostic {
@@ -416,30 +303,19 @@ impl Backend {
                     message: error_msg,
                     ..Default::default()
                 };
-                self.client
+                client
                     .publish_diagnostics(uri, vec![diagnostic], None)
                     .await;
             } else {
-                // Clear config diagnostics if no error
-                self.client.publish_diagnostics(uri, vec![], None).await;
+                client.publish_diagnostics(uri, vec![], None).await;
             }
         }
 
-        // Clear diagnostics for files that no longer have issues
-        for path in files_to_clear {
-            let Ok(uri) = Url::from_file_path(&path) else {
-                continue;
-            };
-            self.client.publish_diagnostics(uri, vec![], None).await;
-        }
-
-        // Publish diagnostics for files that currently have issues
+        // Publish diagnostics for all files in the latest rebuild snapshot.
+        let mut published_paths = HashSet::new();
         for file_diag in all_diagnostics {
-            let abs_path = self.project_root.join(&file_diag.path);
+            let abs_path = project_root.join(&file_diag.path);
             let abs_path_str = abs_path.to_string_lossy().into_owned();
-            if open_paths.contains(&abs_path_str) {
-                continue;
-            }
             let Ok(uri) = Url::from_file_path(&abs_path) else {
                 continue;
             };
@@ -471,10 +347,50 @@ impl Backend {
                 })
                 .collect();
 
-            self.client
-                .publish_diagnostics(uri, diagnostics, None)
-                .await;
+            client.publish_diagnostics(uri, diagnostics, None).await;
+            published_paths.insert(abs_path_str);
         }
+
+        let mut state = doc_state.lock().unwrap();
+        state.files_with_diagnostics = published_paths;
+    }
+
+    async fn watch_daemon_rebuilds(
+        client: Client,
+        daemon_client: DaemonClient,
+        project_root: PathBuf,
+        doc_state: Arc<Mutex<LspDocState>>,
+    ) {
+        let mut last_version = rpc(daemon_client.version().await).ok();
+
+        loop {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            let Ok(version) = rpc(daemon_client.version().await) else {
+                continue;
+            };
+            if last_version == Some(version) {
+                continue;
+            }
+            last_version = Some(version);
+            Self::publish_workspace_diagnostics_with(
+                &client,
+                &daemon_client,
+                &project_root,
+                &doc_state,
+            )
+            .await;
+        }
+    }
+
+    /// Publish diagnostics for all files in the workspace.
+    async fn publish_workspace_diagnostics(&self) {
+        Self::publish_workspace_diagnostics_with(
+            &self.client,
+            &self.daemon_client,
+            &self.project_root,
+            &self.doc_state,
+        )
+        .await;
     }
 
     /// Clear diagnostics for workspace files on startup so clients don't retain stale diagnostics
@@ -580,6 +496,13 @@ impl LanguageServer for Backend {
 
         // Publish workspace-wide diagnostics for all files on startup
         self.publish_workspace_diagnostics().await;
+
+        tokio::spawn(Self::watch_daemon_rebuilds(
+            self.client.clone(),
+            self.daemon_client.clone(),
+            self.project_root.clone(),
+            Arc::clone(&self.doc_state),
+        ));
     }
 
     async fn shutdown(&self) -> LspResult<()> {
@@ -592,13 +515,8 @@ impl LanguageServer for Backend {
         {
             let mut state = self.doc_state.lock().unwrap();
             state.documents.insert(uri.to_string(), content.clone());
-            Self::bump_document_revision(&mut state, &uri);
         }
         self.notify_vfs_open(&uri, &content).await;
-        self.client
-            .publish_diagnostics(uri.clone(), vec![], None)
-            .await;
-        self.publish_diagnostics(uri).await;
     }
 
     /// r[impl lsp.diagnostics.on-change]
@@ -609,33 +527,17 @@ impl LanguageServer for Backend {
             {
                 let mut state = self.doc_state.lock().unwrap();
                 state.documents.insert(uri.to_string(), content.clone());
-                Self::bump_document_revision(&mut state, &uri);
             }
             self.notify_vfs_change(&uri, &content).await;
-            self.client
-                .publish_diagnostics(uri.clone(), vec![], None)
-                .await;
-            self.publish_diagnostics(uri).await;
         }
     }
 
     /// r[impl lsp.diagnostics.on-save]
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         let uri = params.text_document.uri.clone();
-        {
-            let mut state = self.doc_state.lock().unwrap();
-            if state.documents.contains_key(uri.as_str()) {
-                Self::bump_document_revision(&mut state, &uri);
-            }
+        if let Some(content) = params.text {
+            self.notify_vfs_change(&uri, &content).await;
         }
-        self.client
-            .publish_diagnostics(uri.clone(), vec![], None)
-            .await;
-        self.publish_diagnostics(uri).await;
-
-        // Also refresh workspace-wide diagnostics, since saving one file
-        // can affect diagnostics in other files (e.g., covering a requirement)
-        self.publish_workspace_diagnostics().await;
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
@@ -643,12 +545,8 @@ impl LanguageServer for Backend {
         {
             let mut state = self.doc_state.lock().unwrap();
             state.documents.remove(uri.as_str());
-            state.document_revisions.remove(uri.as_str());
         }
         self.notify_vfs_close(&uri).await;
-        // Don't clear diagnostics on close - workspace diagnostics should persist
-        // for all files, not just open ones. The next publish_workspace_diagnostics
-        // call will update diagnostics based on current file state on disk.
     }
 
     /// r[impl lsp.completions.verb]
