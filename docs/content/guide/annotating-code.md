@@ -2,8 +2,6 @@
 title = "Annotating Code"
 +++
 
-# Annotating Code
-
 Requirement references link your source code back to the specification. They're written as comments using the syntax `PREFIX[VERB requirement.id]`.
 
 ## Basic syntax

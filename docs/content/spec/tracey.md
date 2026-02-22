@@ -2,8 +2,6 @@
 title = "Tracey Specification"
 +++
 
-# Tracey Specification
-
 ## Introduction
 
 Tracey maintains traceability between specifications and code. Specs, implementations, and tests drift apart—code changes without updating specs, specs describe unimplemented features, tests cover different scenarios than requirements specify.

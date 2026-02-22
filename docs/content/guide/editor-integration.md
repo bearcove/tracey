@@ -2,8 +2,6 @@
 title = "Editor Integration"
 +++
 
-# Editor Integration
-
 Tracey provides an LSP server that gives you real-time feedback on requirement references directly in your editor: diagnostics for broken references, hover to read requirement text, go-to-definition between code and spec, and completions for requirement IDs.
 
 ## How it works

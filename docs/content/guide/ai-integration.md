@@ -2,8 +2,6 @@
 title = "AI Integration"
 +++
 
-# AI Integration
-
 Tracey exposes its coverage analysis as MCP (Model Context Protocol) tools, letting AI assistants like Claude Code query requirements, find uncovered code, and add annotations.
 
 ## Setup

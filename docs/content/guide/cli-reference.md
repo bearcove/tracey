@@ -2,8 +2,6 @@
 title = "CLI Reference"
 +++
 
-# CLI Reference
-
 All tracey commands. Each command accepts an optional `[ROOT]` argument to specify the project root directory (defaults to the current directory).
 
 ## Dashboard and servers

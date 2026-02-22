@@ -2,8 +2,6 @@
 title = "Writing Specs"
 +++
 
-# Writing Specs
-
 Specifications are markdown documents containing requirements. Each requirement has a unique ID and describes a single behavior or constraint that is both implementable and testable.
 
 ## Requirement markers

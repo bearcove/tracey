@@ -2,6 +2,4 @@
 title = "Specification"
 +++
 
-# Specification
-
-The Tracey specification defines all requirements.
+The Tracey specification defines all requirements for the tracey tool.

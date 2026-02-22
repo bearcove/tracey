@@ -2,8 +2,6 @@
 title = "Dashboard"
 +++
 
-# Dashboard
-
 Tracey includes a web dashboard for browsing specs, exploring coverage, and navigating source code.
 
 ## Starting the dashboard

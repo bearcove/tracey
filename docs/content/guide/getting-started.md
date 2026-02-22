@@ -2,8 +2,6 @@
 title = "Getting Started"
 +++
 
-# Getting Started
-
 This guide takes you from zero to a working tracey setup: a spec with requirements, annotated source code, and a coverage dashboard.
 
 ## Install tracey

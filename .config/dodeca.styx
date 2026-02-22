@@ -1,4 +1,6 @@
 content docs/content
+templates docs/templates
+static docs/static
 output docs/public
 
 syntax_highlight {
