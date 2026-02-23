@@ -1383,6 +1383,56 @@ pub struct FullReqRef {
     pub byte_length: usize,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct LineNumber(usize);
+
+#[derive(Debug, Clone, Copy)]
+struct ByteOffset(usize);
+
+#[derive(Debug, Clone, Copy)]
+struct ByteLength(usize);
+
+#[derive(Debug, Clone, Copy)]
+struct RefLocation {
+    line: LineNumber,
+    byte_offset: ByteOffset,
+    byte_length: ByteLength,
+}
+
+impl RefLocation {
+    fn from_indices(
+        line: LineNumber,
+        base_offset: ByteOffset,
+        prefix_start: usize,
+        end_idx_inclusive: usize,
+    ) -> Self {
+        Self {
+            line,
+            byte_offset: ByteOffset(base_offset.0 + prefix_start),
+            byte_length: ByteLength(end_idx_inclusive - prefix_start + 1),
+        }
+    }
+
+    fn into_full_ref(self, prefix: String, verb: String, req_id: RuleId) -> FullReqRef {
+        FullReqRef {
+            prefix,
+            verb,
+            req_id,
+            line: self.line.0,
+            byte_offset: self.byte_offset.0,
+            byte_length: self.byte_length.0,
+        }
+    }
+
+    fn into_warning(self) -> FullReqRefWarning {
+        FullReqRefWarning {
+            line: self.line.0,
+            byte_offset: self.byte_offset.0,
+            byte_length: self.byte_length.0,
+        }
+    }
+}
+
 /// Warning emitted while parsing references from comments.
 #[derive(Debug, Clone)]
 pub struct FullReqRefWarning {
@@ -1579,6 +1629,8 @@ fn extract_full_refs_from_text(
     refs: &mut Vec<FullReqRef>,
     warnings: &mut Vec<FullReqRefWarning>,
 ) {
+    let line = LineNumber(line);
+    let base_offset = ByteOffset(base_offset);
     let code_mask = crate::markdown::markdown_code_mask(text);
     let mut chars = text.char_indices().peekable();
 
@@ -1617,21 +1669,14 @@ fn extract_full_refs_from_text(
                     req_id,
                     end_idx,
                 }) => {
-                    refs.push(FullReqRef {
-                        prefix,
-                        verb,
-                        req_id,
-                        line,
-                        byte_offset: base_offset + prefix_start,
-                        byte_length: end_idx - prefix_start + 1,
-                    });
+                    let location =
+                        RefLocation::from_indices(line, base_offset, prefix_start, end_idx);
+                    refs.push(location.into_full_ref(prefix, verb, req_id));
                 }
                 Some(ParsedFullRef::Malformed { end_idx }) => {
-                    warnings.push(FullReqRefWarning {
-                        line,
-                        byte_offset: base_offset + prefix_start,
-                        byte_length: end_idx - prefix_start + 1,
-                    });
+                    let location =
+                        RefLocation::from_indices(line, base_offset, prefix_start, end_idx);
+                    warnings.push(location.into_warning());
                 }
                 None => {}
             }
