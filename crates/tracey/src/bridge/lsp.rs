@@ -7,11 +7,13 @@
 //! r[impl daemon.bridge.lsp]
 
 use std::collections::{HashMap, HashSet};
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use eyre::Result;
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
@@ -45,20 +47,131 @@ const SEMANTIC_TOKEN_MODIFIERS: &[SemanticTokenModifier] = &[
 /// r[impl lsp.lifecycle.stdio]
 /// r[impl lsp.lifecycle.project-root]
 pub async fn run(root: Option<PathBuf>, _config_path: PathBuf) -> Result<()> {
-    // Determine project root
-    let project_root = match root {
+    // Determine project root from CLI / CWD (used as fallback)
+    let cli_project_root = match root {
         Some(r) => r,
         None => crate::find_project_root()?,
     };
 
     // Run LSP server
-    run_lsp_server(project_root).await
+    run_lsp_server(cli_project_root).await
+}
+
+/// Read the first LSP message from stdin and extract the workspace root from the
+/// `rootUri`, `workspaceFolders`, or `rootPath` fields of the `initialize` request.
+///
+/// Returns `(raw_bytes, Option<PathBuf>)` where `raw_bytes` is the complete first
+/// message (headers + body) to be replayed into tower-lsp.
+async fn peek_initialize_root(
+    stdin: &mut BufReader<tokio::io::Stdin>,
+) -> Result<(Vec<u8>, Option<PathBuf>)> {
+    let mut raw = Vec::new();
+    let mut content_length: Option<usize> = None;
+
+    // Read headers (each terminated by \r\n, blank line ends headers)
+    loop {
+        let mut line = String::new();
+        let bytes_read = stdin.read_line(&mut line).await?;
+        if bytes_read == 0 {
+            eyre::bail!("EOF while reading LSP headers");
+        }
+        raw.extend_from_slice(line.as_bytes());
+
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            break;
+        }
+
+        if let Some(value) = trimmed
+            .strip_prefix("Content-Length:")
+            .or_else(|| trimmed.strip_prefix("content-length:"))
+        {
+            content_length = value.trim().parse().ok();
+        }
+    }
+
+    let content_length =
+        content_length.ok_or_else(|| eyre::eyre!("Missing Content-Length in first LSP message"))?;
+
+    // Read body
+    let mut body = vec![0u8; content_length];
+    stdin.read_exact(&mut body).await?;
+    raw.extend_from_slice(&body);
+
+    let root_path = extract_root_from_initialize(&body);
+
+    Ok((raw, root_path))
+}
+
+/// Extract a project root path from the JSON body of an `initialize` request.
+///
+/// Tries, in order:
+/// 1. `params.rootUri`        (file:// URI → path)
+/// 2. `params.workspaceFolders[0].uri`
+/// 3. `params.rootPath`       (deprecated string path)
+fn extract_root_from_initialize(body: &[u8]) -> Option<PathBuf> {
+    let value: serde_json::Value = serde_json::from_slice(body).ok()?;
+    let params = value.get("params")?;
+
+    // Try rootUri first (preferred per LSP spec)
+    if let Some(uri_str) = params.get("rootUri").and_then(|v| v.as_str()) {
+        if let Ok(url) = Url::parse(uri_str) {
+            if let Ok(path) = url.to_file_path() {
+                return Some(path);
+            }
+        }
+    }
+
+    // Try first workspace folder
+    if let Some(folders) = params.get("workspaceFolders").and_then(|v| v.as_array()) {
+        if let Some(first) = folders.first() {
+            if let Some(uri_str) = first.get("uri").and_then(|v| v.as_str()) {
+                if let Ok(url) = Url::parse(uri_str) {
+                    if let Ok(path) = url.to_file_path() {
+                        return Some(path);
+                    }
+                }
+            }
+        }
+    }
+
+    // Try deprecated rootPath
+    if let Some(path_str) = params.get("rootPath").and_then(|v| v.as_str()) {
+        return Some(PathBuf::from(path_str));
+    }
+
+    None
 }
 
 /// Internal: run the LSP server.
-async fn run_lsp_server(project_root: PathBuf) -> Result<()> {
+async fn run_lsp_server(cli_project_root: PathBuf) -> Result<()> {
     let stdin = tokio::io::stdin();
+    let mut buf_reader = BufReader::new(stdin);
+
+    // Peek at the initialize request to extract rootUri before setting up the backend.
+    let (init_bytes, lsp_root) = peek_initialize_root(&mut buf_reader).await?;
+
+    let project_root = match lsp_root {
+        Some(path) => {
+            let resolved = crate::find_project_root_from(&path);
+            tracing::info!(
+                lsp_root = %path.display(),
+                resolved = %resolved.display(),
+                "Using project root from LSP initialize"
+            );
+            resolved
+        }
+        None => {
+            tracing::info!(
+                cli_root = %cli_project_root.display(),
+                "No rootUri in initialize request, using CLI project root"
+            );
+            cli_project_root
+        }
+    };
+
     let stdout = tokio::io::stdout();
+    let replayed_stdin = Cursor::new(init_bytes).chain(buf_reader);
 
     let daemon_client = new_client(project_root.clone());
 
@@ -73,7 +186,7 @@ async fn run_lsp_server(project_root: PathBuf) -> Result<()> {
         project_root: project_root.clone(),
         doc_state: Arc::clone(&doc_state),
     });
-    Server::new(stdin, stdout, socket).serve(service).await;
+    Server::new(replayed_stdin, stdout, socket).serve(service).await;
 
     Ok(())
 }
@@ -1294,7 +1407,7 @@ impl LanguageServer for Backend {
 mod tests {
     use std::path::PathBuf;
 
-    use super::Backend;
+    use super::*;
 
     #[test]
     fn symbol_uri_from_relative_path_resolves_under_project_root() {
@@ -1310,5 +1423,100 @@ mod tests {
         let uri = Backend::symbol_uri_from_path(&project_root, Some("/tmp/elsewhere/spec.md"))
             .expect("uri should be constructed");
         assert_eq!(uri.path(), "/tmp/elsewhere/spec.md");
+    }
+
+    #[test]
+    fn extract_root_with_root_uri() {
+        let body = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "rootUri": "file:///home/user/project",
+                "capabilities": {}
+            }
+        });
+        let bytes = serde_json::to_vec(&body).unwrap();
+        assert_eq!(
+            extract_root_from_initialize(&bytes),
+            Some(PathBuf::from("/home/user/project"))
+        );
+    }
+
+    #[test]
+    fn extract_root_with_workspace_folders() {
+        let body = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "rootUri": null,
+                "workspaceFolders": [
+                    { "uri": "file:///tmp/workspace", "name": "workspace" }
+                ],
+                "capabilities": {}
+            }
+        });
+        let bytes = serde_json::to_vec(&body).unwrap();
+        assert_eq!(
+            extract_root_from_initialize(&bytes),
+            Some(PathBuf::from("/tmp/workspace"))
+        );
+    }
+
+    #[test]
+    fn extract_root_with_root_path() {
+        let body = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "rootPath": "/legacy/project",
+                "capabilities": {}
+            }
+        });
+        let bytes = serde_json::to_vec(&body).unwrap();
+        assert_eq!(
+            extract_root_from_initialize(&bytes),
+            Some(PathBuf::from("/legacy/project"))
+        );
+    }
+
+    #[test]
+    fn extract_root_with_no_root_fields() {
+        let body = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": { "capabilities": {} }
+        });
+        let bytes = serde_json::to_vec(&body).unwrap();
+        assert_eq!(extract_root_from_initialize(&bytes), None);
+    }
+
+    #[test]
+    fn extract_root_with_invalid_json() {
+        assert_eq!(extract_root_from_initialize(b"not json"), None);
+    }
+
+    #[test]
+    fn extract_root_prefers_root_uri_over_workspace_folders() {
+        let body = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "rootUri": "file:///preferred/root",
+                "workspaceFolders": [
+                    { "uri": "file:///other/folder", "name": "other" }
+                ],
+                "capabilities": {}
+            }
+        });
+        let bytes = serde_json::to_vec(&body).unwrap();
+        assert_eq!(
+            extract_root_from_initialize(&bytes),
+            Some(PathBuf::from("/preferred/root"))
+        );
     }
 }

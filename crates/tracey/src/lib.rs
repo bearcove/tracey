@@ -267,19 +267,23 @@ pub async fn load_rules_from_globs(
     Ok(all_rules)
 }
 
-pub fn find_project_root() -> Result<PathBuf> {
-    let mut current = std::env::current_dir()?;
-
+/// Walk upward from `start` looking for a directory containing a `Cargo.toml`.
+/// Falls back to `start` itself if none is found.
+pub fn find_project_root_from(start: &std::path::Path) -> PathBuf {
+    let mut current = start.to_path_buf();
     loop {
         if current.join("Cargo.toml").exists() {
-            return Ok(current);
+            return current;
         }
-
         if !current.pop() {
-            // No Cargo.toml found, use current directory
-            return std::env::current_dir().wrap_err("Failed to get current directory");
+            return start.to_path_buf();
         }
     }
+}
+
+pub fn find_project_root() -> Result<PathBuf> {
+    let cwd = std::env::current_dir().wrap_err("Failed to get current directory")?;
+    Ok(find_project_root_from(&cwd))
 }
 
 pub fn load_config(path: &PathBuf) -> Result<Config> {
