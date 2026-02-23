@@ -180,7 +180,8 @@ pub(crate) fn extract_from_content(path: &Path, content: &str, reqs: &mut Reqs) 
         // r[impl ref.comments.line]
         // r[impl ref.comments.doc]
         // r[impl ref.comments.block]
-        for full_ref in crate::code_units::extract_refs(path, content) {
+        let extracted = crate::code_units::extract_refs_with_warnings(path, content);
+        for full_ref in extracted.references {
             let verb = match full_ref.verb.as_str() {
                 "define" => RefVerb::Define,
                 "impl" => RefVerb::Impl,
@@ -196,6 +197,14 @@ pub(crate) fn extract_from_content(path: &Path, content: &str, reqs: &mut Reqs) 
                 file: path.to_path_buf(),
                 line: full_ref.line,
                 span: SourceSpan::new(full_ref.byte_offset, full_ref.byte_length),
+            });
+        }
+        for warning in extracted.warnings {
+            reqs.warnings.push(ParseWarning {
+                file: path.to_path_buf(),
+                line: warning.line,
+                span: SourceSpan::new(warning.byte_offset, warning.byte_length),
+                kind: WarningKind::MalformedReference,
             });
         }
     }
@@ -428,7 +437,6 @@ fn extract_references_from_text(
 
                         // Now read the rule ID
                         let mut req_id = String::new();
-                        let mut found_dot = false;
 
                         // First char of rule ID must be lowercase letter
                         if let Some(&(_, c)) = chars.peek() {
@@ -455,7 +463,6 @@ fn extract_references_from_text(
                                 req_id.push(c);
                                 chars.next();
                             } else if c == '.' {
-                                found_dot = true;
                                 req_id.push(c);
                                 chars.next();
                             } else {
@@ -464,7 +471,7 @@ fn extract_references_from_text(
                         }
 
                         // Validate rule ID
-                        if found_dot && is_valid_req_id(&req_id) {
+                        if is_valid_req_id(&req_id) {
                             let span = SourceSpan::new(bracket_start, final_idx - prefix_start + 1);
                             if let Some(rule_id) = parse_rule_id(&req_id) {
                                 reqs.references.push(ReqReference {
@@ -476,6 +483,13 @@ fn extract_references_from_text(
                                     span,
                                 });
                             }
+                        } else {
+                            reqs.warnings.push(ParseWarning {
+                                file: path.to_path_buf(),
+                                line: base_line,
+                                span: SourceSpan::new(bracket_start, final_idx - prefix_start + 1),
+                                kind: WarningKind::MalformedReference,
+                            });
                         }
                     } else {
                         // Not a known verb - just ignore it. We only match rule
@@ -487,7 +501,7 @@ fn extract_references_from_text(
                     // r[impl ref.verb.default]
                     chars.next(); // consume ]
 
-                    // Validate: must contain dot, not end with dot
+                    // Validate requirement ID syntax
                     if is_valid_req_id(&first_word) {
                         let span = SourceSpan::new(bracket_start, end_idx - prefix_start + 1);
                         if let Some(rule_id) = parse_rule_id(&first_word) {
@@ -500,6 +514,13 @@ fn extract_references_from_text(
                                 span,
                             });
                         }
+                    } else {
+                        reqs.warnings.push(ParseWarning {
+                            file: path.to_path_buf(),
+                            line: base_line,
+                            span: SourceSpan::new(bracket_start, end_idx - prefix_start + 1),
+                            kind: WarningKind::MalformedReference,
+                        });
                     }
                 }
             }
@@ -513,7 +534,7 @@ fn is_valid_req_id(req_id: &str) -> bool {
     let Some(parsed) = parse_rule_id(req_id) else {
         return false;
     };
-    parsed.base.contains('.') && !parsed.base.ends_with('.')
+    !parsed.base.ends_with('.')
 }
 
 #[cfg(test)]
@@ -616,6 +637,20 @@ mod tests {
     }
 
     #[test]
+    fn test_extract_single_segment_references() {
+        let content = r#"
+            // r[impl link]
+            // r[link]
+            fn foo() {}
+        "#;
+
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 2);
+        assert_eq!(reqs.references[0].req_id, "link");
+        assert_eq!(reqs.references[1].req_id, "link");
+    }
+
+    #[test]
     fn test_reject_invalid_version_suffix() {
         let content = r#"
             // r[impl auth.login+]
@@ -625,6 +660,24 @@ mod tests {
 
         let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
         assert_eq!(reqs.len(), 0);
+    }
+
+    #[test]
+    fn test_warn_on_rejected_reference() {
+        let content = r#"
+            // r[impl link.]
+            // r[link.]
+            fn foo() {}
+        "#;
+
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 0);
+        assert_eq!(reqs.warnings.len(), 2);
+        assert!(
+            reqs.warnings
+                .iter()
+                .all(|warning| matches!(warning.kind, WarningKind::MalformedReference))
+        );
     }
 
     #[test]

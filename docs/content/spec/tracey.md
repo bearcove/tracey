@@ -136,7 +136,7 @@ A requirement reference MUST be written as `PREFIX[VERB REQ]` within a comment, 
 > If omitted, defaults to `impl`.
 
 > r[ref.syntax.req-id+2]
-> REQ is a requirement ID consisting of dot-separated segments, optionally followed by a version suffix.
+> REQ is a requirement ID consisting of one or more segments separated by dots, optionally followed by a version suffix.
 >
 > Each segment MUST contain only ASCII letters (a-z, A-Z), digits (0-9), hyphens, or underscores. This restriction ensures requirement IDs work cleanly in URLs without encoding issues.
 
