@@ -477,6 +477,9 @@ pub struct LspSymbol {
     pub name: String,
     /// Kind: "definition", "impl", "verify", etc.
     pub kind: String,
+    /// Source file path for the symbol, relative to project root when available
+    #[facet(default)]
+    pub path: Option<String>,
     /// Range
     pub start_line: u32,
     pub start_char: u32,

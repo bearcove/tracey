@@ -486,6 +486,14 @@ async fn test_lsp_workspace_symbols() {
             "Symbol {} doesn't match query 'auth'",
             symbol.name
         );
+        let path = symbol
+            .path
+            .as_deref()
+            .expect("workspace symbols should include source file path");
+        assert!(
+            path.ends_with(".md"),
+            "Expected workspace symbol path to point to markdown spec file, got: {path}"
+        );
     }
 }
 
