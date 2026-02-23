@@ -1709,10 +1709,8 @@ fn try_parse_full_ref(
                         || c == '-'
                         || c == '_'
                         || c == '+'
+                        || c == '.'
                     {
-                        req_id.push(c);
-                        chars.next();
-                    } else if c == '.' {
                         req_id.push(c);
                         chars.next();
                     } else {
@@ -1798,10 +1796,12 @@ fn try_parse_req_ref(
                     if c == ']' {
                         chars.next();
                         break;
-                    } else if c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '+' {
-                        req_id.push(c);
-                        chars.next();
-                    } else if c == '.' {
+                    } else if c.is_ascii_lowercase()
+                        || c.is_ascii_digit()
+                        || c == '-'
+                        || c == '+'
+                        || c == '.'
+                    {
                         req_id.push(c);
                         chars.next();
                     } else {

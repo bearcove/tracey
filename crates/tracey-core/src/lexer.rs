@@ -459,10 +459,8 @@ fn extract_references_from_text(
                                 || c.is_ascii_digit()
                                 || c == '-'
                                 || c == '+'
+                                || c == '.'
                             {
-                                req_id.push(c);
-                                chars.next();
-                            } else if c == '.' {
                                 req_id.push(c);
                                 chars.next();
                             } else {
