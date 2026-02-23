@@ -7,7 +7,7 @@
 //! r[impl daemon.bridge.lsp]
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -161,6 +161,17 @@ impl Backend {
             });
         }
         edits
+    }
+
+    fn symbol_uri_from_path(project_root: &Path, path: Option<&str>) -> Option<Url> {
+        let path = path?;
+        let path_buf = PathBuf::from(path);
+        let abs_path = if path_buf.is_absolute() {
+            path_buf
+        } else {
+            project_root.join(path_buf)
+        };
+        Url::from_file_path(abs_path).ok()
     }
 
     async fn apply_unknown_requirement_rename(
@@ -956,8 +967,7 @@ impl LanguageServer for Backend {
         let lsp_symbols: Vec<SymbolInformation> = symbols
             .into_iter()
             .filter_map(|s| {
-                // Try to construct a URI for the symbol
-                let uri = Url::from_file_path(self.project_root.join("docs/spec")).ok()?;
+                let uri = Self::symbol_uri_from_path(&self.project_root, s.path.as_deref())?;
                 #[allow(deprecated)]
                 Some(SymbolInformation {
                     name: s.name,
@@ -1277,5 +1287,28 @@ impl LanguageServer for Backend {
             result_id: None,
             data: lsp_tokens,
         })))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::Backend;
+
+    #[test]
+    fn symbol_uri_from_relative_path_resolves_under_project_root() {
+        let project_root = PathBuf::from("/tmp/project");
+        let uri = Backend::symbol_uri_from_path(&project_root, Some("docs/spec/auth.md"))
+            .expect("uri should be constructed");
+        assert_eq!(uri.path(), "/tmp/project/docs/spec/auth.md");
+    }
+
+    #[test]
+    fn symbol_uri_from_absolute_path_is_preserved() {
+        let project_root = PathBuf::from("/tmp/project");
+        let uri = Backend::symbol_uri_from_path(&project_root, Some("/tmp/elsewhere/spec.md"))
+            .expect("uri should be constructed");
+        assert_eq!(uri.path(), "/tmp/elsewhere/spec.md");
     }
 }

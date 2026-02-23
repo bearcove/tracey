@@ -1430,6 +1430,7 @@ impl TraceyDaemon for TraceyService {
                         symbols.push(LspSymbol {
                             name: rule.id.to_string(),
                             kind: "requirement".to_string(),
+                            path: rule.source_file.clone(),
                             start_line: line,
                             start_char: col,
                             end_line: line,
@@ -1447,6 +1448,7 @@ impl TraceyDaemon for TraceyService {
                 symbols.push(LspSymbol {
                     name: r.req_id.to_string(),
                     kind: format!("{:?}", r.verb).to_lowercase(),
+                    path: None,
                     start_line,
                     start_char,
                     end_line,
@@ -1481,6 +1483,7 @@ impl TraceyDaemon for TraceyService {
                     symbols.push(LspSymbol {
                         name: rule.id.to_string(),
                         kind: "requirement".to_string(),
+                        path: rule.source_file.clone(),
                         start_line: line,
                         start_char: char,
                         end_line: line,
