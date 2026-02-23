@@ -14,6 +14,7 @@
 //! - Code added without updating the spec
 //! - Potential dead code or technical debt
 
+use crate::positions::{ByteOffset, LineNumber, RefLocation};
 use crate::{RuleId, parse_rule_id};
 use arborium::tree_sitter::{Node, Parser};
 use std::path::{Path, PathBuf};
@@ -1383,52 +1384,23 @@ pub struct FullReqRef {
     pub byte_length: usize,
 }
 
-#[derive(Debug, Clone, Copy)]
-struct LineNumber(usize);
-
-#[derive(Debug, Clone, Copy)]
-struct ByteOffset(usize);
-
-#[derive(Debug, Clone, Copy)]
-struct ByteLength(usize);
-
-#[derive(Debug, Clone, Copy)]
-struct RefLocation {
-    line: LineNumber,
-    byte_offset: ByteOffset,
-    byte_length: ByteLength,
-}
-
 impl RefLocation {
-    fn from_indices(
-        line: LineNumber,
-        base_offset: ByteOffset,
-        prefix_start: usize,
-        end_idx_inclusive: usize,
-    ) -> Self {
-        Self {
-            line,
-            byte_offset: ByteOffset(base_offset.0 + prefix_start),
-            byte_length: ByteLength(end_idx_inclusive - prefix_start + 1),
-        }
-    }
-
     fn into_full_ref(self, prefix: String, verb: String, req_id: RuleId) -> FullReqRef {
         FullReqRef {
             prefix,
             verb,
             req_id,
-            line: self.line.0,
-            byte_offset: self.byte_offset.0,
-            byte_length: self.byte_length.0,
+            line: self.line().as_usize(),
+            byte_offset: self.span().offset().as_usize(),
+            byte_length: self.span().length().as_usize(),
         }
     }
 
     fn into_warning(self) -> FullReqRefWarning {
         FullReqRefWarning {
-            line: self.line.0,
-            byte_offset: self.byte_offset.0,
-            byte_length: self.byte_length.0,
+            line: self.line().as_usize(),
+            byte_offset: self.span().offset().as_usize(),
+            byte_length: self.span().length().as_usize(),
         }
     }
 }
@@ -1527,7 +1499,7 @@ pub fn extract_refs_with_warnings(path: &Path, source: &str) -> ExtractedRefs {
 #[derive(Default)]
 struct IgnoreState {
     /// Skip the next line (set by @tracey:ignore-next-line)
-    ignore_next_line: Option<usize>,
+    ignore_next_line: Option<LineNumber>,
     /// Currently inside an ignore block (set by @tracey:ignore-start)
     /// r[impl ref.ignore.block]
     in_ignore_block: bool,
@@ -1536,7 +1508,7 @@ struct IgnoreState {
 /// Check if a comment contains ignore directives and update state accordingly.
 ///
 /// Returns true if the current comment's refs should be extracted (not ignored).
-fn check_ignore_directives(text: &str, line: usize, state: &mut IgnoreState) -> bool {
+fn check_ignore_directives(text: &str, line: LineNumber, state: &mut IgnoreState) -> bool {
     // Check for ignore directives
     // r[impl ref.ignore.next-line]
     if text.contains("@tracey:ignore-next-line") {
@@ -1564,7 +1536,7 @@ fn check_ignore_directives(text: &str, line: usize, state: &mut IgnoreState) -> 
     // Check if previous line had ignore-next-line
     if let Some(ignore_line) = state.ignore_next_line {
         // Check if this comment is on the line immediately after the ignore directive
-        if line == ignore_line + 1 {
+        if line.is_immediately_after(ignore_line) {
             state.ignore_next_line = None;
             return false;
         }
@@ -1605,8 +1577,8 @@ fn extract_refs_recursive(
 
     if is_comment {
         let text = &source[node.byte_range()];
-        let line = node.start_position().row + 1;
-        let base_offset = node.start_byte();
+        let line = LineNumber::from_zero_based(node.start_position().row);
+        let base_offset = ByteOffset::from_usize(node.start_byte());
 
         // Check ignore directives and determine if we should extract refs
         if check_ignore_directives(text, line, ignore_state) {
@@ -1624,13 +1596,11 @@ fn extract_refs_recursive(
 // r[impl ref.syntax.surrounding-text]
 fn extract_full_refs_from_text(
     text: &str,
-    line: usize,
-    base_offset: usize,
+    line: LineNumber,
+    base_offset: ByteOffset,
     refs: &mut Vec<FullReqRef>,
     warnings: &mut Vec<FullReqRefWarning>,
 ) {
-    let line = LineNumber(line);
-    let base_offset = ByteOffset(base_offset);
     let code_mask = crate::markdown::markdown_code_mask(text);
     let mut chars = text.char_indices().peekable();
 
@@ -1669,13 +1639,21 @@ fn extract_full_refs_from_text(
                     req_id,
                     end_idx,
                 }) => {
-                    let location =
-                        RefLocation::from_indices(line, base_offset, prefix_start, end_idx);
+                    let location = RefLocation::from_relative_indices(
+                        line,
+                        base_offset,
+                        prefix_start,
+                        end_idx,
+                    );
                     refs.push(location.into_full_ref(prefix, verb, req_id));
                 }
                 Some(ParsedFullRef::Malformed { end_idx }) => {
-                    let location =
-                        RefLocation::from_indices(line, base_offset, prefix_start, end_idx);
+                    let location = RefLocation::from_relative_indices(
+                        line,
+                        base_offset,
+                        prefix_start,
+                        end_idx,
+                    );
                     warnings.push(location.into_warning());
                 }
                 None => {}
@@ -1911,6 +1889,25 @@ fn do_thing() {}
         assert_eq!(refs.len(), 1, "Expected 1 ref, got {:?}", refs);
         assert_eq!(refs[0].req_id, "foo.bar");
         assert_eq!(refs[0].verb, "impl");
+    }
+
+    #[test]
+    fn test_extract_refs_byte_span_uses_inclusive_end() {
+        let source = "// r[foo.bar]\n";
+        let refs = extract_refs(Path::new("test.rs"), source);
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0].byte_offset, 3);
+        assert_eq!(refs[0].byte_length, "r[foo.bar]".len());
+    }
+
+    #[test]
+    fn test_extract_warnings_byte_span_uses_inclusive_end() {
+        let source = "// r[impl foo.]\n";
+        let extracted = extract_refs_with_warnings(Path::new("test.rs"), source);
+        assert!(extracted.references.is_empty());
+        assert_eq!(extracted.warnings.len(), 1);
+        assert_eq!(extracted.warnings[0].byte_offset, 3);
+        assert_eq!(extracted.warnings[0].byte_length, "r[impl foo.]".len());
     }
 
     #[test]

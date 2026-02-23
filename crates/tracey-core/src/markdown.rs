@@ -1,3 +1,4 @@
+use crate::positions::ByteOffset;
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 
 pub(crate) fn markdown_code_mask(text: &str) -> Vec<bool> {
@@ -69,7 +70,7 @@ fn dedent_with_index_map(text: &str) -> (String, Vec<usize>) {
 
     let mut normalized = String::with_capacity(text.len());
     let mut index_map = Vec::with_capacity(text.len());
-    let mut base_offset = 0usize;
+    let mut base_offset = ByteOffset::ZERO;
 
     for line in lines {
         let bytes = line.as_bytes();
@@ -79,11 +80,13 @@ fn dedent_with_index_map(text: &str) -> (String, Vec<usize>) {
         }
 
         normalized.push_str(&line[remove..]);
-        for original_idx in (base_offset + remove)..(base_offset + line.len()) {
+        let line_start = base_offset.add(remove).as_usize();
+        let line_end = base_offset.add(line.len()).as_usize();
+        for original_idx in line_start..line_end {
             index_map.push(original_idx);
         }
 
-        base_offset += line.len();
+        base_offset = base_offset.add(line.len());
     }
 
     (normalized, index_map)

@@ -6,6 +6,9 @@
 use crate::RuleId;
 #[cfg(not(feature = "reverse"))]
 use crate::parse_rule_id;
+use crate::positions::ByteSpan;
+#[cfg(not(feature = "reverse"))]
+use crate::positions::{ByteOffset, LineNumber, LineStarts, RefLocation};
 use crate::sources::{ExtractionResult, Sources};
 use eyre::Result;
 use facet::Facet;
@@ -26,6 +29,12 @@ pub struct SourceSpan {
 impl SourceSpan {
     pub fn new(offset: usize, length: usize) -> Self {
         Self { offset, length }
+    }
+}
+
+impl From<ByteSpan> for SourceSpan {
+    fn from(value: ByteSpan) -> Self {
+        Self::new(value.offset().as_usize(), value.length().as_usize())
     }
 }
 
@@ -223,7 +232,7 @@ pub(crate) fn extract_from_content(path: &Path, content: &str, reqs: &mut Reqs) 
 #[derive(Default)]
 struct IgnoreState {
     /// Skip the next line (set by @tracey:ignore-next-line)
-    ignore_next_line: Option<usize>,
+    ignore_next_line: Option<LineNumber>,
     /// Currently inside an ignore block (set by @tracey:ignore-start)
     /// r[impl ref.ignore.block]
     in_ignore_block: bool,
@@ -233,7 +242,7 @@ struct IgnoreState {
 ///
 /// Returns true if the current comment's refs should be extracted (not ignored).
 #[cfg(not(feature = "reverse"))]
-fn check_ignore_directives(text: &str, line: usize, state: &mut IgnoreState) -> bool {
+fn check_ignore_directives(text: &str, line: LineNumber, state: &mut IgnoreState) -> bool {
     // Check for ignore directives
     // r[impl ref.ignore.next-line]
     if text.contains("@tracey:ignore-next-line") {
@@ -259,7 +268,7 @@ fn check_ignore_directives(text: &str, line: usize, state: &mut IgnoreState) -> 
 
     // Check if previous line had ignore-next-line
     if let Some(ignore_line) = state.ignore_next_line {
-        if line == ignore_line + 1 {
+        if line.is_immediately_after(ignore_line) {
             state.ignore_next_line = None;
             return false;
         }
@@ -272,28 +281,19 @@ fn check_ignore_directives(text: &str, line: usize, state: &mut IgnoreState) -> 
 #[cfg(not(feature = "reverse"))]
 fn extract_from_content_text_based(path: &Path, content: &str, reqs: &mut Reqs) {
     // Track line starts for computing line numbers from byte offsets
-    let line_starts: Vec<usize> = std::iter::once(0)
-        .chain(content.match_indices('\n').map(|(i, _)| i + 1))
-        .collect();
-
-    let get_line = |offset: usize| -> usize {
-        match line_starts.binary_search(&offset) {
-            Ok(line) => line + 1,
-            Err(line) => line,
-        }
-    };
+    let line_starts = LineStarts::from_content(content);
 
     let mut ignore_state = IgnoreState::default();
 
     // Scan for comments and extract references
     for (line_idx, line) in content.lines().enumerate() {
-        let line_num = line_idx + 1;
-        let line_start = line_starts.get(line_idx).copied().unwrap_or(0);
+        let line_num = LineNumber::from_zero_based(line_idx);
+        let line_start = line_starts.line_start_for_index(line_idx);
 
         // Check for line comments (// or ///)
         if let Some(comment_pos) = line.find("//") {
             let comment = &line[comment_pos..];
-            let comment_start = line_start + comment_pos;
+            let comment_start = line_start.add(comment_pos);
 
             // Check ignore directives before extracting
             if check_ignore_directives(comment, line_num, &mut ignore_state) {
@@ -305,7 +305,7 @@ fn extract_from_content_text_based(path: &Path, content: &str, reqs: &mut Reqs) 
     // Handle block comments /* */
     let mut in_block_comment = false;
     let mut block_start = 0;
-    let mut block_line = 0;
+    let mut block_line = LineNumber::from_one_based(1);
     let mut i = 0;
     let bytes = content.as_bytes();
 
@@ -318,7 +318,7 @@ fn extract_from_content_text_based(path: &Path, content: &str, reqs: &mut Reqs) 
                     extract_references_from_text(
                         path,
                         block_content,
-                        block_start,
+                        ByteOffset::from_usize(block_start),
                         block_line,
                         reqs,
                     );
@@ -330,7 +330,7 @@ fn extract_from_content_text_based(path: &Path, content: &str, reqs: &mut Reqs) 
         } else if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'*' {
             in_block_comment = true;
             block_start = i + 2;
-            block_line = get_line(i);
+            block_line = line_starts.line_number_for_offset(ByteOffset::from_usize(i));
             i += 2;
             continue;
         }
@@ -343,8 +343,8 @@ fn extract_from_content_text_based(path: &Path, content: &str, reqs: &mut Reqs) 
 fn extract_references_from_text(
     path: &Path,
     text: &str,
-    text_offset: usize,
-    base_line: usize,
+    text_offset: ByteOffset,
+    base_line: LineNumber,
     reqs: &mut Reqs,
 ) {
     let code_mask = crate::markdown::markdown_code_mask(text);
@@ -383,8 +383,6 @@ fn extract_references_from_text(
             } else {
                 continue;
             }
-
-            let bracket_start = text_offset + prefix_start;
 
             // Try to parse: r[verb rule.id] or r[rule.id]
             let mut first_word = String::new();
@@ -470,22 +468,33 @@ fn extract_references_from_text(
 
                         // Validate rule ID
                         if is_valid_req_id(&req_id) {
-                            let span = SourceSpan::new(bracket_start, final_idx - prefix_start + 1);
+                            let location = RefLocation::from_relative_indices(
+                                base_line,
+                                text_offset,
+                                prefix_start,
+                                final_idx,
+                            );
                             if let Some(rule_id) = parse_rule_id(&req_id) {
                                 reqs.references.push(ReqReference {
                                     prefix: prefix.clone(),
                                     verb,
                                     req_id: rule_id,
                                     file: path.to_path_buf(),
-                                    line: base_line,
-                                    span,
+                                    line: location.line().as_usize(),
+                                    span: location.span().into(),
                                 });
                             }
                         } else {
+                            let location = RefLocation::from_relative_indices(
+                                base_line,
+                                text_offset,
+                                prefix_start,
+                                final_idx,
+                            );
                             reqs.warnings.push(ParseWarning {
                                 file: path.to_path_buf(),
-                                line: base_line,
-                                span: SourceSpan::new(bracket_start, final_idx - prefix_start + 1),
+                                line: location.line().as_usize(),
+                                span: location.span().into(),
                                 kind: WarningKind::MalformedReference,
                             });
                         }
@@ -501,22 +510,33 @@ fn extract_references_from_text(
 
                     // Validate requirement ID syntax
                     if is_valid_req_id(&first_word) {
-                        let span = SourceSpan::new(bracket_start, end_idx - prefix_start + 1);
+                        let location = RefLocation::from_relative_indices(
+                            base_line,
+                            text_offset,
+                            prefix_start,
+                            end_idx,
+                        );
                         if let Some(rule_id) = parse_rule_id(&first_word) {
                             reqs.references.push(ReqReference {
                                 prefix: prefix.clone(),
                                 verb: RefVerb::Impl, // default to impl
                                 req_id: rule_id,
                                 file: path.to_path_buf(),
-                                line: base_line,
-                                span,
+                                line: location.line().as_usize(),
+                                span: location.span().into(),
                             });
                         }
                     } else {
+                        let location = RefLocation::from_relative_indices(
+                            base_line,
+                            text_offset,
+                            prefix_start,
+                            end_idx,
+                        );
                         reqs.warnings.push(ParseWarning {
                             file: path.to_path_buf(),
-                            line: base_line,
-                            span: SourceSpan::new(bracket_start, end_idx - prefix_start + 1),
+                            line: location.line().as_usize(),
+                            span: location.span().into(),
                             kind: WarningKind::MalformedReference,
                         });
                     }
@@ -721,6 +741,14 @@ mod tests {
         assert_eq!(reqs.len(), 1);
         assert_eq!(reqs.references[0].prefix, "r");
         assert_eq!(reqs.references[0].span.offset, 3); // after "// ", points to 'r'
+    }
+
+    #[test]
+    fn test_span_length_includes_closing_bracket() {
+        let content = "// r[foo.bar]";
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs.references[0].span.length, "r[foo.bar]".len());
     }
 
     #[test]

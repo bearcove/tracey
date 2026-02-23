@@ -7,6 +7,7 @@
 mod coverage;
 mod lexer;
 mod markdown;
+mod positions;
 mod rule_id;
 mod sources;
 mod spec;
