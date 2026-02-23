@@ -1513,6 +1513,6 @@ The extension MUST document how to install the tracey binary, which is required 
 
 > r[zed.install.binary-options]
 > Installation documentation MUST cover:
-> - Installing via cargo (`cargo install tracey`)
+> - Installing via cargo (`cargo install --locked --git https://github.com/bearcove/tracey --branch main tracey`)
 > - Using pre-built binaries from releases
 > - Building from source
