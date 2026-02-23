@@ -528,7 +528,7 @@ fn extract_references_from_text(
     }
 }
 
-// r[impl ref.syntax.req-id+2]
+// r[impl ref.syntax.req-id+3]
 #[cfg(not(feature = "reverse"))]
 fn is_valid_req_id(req_id: &str) -> bool {
     let Some(parsed) = parse_rule_id(req_id) else {
