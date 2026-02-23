@@ -48,6 +48,139 @@ pub(crate) fn is_code_index(index: usize, code_mask: &[bool]) -> bool {
     code_mask.get(index).copied().unwrap_or(false)
 }
 
+/// Classify a line comment by its prefix type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LineCommentKind {
+    /// `//!` inner doc comment
+    InnerDoc,
+    /// `///` outer doc comment
+    OuterDoc,
+    /// `//` regular line comment
+    Regular,
+}
+
+/// Strip the line-comment prefix (`//!`, `///`, or `//`) and optional following space.
+/// Returns `(prefix_byte_length, content_after_prefix)`.
+pub(crate) fn strip_line_comment_prefix(text: &str) -> (usize, &str) {
+    let prefix_len = if text.starts_with("//!") || text.starts_with("///") {
+        3
+    } else if text.starts_with("//") {
+        2
+    } else {
+        return (0, text);
+    };
+    let after_slashes = &text[prefix_len..];
+    if let Some(rest) = after_slashes.strip_prefix(' ') {
+        (prefix_len + 1, rest)
+    } else {
+        (prefix_len, after_slashes)
+    }
+}
+
+/// Classify a comment string starting with `//`.
+pub(crate) fn classify_line_comment(text: &str) -> Option<LineCommentKind> {
+    if text.starts_with("//!") {
+        Some(LineCommentKind::InnerDoc)
+    } else if text.starts_with("///") && !text.starts_with("////") {
+        Some(LineCommentKind::OuterDoc)
+    } else if text.starts_with("//") {
+        Some(LineCommentKind::Regular)
+    } else {
+        None
+    }
+}
+
+/// Pre-compute a file-level mask of bytes that fall inside markdown code
+/// (fenced code blocks or inline backtick spans) within doc-comment groups.
+///
+/// Consecutive line comments of the same kind (`///`, `//!`, `//`) are grouped,
+/// their prefixes stripped, the bodies joined with `\n`, and
+/// `markdown_code_mask` is run over the combined text. The resulting mask is
+/// mapped back to file byte offsets so callers can check any byte position.
+pub(crate) fn compute_doc_comment_code_mask(content: &str) -> Vec<bool> {
+    let mut mask = vec![false; content.len()];
+
+    // Pre-compute line byte offsets
+    let mut line_offsets: Vec<usize> = vec![0];
+    for (i, byte) in content.bytes().enumerate() {
+        if byte == b'\n' {
+            line_offsets.push(i + 1);
+        }
+    }
+
+    let lines: Vec<&str> = content.lines().collect();
+    let mut i = 0;
+
+    while i < lines.len() {
+        let line = lines[i];
+        let Some(comment_pos) = line.find("//") else {
+            i += 1;
+            continue;
+        };
+        let comment = &line[comment_pos..];
+        let Some(kind) = classify_line_comment(comment) else {
+            i += 1;
+            continue;
+        };
+
+        // Collect consecutive lines of the same comment kind
+        let group_start = i;
+        let mut j = i + 1;
+        while j < lines.len() {
+            if let Some(cp) = lines[j].find("//") {
+                let c = &lines[j][cp..];
+                if classify_line_comment(c) == Some(kind) {
+                    j += 1;
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+
+        // Only need the combined mask for groups of 2+ lines
+        // (single lines are already handled correctly by per-line masking)
+        if j - group_start > 1 {
+            let mut combined = String::new();
+            // Maps each byte index in `combined` to a file byte offset
+            let mut offset_map: Vec<usize> = Vec::new();
+
+            for k in group_start..j {
+                if k > group_start {
+                    combined.push('\n');
+                    offset_map.push(usize::MAX); // sentinel for virtual newline
+                }
+                let cp = lines[k].find("//").unwrap();
+                let comment_text = &lines[k][cp..];
+                let (prefix_len, stripped) = strip_line_comment_prefix(comment_text);
+                let content_file_start = line_offsets[k] + cp + prefix_len;
+
+                for bi in 0..stripped.len() {
+                    offset_map.push(content_file_start + bi);
+                }
+                combined.push_str(stripped);
+            }
+
+            let code_mask = markdown_code_mask(&combined);
+
+            for (ci, &is_code) in code_mask.iter().enumerate() {
+                if is_code
+                    && let Some(&file_idx) = offset_map.get(ci)
+                    && file_idx != usize::MAX
+                    && let Some(slot) = mask.get_mut(file_idx)
+                {
+                    *slot = true;
+                }
+            }
+        }
+
+        i = j;
+    }
+
+    mask
+}
+
 fn dedent_with_index_map(text: &str) -> (String, Vec<usize>) {
     let lines: Vec<&str> = text.split_inclusive('\n').collect();
 
