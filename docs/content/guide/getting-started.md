@@ -7,11 +7,15 @@ This guide takes you from zero to a working tracey setup: a spec with requiremen
 
 ## Install tracey
 
-```bash
-# Pre-built binary (fast, from GitHub Releases)
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/bearcove/tracey/releases/latest/download/tracey-installer.sh | sh
+Either install with the cargo-dist installer:
 
-# Or build from source (main branch)
+```bash
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/bearcove/tracey/releases/latest/download/tracey-installer.sh | sh
+```
+
+Or build from source:
+
+```bash
 cargo install --locked --git https://github.com/bearcove/tracey --branch main tracey
 ```
 
