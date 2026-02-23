@@ -1197,6 +1197,7 @@ impl TraceyDaemon for TraceyService {
         let mut diagnostics = Vec::new();
 
         // For markdown spec files, show coverage diagnostics for definitions
+        // and validate inline cross-references like `r[foo.bar]`.
         if path.extension().is_some_and(|ext| ext == "md") {
             let options = marq::RenderOptions::default();
             if let Ok(doc) = marq::render(&req.content, &options).await {
@@ -1239,6 +1240,93 @@ impl TraceyDaemon for TraceyService {
                     }
                 }
             }
+
+            let known_prefixes: std::collections::HashSet<_> = data
+                .config
+                .specs
+                .iter()
+                .map(|s| s.prefix.as_str())
+                .collect();
+            if known_prefixes.is_empty() {
+                return diagnostics;
+            }
+
+            let mut known_rules_by_prefix: std::collections::HashMap<&str, Vec<RuleId>> =
+                std::collections::HashMap::new();
+            let mut rules_by_id: std::collections::HashMap<RuleId, ApiRule> =
+                std::collections::HashMap::new();
+            for spec_cfg in &data.config.specs {
+                let rule_ids = known_rules_by_prefix
+                    .entry(spec_cfg.prefix.as_str())
+                    .or_default();
+                for ((spec_name, _), forward_data) in &data.forward_by_impl {
+                    if spec_name == &spec_cfg.name {
+                        for rule in &forward_data.rules {
+                            rule_ids.push(rule.id.clone());
+                            rules_by_id
+                                .entry(rule.id.clone())
+                                .or_insert_with(|| rule.clone());
+                        }
+                    }
+                }
+            }
+
+            for reference in extract_markdown_rule_references(&req.content) {
+                let (start_line, start_char, end_line, end_char) =
+                    span_to_range(&req.content, reference.span_offset, reference.span_length);
+
+                if !known_prefixes.contains(reference.prefix.as_str()) {
+                    diagnostics.push(LspDiagnostic {
+                        severity: "error".to_string(),
+                        code: "unknown-prefix".to_string(),
+                        message: format!("Unknown prefix: '{}'", reference.prefix),
+                        start_line,
+                        start_char,
+                        end_line,
+                        end_char,
+                    });
+                    continue;
+                }
+
+                let known_for_prefix = known_rules_by_prefix
+                    .get(reference.prefix.as_str())
+                    .map(Vec::as_slice)
+                    .unwrap_or(&[]);
+                match classify_reference_against_known_rules(&reference.req_id, known_for_prefix) {
+                    KnownRuleMatch::Exact => {}
+                    KnownRuleMatch::Stale(current_rule_id) => {
+                        let message = stale_diagnostic_message_short(
+                            &reference.req_id,
+                            rules_by_id.get(&current_rule_id),
+                        );
+                        diagnostics.push(LspDiagnostic {
+                            severity: "warning".to_string(),
+                            code: "stale".to_string(),
+                            message,
+                            start_line,
+                            start_char,
+                            end_line,
+                            end_char,
+                        });
+                    }
+                    KnownRuleMatch::Missing => {
+                        let message = unknown_rule_message_with_suggestions(
+                            &reference.req_id,
+                            known_for_prefix,
+                        );
+                        diagnostics.push(LspDiagnostic {
+                            severity: "warning".to_string(),
+                            code: "orphaned".to_string(),
+                            message,
+                            start_line,
+                            start_char,
+                            end_line,
+                            end_char,
+                        });
+                    }
+                }
+            }
+
             return diagnostics;
         }
 
@@ -2068,6 +2156,134 @@ struct RuleAtPosition {
     span_length: usize,
 }
 
+struct MarkdownRuleReference {
+    prefix: String,
+    req_id: RuleId,
+    span_offset: usize,
+    span_length: usize,
+}
+
+fn parse_markdown_fence(line: &[u8], mut i: usize) -> Option<(u8, usize)> {
+    while i < line.len() && matches!(line[i], b' ' | b'\t') {
+        i += 1;
+    }
+    let fence_char = *line.get(i)?;
+    if fence_char != b'`' && fence_char != b'~' {
+        return None;
+    }
+    let mut count = 0usize;
+    while i + count < line.len() && line[i + count] == fence_char {
+        count += 1;
+    }
+    (count >= 3).then_some((fence_char, count))
+}
+
+fn markdown_fenced_code_mask(content: &str) -> Vec<bool> {
+    let mut mask = vec![false; content.len()];
+    let mut line_start = 0usize;
+    let mut in_fence: Option<(u8, usize)> = None;
+
+    for line in content.split_inclusive('\n') {
+        let line_end = line_start + line.len();
+        let fence = parse_markdown_fence(line.as_bytes(), 0);
+
+        if let Some((fence_char, fence_len)) = fence {
+            match in_fence {
+                Some((open_char, open_len)) if fence_char == open_char && fence_len >= open_len => {
+                    mask[line_start..line_end].fill(true);
+                    in_fence = None;
+                    line_start = line_end;
+                    continue;
+                }
+                None => {
+                    in_fence = Some((fence_char, fence_len));
+                    mask[line_start..line_end].fill(true);
+                    line_start = line_end;
+                    continue;
+                }
+                _ => {}
+            }
+        }
+
+        if in_fence.is_some() {
+            mask[line_start..line_end].fill(true);
+        }
+
+        line_start = line_end;
+    }
+
+    mask
+}
+
+fn extract_markdown_rule_references(content: &str) -> Vec<MarkdownRuleReference> {
+    let bytes = content.as_bytes();
+    let mut out = Vec::new();
+    let fenced_code_mask = markdown_fenced_code_mask(content);
+    let mut i = 0usize;
+
+    while i < bytes.len() {
+        if fenced_code_mask.get(i).copied().unwrap_or(false) {
+            i += 1;
+            continue;
+        }
+
+        let c = bytes[i];
+        if !c.is_ascii_lowercase() && !c.is_ascii_digit() {
+            i += 1;
+            continue;
+        }
+
+        let start = i;
+        let mut prefix_end = i + 1;
+        while prefix_end < bytes.len()
+            && (bytes[prefix_end].is_ascii_lowercase() || bytes[prefix_end].is_ascii_digit())
+        {
+            prefix_end += 1;
+        }
+        if prefix_end >= bytes.len() || bytes[prefix_end] != b'[' {
+            i += 1;
+            continue;
+        }
+
+        let req_start = prefix_end + 1;
+        let mut req_end = req_start;
+        while req_end < bytes.len()
+            && (bytes[req_end].is_ascii_lowercase()
+                || bytes[req_end].is_ascii_digit()
+                || matches!(bytes[req_end], b'.' | b'-' | b'+'))
+        {
+            req_end += 1;
+        }
+        if req_end >= bytes.len() || bytes[req_end] != b']' || req_end == req_start {
+            i += 1;
+            continue;
+        }
+
+        let Some(prefix) = content.get(start..prefix_end) else {
+            i += 1;
+            continue;
+        };
+        let Some(req_text) = content.get(req_start..req_end) else {
+            i += 1;
+            continue;
+        };
+        let Some(req_id) = parse_rule_id(req_text) else {
+            i += 1;
+            continue;
+        };
+
+        out.push(MarkdownRuleReference {
+            prefix: prefix.to_string(),
+            req_id,
+            span_offset: start,
+            span_length: req_end - start + 1,
+        });
+        i = req_end + 1;
+    }
+
+    out
+}
+
 /// Find a rule (reference or definition) at the given position.
 ///
 /// For markdown spec files, uses marq to extract requirement definitions.
@@ -2079,13 +2295,12 @@ async fn find_rule_at_position(
     character: u32,
 ) -> Option<RuleAtPosition> {
     if path.extension().is_some_and(|ext| ext == "md") {
-        // Parse markdown to find requirement definitions
-        let options = marq::RenderOptions::default();
-        let doc = marq::render(content, &options).await.ok()?;
-
         let target_offset = line_col_to_offset(content, line, character)?;
 
-        doc.reqs.iter().find_map(|r| {
+        // Parse markdown to find requirement definitions first.
+        let options = marq::RenderOptions::default();
+        let doc = marq::render(content, &options).await.ok()?;
+        if let Some(rule) = doc.reqs.iter().find_map(|r| {
             let start = r.span.offset;
             let end = r.span.offset + r.span.length;
             if target_offset >= start && target_offset < end {
@@ -2098,7 +2313,26 @@ async fn find_rule_at_position(
             } else {
                 None
             }
-        })
+        }) {
+            return Some(rule);
+        }
+
+        extract_markdown_rule_references(content)
+            .into_iter()
+            .find_map(|r| {
+                let start = r.span_offset;
+                let end = r.span_offset + r.span_length;
+                if target_offset >= start && target_offset < end {
+                    Some(RuleAtPosition {
+                        req_id: r.req_id,
+                        prefix: Some(r.prefix),
+                        span_offset: r.span_offset,
+                        span_length: r.span_length,
+                    })
+                } else {
+                    None
+                }
+            })
     } else {
         // Parse source file to find references in comments
         let reqs = tracey_core::Reqs::extract_from_content(path, content);

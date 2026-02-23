@@ -387,6 +387,124 @@ fn test_func() {}"#;
 }
 
 #[tokio::test]
+async fn test_lsp_hover_on_markdown_backtick_reference() {
+    let service = create_test_service().await;
+
+    let content = "See `r[auth.login]` for details.";
+    let req = LspPositionRequest {
+        path: fixtures_dir().join("spec.md").display().to_string(),
+        content: content.to_string(),
+        line: 0,
+        character: 8, // inside auth.login
+    };
+
+    let hover = rpc(service.client.lsp_hover(req).await);
+    assert!(
+        hover.is_some(),
+        "Expected hover info for markdown backtick reference"
+    );
+    assert_eq!(hover.unwrap().rule_id, rid("auth.login"));
+}
+
+#[tokio::test]
+async fn test_lsp_definition_on_markdown_backtick_reference() {
+    let service = create_test_service().await;
+
+    let content = "See `r[auth.login]` for details.";
+    let req = LspPositionRequest {
+        path: fixtures_dir().join("spec.md").display().to_string(),
+        content: content.to_string(),
+        line: 0,
+        character: 8, // inside auth.login
+    };
+
+    let locations = rpc(service.client.lsp_definition(req).await);
+    assert!(
+        !locations.is_empty(),
+        "Expected definition location for markdown backtick reference"
+    );
+    assert!(
+        locations[0].path.contains("spec.md"),
+        "Expected definition in spec.md"
+    );
+}
+
+#[tokio::test]
+async fn test_lsp_diagnostics_orphaned_markdown_backtick_reference() {
+    let service = create_test_service().await;
+
+    let content = "See `r[auth.typo]` for details.";
+    let req = LspDocumentRequest {
+        path: fixtures_dir().join("spec.md").display().to_string(),
+        content: content.to_string(),
+    };
+
+    let diagnostics = rpc(service.client.lsp_diagnostics(req).await);
+    let orphaned = diagnostics.iter().find(|d| d.code == "orphaned");
+    assert!(
+        orphaned.is_some(),
+        "Expected orphaned diagnostic for markdown backtick reference"
+    );
+}
+
+#[tokio::test]
+async fn test_lsp_diagnostics_stale_markdown_backtick_reference() {
+    let temp = tempfile::tempdir().expect("Failed to create temp dir");
+    let project_root = temp.path().to_path_buf();
+
+    std::fs::create_dir_all(project_root.join("src")).expect("Failed to create src dir");
+    std::fs::write(
+        project_root.join("config.styx"),
+        r#"
+specs (
+  {
+    name test
+    include (spec.md)
+    impls (
+      {
+        name rust
+        include (src/**/*.rs)
+      }
+    )
+  }
+)
+"#,
+    )
+    .expect("Failed to write config");
+    std::fs::write(
+        project_root.join("spec.md"),
+        r#"
+r[auth.login+2]
+Users MUST provide valid credentials to log in.
+"#,
+    )
+    .expect("Failed to write spec");
+    std::fs::write(project_root.join("src/lib.rs"), "// placeholder")
+        .expect("Failed to write src/lib.rs");
+
+    let engine = Arc::new(
+        tracey::daemon::Engine::new(project_root.clone(), project_root.join("config.styx"))
+            .await
+            .expect("Failed to create engine"),
+    );
+    let service = tracey::daemon::TraceyService::new(engine);
+    let rpc_service = common::create_test_rpc_service(service).await;
+
+    let content = "See `r[auth.login]` for details.";
+    let req = LspDocumentRequest {
+        path: project_root.join("spec.md").display().to_string(),
+        content: content.to_string(),
+    };
+
+    let diagnostics = rpc(rpc_service.client.lsp_diagnostics(req).await);
+    let stale = diagnostics.iter().find(|d| d.code == "stale");
+    assert!(
+        stale.is_some(),
+        "Expected stale diagnostic for markdown backtick reference"
+    );
+}
+
+#[tokio::test]
 async fn test_lsp_completions() {
     let service = create_test_service().await;
 
