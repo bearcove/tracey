@@ -53,16 +53,6 @@ tracey mcp register [--codex] [--claude]
 
 If no flags are provided, tracey attempts both clients and skips any executable that is not in `PATH`.
 
-To register `tracey mcp` with external MCP clients:
-
-```bash
-# Codex CLI
-codex mcp add tracey -- tracey mcp
-
-# Claude Code
-claude mcp add --transport stdio tracey -- tracey mcp
-```
-
 ## Daemon management
 
 Tracey uses a persistent daemon process per workspace. All bridges (web, LSP, MCP, CLI) connect to the daemon as clients. The daemon is auto-started by bridges, so you rarely need to manage it directly.
