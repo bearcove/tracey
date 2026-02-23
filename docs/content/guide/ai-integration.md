@@ -7,7 +7,7 @@ Tracey exposes its coverage analysis as MCP (Model Context Protocol) tools, lett
 
 ## Setup
 
-### Option 1: MCP config
+### Option 1: MCP config file
 
 Add a `.mcp.json` file to your project root:
 
@@ -24,7 +24,53 @@ Add a `.mcp.json` file to your project root:
 
 The MCP server auto-starts the tracey daemon when it connects.
 
-### Option 2: Install the skill
+### Option 2: Let tracey register clients for you
+
+```bash
+tracey mcp register
+```
+
+This checks your `PATH`, then runs MCP registration for whichever clients are installed (`codex` and/or `claude`). It prints each command before executing it.
+
+Use `--codex` or `--claude` to target only one:
+
+```bash
+tracey mcp register --codex
+tracey mcp register --claude
+```
+
+### Option 3: Register with Codex CLI manually
+
+```bash
+codex mcp add tracey -- tracey mcp
+```
+
+Useful follow-ups:
+
+```bash
+codex mcp --help
+```
+
+### Option 4: Register with Claude Code CLI manually
+
+```bash
+claude mcp add --transport stdio tracey -- tracey mcp
+```
+
+To share this with your team in the project `.mcp.json`:
+
+```bash
+claude mcp add --transport stdio --scope project tracey -- tracey mcp
+```
+
+Useful follow-ups:
+
+```bash
+claude mcp list
+claude mcp get tracey
+```
+
+### Option 5: Install the skill
 
 ```bash
 tracey skill install

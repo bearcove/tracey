@@ -7,7 +7,9 @@
 use eyre::{Result, WrapErr, eyre};
 use figue::{self as args, FigueBuiltins};
 use owo_colors::OwoColorize;
+use std::io::Write;
 use std::path::PathBuf;
+use std::process::{Command as ProcessCommand, Stdio};
 
 // Use the library crate
 use tracey::{bridge, daemon, find_project_root};
@@ -244,9 +246,16 @@ styx_embed::embed_outdir_file!("schema.styx");
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let raw_args: Vec<String> = std::env::args().skip(1).collect();
+    if raw_args.first().map(|s| s.as_str()) == Some("mcp")
+        && raw_args.get(1).map(|s| s.as_str()) == Some("register")
+    {
+        return register_mcp_clients(&raw_args[2..]);
+    }
+
     let config = args::builder::<Args>()
         .map_err(|e| eyre!("failed to initialize CLI parser: {e}"))?
-        .cli(|cli| cli.args(std::env::args().skip(1)))
+        .cli(|cli| cli.args(raw_args.clone().into_iter()))
         .help(|h| {
             h.program_name(env!("CARGO_PKG_NAME"))
                 .version(cli_version_text())
@@ -760,6 +769,167 @@ fn install_skill_to(skill_dir: &std::path::Path) -> Result<()> {
     })?;
 
     Ok(())
+}
+
+fn register_mcp_clients(args: &[String]) -> Result<()> {
+    let mut codex_requested = false;
+    let mut claude_requested = false;
+
+    for arg in args {
+        match arg.as_str() {
+            "--codex" => codex_requested = true,
+            "--claude" => claude_requested = true,
+            "-h" | "--help" => {
+                println!("Register tracey as an MCP server for Codex and/or Claude.");
+                println!();
+                println!("Usage:");
+                println!("  tracey mcp register [--codex] [--claude]");
+                println!();
+                println!("If no flags are provided, tracey tries both clients and skips any");
+                println!("client executable that's not found in PATH.");
+                return Ok(());
+            }
+            unknown => {
+                return Err(eyre!(
+                    "unknown argument for 'tracey mcp register': {unknown}"
+                ));
+            }
+        }
+    }
+
+    let specific_target = codex_requested || claude_requested;
+    let target_codex = if specific_target {
+        codex_requested
+    } else {
+        true
+    };
+    let target_claude = if specific_target {
+        claude_requested
+    } else {
+        true
+    };
+
+    println!("{}: registering tracey MCP server", "Info".cyan());
+
+    let mut success_count = 0usize;
+    let mut attempted_count = 0usize;
+
+    if target_codex {
+        attempted_count += 1;
+        if command_in_path("codex") {
+            let cmd = "codex mcp add tracey -- tracey mcp";
+            if confirm_command_consent("codex", cmd)? {
+                println!("  {} codex: {}", "Running".cyan(), cmd);
+                if run_registration_command(
+                    "codex",
+                    &["mcp", "add", "tracey", "--", "tracey", "mcp"],
+                )? {
+                    success_count += 1;
+                }
+            } else {
+                println!("  {} codex: consent not granted, skipping", "Skip".yellow());
+            }
+        } else {
+            println!("  {} codex: not found in PATH, skipping", "Skip".yellow());
+        }
+    }
+
+    if target_claude {
+        attempted_count += 1;
+        if command_in_path("claude") {
+            let cmd = "claude mcp add --transport stdio tracey -- tracey mcp";
+            if confirm_command_consent("claude", cmd)? {
+                println!("  {} claude: {}", "Running".cyan(), cmd);
+                if run_registration_command(
+                    "claude",
+                    &[
+                        "mcp",
+                        "add",
+                        "--transport",
+                        "stdio",
+                        "tracey",
+                        "--",
+                        "tracey",
+                        "mcp",
+                    ],
+                )? {
+                    success_count += 1;
+                }
+            } else {
+                println!(
+                    "  {} claude: consent not granted, skipping",
+                    "Skip".yellow()
+                );
+            }
+        } else {
+            println!("  {} claude: not found in PATH, skipping", "Skip".yellow());
+        }
+    }
+
+    if success_count > 0 {
+        println!(
+            "{}: registered tracey with {} MCP client(s)",
+            "Success".green(),
+            success_count
+        );
+        return Ok(());
+    }
+
+    if attempted_count == 0 {
+        return Err(eyre!("no MCP client selected"));
+    }
+
+    Err(eyre!(
+        "no MCP client registration succeeded (check command output above)"
+    ))
+}
+
+fn run_registration_command(program: &str, args: &[&str]) -> Result<bool> {
+    let output = ProcessCommand::new(program)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .wrap_err_with(|| format!("failed to run {}", program))?;
+
+    if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !stdout.is_empty() {
+            println!("    {}", stdout);
+        }
+        println!("    {}", "ok".green());
+        return Ok(true);
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if !stderr.is_empty() {
+        eprintln!("    {}", stderr);
+    }
+    eprintln!("    {}", "failed".red());
+    Ok(false)
+}
+
+fn confirm_command_consent(client: &str, command: &str) -> Result<bool> {
+    print!("Detect {client} => run `{command}` [y/N] ? ");
+    std::io::stdout().flush()?;
+
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input)?;
+    let answer = input.trim().to_ascii_lowercase();
+    Ok(matches!(answer.as_str(), "y" | "yes"))
+}
+
+fn command_in_path(program: &str) -> bool {
+    match ProcessCommand::new(program)
+        .arg("--version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+    {
+        Ok(_) => true,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => false,
+        Err(_) => true,
+    }
 }
 
 /// r[impl daemon.cli.kill]
