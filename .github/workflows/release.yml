@@ -127,8 +127,8 @@ jobs:
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
             echo "$HOME/.cargo/bin" >> $GITHUB_PATH
           fi
-      - name: "Setup Rust 1.90"
-        uses: "dtolnay/rust-toolchain@1.90.0"
+      - name: "Setup Rust 1.91"
+        uses: "dtolnay/rust-toolchain@1.91.0"
       - name: "Setup Node.js"
         uses: "actions/setup-node@v4"
         with:

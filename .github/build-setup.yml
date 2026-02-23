@@ -1,5 +1,5 @@
-- name: Setup Rust 1.90
-  uses: dtolnay/rust-toolchain@1.90.0
+- name: Setup Rust 1.91
+  uses: dtolnay/rust-toolchain@1.91.0
 - name: Setup Node.js
   uses: actions/setup-node@v4
   with:
