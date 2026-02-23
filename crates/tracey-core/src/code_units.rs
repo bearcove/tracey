@@ -1477,6 +1477,10 @@ pub fn extract_refs_with_warnings(path: &Path, source: &str) -> ExtractedRefs {
         return ExtractedRefs::default();
     };
 
+    // Pre-compute file-level code mask for doc-comment groups so that fenced
+    // code blocks spanning multiple `///` / `//!` lines are properly masked.
+    let file_code_mask = crate::markdown::compute_doc_comment_code_mask(source);
+
     let mut refs = Vec::new();
     let mut warnings = Vec::new();
     let mut ignore_state = IgnoreState::default();
@@ -1486,6 +1490,7 @@ pub fn extract_refs_with_warnings(path: &Path, source: &str) -> ExtractedRefs {
         &mut refs,
         &mut warnings,
         &mut ignore_state,
+        &file_code_mask,
     );
     ExtractedRefs {
         references: refs,
@@ -1553,6 +1558,7 @@ fn extract_refs_recursive(
     refs: &mut Vec<FullReqRef>,
     warnings: &mut Vec<FullReqRefWarning>,
     ignore_state: &mut IgnoreState,
+    file_code_mask: &[bool],
 ) {
     // Check if this is a comment node
     // Different languages and comment styles:
@@ -1582,14 +1588,14 @@ fn extract_refs_recursive(
 
         // Check ignore directives and determine if we should extract refs
         if check_ignore_directives(text, line, ignore_state) {
-            extract_full_refs_from_text(text, line, base_offset, refs, warnings);
+            extract_full_refs_from_text(text, line, base_offset, file_code_mask, refs, warnings);
         }
     }
 
     // Recurse into children
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        extract_refs_recursive(source, child, refs, warnings, ignore_state);
+        extract_refs_recursive(source, child, refs, warnings, ignore_state, file_code_mask);
     }
 }
 
@@ -1598,18 +1604,31 @@ fn extract_full_refs_from_text(
     text: &str,
     line: LineNumber,
     base_offset: ByteOffset,
+    file_code_mask: &[bool],
     refs: &mut Vec<FullReqRef>,
     warnings: &mut Vec<FullReqRefWarning>,
 ) {
     let code_mask = crate::markdown::markdown_code_mask(text);
     let mut chars = text.char_indices().peekable();
+    let mut prev_ch: Option<char> = None;
 
     while let Some((start_idx, ch)) = chars.next() {
-        if crate::markdown::is_code_index(start_idx, &code_mask) {
+        // Check both per-text mask and file-level mask for doc-comment groups
+        let file_idx = base_offset.as_usize() + start_idx;
+        if crate::markdown::is_code_index(start_idx, &code_mask)
+            || crate::markdown::is_code_index(file_idx, file_code_mask)
+        {
+            prev_ch = Some(ch);
             continue;
         }
         // Match prefix (lowercase alphanumeric) followed by '['
+        // Only start a prefix scan when NOT preceded by a word character,
+        // so that identifiers like `slot_count[i]` are not misinterpreted.
         if ch.is_ascii_lowercase() || ch.is_ascii_digit() {
+            if prev_ch.is_some_and(|pc| pc.is_ascii_alphanumeric() || pc == '_') {
+                prev_ch = Some(ch);
+                continue;
+            }
             let prefix_start = start_idx;
             let mut prefix = String::new();
             prefix.push(ch);
@@ -1658,6 +1677,9 @@ fn extract_full_refs_from_text(
                 }
                 None => {}
             }
+            prev_ch = Some(']');
+        } else {
+            prev_ch = Some(ch);
         }
     }
 }
@@ -3186,5 +3208,62 @@ function helper {
             !func_units.is_empty(),
             "Should find function definitions in bash"
         );
+    }
+
+    #[test]
+    fn test_fenced_code_in_inner_doc_comments_treesitter() {
+        let source = "//! ```text\n//! slot_count[i]\n//! ```\nfn main() {}\n";
+        let refs = extract_refs_with_warnings(Path::new("test.rs"), source);
+        assert_eq!(
+            refs.references.len(),
+            0,
+            "fenced code in //! should produce no annotations"
+        );
+        assert_eq!(refs.warnings.len(), 0);
+    }
+
+    #[test]
+    fn test_fenced_code_in_outer_doc_comments_treesitter() {
+        let source = "/// ```rust\n/// // r[haha.hehe]\n/// ```\nfn foo() {}\n";
+        let refs = extract_refs_with_warnings(Path::new("test.rs"), source);
+        assert_eq!(
+            refs.references.len(),
+            0,
+            "fenced code in /// should produce no annotations"
+        );
+        assert_eq!(refs.warnings.len(), 0);
+    }
+
+    #[test]
+    fn test_identifier_before_bracket_not_annotation_treesitter() {
+        let source = "/// slot_count[i] is fun\nfn foo() {}\n";
+        let refs = extract_refs_with_warnings(Path::new("test.rs"), source);
+        assert_eq!(
+            refs.references.len(),
+            0,
+            "identifier[x] should not be an annotation"
+        );
+        assert_eq!(refs.warnings.len(), 0);
+    }
+
+    #[test]
+    fn test_inline_backtick_in_doc_comment_treesitter() {
+        let source = "/// `r[haha.hehe]` yey\nfn foo() {}\n";
+        let refs = extract_refs_with_warnings(Path::new("test.rs"), source);
+        assert_eq!(
+            refs.references.len(),
+            0,
+            "inline code in /// should produce no annotations"
+        );
+    }
+
+    #[test]
+    fn test_legitimate_ref_after_whitespace_treesitter() {
+        let source = "/// r[impl foo.bar]\nfn foo() {}\n";
+        let refs = extract_refs_with_warnings(Path::new("test.rs"), source);
+        assert_eq!(refs.references.len(), 1);
+        assert_eq!(refs.references[0].prefix, "r");
+        assert_eq!(refs.references[0].verb, "impl");
+        assert_eq!(refs.references[0].req_id.to_string(), "foo.bar");
     }
 }
