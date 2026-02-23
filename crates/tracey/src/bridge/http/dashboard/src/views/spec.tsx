@@ -309,6 +309,47 @@ export function SpecView({
     return spec.sections.map((s) => s.html).join("\n");
   }, [spec?.sections]);
 
+  // Inject head scripts (e.g. mermaid.js) from server-side rendered content.
+  // Must use createElement("script") — scripts created via innerHTML do not execute.
+  useEffect(() => {
+    console.log("[tracey] spec keys:", spec ? Object.keys(spec) : "no spec");
+    console.log("[tracey] head_injections:", spec?.head_injections);
+    if (!spec?.head_injections?.length) return;
+    const injected: HTMLElement[] = [];
+    for (const html of spec.head_injections) {
+      const key = `tracey-head-${btoa(encodeURIComponent(html)).slice(0, 16)}`;
+      if (document.getElementById(key)) {
+        console.log("[tracey] head injection already present, skipping:", key);
+        continue;
+      }
+      const tmp = document.createElement("div");
+      tmp.innerHTML = html;
+      const parsed = tmp.firstElementChild;
+      if (!parsed) {
+        console.warn("[tracey] head injection parsed to nothing:", html);
+        continue;
+      }
+      let el: HTMLElement;
+      if (parsed.tagName === "SCRIPT") {
+        const script = document.createElement("script");
+        for (const attr of parsed.attributes) {
+          script.setAttribute(attr.name, attr.value);
+        }
+        script.textContent = parsed.textContent;
+        el = script;
+      } else {
+        el = parsed as HTMLElement;
+      }
+      el.id = key;
+      console.log("[tracey] injecting into head:", el.outerHTML.slice(0, 120));
+      document.head.appendChild(el);
+      injected.push(el);
+    }
+    return () => {
+      for (const el of injected) el.remove();
+    };
+  }, [spec?.head_injections]);
+
   // Set up scroll-based heading tracking
   useEffect(() => {
     if (!contentRef.current || !contentBodyRef.current || outline.length === 0) return;
