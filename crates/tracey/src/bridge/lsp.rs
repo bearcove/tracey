@@ -169,17 +169,21 @@ async fn run_lsp_server(cli_project_root: PathBuf) -> Result<()> {
     let stdout = tokio::io::stdout();
     let replayed_stdin = Cursor::new(init_bytes).chain(buf_reader);
 
-    let daemon_client = new_client(project_root.clone());
-
     let doc_state = Arc::new(Mutex::new(LspDocState {
         documents: HashMap::new(),
-        files_with_diagnostics: HashSet::new(),
+    }));
+
+    let project_state = Arc::new(Mutex::new(LspProjectState {
+        roots: HashSet::from([project_root.clone()]),
+        daemon_clients: HashMap::new(),
+        watched_roots: HashSet::new(),
+        files_with_diagnostics: HashMap::new(),
     }));
 
     let (service, socket) = LspService::new(|client| Backend {
         client,
-        daemon_client: daemon_client.clone(),
-        project_root: project_root.clone(),
+        default_project_root: project_root.clone(),
+        project_state: Arc::clone(&project_state),
         doc_state: Arc::clone(&doc_state),
     });
     Server::new(replayed_stdin, stdout, socket)
@@ -191,8 +195,8 @@ async fn run_lsp_server(cli_project_root: PathBuf) -> Result<()> {
 
 struct Backend {
     client: Client,
-    daemon_client: DaemonClient,
-    project_root: PathBuf,
+    default_project_root: PathBuf,
+    project_state: Arc<Mutex<LspProjectState>>,
     doc_state: Arc<Mutex<LspDocState>>,
 }
 
@@ -202,9 +206,18 @@ struct Backend {
 struct LspDocState {
     /// Document content cache: uri -> content
     documents: HashMap<String, String>,
-    /// Files that have been published with non-empty diagnostics.
-    /// Used to clear diagnostics when issues are fixed.
-    files_with_diagnostics: HashSet<String>,
+}
+
+/// Per-project daemon clients and diagnostics bookkeeping.
+struct LspProjectState {
+    /// Active project roots for this LSP session.
+    roots: HashSet<PathBuf>,
+    /// Daemon clients keyed by project root.
+    daemon_clients: HashMap<PathBuf, DaemonClient>,
+    /// Roots with an active rebuild watcher task.
+    watched_roots: HashSet<PathBuf>,
+    /// Files currently published with non-empty diagnostics, keyed by project root.
+    files_with_diagnostics: HashMap<PathBuf, HashSet<String>>,
 }
 
 impl Backend {
@@ -285,10 +298,118 @@ impl Backend {
         Url::from_file_path(abs_path).ok()
     }
 
+    fn roots_from_initialize_params(&self, params: &InitializeParams) -> Vec<PathBuf> {
+        let mut roots = Vec::new();
+
+        if let Some(folders) = &params.workspace_folders {
+            for folder in folders {
+                if let Ok(path) = folder.uri.to_file_path() {
+                    roots.push(crate::find_project_root_from(&path));
+                }
+            }
+        }
+
+        #[allow(deprecated)]
+        if roots.is_empty()
+            && let Some(uri) = &params.root_uri
+            && let Ok(path) = uri.to_file_path()
+        {
+            roots.push(crate::find_project_root_from(&path));
+        }
+
+        #[allow(deprecated)]
+        if roots.is_empty()
+            && let Some(path) = &params.root_path
+        {
+            roots.push(crate::find_project_root_from(Path::new(path)));
+        }
+
+        if roots.is_empty() {
+            roots.push(self.default_project_root.clone());
+        }
+
+        let mut seen = HashSet::new();
+        roots.retain(|root| seen.insert(root.clone()));
+        roots
+    }
+
+    fn active_roots(&self) -> Vec<PathBuf> {
+        let mut roots: Vec<PathBuf> = {
+            let state = self.project_state.lock().unwrap();
+            if state.roots.is_empty() {
+                vec![self.default_project_root.clone()]
+            } else {
+                state.roots.iter().cloned().collect()
+            }
+        };
+        roots.sort();
+        roots
+    }
+
+    fn best_root_for_path(path: &Path, roots: &HashSet<PathBuf>) -> Option<PathBuf> {
+        roots
+            .iter()
+            .filter(|root| path.starts_with(root))
+            .max_by_key(|root| root.components().count())
+            .cloned()
+    }
+
+    fn ensure_project_root(&self, root_hint: PathBuf) -> (PathBuf, DaemonClient, bool, bool) {
+        let root = crate::find_project_root_from(&root_hint);
+        let mut state = self.project_state.lock().unwrap();
+        let new_root = state.roots.insert(root.clone());
+        let daemon_client = state
+            .daemon_clients
+            .entry(root.clone())
+            .or_insert_with(|| new_client(root.clone()))
+            .clone();
+        let should_watch = state.watched_roots.insert(root.clone());
+        (root, daemon_client, should_watch, new_root)
+    }
+
+    fn ensure_project_for_path(&self, path: &Path) -> (PathBuf, DaemonClient, bool, bool) {
+        let root = {
+            let state = self.project_state.lock().unwrap();
+            Self::best_root_for_path(path, &state.roots)
+        }
+        .unwrap_or_else(|| crate::find_project_root_from(path));
+
+        self.ensure_project_root(root)
+    }
+
+    fn ensure_project_for_uri(&self, uri: &Url) -> Option<(PathBuf, DaemonClient, bool, bool)> {
+        let path = uri.to_file_path().ok()?;
+        Some(self.ensure_project_for_path(&path))
+    }
+
+    fn project_for_doc_uri(&self, uri: &Url) -> Option<(PathBuf, DaemonClient)> {
+        let (project_root, daemon_client, should_watch, _) = self.ensure_project_for_uri(uri)?;
+        self.spawn_watcher_if_needed(project_root.clone(), daemon_client.clone(), should_watch);
+        Some((project_root, daemon_client))
+    }
+
+    fn spawn_watcher_if_needed(
+        &self,
+        project_root: PathBuf,
+        daemon_client: DaemonClient,
+        should_watch: bool,
+    ) {
+        if !should_watch {
+            return;
+        }
+        tokio::spawn(Self::watch_daemon_rebuilds(
+            self.client.clone(),
+            daemon_client,
+            project_root,
+            Arc::clone(&self.project_state),
+        ));
+    }
+
     async fn apply_unknown_requirement_rename(
         &self,
         old_rule: &str,
         new_rule: &str,
+        scope_root: Option<PathBuf>,
     ) -> LspResult<()> {
         let Some(old_id) = parse_rule_id(old_rule) else {
             return Ok(());
@@ -297,38 +418,46 @@ impl Backend {
             return Ok(());
         }
 
-        let walker = ignore::WalkBuilder::new(&self.project_root)
-            .follow_links(true)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
-
         let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
-        for entry in walker.flatten() {
-            let path = entry.path();
-            let Some(ft) = entry.file_type() else {
-                continue;
-            };
-            if !ft.is_file() {
-                continue;
+
+        let roots = match scope_root {
+            Some(root) => vec![root],
+            None => self.active_roots(),
+        };
+
+        for root in roots {
+            let walker = ignore::WalkBuilder::new(&root)
+                .follow_links(true)
+                .hidden(false)
+                .git_ignore(true)
+                .build();
+
+            for entry in walker.flatten() {
+                let path = entry.path();
+                let Some(ft) = entry.file_type() else {
+                    continue;
+                };
+                if !ft.is_file() {
+                    continue;
+                }
+                if path
+                    .extension()
+                    .is_none_or(|ext| !tracey_core::is_supported_extension(ext))
+                {
+                    continue;
+                }
+                let Ok(content) = std::fs::read_to_string(path) else {
+                    continue;
+                };
+                let edits = Self::replacement_edits_for_file(&content, &old_id, new_rule);
+                if edits.is_empty() {
+                    continue;
+                }
+                let Ok(uri) = Url::from_file_path(path) else {
+                    continue;
+                };
+                changes.insert(uri, edits);
             }
-            if path
-                .extension()
-                .is_none_or(|ext| !tracey_core::is_supported_extension(ext))
-            {
-                continue;
-            }
-            let Ok(content) = std::fs::read_to_string(path) else {
-                continue;
-            };
-            let edits = Self::replacement_edits_for_file(&content, &old_id, new_rule);
-            if edits.is_empty() {
-                continue;
-            }
-            let Ok(uri) = Url::from_file_path(path) else {
-                continue;
-            };
-            changes.insert(uri, edits);
         }
 
         if changes.is_empty() {
@@ -346,9 +475,13 @@ impl Backend {
 
     /// Notify daemon that a file was opened.
     async fn notify_vfs_open(&self, uri: &Url, content: &str) {
+        let Some((project_root, daemon_client, should_watch, _)) = self.ensure_project_for_uri(uri)
+        else {
+            return;
+        };
+        self.spawn_watcher_if_needed(project_root, daemon_client.clone(), should_watch);
         if let Ok(path) = uri.to_file_path() {
-            let _ = self
-                .daemon_client
+            let _ = daemon_client
                 .vfs_open(path.to_string_lossy().into_owned(), content.to_string())
                 .await;
         }
@@ -356,9 +489,13 @@ impl Backend {
 
     /// Notify daemon that a file changed.
     async fn notify_vfs_change(&self, uri: &Url, content: &str) {
+        let Some((project_root, daemon_client, should_watch, _)) = self.ensure_project_for_uri(uri)
+        else {
+            return;
+        };
+        self.spawn_watcher_if_needed(project_root, daemon_client.clone(), should_watch);
         if let Ok(path) = uri.to_file_path() {
-            let _ = self
-                .daemon_client
+            let _ = daemon_client
                 .vfs_change(path.to_string_lossy().into_owned(), content.to_string())
                 .await;
         }
@@ -366,9 +503,13 @@ impl Backend {
 
     /// Notify daemon that a file was closed.
     async fn notify_vfs_close(&self, uri: &Url) {
+        let Some((project_root, daemon_client, should_watch, _)) = self.ensure_project_for_uri(uri)
+        else {
+            return;
+        };
+        self.spawn_watcher_if_needed(project_root, daemon_client.clone(), should_watch);
         if let Ok(path) = uri.to_file_path() {
-            let _ = self
-                .daemon_client
+            let _ = daemon_client
                 .vfs_close(path.to_string_lossy().into_owned())
                 .await;
         }
@@ -378,7 +519,7 @@ impl Backend {
         client: &Client,
         daemon_client: &DaemonClient,
         project_root: &std::path::Path,
-        doc_state: &Arc<Mutex<LspDocState>>,
+        project_state: &Arc<Mutex<LspProjectState>>,
     ) {
         let config_error = rpc(daemon_client.health().await)
             .ok()
@@ -389,12 +530,14 @@ impl Backend {
             Err(_) => return,
         };
 
-        // Workspace-wide mode: clear all previously published diagnostics first.
         let files_to_clear: Vec<String> = {
-            let mut state = doc_state.lock().unwrap();
-            let to_clear: Vec<String> = state.files_with_diagnostics.iter().cloned().collect();
-            state.files_with_diagnostics.clear();
-            to_clear
+            let mut state = project_state.lock().unwrap();
+            state
+                .files_with_diagnostics
+                .remove(project_root)
+                .unwrap_or_default()
+                .into_iter()
+                .collect()
         };
 
         for path in files_to_clear {
@@ -473,24 +616,40 @@ impl Backend {
             published_paths.insert(abs_path_str);
         }
 
-        let mut state = doc_state.lock().unwrap();
-        state.files_with_diagnostics = published_paths;
+        let mut state = project_state.lock().unwrap();
+        state
+            .files_with_diagnostics
+            .insert(project_root.to_path_buf(), published_paths);
     }
 
     async fn watch_daemon_rebuilds(
         client: Client,
         daemon_client: DaemonClient,
         project_root: PathBuf,
-        doc_state: Arc<Mutex<LspDocState>>,
+        project_state: Arc<Mutex<LspProjectState>>,
     ) {
         let mut last_version: Option<u64> = None;
 
         loop {
+            {
+                let state = project_state.lock().unwrap();
+                if !state.roots.contains(&project_root) {
+                    break;
+                }
+            }
+
             let (tx, mut rx) = roam::channel::<DataUpdate>();
             let subscribe_client = daemon_client.clone();
             let subscribe_task = tokio::spawn(async move { subscribe_client.subscribe(tx).await });
 
             while let Ok(Some(update)) = rx.recv().await {
+                {
+                    let state = project_state.lock().unwrap();
+                    if !state.roots.contains(&project_root) {
+                        subscribe_task.abort();
+                        return;
+                    }
+                }
                 if last_version == Some(update.version) {
                     continue;
                 }
@@ -499,7 +658,7 @@ impl Backend {
                     &client,
                     &daemon_client,
                     &project_root,
-                    &doc_state,
+                    &project_state,
                 )
                 .await;
             }
@@ -510,31 +669,20 @@ impl Backend {
         }
     }
 
-    /// Publish diagnostics for all files in the workspace.
-    async fn publish_workspace_diagnostics(&self) {
-        Self::publish_workspace_diagnostics_with(
-            &self.client,
-            &self.daemon_client,
-            &self.project_root,
-            &self.doc_state,
-        )
-        .await;
-    }
-
     /// Clear diagnostics for workspace files on startup so clients don't retain stale diagnostics
     /// from a previous LSP session.
-    async fn clear_workspace_diagnostics_on_startup(&self) {
+    async fn clear_workspace_diagnostics_on_startup(&self, project_root: &Path) {
         {
-            let mut state = self.doc_state.lock().unwrap();
-            state.files_with_diagnostics.clear();
+            let mut state = self.project_state.lock().unwrap();
+            state.files_with_diagnostics.remove(project_root);
         }
 
-        let config_path = self.project_root.join(".config/tracey/config.styx");
+        let config_path = project_root.join(".config/tracey/config.styx");
         if let Ok(uri) = Url::from_file_path(&config_path) {
             self.client.publish_diagnostics(uri, vec![], None).await;
         }
 
-        let walker = ignore::WalkBuilder::new(&self.project_root)
+        let walker = ignore::WalkBuilder::new(project_root)
             .follow_links(true)
             .hidden(false)
             .git_ignore(true)
@@ -560,13 +708,68 @@ impl Backend {
             self.client.publish_diagnostics(uri, vec![], None).await;
         }
     }
+
+    async fn add_workspace_root(&self, root_hint: PathBuf) {
+        let (project_root, daemon_client, should_watch, _) = self.ensure_project_root(root_hint);
+        self.spawn_watcher_if_needed(project_root.clone(), daemon_client.clone(), should_watch);
+        self.clear_workspace_diagnostics_on_startup(&project_root)
+            .await;
+        Self::publish_workspace_diagnostics_with(
+            &self.client,
+            &daemon_client,
+            &project_root,
+            &self.project_state,
+        )
+        .await;
+    }
+
+    async fn remove_workspace_root(&self, root_hint: PathBuf) {
+        let project_root = crate::find_project_root_from(&root_hint);
+        let (files_to_clear, should_restore_default) = {
+            let mut state = self.project_state.lock().unwrap();
+            state.roots.remove(&project_root);
+            state.watched_roots.remove(&project_root);
+            state.daemon_clients.remove(&project_root);
+            let files = state
+                .files_with_diagnostics
+                .remove(&project_root)
+                .unwrap_or_default()
+                .into_iter()
+                .collect::<Vec<_>>();
+            let should_restore_default = state.roots.is_empty();
+            (files, should_restore_default)
+        };
+
+        for path in files_to_clear {
+            let Ok(uri) = Url::from_file_path(path) else {
+                continue;
+            };
+            self.client.publish_diagnostics(uri, vec![], None).await;
+        }
+
+        let config_path = project_root.join(".config/tracey/config.styx");
+        if let Ok(uri) = Url::from_file_path(config_path) {
+            self.client.publish_diagnostics(uri, vec![], None).await;
+        }
+
+        if should_restore_default {
+            self.add_workspace_root(self.default_project_root.clone())
+                .await;
+        }
+    }
 }
 
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
     /// r[impl lsp.lifecycle.initialize]
     /// r[impl lsp.completions.trigger]
-    async fn initialize(&self, _: InitializeParams) -> LspResult<InitializeResult> {
+    async fn initialize(&self, params: InitializeParams) -> LspResult<InitializeResult> {
+        let roots = self.roots_from_initialize_params(&params);
+        {
+            let mut state = self.project_state.lock().unwrap();
+            state.roots = roots.into_iter().collect();
+        }
+
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
@@ -608,6 +811,13 @@ impl LanguageServer for Backend {
                         },
                     ),
                 ),
+                workspace: Some(WorkspaceServerCapabilities {
+                    workspace_folders: Some(WorkspaceFoldersServerCapabilities {
+                        supported: Some(true),
+                        change_notifications: Some(OneOf::Left(true)),
+                    }),
+                    file_operations: None,
+                }),
                 ..Default::default()
             },
             ..Default::default()
@@ -619,22 +829,27 @@ impl LanguageServer for Backend {
             .log_message(MessageType::INFO, "tracey LSP bridge initialized")
             .await;
 
-        // Startup reset for clients that persist diagnostics across server restarts.
-        self.clear_workspace_diagnostics_on_startup().await;
-
-        // Publish workspace-wide diagnostics for all files on startup
-        self.publish_workspace_diagnostics().await;
-
-        tokio::spawn(Self::watch_daemon_rebuilds(
-            self.client.clone(),
-            self.daemon_client.clone(),
-            self.project_root.clone(),
-            Arc::clone(&self.doc_state),
-        ));
+        for root in self.active_roots() {
+            self.add_workspace_root(root).await;
+        }
     }
 
     async fn shutdown(&self) -> LspResult<()> {
         Ok(())
+    }
+
+    async fn did_change_workspace_folders(&self, params: DidChangeWorkspaceFoldersParams) {
+        for folder in params.event.added {
+            if let Ok(path) = folder.uri.to_file_path() {
+                self.add_workspace_root(path).await;
+            }
+        }
+
+        for folder in params.event.removed {
+            if let Ok(path) = folder.uri.to_file_path() {
+                self.remove_workspace_root(path).await;
+            }
+        }
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
@@ -688,6 +903,9 @@ impl LanguageServer for Backend {
         let Some((path, content)) = self.get_path_and_content(uri) else {
             return Ok(None);
         };
+        let Some((_, daemon_client)) = self.project_for_doc_uri(uri) else {
+            return Ok(None);
+        };
 
         let req = LspPositionRequest {
             path,
@@ -696,7 +914,7 @@ impl LanguageServer for Backend {
             character: position.character,
         };
 
-        let Ok(completions) = rpc(self.daemon_client.lsp_completions(req).await) else {
+        let Ok(completions) = rpc(daemon_client.lsp_completions(req).await) else {
             return Ok(None);
         };
 
@@ -740,6 +958,9 @@ impl LanguageServer for Backend {
             tracing::debug!(uri = %uri, "hover: no path/content for uri");
             return Ok(None);
         };
+        let Some((project_root, daemon_client)) = self.project_for_doc_uri(uri) else {
+            return Ok(None);
+        };
 
         let req = LspPositionRequest {
             path,
@@ -748,7 +969,7 @@ impl LanguageServer for Backend {
             character: position.character,
         };
 
-        let info = match rpc(self.daemon_client.lsp_hover(req).await) {
+        let info = match rpc(daemon_client.lsp_hover(req).await) {
             Ok(Some(info)) => info,
             Ok(None) => {
                 tracing::debug!(uri = %uri, line = position.line, character = position.character, "hover: no rule at position");
@@ -771,7 +992,7 @@ impl LanguageServer for Backend {
         if !info.impl_refs.is_empty() {
             markdown.push_str("\n\n**Implementations:**");
             for r in &info.impl_refs {
-                let abs_path = self.project_root.join(&r.file);
+                let abs_path = project_root.join(&r.file);
                 if let Ok(uri) = Url::from_file_path(&abs_path) {
                     markdown.push_str(&format!("\n- [{}:{}]({}#L{})", r.file, r.line, uri, r.line));
                 } else {
@@ -784,7 +1005,7 @@ impl LanguageServer for Backend {
         if !info.verify_refs.is_empty() {
             markdown.push_str("\n\n**Verifications:**");
             for r in &info.verify_refs {
-                let abs_path = self.project_root.join(&r.file);
+                let abs_path = project_root.join(&r.file);
                 if let Ok(uri) = Url::from_file_path(&abs_path) {
                     markdown.push_str(&format!("\n- [{}:{}]({}#L{})", r.file, r.line, uri, r.line));
                 } else {
@@ -835,6 +1056,9 @@ impl LanguageServer for Backend {
         let Some((path, content)) = self.get_path_and_content(uri) else {
             return Ok(None);
         };
+        let Some((project_root, daemon_client)) = self.project_for_doc_uri(uri) else {
+            return Ok(None);
+        };
 
         let req = LspPositionRequest {
             path,
@@ -843,7 +1067,7 @@ impl LanguageServer for Backend {
             character: position.character,
         };
 
-        let Ok(locations) = rpc(self.daemon_client.lsp_definition(req).await) else {
+        let Ok(locations) = rpc(daemon_client.lsp_definition(req).await) else {
             return Ok(None);
         };
 
@@ -852,7 +1076,7 @@ impl LanguageServer for Backend {
         }
 
         let loc = &locations[0];
-        let def_uri = Url::from_file_path(self.project_root.join(&loc.path))
+        let def_uri = Url::from_file_path(project_root.join(&loc.path))
             .map_err(|_| tower_lsp::jsonrpc::Error::invalid_params("Invalid file path"))?;
 
         Ok(Some(GotoDefinitionResponse::Scalar(Location {
@@ -881,6 +1105,9 @@ impl LanguageServer for Backend {
         let Some((path, content)) = self.get_path_and_content(uri) else {
             return Ok(None);
         };
+        let Some((project_root, daemon_client)) = self.project_for_doc_uri(uri) else {
+            return Ok(None);
+        };
 
         let req = LspPositionRequest {
             path,
@@ -889,7 +1116,7 @@ impl LanguageServer for Backend {
             character: position.character,
         };
 
-        let Ok(locations) = rpc(self.daemon_client.lsp_implementation(req).await) else {
+        let Ok(locations) = rpc(daemon_client.lsp_implementation(req).await) else {
             return Ok(None);
         };
 
@@ -900,7 +1127,7 @@ impl LanguageServer for Backend {
         let lsp_locations: Vec<Location> = locations
             .into_iter()
             .filter_map(|loc| {
-                let uri = Url::from_file_path(self.project_root.join(&loc.path)).ok()?;
+                let uri = Url::from_file_path(project_root.join(&loc.path)).ok()?;
                 Some(Location {
                     uri,
                     range: Range {
@@ -927,6 +1154,9 @@ impl LanguageServer for Backend {
         let Some((path, content)) = self.get_path_and_content(uri) else {
             return Ok(None);
         };
+        let Some((project_root, daemon_client)) = self.project_for_doc_uri(uri) else {
+            return Ok(None);
+        };
 
         let req = LspReferencesRequest {
             path,
@@ -936,7 +1166,7 @@ impl LanguageServer for Backend {
             include_declaration: params.context.include_declaration,
         };
 
-        let Ok(locations) = rpc(self.daemon_client.lsp_references(req).await) else {
+        let Ok(locations) = rpc(daemon_client.lsp_references(req).await) else {
             return Ok(None);
         };
 
@@ -947,7 +1177,7 @@ impl LanguageServer for Backend {
         let lsp_locations: Vec<Location> = locations
             .into_iter()
             .filter_map(|loc| {
-                let uri = Url::from_file_path(self.project_root.join(&loc.path)).ok()?;
+                let uri = Url::from_file_path(project_root.join(&loc.path)).ok()?;
                 Some(Location {
                     uri,
                     range: Range {
@@ -977,6 +1207,9 @@ impl LanguageServer for Backend {
         let Some((path, content)) = self.get_path_and_content(uri) else {
             return Ok(None);
         };
+        let Some((_, daemon_client)) = self.project_for_doc_uri(uri) else {
+            return Ok(None);
+        };
 
         let req = LspPositionRequest {
             path,
@@ -985,7 +1218,7 @@ impl LanguageServer for Backend {
             character: position.character,
         };
 
-        let Ok(locations) = rpc(self.daemon_client.lsp_document_highlight(req).await) else {
+        let Ok(locations) = rpc(daemon_client.lsp_document_highlight(req).await) else {
             return Ok(None);
         };
 
@@ -1022,10 +1255,13 @@ impl LanguageServer for Backend {
         let Some((path, content)) = self.get_path_and_content(uri) else {
             return Ok(None);
         };
+        let Some((_, daemon_client)) = self.project_for_doc_uri(uri) else {
+            return Ok(None);
+        };
 
         let req = LspDocumentRequest { path, content };
 
-        let Ok(symbols) = rpc(self.daemon_client.lsp_document_symbols(req).await) else {
+        let Ok(symbols) = rpc(daemon_client.lsp_document_symbols(req).await) else {
             return Ok(None);
         };
 
@@ -1067,20 +1303,24 @@ impl LanguageServer for Backend {
         &self,
         params: WorkspaceSymbolParams,
     ) -> LspResult<Option<Vec<SymbolInformation>>> {
-        let Ok(symbols) = rpc(self.daemon_client.lsp_workspace_symbols(params.query).await) else {
-            return Ok(None);
-        };
+        let mut lsp_symbols = Vec::new();
+        for root in self.active_roots() {
+            let (project_root, daemon_client, should_watch, _) = self.ensure_project_root(root);
+            self.spawn_watcher_if_needed(project_root.clone(), daemon_client.clone(), should_watch);
 
-        if symbols.is_empty() {
-            return Ok(None);
-        }
+            let Ok(symbols) = rpc(daemon_client
+                .lsp_workspace_symbols(params.query.clone())
+                .await)
+            else {
+                continue;
+            };
 
-        let lsp_symbols: Vec<SymbolInformation> = symbols
-            .into_iter()
-            .filter_map(|s| {
-                let uri = Self::symbol_uri_from_path(&self.project_root, s.path.as_deref())?;
+            for s in symbols {
+                let Some(uri) = Self::symbol_uri_from_path(&project_root, s.path.as_deref()) else {
+                    continue;
+                };
                 #[allow(deprecated)]
-                Some(SymbolInformation {
+                lsp_symbols.push(SymbolInformation {
                     name: s.name,
                     kind: SymbolKind::CONSTANT,
                     tags: None,
@@ -1099,11 +1339,15 @@ impl LanguageServer for Backend {
                         },
                     },
                     container_name: Some(s.kind),
-                })
-            })
-            .collect();
+                });
+            }
+        }
 
-        Ok(Some(lsp_symbols))
+        if lsp_symbols.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(lsp_symbols))
+        }
     }
 
     async fn code_action(&self, params: CodeActionParams) -> LspResult<Option<CodeActionResponse>> {
@@ -1111,6 +1355,9 @@ impl LanguageServer for Backend {
         let position = params.range.start;
 
         let Some((path, content)) = self.get_path_and_content(uri) else {
+            return Ok(None);
+        };
+        let Some((_, daemon_client)) = self.project_for_doc_uri(uri) else {
             return Ok(None);
         };
 
@@ -1121,7 +1368,7 @@ impl LanguageServer for Backend {
             character: position.character,
         };
 
-        let Ok(actions) = rpc(self.daemon_client.lsp_code_actions(req).await) else {
+        let Ok(actions) = rpc(daemon_client.lsp_code_actions(req).await) else {
             return Ok(None);
         };
 
@@ -1132,6 +1379,14 @@ impl LanguageServer for Backend {
         let lsp_actions: Vec<CodeActionOrCommand> = actions
             .into_iter()
             .map(|a| {
+                let mut arguments: Vec<serde_json::Value> = a
+                    .arguments
+                    .into_iter()
+                    .map(serde_json::Value::String)
+                    .collect();
+                if a.command == "tracey.renameUnknownRequirement" {
+                    arguments.push(serde_json::Value::String(uri.to_string()));
+                }
                 CodeActionOrCommand::CodeAction(CodeAction {
                     title: a.title,
                     kind: Some(a.kind.into()),
@@ -1139,12 +1394,7 @@ impl LanguageServer for Backend {
                     command: Some(Command {
                         title: String::new(),
                         command: a.command,
-                        arguments: Some(
-                            a.arguments
-                                .into_iter()
-                                .map(serde_json::Value::String)
-                                .collect(),
-                        ),
+                        arguments: Some(arguments),
                     }),
                     ..Default::default()
                 })
@@ -1163,7 +1413,13 @@ impl LanguageServer for Backend {
             if args.len() >= 2
                 && let (Some(old_rule), Some(new_rule)) = (args[0].as_str(), args[1].as_str())
             {
-                self.apply_unknown_requirement_rename(old_rule, new_rule)
+                let scope_root = args
+                    .get(2)
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| Url::parse(s).ok())
+                    .and_then(|uri| self.project_for_doc_uri(&uri).map(|(root, _)| root));
+
+                self.apply_unknown_requirement_rename(old_rule, new_rule, scope_root)
                     .await?;
             }
         }
@@ -1176,10 +1432,13 @@ impl LanguageServer for Backend {
         let Some((path, content)) = self.get_path_and_content(uri) else {
             return Ok(None);
         };
+        let Some((_, daemon_client)) = self.project_for_doc_uri(uri) else {
+            return Ok(None);
+        };
 
         let req = LspDocumentRequest { path, content };
 
-        let Ok(lenses) = rpc(self.daemon_client.lsp_code_lens(req).await) else {
+        let Ok(lenses) = rpc(daemon_client.lsp_code_lens(req).await) else {
             return Ok(None);
         };
 
@@ -1223,6 +1482,9 @@ impl LanguageServer for Backend {
         let Some((path, content)) = self.get_path_and_content(uri) else {
             return Ok(None);
         };
+        let Some((_, daemon_client)) = self.project_for_doc_uri(uri) else {
+            return Ok(None);
+        };
 
         let req = InlayHintsRequest {
             path,
@@ -1231,7 +1493,7 @@ impl LanguageServer for Backend {
             end_line: params.range.end.line,
         };
 
-        let Ok(hints) = rpc(self.daemon_client.lsp_inlay_hints(req).await) else {
+        let Ok(hints) = rpc(daemon_client.lsp_inlay_hints(req).await) else {
             return Ok(None);
         };
 
@@ -1269,6 +1531,9 @@ impl LanguageServer for Backend {
         let Some((path, content)) = self.get_path_and_content(uri) else {
             return Ok(None);
         };
+        let Some((_, daemon_client)) = self.project_for_doc_uri(uri) else {
+            return Ok(None);
+        };
 
         let req = LspPositionRequest {
             path,
@@ -1277,7 +1542,7 @@ impl LanguageServer for Backend {
             character: position.character,
         };
 
-        let Ok(Some(result)) = rpc(self.daemon_client.lsp_prepare_rename(req).await) else {
+        let Ok(Some(result)) = rpc(daemon_client.lsp_prepare_rename(req).await) else {
             return Ok(None);
         };
 
@@ -1303,6 +1568,9 @@ impl LanguageServer for Backend {
         let Some((path, content)) = self.get_path_and_content(uri) else {
             return Ok(None);
         };
+        let Some((project_root, daemon_client)) = self.project_for_doc_uri(uri) else {
+            return Ok(None);
+        };
 
         let req = LspRenameRequest {
             path,
@@ -1312,7 +1580,7 @@ impl LanguageServer for Backend {
             new_name: params.new_name,
         };
 
-        let Ok(edits) = rpc(self.daemon_client.lsp_rename(req).await) else {
+        let Ok(edits) = rpc(daemon_client.lsp_rename(req).await) else {
             return Ok(None);
         };
 
@@ -1323,7 +1591,7 @@ impl LanguageServer for Backend {
         // Group edits by file
         let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
         for edit in edits {
-            let uri = match Url::from_file_path(self.project_root.join(&edit.path)) {
+            let uri = match Url::from_file_path(project_root.join(&edit.path)) {
                 Ok(u) => u,
                 Err(_) => continue,
             };
@@ -1358,10 +1626,13 @@ impl LanguageServer for Backend {
         let Some((path, content)) = self.get_path_and_content(uri) else {
             return Ok(None);
         };
+        let Some((_, daemon_client)) = self.project_for_doc_uri(uri) else {
+            return Ok(None);
+        };
 
         let req = LspDocumentRequest { path, content };
 
-        let Ok(tokens) = rpc(self.daemon_client.lsp_semantic_tokens(req).await) else {
+        let Ok(tokens) = rpc(daemon_client.lsp_semantic_tokens(req).await) else {
             return Ok(None);
         };
 
