@@ -114,26 +114,20 @@ fn extract_root_from_initialize(body: &[u8]) -> Option<PathBuf> {
     let params = value.get("params")?;
 
     // Try rootUri first (preferred per LSP spec)
-    if let Some(uri_str) = params.get("rootUri").and_then(|v| v.as_str()) {
-        if let Ok(url) = Url::parse(uri_str) {
-            if let Ok(path) = url.to_file_path() {
+    if let Some(uri_str) = params.get("rootUri").and_then(|v| v.as_str())
+        && let Ok(url) = Url::parse(uri_str)
+            && let Ok(path) = url.to_file_path() {
                 return Some(path);
             }
-        }
-    }
 
     // Try first workspace folder
-    if let Some(folders) = params.get("workspaceFolders").and_then(|v| v.as_array()) {
-        if let Some(first) = folders.first() {
-            if let Some(uri_str) = first.get("uri").and_then(|v| v.as_str()) {
-                if let Ok(url) = Url::parse(uri_str) {
-                    if let Ok(path) = url.to_file_path() {
+    if let Some(folders) = params.get("workspaceFolders").and_then(|v| v.as_array())
+        && let Some(first) = folders.first()
+            && let Some(uri_str) = first.get("uri").and_then(|v| v.as_str())
+                && let Ok(url) = Url::parse(uri_str)
+                    && let Ok(path) = url.to_file_path() {
                         return Some(path);
                     }
-                }
-            }
-        }
-    }
 
     // Try deprecated rootPath
     if let Some(path_str) = params.get("rootPath").and_then(|v| v.as_str()) {
