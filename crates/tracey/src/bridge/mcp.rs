@@ -17,11 +17,13 @@ use rust_mcp_sdk::macros::{JsonSchema, mcp_tool};
 use rust_mcp_sdk::mcp_server::{McpServerOptions, ServerHandler, server_runtime};
 use rust_mcp_sdk::schema::{
     CallToolError, CallToolRequestParams, CallToolResult, Implementation, InitializeResult,
-    LATEST_PROTOCOL_VERSION, ListToolsResult, PaginatedRequestParams, RpcError, ServerCapabilities,
-    ServerCapabilitiesTools,
+    LATEST_PROTOCOL_VERSION, ListToolsResult, NotificationParams, PaginatedRequestParams, Root,
+    RpcError, ServerCapabilities, ServerCapabilitiesTools,
 };
 use rust_mcp_sdk::{McpServer, StdioTransport, ToMcpServerHandler, TransportOptions, tool_box};
 use serde::{Deserialize, Serialize};
+use tokio::sync::RwLock;
+use url::Url;
 
 use crate::bridge::query;
 
@@ -185,19 +187,58 @@ tool_box!(
 
 /// MCP handler that delegates to the daemon.
 struct TraceyHandler {
-    client: query::QueryClient,
+    active_project_root: Arc<RwLock<PathBuf>>,
 }
 
 impl TraceyHandler {
     pub fn new(project_root: PathBuf) -> Self {
         Self {
-            client: query::QueryClient::new(project_root, query::Caller::Mcp),
+            active_project_root: Arc::new(RwLock::new(project_root)),
         }
+    }
+
+    async fn current_client(&self) -> query::QueryClient {
+        let root = self.active_project_root.read().await.clone();
+        query::QueryClient::new(root, query::Caller::Mcp)
+    }
+
+    async fn refresh_project_root_from_client_roots(&self, runtime: Arc<dyn McpServer>) {
+        if runtime.client_supports_root_list() != Some(true) {
+            return;
+        }
+
+        let Ok(result) = runtime.request_root_list(None).await else {
+            return;
+        };
+
+        let Some(project_root) = select_project_root_from_roots(&result.roots) else {
+            return;
+        };
+
+        *self.active_project_root.write().await = project_root;
     }
 }
 
 #[async_trait]
 impl ServerHandler for TraceyHandler {
+    async fn handle_initialized_notification(
+        &self,
+        _params: Option<NotificationParams>,
+        runtime: Arc<dyn McpServer>,
+    ) -> std::result::Result<(), RpcError> {
+        self.refresh_project_root_from_client_roots(runtime).await;
+        Ok(())
+    }
+
+    async fn handle_roots_list_changed_notification(
+        &self,
+        _params: Option<NotificationParams>,
+        runtime: Arc<dyn McpServer>,
+    ) -> std::result::Result<(), RpcError> {
+        self.refresh_project_root_from_client_roots(runtime).await;
+        Ok(())
+    }
+
     async fn handle_list_tools_request(
         &self,
         _params: Option<PaginatedRequestParams>,
@@ -213,56 +254,58 @@ impl ServerHandler for TraceyHandler {
     async fn handle_call_tool_request(
         &self,
         params: CallToolRequestParams,
-        _runtime: Arc<dyn McpServer>,
+        runtime: Arc<dyn McpServer>,
     ) -> std::result::Result<CallToolResult, CallToolError> {
+        self.refresh_project_root_from_client_roots(runtime).await;
+        let client = self.current_client().await;
         let args = params.arguments.unwrap_or_default();
 
         let response = match params.name.as_str() {
-            "tracey_status" => self.client.status().await,
+            "tracey_status" => client.status().await,
             "tracey_uncovered" => {
                 let spec_impl = args.get("spec_impl").and_then(|v| v.as_str());
                 let prefix = args.get("prefix").and_then(|v| v.as_str());
-                self.client.uncovered(spec_impl, prefix).await
+                client.uncovered(spec_impl, prefix).await
             }
             "tracey_untested" => {
                 let spec_impl = args.get("spec_impl").and_then(|v| v.as_str());
                 let prefix = args.get("prefix").and_then(|v| v.as_str());
-                self.client.untested(spec_impl, prefix).await
+                client.untested(spec_impl, prefix).await
             }
             "tracey_stale" => {
                 let spec_impl = args.get("spec_impl").and_then(|v| v.as_str());
                 let prefix = args.get("prefix").and_then(|v| v.as_str());
-                self.client.stale(spec_impl, prefix).await
+                client.stale(spec_impl, prefix).await
             }
             "tracey_unmapped" => {
                 let spec_impl = args.get("spec_impl").and_then(|v| v.as_str());
                 let path = args.get("path").and_then(|v| v.as_str());
-                self.client.unmapped(spec_impl, path).await
+                client.unmapped(spec_impl, path).await
             }
             "tracey_rule" => {
                 let rule_id = args.get("rule_id").and_then(|v| v.as_str());
                 match rule_id {
-                    Some(id) => self.client.rule(id).await,
+                    Some(id) => client.rule(id).await,
                     None => {
-                        self.client
+                        client
                             .with_config_banner("Error: rule_id is required".to_string())
                             .await
                     }
                 }
             }
-            "tracey_config" => self.client.config().await,
-            "tracey_reload" => self.client.reload().await,
+            "tracey_config" => client.config().await,
+            "tracey_reload" => client.reload().await,
             "tracey_validate" => {
                 let spec_impl = args.get("spec_impl").and_then(|v| v.as_str());
-                self.client.validate(spec_impl).await
+                client.validate(spec_impl).await
             }
             "tracey_config_exclude" => {
                 let spec_impl = args.get("spec_impl").and_then(|v| v.as_str());
                 let pattern = args.get("pattern").and_then(|v| v.as_str());
                 match pattern {
-                    Some(p) => self.client.config_exclude(spec_impl, p).await,
+                    Some(p) => client.config_exclude(spec_impl, p).await,
                     None => {
-                        self.client
+                        client
                             .with_config_banner("Error: pattern is required".to_string())
                             .await
                     }
@@ -272,22 +315,69 @@ impl ServerHandler for TraceyHandler {
                 let spec_impl = args.get("spec_impl").and_then(|v| v.as_str());
                 let pattern = args.get("pattern").and_then(|v| v.as_str());
                 match pattern {
-                    Some(p) => self.client.config_include(spec_impl, p).await,
+                    Some(p) => client.config_include(spec_impl, p).await,
                     None => {
-                        self.client
+                        client
                             .with_config_banner("Error: pattern is required".to_string())
                             .await
                     }
                 }
             }
             other => {
-                self.client
+                client
                     .with_config_banner(format!("Unknown tool: {}", other))
                     .await
             }
         };
 
         Ok(CallToolResult::text_content(vec![response.into()]))
+    }
+}
+
+fn root_uri_to_project_root(uri: &str) -> Option<PathBuf> {
+    let url = Url::parse(uri).ok()?;
+    let path = url.to_file_path().ok()?;
+    Some(crate::find_project_root_from(&path))
+}
+
+fn select_project_root_from_roots(roots: &[Root]) -> Option<PathBuf> {
+    roots
+        .iter()
+        .find_map(|root| root_uri_to_project_root(root.uri.as_str()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn select_project_root_from_roots_skips_non_file_uris() {
+        let roots = vec![
+            Root {
+                name: Some("bad".to_string()),
+                uri: "https://example.com/repo".to_string(),
+                meta: None,
+            },
+            Root {
+                name: Some("good".to_string()),
+                uri: "file:///tmp/workspace".to_string(),
+                meta: None,
+            },
+        ];
+
+        let selected = select_project_root_from_roots(&roots);
+        assert_eq!(selected, Some(PathBuf::from("/tmp/workspace")));
+    }
+
+    #[test]
+    fn select_project_root_from_roots_returns_none_when_unusable() {
+        let roots = vec![Root {
+            name: None,
+            uri: "not-a-uri".to_string(),
+            meta: None,
+        }];
+
+        assert_eq!(select_project_root_from_roots(&roots), None);
     }
 }
 
