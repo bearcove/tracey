@@ -212,12 +212,3 @@ tracey --completions bash   # Bash
 tracey --completions zsh    # Zsh
 tracey --completions fish   # Fish
 ```
-
-## Gitignore
-
-Add `.tracey/` to your `.gitignore` — it contains the daemon socket and log file:
-
-```
-# .gitignore
-.tracey/
-```
