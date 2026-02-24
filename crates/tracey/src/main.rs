@@ -163,6 +163,13 @@ enum Command {
         #[facet(args::named, args::short = 'c', default = ".config/tracey/config.styx")]
         config: PathBuf,
     },
+
+    /// Remove orphaned state directories whose projects no longer exist on disk
+    Gc {
+        /// Show what would be removed without deleting anything
+        #[facet(args::named, args::short = 'n', default)]
+        dry_run: bool,
+    },
 }
 
 /// Skill subcommands
@@ -446,6 +453,8 @@ async fn main() -> Result<()> {
             println!("{}", output);
             Ok(())
         }
+
+        Command::Gc { dry_run } => run_gc(dry_run),
     }
 }
 
@@ -1174,6 +1183,80 @@ async fn kill_daemon(root: Option<PathBuf>) -> Result<()> {
             let _ = roam_local::remove_endpoint(&endpoint);
             println!("{}: Cleaned up", "Success".green());
         }
+    }
+
+    Ok(())
+}
+
+/// Remove orphaned state directories whose projects no longer exist on disk.
+fn run_gc(dry_run: bool) -> Result<()> {
+    let base = daemon::state_base_dir();
+
+    if !base.exists() {
+        println!("No state directory found at {}", base.display());
+        return Ok(());
+    }
+
+    let entries: Vec<_> = std::fs::read_dir(&base)
+        .wrap_err_with(|| format!("Failed to read state directory: {}", base.display()))?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .collect();
+
+    if entries.is_empty() {
+        println!("No state directories found.");
+        return Ok(());
+    }
+
+    let mut removed = 0usize;
+    for entry in &entries {
+        let dir = entry.path();
+        let meta_path = dir.join("project-root");
+
+        let orphaned = match std::fs::read(&meta_path) {
+            Ok(bytes) => {
+                #[cfg(unix)]
+                let project_root = {
+                    use std::os::unix::ffi::OsStrExt;
+                    PathBuf::from(std::ffi::OsStr::from_bytes(&bytes))
+                };
+                #[cfg(not(unix))]
+                let project_root = PathBuf::from(String::from_utf8_lossy(&bytes).into_owned());
+
+                !project_root.exists()
+            }
+            Err(_) => true, // No metadata → orphaned
+        };
+
+        if !orphaned {
+            continue;
+        }
+
+        if dry_run {
+            println!("Would remove: {}", dir.display());
+        } else {
+            match std::fs::remove_dir_all(&dir) {
+                Ok(()) => println!("{}: Removed {}", "Removed".red(), dir.display()),
+                Err(e) => eprintln!(
+                    "{}: Failed to remove {}: {}",
+                    "Error".red(),
+                    dir.display(),
+                    e
+                ),
+            }
+        }
+        removed += 1;
+    }
+
+    if removed == 0 {
+        println!("Nothing to clean up.");
+    } else if dry_run {
+        println!(
+            "\n{} orphaned state dir(s) found. Run without --dry-run to remove.",
+            removed
+        );
+    } else {
+        println!("\nRemoved {} orphaned state dir(s).", removed);
     }
 
     Ok(())

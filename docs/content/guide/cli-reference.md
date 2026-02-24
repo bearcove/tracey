@@ -96,6 +96,18 @@ Stop the running daemon and clean up stale sockets.
 tracey kill [ROOT]
 ```
 
+### `tracey gc`
+
+Remove orphaned state directories whose projects no longer exist on disk.
+
+```
+tracey gc [--dry-run]
+```
+
+| Flag | Description |
+|------|-------------|
+| `-n, --dry-run` | Show what would be removed without deleting anything |
+
 ## Terminal queries
 
 Query coverage data from the terminal. These commands connect to the daemon (auto-starting it if needed).

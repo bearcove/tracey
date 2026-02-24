@@ -55,19 +55,12 @@ const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 600;
 #[cfg(unix)]
 const SOCKET_FILENAME: &str = "daemon.sock";
 
-/// Compute the per-project state directory path.
+/// Return the base directory that contains all per-project state directories.
 ///
-/// Returns `{state_home}/tracey/{hash}` where `hash` is the first 16 hex
-/// characters of the Blake3 hash of the canonical project root path, and
-/// `state_home` is resolved via `dirs::state_dir()` with platform-specific
-/// fallbacks (`~/.local/state` on Linux, `~/Library/Application Support` on
-/// macOS via `dirs::data_local_dir()`).
-pub fn state_dir(project_root: &Path) -> PathBuf {
-    let canonical =
-        std::fs::canonicalize(project_root).unwrap_or_else(|_| project_root.to_path_buf());
-    let hash = blake3::hash(canonical.as_os_str().as_encoded_bytes());
-    let short_hash = &hash.to_hex()[..16];
-
+/// Resolved via `dirs::state_dir()` with platform-specific fallbacks
+/// (`~/.local/state` on Linux, `~/Library/Application Support` on macOS
+/// via `dirs::data_local_dir()`). Returns `{state_home}/tracey/`.
+pub fn state_base_dir() -> PathBuf {
     let base = dirs::state_dir()
         .or_else(dirs::data_local_dir)
         .unwrap_or_else(|| {
@@ -76,7 +69,20 @@ pub fn state_dir(project_root: &Path) -> PathBuf {
                 .join(".local/state")
         });
 
-    base.join("tracey").join(short_hash)
+    base.join("tracey")
+}
+
+/// Compute the per-project state directory path.
+///
+/// Returns `{state_home}/tracey/{hash}` where `hash` is the first 16 hex
+/// characters of the Blake3 hash of the canonical project root path.
+pub fn state_dir(project_root: &Path) -> PathBuf {
+    let canonical =
+        std::fs::canonicalize(project_root).unwrap_or_else(|_| project_root.to_path_buf());
+    let hash = blake3::hash(canonical.as_os_str().as_encoded_bytes());
+    let short_hash = &hash.to_hex()[..16];
+
+    state_base_dir().join(short_hash)
 }
 
 /// Create the per-project state directory and write a `project-root` metadata
