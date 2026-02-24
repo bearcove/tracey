@@ -45,13 +45,23 @@ Communicates over stdio. See [AI Integration](ai-integration.md) for setup.
 
 ### `tracey mcp register`
 
-Register tracey as an MCP server in supported AI CLIs.
+Register tracey as an MCP server in supported AI CLIs (MCP only).
 
 ```
 tracey mcp register [--codex] [--claude]
 ```
 
 If no flags are provided, tracey attempts both clients and skips any executable that is not in `PATH`.
+
+### `tracey ai`
+
+Register MCP and install the bundled Tracey skill for supported AI CLIs.
+
+```
+tracey ai [--codex] [--claude]
+```
+
+If no flags are provided, tracey targets both clients. Use this as the default AI setup command.
 
 ## Daemon management
 
@@ -202,7 +212,7 @@ See [Versioning](versioning.md) for the full workflow.
 
 ### `tracey skill install`
 
-Install the bundled Tracey skill for AI assistants.
+Install or reinstall the bundled Tracey skill for AI assistants.
 
 ```
 tracey skill install [--claude] [--codex]

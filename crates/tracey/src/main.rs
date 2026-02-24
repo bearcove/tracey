@@ -8,7 +8,7 @@ use eyre::{Result, WrapErr, eyre};
 use figue::{self as args, FigueBuiltins};
 use owo_colors::OwoColorize;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command as ProcessCommand, Stdio};
 
 // Use the library crate
@@ -124,6 +124,17 @@ enum Command {
         /// Skill action to perform
         #[facet(args::subcommand)]
         action: SkillAction,
+    },
+
+    /// Configure AI assistants (register MCP + install bundled skill)
+    Ai {
+        /// Configure only Claude Code
+        #[facet(args::named, default)]
+        claude: bool,
+
+        /// Configure only Codex CLI
+        #[facet(args::named, default)]
+        codex: bool,
     },
 
     /// Run query subcommands over daemon data from the terminal
@@ -369,8 +380,12 @@ async fn main() -> Result<()> {
 
         // r[impl cli.skill.install]
         Command::Skill { action } => match action {
-            SkillAction::Install { claude, codex } => install_skill(claude, codex),
+            SkillAction::Install { claude, codex } => install_skill(codex, claude),
         },
+
+        // r[impl cli.mcp.register]
+        // r[impl cli.skill.install]
+        Command::Ai { claude, codex } => setup_ai_clients(codex, claude),
 
         // r[impl cli.pre-commit]
         Command::PreCommit { root, config } => {
@@ -885,33 +900,121 @@ async fn show_status(root: Option<PathBuf>, json: bool) -> Result<()> {
 
 const SKILL_MD: &str = include_str!("../../../skill/SKILL.md");
 const SPEC_MD: &str = include_str!("../../../skill/references/tracey-spec.md");
+const CODEX_MCP_REGISTER_ARGS: &[&str] = &["mcp", "add", "tracey", "--", "tracey", "mcp"];
+const CLAUDE_MCP_REGISTER_ARGS: &[&str] = &[
+    "mcp",
+    "add",
+    "--transport",
+    "stdio",
+    "tracey",
+    "--",
+    "tracey",
+    "mcp",
+];
+
+#[derive(Clone, Copy, Debug)]
+enum AiClient {
+    Codex,
+    Claude,
+}
+
+impl AiClient {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Codex => "codex",
+            Self::Claude => "claude",
+        }
+    }
+
+    fn skill_dir(self, home: &Path) -> PathBuf {
+        match self {
+            Self::Codex => home.join(".codex/skills/tracey"),
+            Self::Claude => home.join(".claude/skills/tracey"),
+        }
+    }
+
+    fn register_command(self) -> (&'static str, &'static str, &'static [&'static str]) {
+        match self {
+            Self::Codex => (
+                "codex",
+                "codex mcp add tracey -- tracey mcp",
+                CODEX_MCP_REGISTER_ARGS,
+            ),
+            Self::Claude => (
+                "claude",
+                "claude mcp add --transport stdio tracey -- tracey mcp",
+                CLAUDE_MCP_REGISTER_ARGS,
+            ),
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct McpRegistrationSummary {
+    attempted: usize,
+    succeeded: usize,
+}
+
+fn selected_ai_clients(codex: bool, claude: bool) -> Vec<AiClient> {
+    if codex || claude {
+        let mut clients = Vec::new();
+        if codex {
+            clients.push(AiClient::Codex);
+        }
+        if claude {
+            clients.push(AiClient::Claude);
+        }
+        clients
+    } else {
+        vec![AiClient::Codex, AiClient::Claude]
+    }
+}
 
 /// r[impl cli.skill.install]
 /// Install the bundled Tracey skill for Claude and/or Codex
-fn install_skill(claude_only: bool, codex_only: bool) -> Result<()> {
+fn install_skill(codex: bool, claude: bool) -> Result<()> {
     let home = dirs::home_dir().ok_or_else(|| eyre!("could not determine home directory"))?;
-
-    // If neither flag is set, install for both
-    let install_claude = !codex_only;
-    let install_codex = !claude_only;
-
-    let mut installed = Vec::new();
-
-    if install_claude {
-        let skill_dir = home.join(".claude/skills/tracey");
-        install_skill_to(&skill_dir)?;
-        installed.push(skill_dir);
-    }
-
-    if install_codex {
-        let skill_dir = home.join(".codex/skills/tracey");
-        install_skill_to(&skill_dir)?;
-        installed.push(skill_dir);
-    }
+    let clients = selected_ai_clients(codex, claude);
+    let installed = install_skill_for_clients(&home, &clients)?;
 
     println!("{}: Tracey skill installed", "Success".green());
     for path in &installed {
         println!("  {}", path.display());
+    }
+
+    Ok(())
+}
+
+/// r[impl cli.mcp.register]
+/// r[impl cli.skill.install]
+/// Configure AI assistants by registering MCP clients and installing bundled skills.
+fn setup_ai_clients(codex: bool, claude: bool) -> Result<()> {
+    let home = dirs::home_dir().ok_or_else(|| eyre!("could not determine home directory"))?;
+    let clients = selected_ai_clients(codex, claude);
+
+    println!(
+        "{}: configuring tracey for AI assistants (MCP + skill)",
+        "Info".cyan()
+    );
+    let registration = register_mcp_for_clients(&clients)?;
+    let installed = install_skill_for_clients(&home, &clients)?;
+
+    println!("{}: Tracey skill installed", "Success".green());
+    for path in &installed {
+        println!("  {}", path.display());
+    }
+
+    if registration.succeeded > 0 {
+        println!(
+            "{}: registered tracey with {} MCP client(s)",
+            "Success".green(),
+            registration.succeeded
+        );
+    } else {
+        println!(
+            "{}: no MCP client registration succeeded (skill installation completed)",
+            "Warning".yellow()
+        );
     }
 
     Ok(())
@@ -934,7 +1037,7 @@ fn load_bump_config(config_path: &std::path::Path) -> tracey::config::Config {
     }
 }
 
-fn install_skill_to(skill_dir: &std::path::Path) -> Result<()> {
+fn install_skill_to(skill_dir: &Path) -> Result<()> {
     let refs_dir = skill_dir.join("references");
     std::fs::create_dir_all(&refs_dir)
         .wrap_err_with(|| format!("failed to create {}", refs_dir.display()))?;
@@ -950,6 +1053,16 @@ fn install_skill_to(skill_dir: &std::path::Path) -> Result<()> {
     })?;
 
     Ok(())
+}
+
+fn install_skill_for_clients(home: &Path, clients: &[AiClient]) -> Result<Vec<PathBuf>> {
+    let mut installed = Vec::new();
+    for client in clients {
+        let skill_dir = client.skill_dir(home);
+        install_skill_to(&skill_dir)?;
+        installed.push(skill_dir);
+    }
+    Ok(installed)
 }
 
 fn register_mcp_clients(args: &[String]) -> Result<()> {
@@ -968,6 +1081,8 @@ fn register_mcp_clients(args: &[String]) -> Result<()> {
                 println!();
                 println!("If no flags are provided, tracey tries both clients and skips any");
                 println!("client executable that's not found in PATH.");
+                println!();
+                println!("Tip: run 'tracey ai' to register MCP and install the Tracey skill.");
                 return Ok(());
             }
             unknown => {
@@ -978,91 +1093,61 @@ fn register_mcp_clients(args: &[String]) -> Result<()> {
         }
     }
 
-    let specific_target = codex_requested || claude_requested;
-    let target_codex = if specific_target {
-        codex_requested
-    } else {
-        true
-    };
-    let target_claude = if specific_target {
-        claude_requested
-    } else {
-        true
-    };
+    let clients = selected_ai_clients(codex_requested, claude_requested);
 
     println!("{}: registering tracey MCP server", "Info".cyan());
+    let summary = register_mcp_for_clients(&clients)?;
 
-    let mut success_count = 0usize;
-    let mut attempted_count = 0usize;
-
-    if target_codex {
-        attempted_count += 1;
-        if command_in_path("codex") {
-            let cmd = "codex mcp add tracey -- tracey mcp";
-            if confirm_command_consent("codex", cmd)? {
-                println!("  {} codex: {}", "Running".cyan(), cmd);
-                if run_registration_command(
-                    "codex",
-                    &["mcp", "add", "tracey", "--", "tracey", "mcp"],
-                )? {
-                    success_count += 1;
-                }
-            } else {
-                println!("  {} codex: consent not granted, skipping", "Skip".yellow());
-            }
-        } else {
-            println!("  {} codex: not found in PATH, skipping", "Skip".yellow());
-        }
-    }
-
-    if target_claude {
-        attempted_count += 1;
-        if command_in_path("claude") {
-            let cmd = "claude mcp add --transport stdio tracey -- tracey mcp";
-            if confirm_command_consent("claude", cmd)? {
-                println!("  {} claude: {}", "Running".cyan(), cmd);
-                if run_registration_command(
-                    "claude",
-                    &[
-                        "mcp",
-                        "add",
-                        "--transport",
-                        "stdio",
-                        "tracey",
-                        "--",
-                        "tracey",
-                        "mcp",
-                    ],
-                )? {
-                    success_count += 1;
-                }
-            } else {
-                println!(
-                    "  {} claude: consent not granted, skipping",
-                    "Skip".yellow()
-                );
-            }
-        } else {
-            println!("  {} claude: not found in PATH, skipping", "Skip".yellow());
-        }
-    }
-
-    if success_count > 0 {
+    if summary.succeeded > 0 {
         println!(
             "{}: registered tracey with {} MCP client(s)",
             "Success".green(),
-            success_count
+            summary.succeeded
         );
         return Ok(());
     }
 
-    if attempted_count == 0 {
+    if summary.attempted == 0 {
         return Err(eyre!("no MCP client selected"));
     }
 
     Err(eyre!(
         "no MCP client registration succeeded (check command output above)"
     ))
+}
+
+fn register_mcp_for_clients(clients: &[AiClient]) -> Result<McpRegistrationSummary> {
+    let mut summary = McpRegistrationSummary::default();
+
+    for client in clients {
+        summary.attempted += 1;
+        let (program, command_text, command_args) = client.register_command();
+
+        if !command_in_path(program) {
+            println!(
+                "  {} {}: not found in PATH, skipping",
+                "Skip".yellow(),
+                client.name()
+            );
+            continue;
+        }
+
+        if !confirm_command_consent(client.name(), command_text)? {
+            println!(
+                "  {} {}: consent not granted, skipping",
+                "Skip".yellow(),
+                client.name()
+            );
+            continue;
+        }
+
+        println!("  {} {}: {}", "Running".cyan(), client.name(), command_text);
+        if run_registration_command(program, command_args)? {
+            summary.succeeded += 1;
+        }
+    }
+
+    Ok(summary)
 }
 
 fn run_registration_command(program: &str, args: &[&str]) -> Result<bool> {

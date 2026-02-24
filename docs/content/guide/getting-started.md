@@ -19,6 +19,16 @@ Or build from source:
 cargo install --locked --git https://github.com/bearcove/tracey --branch main tracey
 ```
 
+## Optional: set up AI assistants
+
+If you use Codex CLI and/or Claude Code, run:
+
+```bash
+tracey ai
+```
+
+This registers tracey as an MCP server and installs the bundled Tracey skill.
+
 ## Create your spec
 
 Create a markdown file with your requirements. Each requirement uses the syntax `r[requirement.id]` followed by its text:
