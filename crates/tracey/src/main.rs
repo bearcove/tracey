@@ -1225,7 +1225,29 @@ fn run_gc(dry_run: bool) -> Result<()> {
 
                 !project_root.exists()
             }
-            Err(_) => true, // No metadata → orphaned
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                // Directory exists but has no project-root file. This can
+                // happen during a race with a daemon that just called
+                // create_dir_all but hasn't written the metadata yet, so
+                // only treat it as orphaned if the directory is old enough
+                // to rule out a concurrent startup.
+                let dominated_by_race = entry
+                    .metadata()
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .and_then(|t| t.elapsed().ok())
+                    .is_some_and(|age| age < std::time::Duration::from_secs(60));
+                !dominated_by_race
+            }
+            Err(e) => {
+                eprintln!(
+                    "{}: Failed to read {}: {}",
+                    "Warning".yellow(),
+                    meta_path.display(),
+                    e
+                );
+                continue;
+            }
         };
 
         if !orphaned {
