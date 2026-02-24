@@ -479,7 +479,7 @@ async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> Str
             let req = UncoveredRequest {
                 spec,
                 impl_name,
-                prefix: prefix.map(String::from),
+                prefix,
             };
             match qc.client.uncovered(req).await {
                 Ok(resp) => {
@@ -493,7 +493,7 @@ async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> Str
             let req = UntestedRequest {
                 spec,
                 impl_name,
-                prefix: prefix.map(String::from),
+                prefix,
             };
             match qc.client.untested(req).await {
                 Ok(resp) => {
@@ -507,7 +507,7 @@ async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> Str
             let req = StaleRequest {
                 spec,
                 impl_name,
-                prefix: prefix.map(String::from),
+                prefix,
             };
             match qc.client.stale(req).await {
                 Ok(resp) => {
@@ -521,7 +521,7 @@ async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> Str
             let req = UnmappedRequest {
                 spec,
                 impl_name,
-                path: path.map(String::from),
+                path,
             };
             match qc.client.unmapped(req).await {
                 Ok(resp) => {
