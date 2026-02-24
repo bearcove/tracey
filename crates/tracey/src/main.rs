@@ -167,7 +167,7 @@ enum Command {
     /// Remove orphaned state directories whose projects no longer exist on disk
     Gc {
         /// Show what would be removed without deleting anything
-        #[facet(args::named, args::short = 'n', default)]
+        #[facet(rename = "dry-run", args::named, default)]
         dry_run: bool,
     },
 }
