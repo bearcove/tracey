@@ -63,8 +63,8 @@ const SOCKET_FILENAME: &str = "daemon.sock";
 /// fallbacks (`~/.local/state` on Linux, `~/Library/Application Support` on
 /// macOS via `dirs::data_local_dir()`).
 pub fn state_dir(project_root: &Path) -> PathBuf {
-    let canonical = std::fs::canonicalize(project_root)
-        .unwrap_or_else(|_| project_root.to_path_buf());
+    let canonical =
+        std::fs::canonicalize(project_root).unwrap_or_else(|_| project_root.to_path_buf());
     let hash = blake3::hash(canonical.as_os_str().as_encoded_bytes());
     let short_hash = &hash.to_hex()[..16];
 
@@ -85,8 +85,8 @@ pub fn ensure_state_dir(project_root: &Path) -> Result<PathBuf> {
     let dir = state_dir(project_root);
     std::fs::create_dir_all(&dir)?;
 
-    let canonical = std::fs::canonicalize(project_root)
-        .unwrap_or_else(|_| project_root.to_path_buf());
+    let canonical =
+        std::fs::canonicalize(project_root).unwrap_or_else(|_| project_root.to_path_buf());
     let meta_path = dir.join("project-root");
     std::fs::write(&meta_path, canonical.as_os_str().as_encoded_bytes())?;
 

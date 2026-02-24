@@ -668,8 +668,7 @@ fn init_tracing(config: TracingConfig) -> Result<()> {
 
 /// Build a bridge log path with process ID in the filename.
 fn bridge_log_path(project_root: &std::path::Path, bridge: &str) -> PathBuf {
-    daemon::state_dir(project_root)
-        .join(format!("{bridge}-{}.log", std::process::id()))
+    daemon::state_dir(project_root).join(format!("{bridge}-{}.log", std::process::id()))
 }
 
 /// Write a startup marker so bridge launches are visible even before first tracing event.
