@@ -252,6 +252,278 @@ async fn test_engine_rebuild_increments_version() {
     );
 }
 
-// Note: Full file watcher integration tests would require actually running
-// the daemon and watching for file changes. These are more complex and
-// time-sensitive, so we test the components individually above.
+// ============================================================================
+// Helper: create a temp project for engine rebuild tests
+// ============================================================================
+
+/// Create a temporary project with a config, spec, and source file.
+/// Returns (temp_dir, config_path) — temp_dir must be kept alive for the test duration.
+fn create_rebuild_test_project(
+    spec_content: &str,
+    source_files: &[(&str, &str)],
+) -> (tempfile::TempDir, std::path::PathBuf) {
+    let temp = tempfile::tempdir().expect("Failed to create temp dir");
+    let root = temp.path();
+
+    // Write config
+    std::fs::create_dir_all(root.join(".config/tracey")).expect("create config dir");
+    let config_path = root.join(".config/tracey/config.styx");
+    std::fs::write(
+        &config_path,
+        "specs (\n  {\n    name test\n    include (spec.md)\n    impls (\n      {\n        name rust\n        include (src/**/*.rs)\n      }\n    )\n  }\n)\n",
+    )
+    .expect("write config");
+
+    // Write spec
+    std::fs::write(root.join("spec.md"), spec_content).expect("write spec");
+
+    // Write source files
+    std::fs::create_dir_all(root.join("src")).expect("create src dir");
+    for (name, content) in source_files {
+        let path = root.join(name);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).expect("create parent dir");
+        }
+        std::fs::write(&path, content).expect("write source file");
+    }
+
+    (temp, config_path)
+}
+
+/// Check if any workspace diagnostic has the given code for the given rule ID substring.
+fn has_diagnostic_with_code(
+    diagnostics: &[tracey_proto::LspFileDiagnostics],
+    code: &str,
+    rule_id_substring: &str,
+) -> bool {
+    diagnostics.iter().any(|file_diag| {
+        file_diag
+            .diagnostics
+            .iter()
+            .any(|d| d.code == code && d.message.contains(rule_id_substring))
+    })
+}
+
+/// Check if any forward_by_impl entry contains a rule with the given base ID.
+fn has_rule_in_forward(data: &tracey::data::DashboardData, rule_base: &str) -> bool {
+    data.forward_by_impl
+        .values()
+        .any(|spec| spec.rules.iter().any(|r| r.id.base == rule_base))
+}
+
+/// Check if any forward_by_impl rule has at least one impl_ref.
+fn rule_has_impl_refs(data: &tracey::data::DashboardData, rule_base: &str) -> bool {
+    data.forward_by_impl.values().any(|spec| {
+        spec.rules
+            .iter()
+            .any(|r| r.id.base == rule_base && !r.impl_refs.is_empty())
+    })
+}
+
+// ============================================================================
+// Engine-Level Rebuild Tests
+// ============================================================================
+
+/// Add a new rule to the spec → an orphaned reference becomes valid.
+#[tokio::test]
+async fn test_rebuild_add_rule_to_spec_resolves_orphan() {
+    use tracey::daemon::Engine;
+
+    // Start with only auth.login in spec, but source references payment.checkout
+    let (temp, config_path) = create_rebuild_test_project(
+        "# Spec\n\nr[auth.login]\nUsers must log in.\n",
+        &[(
+            "src/lib.rs",
+            "/// r[impl auth.login]\n/// r[impl payment.checkout]\npub fn handler() {}\n",
+        )],
+    );
+    let root = temp.path().to_path_buf();
+
+    let engine = Arc::new(
+        Engine::new(root.clone(), config_path)
+            .await
+            .expect("Failed to create engine"),
+    );
+
+    // Before: payment.checkout should be orphaned
+    let data = engine.data().await;
+    assert!(
+        has_diagnostic_with_code(&data.workspace_diagnostics, "orphaned", "payment.checkout"),
+        "Expected orphaned diagnostic for payment.checkout before adding rule"
+    );
+
+    // Add payment.checkout to spec
+    let spec_path = root.join("spec.md");
+    std::fs::write(
+        &spec_path,
+        "# Spec\n\nr[auth.login]\nUsers must log in.\n\nr[payment.checkout]\nUsers can check out.\n",
+    )
+    .expect("update spec");
+
+    engine
+        .rebuild_with_changes(&[spec_path])
+        .await
+        .expect("rebuild failed");
+
+    // After: payment.checkout should exist in forward data and orphan diagnostic should be gone
+    let data = engine.data().await;
+    assert!(
+        has_rule_in_forward(&data, "payment.checkout"),
+        "Expected payment.checkout in forward data after adding rule to spec"
+    );
+    assert!(
+        !has_diagnostic_with_code(&data.workspace_diagnostics, "orphaned", "payment.checkout"),
+        "Expected no orphaned diagnostic for payment.checkout after adding rule"
+    );
+}
+
+/// Remove a rule from the spec → a valid reference becomes orphaned.
+#[tokio::test]
+async fn test_rebuild_remove_rule_from_spec_creates_orphan() {
+    use tracey::daemon::Engine;
+
+    // Start with auth.login and auth.logout in spec, both referenced in source
+    let (temp, config_path) = create_rebuild_test_project(
+        "# Spec\n\nr[auth.login]\nUsers must log in.\n\nr[auth.logout]\nUsers must log out.\n",
+        &[(
+            "src/lib.rs",
+            "/// r[impl auth.login]\npub fn login() {}\n\n/// r[impl auth.logout]\npub fn logout() {}\n",
+        )],
+    );
+    let root = temp.path().to_path_buf();
+
+    let engine = Arc::new(
+        Engine::new(root.clone(), config_path)
+            .await
+            .expect("Failed to create engine"),
+    );
+
+    // Before: no orphaned diagnostics for auth.logout
+    let data = engine.data().await;
+    assert!(
+        !has_diagnostic_with_code(&data.workspace_diagnostics, "orphaned", "auth.logout"),
+        "Expected no orphaned diagnostic for auth.logout initially"
+    );
+
+    // Remove auth.logout from spec
+    let spec_path = root.join("spec.md");
+    std::fs::write(&spec_path, "# Spec\n\nr[auth.login]\nUsers must log in.\n")
+        .expect("update spec");
+
+    engine
+        .rebuild_with_changes(&[spec_path])
+        .await
+        .expect("rebuild failed");
+
+    // After: auth.logout should be orphaned
+    let data = engine.data().await;
+    assert!(
+        has_diagnostic_with_code(&data.workspace_diagnostics, "orphaned", "auth.logout"),
+        "Expected orphaned diagnostic for auth.logout after removing rule from spec"
+    );
+}
+
+/// Add a new source file → rebuild picks it up.
+#[tokio::test]
+async fn test_rebuild_add_new_source_file() {
+    use tracey::daemon::Engine;
+
+    // Start with auth.login in spec but no impl in source
+    let (temp, config_path) = create_rebuild_test_project(
+        "# Spec\n\nr[auth.login]\nUsers must log in.\n",
+        &[(
+            "src/lib.rs",
+            "// no impl refs here\npub fn placeholder() {}\n",
+        )],
+    );
+    let root = temp.path().to_path_buf();
+
+    let engine = Arc::new(
+        Engine::new(root.clone(), config_path)
+            .await
+            .expect("Failed to create engine"),
+    );
+
+    // Before: auth.login has no impl refs
+    let data = engine.data().await;
+    assert!(
+        !rule_has_impl_refs(&data, "auth.login"),
+        "Expected auth.login to have no impl refs initially"
+    );
+
+    // Add a new source file with an impl ref
+    let new_file = root.join("src/new_impl.rs");
+    std::fs::write(&new_file, "/// r[impl auth.login]\npub fn do_login() {}\n")
+        .expect("write new source file");
+
+    engine
+        .rebuild_with_changes(&[new_file.clone()])
+        .await
+        .expect("rebuild failed");
+
+    // After: auth.login should have impl refs, and new file should appear in source_reqs_by_file
+    let data = engine.data().await;
+    assert!(
+        rule_has_impl_refs(&data, "auth.login"),
+        "Expected auth.login to have impl refs after adding new source file"
+    );
+    assert!(
+        data.source_reqs_by_file
+            .keys()
+            .any(|p| p.ends_with("src/new_impl.rs")),
+        "Expected src/new_impl.rs in source_reqs_by_file after rebuild"
+    );
+}
+
+/// Modify an existing source file → rebuild picks up the changes.
+#[tokio::test]
+async fn test_rebuild_modify_source_file() {
+    use tracey::daemon::Engine;
+
+    // Start with auth.login in spec, source references nonexistent.rule
+    let (temp, config_path) = create_rebuild_test_project(
+        "# Spec\n\nr[auth.login]\nUsers must log in.\n",
+        &[(
+            "src/changing.rs",
+            "/// r[impl nonexistent.rule]\npub fn handler() {}\n",
+        )],
+    );
+    let root = temp.path().to_path_buf();
+
+    let engine = Arc::new(
+        Engine::new(root.clone(), config_path)
+            .await
+            .expect("Failed to create engine"),
+    );
+
+    // Before: nonexistent.rule should be orphaned
+    let data = engine.data().await;
+    assert!(
+        has_diagnostic_with_code(&data.workspace_diagnostics, "orphaned", "nonexistent.rule"),
+        "Expected orphaned diagnostic for nonexistent.rule initially"
+    );
+
+    // Overwrite the source file to reference auth.login instead
+    let changing_path = root.join("src/changing.rs");
+    std::fs::write(
+        &changing_path,
+        "/// r[impl auth.login]\npub fn handler() {}\n",
+    )
+    .expect("overwrite source file");
+
+    engine
+        .rebuild_with_changes(&[changing_path])
+        .await
+        .expect("rebuild failed");
+
+    // After: no more orphaned diagnostic, and auth.login has impl refs
+    let data = engine.data().await;
+    assert!(
+        !has_diagnostic_with_code(&data.workspace_diagnostics, "orphaned", "nonexistent.rule"),
+        "Expected no orphaned diagnostic for nonexistent.rule after modifying source"
+    );
+    assert!(
+        rule_has_impl_refs(&data, "auth.login"),
+        "Expected auth.login to have impl refs after modifying source"
+    );
+}

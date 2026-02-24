@@ -149,6 +149,44 @@ async fn request_no_params(
     }
 }
 
+/// Read messages until we get a publishDiagnostics notification for the given file URI,
+/// or until we've read `max_messages` messages without finding one.
+/// Returns the diagnostics array if found.
+async fn wait_for_diagnostics(
+    stdout: &mut BufReader<ChildStdout>,
+    file_uri: &str,
+    max_messages: usize,
+    timeout_per_msg: Duration,
+) -> Option<Vec<serde_json::Value>> {
+    for _ in 0..max_messages {
+        let msg = match tokio::time::timeout(timeout_per_msg, read_message(stdout)).await {
+            Ok(msg) => msg,
+            Err(_) => return None,
+        };
+
+        if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics") {
+            if let Some(params) = msg.get("params") {
+                if params.get("uri").and_then(|u| u.as_str()) == Some(file_uri) {
+                    let diags = params
+                        .get("diagnostics")
+                        .and_then(|d| d.as_array())
+                        .cloned()
+                        .unwrap_or_default();
+                    return Some(diags);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Check if a diagnostics array contains a diagnostic with the given code.
+fn diagnostics_contain_code(diagnostics: &[serde_json::Value], code: &str) -> bool {
+    diagnostics
+        .iter()
+        .any(|d| d.get("code").and_then(|c| c.as_str()) == Some(code))
+}
+
 fn symbol_names(response: &serde_json::Value) -> Vec<String> {
     response
         .get("result")
@@ -309,6 +347,176 @@ async fn test_lsp_workspace_folder_add_remove_updates_symbol_scope() {
     );
 
     let shutdown = request_no_params(&mut stdin, &mut stdout, 100, "shutdown").await;
+    assert!(
+        shutdown.get("error").is_none(),
+        "shutdown failed: {shutdown}"
+    );
+
+    send_message(
+        &mut stdin,
+        &json!({
+            "jsonrpc": "2.0",
+            "method": "exit"
+        }),
+    )
+    .await;
+}
+
+/// File watcher detects spec change on disk and updates diagnostics without manual reload.
+///
+/// 1. Create project: spec has only auth.login, source references auth.login + payment.checkout
+/// 2. Open source file → diagnostics should show orphaned for payment.checkout
+/// 3. Write updated spec to disk (adding payment.checkout) — no didChange, no reload
+/// 4. Wait for watcher to fire and diagnostics to clear
+#[tokio::test]
+async fn test_lsp_file_watcher_detects_spec_change() {
+    let project = tempfile::tempdir().expect("tempdir");
+    let root = project.path();
+
+    // Set up project: spec only has auth.login
+    std::fs::create_dir_all(root.join(".config/tracey")).expect("create config dir");
+    std::fs::create_dir_all(root.join("src")).expect("create src dir");
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"tracey-watcher-test\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .expect("write Cargo.toml");
+    std::fs::write(
+        root.join(".config/tracey/config.styx"),
+        "specs (\n  {\n    name test\n    include (spec.md)\n    impls (\n      {\n        name rust\n        include (src/**/*.rs)\n      }\n    )\n  }\n)\n",
+    )
+    .expect("write config");
+    std::fs::write(
+        root.join("spec.md"),
+        "# Spec\n\nr[auth.login]\nUsers must log in.\n",
+    )
+    .expect("write spec");
+    // Source references both auth.login and payment.checkout (orphaned)
+    std::fs::write(
+        root.join("src/lib.rs"),
+        "/// r[impl auth.login]\n/// r[impl payment.checkout]\npub fn handler() {}\n",
+    )
+    .expect("write source");
+
+    let project_uri = Url::from_directory_path(root)
+        .expect("project uri")
+        .to_string();
+    let lib_uri = Url::from_file_path(root.join("src/lib.rs"))
+        .expect("lib uri")
+        .to_string();
+
+    let mut child = Command::new(tracey_bin_path())
+        .arg("lsp")
+        .arg(root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .expect("failed to spawn tracey lsp");
+
+    let mut stdin = child.stdin.take().expect("missing child stdin");
+    let stdout = child.stdout.take().expect("missing child stdout");
+    let mut stdout = BufReader::new(stdout);
+
+    // Initialize
+    let initialize = request(
+        &mut stdin,
+        &mut stdout,
+        1,
+        "initialize",
+        json!({
+            "capabilities": {},
+            "workspaceFolders": [
+                { "uri": project_uri, "name": "watcher-test" }
+            ]
+        }),
+    )
+    .await;
+    assert!(
+        initialize.get("error").is_none(),
+        "initialize failed: {initialize}"
+    );
+
+    send_message(
+        &mut stdin,
+        &json!({
+            "jsonrpc": "2.0",
+            "method": "initialized",
+            "params": {}
+        }),
+    )
+    .await;
+
+    // Open the source file to trigger diagnostic publishing
+    let lib_content = std::fs::read_to_string(root.join("src/lib.rs")).expect("read lib.rs");
+    send_message(
+        &mut stdin,
+        &json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": {
+                "textDocument": {
+                    "uri": lib_uri,
+                    "languageId": "rust",
+                    "version": 1,
+                    "text": lib_content
+                }
+            }
+        }),
+    )
+    .await;
+
+    // Wait for initial diagnostics — should contain orphaned for payment.checkout.
+    // The LSP may send an empty diagnostics set first (clearing), then the real ones,
+    // so we keep polling until we see orphaned diagnostics.
+    let mut found_orphaned = false;
+    for _ in 0..60 {
+        match wait_for_diagnostics(&mut stdout, &lib_uri, 20, Duration::from_millis(500)).await {
+            Some(diags) if diagnostics_contain_code(&diags, "orphaned") => {
+                found_orphaned = true;
+                break;
+            }
+            _ => {
+                sleep(Duration::from_millis(200)).await;
+            }
+        }
+    }
+    assert!(
+        found_orphaned,
+        "Expected orphaned diagnostic for payment.checkout initially"
+    );
+
+    // Write updated spec to disk — add payment.checkout rule.
+    // Do NOT send any LSP notification about the spec file.
+    // The file watcher should detect this change and trigger a rebuild.
+    std::fs::write(
+        root.join("spec.md"),
+        "# Spec\n\nr[auth.login]\nUsers must log in.\n\nr[payment.checkout]\nUsers can check out.\n",
+    )
+    .expect("update spec on disk");
+
+    // Poll for updated diagnostics: the watcher should fire, rebuild, and push
+    // diagnostics where payment.checkout is no longer orphaned.
+    let mut orphan_cleared = false;
+    for _ in 0..60 {
+        match wait_for_diagnostics(&mut stdout, &lib_uri, 20, Duration::from_millis(500)).await {
+            Some(diags) if !diagnostics_contain_code(&diags, "orphaned") => {
+                orphan_cleared = true;
+                break;
+            }
+            _ => {
+                sleep(Duration::from_millis(200)).await;
+            }
+        }
+    }
+    assert!(
+        orphan_cleared,
+        "File watcher did not clear orphaned diagnostic after spec change on disk"
+    );
+
+    // Clean shutdown
+    let shutdown = request_no_params(&mut stdin, &mut stdout, 200, "shutdown").await;
     assert!(
         shutdown.get("error").is_none(),
         "shutdown failed: {shutdown}"
