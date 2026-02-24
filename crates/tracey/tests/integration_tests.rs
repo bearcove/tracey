@@ -23,6 +23,13 @@ fn fixtures_dir() -> PathBuf {
         .join("fixtures")
 }
 
+/// Get the path to a named fixture set directory.
+fn fixtures_named(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join(format!("fixtures-{name}"))
+}
+
 /// Helper to create an engine for testing.
 async fn create_test_engine() -> Arc<tracey::daemon::Engine> {
     let project_root = fixtures_dir();
@@ -35,9 +42,28 @@ async fn create_test_engine() -> Arc<tracey::daemon::Engine> {
     )
 }
 
+/// Helper to create an engine from a named fixture set.
+async fn create_test_engine_named(name: &str) -> Arc<tracey::daemon::Engine> {
+    let project_root = fixtures_named(name);
+    let config_path = project_root.join("config.styx");
+
+    Arc::new(
+        tracey::daemon::Engine::new(project_root, config_path)
+            .await
+            .expect("Failed to create engine"),
+    )
+}
+
 /// Helper to create a service for testing.
 async fn create_test_service() -> common::RpcTestService {
     let engine = create_test_engine().await;
+    let service = tracey::daemon::TraceyService::new(engine);
+    common::create_test_rpc_service(service).await
+}
+
+/// Helper to create a service from a named fixture set.
+async fn create_test_service_named(name: &str) -> common::RpcTestService {
+    let engine = create_test_engine_named(name).await;
     let service = tracey::daemon::TraceyService::new(engine);
     common::create_test_rpc_service(service).await
 }
@@ -319,15 +345,13 @@ specs (
 async fn test_lsp_hover_on_reference() {
     let service = create_test_service().await;
 
-    // Content with a reference to auth.login
-    let content = r#"/// r[impl auth.login]
-fn test_func() {}"#;
+    let content = std::fs::read_to_string(fixtures_dir().join("src/lib.rs")).unwrap();
 
     let req = LspPositionRequest {
-        path: fixtures_dir().join("src/test.rs").display().to_string(),
+        path: fixtures_dir().join("src/lib.rs").display().to_string(),
         content: content.to_string(),
-        line: 0,
-        character: 12, // Position within "auth.login"
+        line: 4,      // r[impl auth.login] is on line 5 (0-indexed: 4)
+        character: 8, // Position within "auth.login"
     };
 
     let hover = rpc(service.client.lsp_hover(req).await);
@@ -343,13 +367,12 @@ fn test_func() {}"#;
 async fn test_lsp_hover_outside_reference() {
     let service = create_test_service().await;
 
-    let content = r#"// Just a comment
-fn test_func() {}"#;
+    let content = std::fs::read_to_string(fixtures_dir().join("src/lib.rs")).unwrap();
 
     let req = LspPositionRequest {
-        path: fixtures_dir().join("src/test.rs").display().to_string(),
+        path: fixtures_dir().join("src/lib.rs").display().to_string(),
         content: content.to_string(),
-        line: 1,
+        line: 7,      // "pub fn login..." line (0-indexed)
         character: 5, // Position in "fn"
     };
 
@@ -362,14 +385,13 @@ fn test_func() {}"#;
 async fn test_lsp_definition() {
     let service = create_test_service().await;
 
-    let content = r#"/// r[impl auth.login]
-fn test_func() {}"#;
+    let content = std::fs::read_to_string(fixtures_dir().join("src/lib.rs")).unwrap();
 
     let req = LspPositionRequest {
-        path: fixtures_dir().join("src/test.rs").display().to_string(),
+        path: fixtures_dir().join("src/lib.rs").display().to_string(),
         content: content.to_string(),
-        line: 0,
-        character: 12,
+        line: 4,      // r[impl auth.login] is on line 5 (0-indexed: 4)
+        character: 8, // inside "auth.login"
     };
 
     let locations = rpc(service.client.lsp_definition(req).await);
@@ -508,14 +530,15 @@ Users MUST provide valid credentials to log in.
 async fn test_lsp_completions() {
     let service = create_test_service().await;
 
-    // Typing "r[impl auth" should suggest auth.* rules
-    let content = "/// r[impl auth";
+    // Completions don't depend on build data for the file itself;
+    // they query the rule index. Use a real file path though.
+    let content = std::fs::read_to_string(fixtures_dir().join("src/lib.rs")).unwrap();
 
     let req = LspPositionRequest {
-        path: fixtures_dir().join("src/test.rs").display().to_string(),
+        path: fixtures_dir().join("src/lib.rs").display().to_string(),
         content: content.to_string(),
-        line: 0,
-        character: 15, // After "auth"
+        line: 4,       // r[impl auth.login] line
+        character: 15, // After "auth" in "auth.login"
     };
 
     let completions = rpc(service.client.lsp_completions(req).await);
@@ -535,14 +558,13 @@ async fn test_lsp_completions() {
 
 #[tokio::test]
 async fn test_lsp_diagnostics_orphaned_reference() {
-    let service = create_test_service().await;
+    let service = create_test_service_named("orphaned").await;
+    let dir = fixtures_named("orphaned");
 
-    // Reference to non-existent rule
-    let content = r#"/// r[impl nonexistent.rule]
-fn test_func() {}"#;
+    let content = std::fs::read_to_string(dir.join("src/lib.rs")).unwrap();
 
     let req = LspDocumentRequest {
-        path: fixtures_dir().join("src/test.rs").display().to_string(),
+        path: dir.join("src/lib.rs").display().to_string(),
         content: content.to_string(),
     };
 
@@ -557,25 +579,22 @@ fn test_func() {}"#;
 async fn test_lsp_document_symbols() {
     let service = create_test_service().await;
 
-    let content = r#"/// r[impl auth.login]
-fn login() {}
-
-/// r[impl auth.session]
-struct Session {}
-
-/// r[verify auth.login]
-#[test]
-fn test_login() {}"#;
+    let content = std::fs::read_to_string(fixtures_dir().join("src/lib.rs")).unwrap();
 
     let req = LspDocumentRequest {
-        path: fixtures_dir().join("src/test.rs").display().to_string(),
+        path: fixtures_dir().join("src/lib.rs").display().to_string(),
         content: content.to_string(),
     };
 
     let symbols = rpc(service.client.lsp_document_symbols(req).await);
 
-    // Should have symbols for each reference
-    assert!(symbols.len() >= 3, "Expected at least 3 symbols");
+    // lib.rs has auth.login, api.fetch, auth.session, auth.logout, data.required-fields,
+    // error.codes (x2), error.messages (x2) — at least 5 unique refs
+    assert!(
+        symbols.len() >= 5,
+        "Expected at least 5 symbols, got: {}",
+        symbols.len()
+    );
 
     // Check that we have auth.login symbol
     let login_symbol = symbols.iter().find(|s| s.name == "auth.login");
@@ -619,14 +638,13 @@ async fn test_lsp_workspace_symbols() {
 async fn test_lsp_references() {
     let service = create_test_service().await;
 
-    let content = r#"/// r[impl auth.login]
-fn login() {}"#;
+    let content = std::fs::read_to_string(fixtures_dir().join("src/lib.rs")).unwrap();
 
     let req = LspReferencesRequest {
-        path: fixtures_dir().join("src/test.rs").display().to_string(),
+        path: fixtures_dir().join("src/lib.rs").display().to_string(),
         content: content.to_string(),
-        line: 0,
-        character: 12,
+        line: 4, // r[impl auth.login]
+        character: 8,
         include_declaration: true,
     };
 
@@ -663,15 +681,10 @@ async fn test_validate_returns_results() {
 async fn test_lsp_semantic_tokens() {
     let service = create_test_service().await;
 
-    let content = r#"/// r[impl auth.login]
-fn login() {}
-
-/// r[verify auth.login]
-#[test]
-fn test_login() {}"#;
+    let content = std::fs::read_to_string(fixtures_dir().join("src/lib.rs")).unwrap();
 
     let req = LspDocumentRequest {
-        path: fixtures_dir().join("src/test.rs").display().to_string(),
+        path: fixtures_dir().join("src/lib.rs").display().to_string(),
         content: content.to_string(),
     };
 
@@ -687,19 +700,13 @@ fn test_login() {}"#;
 
 #[tokio::test]
 async fn test_lsp_code_lens() {
-    let service = create_test_service().await;
+    let service = create_test_service_named("defines").await;
+    let dir = fixtures_named("defines");
 
-    // Code lenses show for r[define ...] references (explicit definition verb)
-    // This is useful for defining requirements in Rust code that aren't in markdown
-    let content = r#"//! Module documentation
-//!
-//! r[define auth.login]
-//! This defines the login requirement in code.
-
-pub fn login() {}"#;
+    let content = std::fs::read_to_string(dir.join("src/lib.rs")).unwrap();
 
     let req = LspDocumentRequest {
-        path: fixtures_dir().join("src/example.rs").display().to_string(),
+        path: dir.join("src/lib.rs").display().to_string(),
         content: content.to_string(),
     };
 
@@ -825,18 +832,13 @@ async fn test_validate_other_spec_ignores_r_prefix() {
 
 #[tokio::test]
 async fn test_validate_detects_unknown_rule_in_matching_prefix() {
-    let service = create_test_service().await;
+    let service = create_test_service_named("orphaned").await;
+    let dir = fixtures_named("orphaned");
 
-    // Create a test case where a rule ID is wrong for the matching prefix
-    // We'll use the existing lsp_diagnostics to check for orphaned references
-    // in a synthetic content
-
-    // For the r[...] prefix (test spec), a reference to a non-existent rule should error
-    let content = r#"/// r[impl nonexistent.rule]
-fn test_func() {}"#;
+    let content = std::fs::read_to_string(dir.join("src/lib.rs")).unwrap();
 
     let req = LspDocumentRequest {
-        path: fixtures_dir().join("src/test.rs").display().to_string(),
+        path: dir.join("src/lib.rs").display().to_string(),
         content: content.to_string(),
     };
 

@@ -27,6 +27,13 @@ fn fixtures_dir() -> PathBuf {
         .join("fixtures")
 }
 
+/// Get the path to a named fixture set directory.
+fn fixtures_named(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join(format!("fixtures-{name}"))
+}
+
 /// Helper to create an engine for testing.
 async fn create_test_engine() -> Arc<tracey::daemon::Engine> {
     let project_root = fixtures_dir();
@@ -42,6 +49,18 @@ async fn create_test_engine() -> Arc<tracey::daemon::Engine> {
 /// Helper to create a service for testing.
 async fn create_test_service() -> common::RpcTestService {
     let engine = create_test_engine().await;
+    let service = tracey::daemon::TraceyService::new(engine);
+    common::create_test_rpc_service(service).await
+}
+
+/// Helper to create a service from a named fixture set.
+async fn create_test_service_named(name: &str) -> common::RpcTestService {
+    let dir = fixtures_named(name);
+    let engine = Arc::new(
+        tracey::daemon::Engine::new(dir.clone(), dir.join("config.styx"))
+            .await
+            .expect("Failed to create engine"),
+    );
     let service = tracey::daemon::TraceyService::new(engine);
     common::create_test_rpc_service(service).await
 }
@@ -69,14 +88,13 @@ async fn create_isolated_test_service() -> (tempfile::TempDir, common::RpcTestSe
 /// Test that a file with an orphaned reference produces diagnostics.
 #[tokio::test]
 async fn test_orphaned_reference_produces_diagnostic() {
-    let service = create_test_service().await;
+    let service = create_test_service_named("orphaned").await;
+    let dir = fixtures_named("orphaned");
 
-    // Content with a reference to a nonexistent rule
-    let content = r#"/// r[impl nonexistent.rule]
-fn test_func() {}"#;
+    let content = std::fs::read_to_string(dir.join("src/lib.rs")).unwrap();
 
     let req = LspDocumentRequest {
-        path: fixtures_dir().join("src/test.rs").display().to_string(),
+        path: dir.join("src/lib.rs").display().to_string(),
         content: content.to_string(),
     };
 
@@ -100,12 +118,10 @@ fn test_func() {}"#;
 async fn test_valid_reference_no_diagnostic() {
     let service = create_test_service().await;
 
-    // Content with a reference to a valid rule (auth.login exists in spec.md)
-    let content = r#"/// r[impl auth.login]
-fn login_impl() {}"#;
+    let content = std::fs::read_to_string(fixtures_dir().join("src/lib.rs")).unwrap();
 
     let req = LspDocumentRequest {
-        path: fixtures_dir().join("src/test.rs").display().to_string(),
+        path: fixtures_dir().join("src/lib.rs").display().to_string(),
         content: content.to_string(),
     };
 
@@ -130,6 +146,11 @@ fn login_impl() {}"#;
 async fn test_stale_reference_produces_stale_diagnostic() {
     let (temp, service) = create_isolated_test_service().await;
 
+    // Write a source file with a v1 reference.
+    let stale_content = "/// r[impl auth.login]\nfn login_impl() {}\n";
+    std::fs::write(temp.path().join("src/stale.rs"), stale_content)
+        .expect("failed to write source file");
+
     // Update spec to use a newer version.
     std::fs::write(
         temp.path().join("spec.md"),
@@ -141,14 +162,13 @@ Users MUST provide valid credentials to log in.
     )
     .expect("failed to write spec");
 
-    // Rebuild daemon data after changing spec content.
+    // Rebuild daemon data after changing spec and adding source file.
     rpc(service.client.reload().await);
 
-    let content = r#"/// r[impl auth.login]
-fn login_impl() {}"#;
+    let content = std::fs::read_to_string(temp.path().join("src/stale.rs")).unwrap();
 
     let req = LspDocumentRequest {
-        path: temp.path().join("src/vfs_test.rs").display().to_string(),
+        path: temp.path().join("src/stale.rs").display().to_string(),
         content: content.to_string(),
     };
 
@@ -587,23 +607,13 @@ fn broken() {}"#;
 /// Test diagnostics for a file with multiple errors.
 #[tokio::test]
 async fn test_multiple_errors_in_file() {
-    let service = create_test_service().await;
+    let service = create_test_service_named("multi-error").await;
+    let dir = fixtures_named("multi-error");
 
-    // Content with multiple orphaned references
-    let content = r#"/// r[impl error.one]
-fn first_error() {}
-
-/// r[impl error.two]
-fn second_error() {}
-
-/// r[impl error.three]
-fn third_error() {}"#;
+    let content = std::fs::read_to_string(dir.join("src/lib.rs")).unwrap();
 
     let req = LspDocumentRequest {
-        path: fixtures_dir()
-            .join("src/multi_error.rs")
-            .display()
-            .to_string(),
+        path: dir.join("src/lib.rs").display().to_string(),
         content: content.to_string(),
     };
 
@@ -689,14 +699,13 @@ fn second() {}"#;
 /// Test unknown prefix diagnostic.
 #[tokio::test]
 async fn test_unknown_prefix_diagnostic() {
-    let service = create_test_service().await;
+    let service = create_test_service_named("unknown-prefix").await;
+    let dir = fixtures_named("unknown-prefix");
 
-    // Content with an unknown prefix (not recognized from configured specs)
-    let content = r#"/// x[impl some.rule]
-fn test_func() {}"#;
+    let content = std::fs::read_to_string(dir.join("src/lib.rs")).unwrap();
 
     let req = LspDocumentRequest {
-        path: fixtures_dir().join("src/test.rs").display().to_string(),
+        path: dir.join("src/lib.rs").display().to_string(),
         content: content.to_string(),
     };
 

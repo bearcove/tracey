@@ -892,7 +892,7 @@ impl TraceyDaemon for TraceyService {
 
         // Find the rule at cursor position (works for both spec and source files)
         let rule_at_pos =
-            find_rule_at_position(&path, &req.content, req.line, req.character).await?;
+            find_rule_at_position(&data, &path, &req.content, req.line, req.character).await?;
 
         // Look up the rule in our data
         let (spec_name, rule) = find_rule_in_data(&data, &rule_at_pos.req_id)?;
@@ -989,7 +989,7 @@ impl TraceyDaemon for TraceyService {
 
         // Find the rule at cursor position (works for both spec and source files)
         let Some(rule_at_pos) =
-            find_rule_at_position(&path, &req.content, req.line, req.character).await
+            find_rule_at_position(&data, &path, &req.content, req.line, req.character).await
         else {
             return vec![];
         };
@@ -1021,7 +1021,7 @@ impl TraceyDaemon for TraceyService {
 
         // Find the rule at cursor position (works for both spec and source files)
         let Some(rule_at_pos) =
-            find_rule_at_position(&path, &req.content, req.line, req.character).await
+            find_rule_at_position(&data, &path, &req.content, req.line, req.character).await
         else {
             return vec![];
         };
@@ -1052,7 +1052,7 @@ impl TraceyDaemon for TraceyService {
 
         // Find the rule at cursor position (works for both spec and source files)
         let Some(rule_at_pos) =
-            find_rule_at_position(&path, &req.content, req.line, req.character).await
+            find_rule_at_position(&data, &path, &req.content, req.line, req.character).await
         else {
             return vec![];
         };
@@ -1330,8 +1330,10 @@ impl TraceyDaemon for TraceyService {
             return diagnostics;
         }
 
-        // For source files, check references
-        let reqs = tracey_core::Reqs::extract_from_content(&path, &req.content);
+        // For source files, use build data only — no live extraction.
+        let Some(reqs) = lookup_source_reqs(&data, &path) else {
+            return diagnostics;
+        };
 
         // Check if this is a test file
         let is_test = data.test_files.contains(&path);
@@ -1528,20 +1530,22 @@ impl TraceyDaemon for TraceyService {
                 }
             }
         } else {
-            // For implementation files, extract references
-            let reqs = tracey_core::Reqs::extract_from_content(&path, &req.content);
-            for r in &reqs.references {
-                let (start_line, start_char, end_line, end_char) =
-                    span_to_range(&req.content, r.span.offset, r.span.length);
-                symbols.push(LspSymbol {
-                    name: r.req_id.to_string(),
-                    kind: format!("{:?}", r.verb).to_lowercase(),
-                    path: None,
-                    start_line,
-                    start_char,
-                    end_line,
-                    end_char,
-                });
+            // For implementation files, use build data only
+            let data = self.inner.engine.data().await;
+            if let Some(reqs) = lookup_source_reqs(&data, &path) {
+                for r in &reqs.references {
+                    let (start_line, start_char, end_line, end_char) =
+                        span_to_range(&req.content, r.span.offset, r.span.length);
+                    symbols.push(LspSymbol {
+                        name: r.req_id.to_string(),
+                        kind: format!("{:?}", r.verb).to_lowercase(),
+                        path: None,
+                        start_line,
+                        start_char,
+                        end_line,
+                        end_char,
+                    });
+                }
             }
         }
 
@@ -1624,10 +1628,8 @@ impl TraceyDaemon for TraceyService {
                     });
                 }
             }
-        } else {
-            // For source files, tokenize references in comments
-            let reqs = tracey_core::Reqs::extract_from_content(&path, &req.content);
-
+        } else if let Some(reqs) = lookup_source_reqs(&data, &path) {
+            // For source files, tokenize references from build data
             for reference in &reqs.references {
                 let (start_line, start_char, _, _) =
                     span_to_range(&req.content, reference.span.offset, reference.span.length);
@@ -1702,10 +1704,8 @@ impl TraceyDaemon for TraceyService {
                     }
                 }
             }
-        } else {
+        } else if let Some(reqs) = lookup_source_reqs(&data, &path) {
             // For source files, show code lenses for definition references
-            let reqs = tracey_core::Reqs::extract_from_content(&path, &req.content);
-
             for reference in &reqs.references {
                 // Only show code lens for definitions
                 if reference.verb != tracey_core::RefVerb::Define {
@@ -1785,30 +1785,38 @@ impl TraceyDaemon for TraceyService {
                 }
             }
         } else {
-            // For source files, show hints for references in comments
-            let reqs = tracey_core::Reqs::extract_from_content(&path, &req.content);
+            // For source files, use build data only — no live extraction.
+            // This ensures hints reflect what the build actually sees, making
+            // misconfigured include/exclude patterns immediately visible.
+            let canonical = path.canonicalize().unwrap_or_else(|_| path.clone());
+            let reqs = data
+                .source_reqs_by_file
+                .get(&canonical)
+                .or_else(|| data.source_reqs_by_file.get(&path));
 
-            for reference in &reqs.references {
-                let (line, _, _, end_char) =
-                    span_to_range(&req.content, reference.span.offset, reference.span.length);
+            if let Some(reqs) = reqs {
+                for reference in &reqs.references {
+                    let (line, _, _, end_char) =
+                        span_to_range(&req.content, reference.span.offset, reference.span.length);
 
-                // Only show hints in the requested range
-                if line < req.start_line || line > req.end_line {
-                    continue;
-                }
+                    // Only show hints in the requested range
+                    if line < req.start_line || line > req.end_line {
+                        continue;
+                    }
 
-                // Look up the rule
-                if let Some((_, rule)) = find_rule_in_data(&data, &reference.req_id) {
-                    let impl_count = rule.impl_refs.len();
-                    let verify_count = rule.verify_refs.len();
+                    // Look up the rule
+                    if let Some((_, rule)) = find_rule_in_data(&data, &reference.req_id) {
+                        let impl_count = rule.impl_refs.len();
+                        let verify_count = rule.verify_refs.len();
 
-                    let label = format!(" [{} impl, {} verify]", impl_count, verify_count);
+                        let label = format!(" [{} impl, {} verify]", impl_count, verify_count);
 
-                    hints.push(LspInlayHint {
-                        line,
-                        character: end_char,
-                        label,
-                    });
+                        hints.push(LspInlayHint {
+                            line,
+                            character: end_char,
+                            label,
+                        });
+                    }
                 }
             }
         }
@@ -1829,7 +1837,7 @@ impl TraceyDaemon for TraceyService {
 
         // Find the rule at cursor position (works for both spec and source files)
         let rule_at_pos =
-            find_rule_at_position(&path, &req.content, req.line, req.character).await?;
+            find_rule_at_position(&data, &path, &req.content, req.line, req.character).await?;
 
         // Check if the rule exists
         find_rule_in_data(&data, &rule_at_pos.req_id)?;
@@ -1861,7 +1869,7 @@ impl TraceyDaemon for TraceyService {
 
         // Find the rule at cursor position (works for both spec and source files)
         let Some(rule_at_pos) =
-            find_rule_at_position(&path, &req.content, req.line, req.character).await
+            find_rule_at_position(&data, &path, &req.content, req.line, req.character).await
         else {
             return vec![];
         };
@@ -1924,7 +1932,7 @@ impl TraceyDaemon for TraceyService {
 
         // Check if we're on a rule (works for both spec and source files)
         if let Some(rule_at_pos) =
-            find_rule_at_position(&path, &req.content, req.line, req.character).await
+            find_rule_at_position(&data, &path, &req.content, req.line, req.character).await
         {
             // Check if it's an orphaned reference
             if find_rule_in_data(&data, &rule_at_pos.req_id).is_none() {
@@ -1991,11 +1999,12 @@ impl TraceyDaemon for TraceyService {
         _cx: &Context,
         req: LspPositionRequest,
     ) -> Vec<LspLocation> {
+        let data = self.inner.engine.data().await;
         let path = PathBuf::from(&req.path);
 
         // Find the rule at cursor position (works for both spec and source files)
         let Some(rule_at_pos) =
-            find_rule_at_position(&path, &req.content, req.line, req.character).await
+            find_rule_at_position(&data, &path, &req.content, req.line, req.character).await
         else {
             return vec![];
         };
@@ -2024,8 +2033,10 @@ impl TraceyDaemon for TraceyService {
             return vec![];
         }
 
-        // For source files, find all references to the same rule in this document
-        let reqs = tracey_core::Reqs::extract_from_content(&path, &req.content);
+        // For source files, use build data only
+        let Some(reqs) = lookup_source_reqs(&data, &path) else {
+            return vec![];
+        };
         reqs.references
             .iter()
             .filter(|r| r.req_id == rule_at_pos.req_id)
@@ -2284,11 +2295,24 @@ fn extract_markdown_rule_references(content: &str) -> Vec<MarkdownRuleReference>
     out
 }
 
+/// Look up build-data reqs for a source file path.
+/// Returns `None` if the file was not part of the build scan.
+fn lookup_source_reqs<'a>(
+    data: &'a crate::data::DashboardData,
+    path: &Path,
+) -> Option<&'a tracey_core::Reqs> {
+    let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    data.source_reqs_by_file
+        .get(&canonical)
+        .or_else(|| data.source_reqs_by_file.get(path))
+}
+
 /// Find a rule (reference or definition) at the given position.
 ///
 /// For markdown spec files, uses marq to extract requirement definitions.
-/// For source files, uses the lexer to extract references from comments.
+/// For source files, uses build data only — no live extraction.
 async fn find_rule_at_position(
+    data: &crate::data::DashboardData,
     path: &Path,
     content: &str,
     line: u32,
@@ -2334,9 +2358,8 @@ async fn find_rule_at_position(
                 }
             })
     } else {
-        // Parse source file to find references in comments
-        let reqs = tracey_core::Reqs::extract_from_content(path, content);
-        let ref_at_pos = find_ref_at_position(&reqs, content, line, character)?;
+        let reqs = lookup_source_reqs(data, path)?;
+        let ref_at_pos = find_ref_at_position(reqs, content, line, character)?;
 
         Some(RuleAtPosition {
             req_id: ref_at_pos.req_id.clone(),
