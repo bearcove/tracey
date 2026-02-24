@@ -3,7 +3,6 @@ node_modules
 **/dist
 .playwright-mcp/
 .handoffs/
-.tracey/
 tracey-zed/target/
 tracey-zed/extension.wasm
 .claude/settings*
