@@ -482,9 +482,7 @@ async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> Str
                 prefix,
             };
             match qc.client.uncovered(req).await {
-                Ok(resp) => {
-                    facet_json::to_string_pretty(&resp).expect("JSON serialization failed")
-                }
+                Ok(resp) => facet_json::to_string_pretty(&resp).expect("JSON serialization failed"),
                 Err(e) => json_error(&e.to_string()),
             }
         }
@@ -496,9 +494,7 @@ async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> Str
                 prefix,
             };
             match qc.client.untested(req).await {
-                Ok(resp) => {
-                    facet_json::to_string_pretty(&resp).expect("JSON serialization failed")
-                }
+                Ok(resp) => facet_json::to_string_pretty(&resp).expect("JSON serialization failed"),
                 Err(e) => json_error(&e.to_string()),
             }
         }
@@ -510,9 +506,7 @@ async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> Str
                 prefix,
             };
             match qc.client.stale(req).await {
-                Ok(resp) => {
-                    facet_json::to_string_pretty(&resp).expect("JSON serialization failed")
-                }
+                Ok(resp) => facet_json::to_string_pretty(&resp).expect("JSON serialization failed"),
                 Err(e) => json_error(&e.to_string()),
             }
         }
@@ -524,9 +518,7 @@ async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> Str
                 path,
             };
             match qc.client.unmapped(req).await {
-                Ok(resp) => {
-                    facet_json::to_string_pretty(&resp).expect("JSON serialization failed")
-                }
+                Ok(resp) => facet_json::to_string_pretty(&resp).expect("JSON serialization failed"),
                 Err(e) => json_error(&e.to_string()),
             }
         }
@@ -582,7 +574,7 @@ async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> Str
                             return json_error(&format!(
                                 "error validating {}/{}: {e}",
                                 impl_status.spec, impl_status.impl_name
-                            ))
+                            ));
                         }
                     }
                 }
@@ -832,8 +824,7 @@ async fn show_status(root: Option<PathBuf>, json: bool) -> Result<()> {
             if json {
                 println!(
                     "{}",
-                    facet_json::to_string_pretty(&health)
-                        .expect("JSON serialization failed")
+                    facet_json::to_string_pretty(&health).expect("JSON serialization failed")
                 );
             } else {
                 println!("{}: Daemon is running", "Status".green());
@@ -867,7 +858,10 @@ async fn show_status(root: Option<PathBuf>, json: bool) -> Result<()> {
         }
         Err(_) => {
             if json {
-                println!("{}", json_error("daemon not responding (health check timed out)"));
+                println!(
+                    "{}",
+                    json_error("daemon not responding (health check timed out)")
+                );
             } else {
                 println!(
                     "{}: Daemon not responding (health check timed out)",
