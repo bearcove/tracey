@@ -96,6 +96,18 @@ Stop the running daemon and clean up stale sockets.
 tracey kill [ROOT]
 ```
 
+### `tracey gc`
+
+Remove orphaned state directories whose projects no longer exist on disk.
+
+```
+tracey gc [--dry-run]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--dry-run` | Show what would be removed without deleting anything |
+
 ## Terminal queries
 
 Query coverage data from the terminal. These commands connect to the daemon (auto-starting it if needed).
@@ -211,13 +223,4 @@ Generate shell completion scripts:
 tracey --completions bash   # Bash
 tracey --completions zsh    # Zsh
 tracey --completions fish   # Fish
-```
-
-## Gitignore
-
-Add `.tracey/` to your `.gitignore` — it contains the daemon socket and log file:
-
-```
-# .gitignore
-.tracey/
 ```

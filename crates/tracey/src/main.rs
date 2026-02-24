@@ -163,6 +163,13 @@ enum Command {
         #[facet(args::named, args::short = 'c', default = ".config/tracey/config.styx")]
         config: PathBuf,
     },
+
+    /// Remove orphaned state directories whose projects no longer exist on disk
+    Gc {
+        /// Show what would be removed without deleting anything
+        #[facet(rename = "dry-run", args::named, default)]
+        dry_run: bool,
+    },
 }
 
 /// Skill subcommands
@@ -338,7 +345,8 @@ async fn main() -> Result<()> {
             let config_path = project_root.join(&config);
 
             // r[impl daemon.logs.file]
-            let log_path = project_root.join(".tracey/daemon.log");
+            daemon::ensure_state_dir(&project_root)?;
+            let log_path = daemon::state_dir(&project_root).join("daemon.log");
             init_tracing(TracingConfig {
                 log_file: Some(log_path),
                 enable_console: true,
@@ -445,6 +453,8 @@ async fn main() -> Result<()> {
             println!("{}", output);
             Ok(())
         }
+
+        Command::Gc { dry_run } => run_gc(dry_run),
     }
 }
 
@@ -667,9 +677,7 @@ fn init_tracing(config: TracingConfig) -> Result<()> {
 
 /// Build a bridge log path with process ID in the filename.
 fn bridge_log_path(project_root: &std::path::Path, bridge: &str) -> PathBuf {
-    project_root
-        .join(".tracey")
-        .join(format!("{bridge}-{}.log", std::process::id()))
+    daemon::state_dir(project_root).join(format!("{bridge}-{}.log", std::process::id()))
 }
 
 /// Write a startup marker so bridge launches are visible even before first tracing event.
@@ -709,7 +717,7 @@ fn write_bridge_start_marker(
 }
 
 /// r[impl daemon.cli.logs]
-/// Show daemon logs from .tracey/daemon.log
+/// Show daemon logs from the state directory
 fn show_logs(root: Option<PathBuf>, follow: bool, lines: usize) -> Result<()> {
     use std::io::{BufRead, BufReader, Seek, SeekFrom};
 
@@ -718,7 +726,7 @@ fn show_logs(root: Option<PathBuf>, follow: bool, lines: usize) -> Result<()> {
         None => find_project_root()?,
     };
 
-    let log_path = project_root.join(".tracey/daemon.log");
+    let log_path = daemon::state_dir(&project_root).join("daemon.log");
 
     if !log_path.exists() {
         eprintln!(
@@ -1175,6 +1183,110 @@ async fn kill_daemon(root: Option<PathBuf>) -> Result<()> {
             let _ = roam_local::remove_endpoint(&endpoint);
             println!("{}: Cleaned up", "Success".green());
         }
+    }
+
+    Ok(())
+}
+
+/// Remove orphaned state directories whose projects no longer exist on disk.
+fn run_gc(dry_run: bool) -> Result<()> {
+    let base = daemon::state_base_dir();
+
+    if !base.exists() {
+        println!("No state directory found at {}", base.display());
+        return Ok(());
+    }
+
+    let entries: Vec<_> = std::fs::read_dir(&base)
+        .wrap_err_with(|| format!("Failed to read state directory: {}", base.display()))?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .collect();
+
+    if entries.is_empty() {
+        println!("No state directories found.");
+        return Ok(());
+    }
+
+    let mut removed = 0usize;
+    for entry in &entries {
+        let dir = entry.path();
+        let meta_path = dir.join("project-root");
+
+        let orphaned = match std::fs::read(&meta_path) {
+            Ok(bytes) => {
+                #[cfg(unix)]
+                let project_root = {
+                    use std::os::unix::ffi::OsStrExt;
+                    PathBuf::from(std::ffi::OsStr::from_bytes(&bytes))
+                };
+                #[cfg(not(unix))]
+                let project_root = PathBuf::from(String::from_utf8_lossy(&bytes).into_owned());
+
+                !project_root.exists()
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                // Directory exists but has no project-root file. This can
+                // happen during a race with a daemon that just called
+                // create_dir_all but hasn't written the metadata yet, so
+                // only treat it as orphaned if the directory is old enough
+                // to rule out a concurrent startup.
+                let dominated_by_race = entry
+                    .metadata()
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .and_then(|t| t.elapsed().ok())
+                    .is_some_and(|age| age < std::time::Duration::from_secs(60));
+                !dominated_by_race
+            }
+            Err(e) => {
+                eprintln!(
+                    "{}: Failed to read {}: {}",
+                    "Warning".yellow(),
+                    meta_path.display(),
+                    e
+                );
+                continue;
+            }
+        };
+
+        if !orphaned {
+            continue;
+        }
+
+        // Don't remove state dirs with a live daemon, even if the project root is gone.
+        let pid_path = dir.join("daemon.pid");
+        if let Some((pid, _)) = daemon::read_pid_file_at(&pid_path)
+            && daemon::is_pid_alive(pid)
+        {
+            continue;
+        }
+
+        if dry_run {
+            println!("Would remove: {}", dir.display());
+        } else {
+            match std::fs::remove_dir_all(&dir) {
+                Ok(()) => println!("{}: Removed {}", "Removed".red(), dir.display()),
+                Err(e) => eprintln!(
+                    "{}: Failed to remove {}: {}",
+                    "Error".red(),
+                    dir.display(),
+                    e
+                ),
+            }
+        }
+        removed += 1;
+    }
+
+    if removed == 0 {
+        println!("Nothing to clean up.");
+    } else if dry_run {
+        println!(
+            "\n{} orphaned state dir(s) found. Run without --dry-run to remove.",
+            removed
+        );
+    } else {
+        println!("\nRemoved {} orphaned state dir(s).", removed);
     }
 
     Ok(())

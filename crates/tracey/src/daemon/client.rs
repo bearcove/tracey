@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use tracing::{debug, info, warn};
 
-use super::{local_endpoint, pid_file_path};
+use super::{is_pid_alive, local_endpoint, pid_file_path, read_pid_file_at};
 
 // Re-export the generated client from tracey-proto
 pub use tracey_proto::TraceyDaemonClient;
@@ -130,11 +130,11 @@ impl DaemonConnector {
     }
 
     fn startup_lock_path(&self) -> PathBuf {
-        self.project_root.join(".tracey").join("daemon-start.lock")
+        super::state_dir(&self.project_root).join("daemon-start.lock")
     }
 
     fn acquire_startup_lock(&self, timeout: Duration) -> io::Result<StartupLock> {
-        super::ensure_tracey_dir(&self.project_root).map_err(io::Error::other)?;
+        super::ensure_state_dir(&self.project_root).map_err(io::Error::other)?;
 
         let lock_path = self.startup_lock_path();
         let started = Instant::now();
@@ -200,10 +200,10 @@ impl DaemonConnector {
                     io::ErrorKind::TimedOut,
                     format!(
                         "Daemon failed to start within {}s (last connect error: {}). \
-                         Check logs at {}/.tracey/daemon.log",
+                         Check logs at {}/daemon.log",
                         timeout.as_secs(),
                         last_connect_error.as_deref().unwrap_or("unavailable"),
-                        self.project_root.display()
+                        super::state_dir(&self.project_root).display()
                     ),
                 ));
             }
@@ -228,40 +228,8 @@ impl DaemonConnector {
     }
 }
 
-/// Read the PID file and return `(pid, protocol_version)` if it parses correctly.
-/// Returns `None` if the file doesn't exist. Logs a warning and returns `None`
-/// if the file exists but is malformed.
 fn read_pid_file(project_root: &Path) -> Option<(u32, u32)> {
-    let path = pid_file_path(project_root);
-    let content = match std::fs::read_to_string(&path) {
-        Ok(c) => c,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return None,
-        Err(e) => {
-            warn!("Failed to read PID file {}: {e}", path.display());
-            return None;
-        }
-    };
-
-    let mut pid = None;
-    let mut version = None;
-    for line in content.lines() {
-        if let Some(v) = line.strip_prefix("pid=") {
-            pid = v.parse().ok();
-        } else if let Some(v) = line.strip_prefix("version=") {
-            version = v.parse().ok();
-        }
-    }
-
-    match (pid, version) {
-        (Some(p), Some(v)) => Some((p, v)),
-        _ => {
-            warn!(
-                "PID file {} has unexpected format, ignoring it",
-                path.display()
-            );
-            None
-        }
-    }
+    read_pid_file_at(&pid_file_path(project_root))
 }
 
 fn pid_file_age(project_root: &Path) -> Option<Duration> {
@@ -269,21 +237,6 @@ fn pid_file_age(project_root: &Path) -> Option<Duration> {
     let meta = std::fs::metadata(path).ok()?;
     let modified = meta.modified().ok()?;
     modified.elapsed().ok()
-}
-
-/// Check whether a process with the given PID is alive.
-#[cfg(unix)]
-fn is_pid_alive(pid: u32) -> bool {
-    // Signal 0 doesn't send a signal; it just checks whether the process exists.
-    unsafe extern "C" {
-        fn kill(pid: i32, sig: i32) -> i32;
-    }
-    unsafe { kill(pid as i32, 0) == 0 }
-}
-
-#[cfg(not(unix))]
-fn is_pid_alive(_pid: u32) -> bool {
-    true // best-effort on non-Unix; rely on socket connect to detect dead daemon
 }
 
 /// Send SIGTERM to a process.

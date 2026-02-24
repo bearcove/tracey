@@ -921,8 +921,14 @@ The `tracey status` command MUST display the daemon's current status, including 
 r[daemon.cli.kill]
 The `tracey kill` command MUST send a shutdown signal to the running daemon and clean up any stale sockets.
 
+r[daemon.cli.gc]
+The `tracey gc` command MUST remove state directories whose `project-root` metadata points to a path that no longer exists on disk.
+
+> r[daemon.cli.gc.dry-run]
+> The `--dry-run` flag MUST cause the command to report what would be removed without deleting anything.
+
 r[daemon.logs.file]
-The daemon MUST write all log output to `.tracey/daemon.log` in the workspace root.
+The daemon MUST write all log output to `daemon.log` in the state directory.
 
 ## Validation
 
