@@ -106,6 +106,10 @@ enum Command {
         /// Project root directory (default: current directory)
         #[facet(args::positional, default)]
         root: Option<PathBuf>,
+
+        /// Output raw JSON instead of human-readable text
+        #[facet(args::named, default)]
+        json: bool,
     },
 
     /// Stop the running daemon
@@ -127,6 +131,10 @@ enum Command {
         /// Project root directory (default: current directory)
         #[facet(args::positional, default)]
         root: Option<PathBuf>,
+
+        /// Output raw JSON instead of human-readable text
+        #[facet(args::named, default)]
+        json: bool,
 
         /// Query command to run
         #[facet(args::subcommand)]
@@ -347,7 +355,7 @@ async fn main() -> Result<()> {
             lines,
         } => show_logs(root, follow, lines.unwrap_or(50)),
         // r[impl daemon.cli.status]
-        Command::Status { root } => show_status(root).await,
+        Command::Status { root, json } => show_status(root, json).await,
         // r[impl daemon.cli.kill]
         Command::Kill { root } => kill_daemon(root).await,
 
@@ -388,16 +396,22 @@ async fn main() -> Result<()> {
         }
 
         // r[impl daemon.cli.query]
-        Command::Query { root, query } => {
+        Command::Query { root, json, query } => {
             let project_root = root.unwrap_or_else(|| find_project_root().unwrap_or_default());
             let query_client =
                 bridge::query::QueryClient::new(project_root, bridge::query::Caller::Cli);
             init_tracing(TracingConfig {
                 log_file: None,
-                enable_console: true,
-                console_ansi: true,
+                enable_console: !json,
+                console_ansi: !json,
                 default_filter: "tracey=info",
             })?;
+
+            if json {
+                let output = query_json(&query_client, query).await;
+                println!("{}", output);
+                return Ok(());
+            }
 
             let output = match query {
                 QueryCommand::Status => query_client.status().await,
@@ -430,6 +444,151 @@ async fn main() -> Result<()> {
 
             println!("{}", output);
             Ok(())
+        }
+    }
+}
+
+/// Small helper type for JSON error output with proper escaping.
+#[derive(Debug, facet::Facet)]
+#[facet(rename_all = "camelCase")]
+struct JsonError {
+    error: String,
+}
+
+/// Serialize an error message as a JSON object: `{"error": "..."}`.
+fn json_error(message: &str) -> String {
+    facet_json::to_string_pretty(&JsonError {
+        error: message.to_string(),
+    })
+    .expect("JSON serialization failed")
+}
+
+/// Handle `tracey query --json <subcommand>` by calling the daemon client
+/// directly and serializing the typed response as JSON.
+async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> String {
+    use bridge::query::parse_spec_impl;
+    use tracey_proto::*;
+
+    match query {
+        QueryCommand::Status => match qc.client.status().await {
+            Ok(resp) => facet_json::to_string_pretty(&resp).expect("JSON serialization failed"),
+            Err(e) => json_error(&e.to_string()),
+        },
+        QueryCommand::Uncovered { spec_impl, prefix } => {
+            let (spec, impl_name) = parse_spec_impl(spec_impl.as_deref());
+            let req = UncoveredRequest {
+                spec,
+                impl_name,
+                prefix: prefix.map(String::from),
+            };
+            match qc.client.uncovered(req).await {
+                Ok(resp) => {
+                    facet_json::to_string_pretty(&resp).expect("JSON serialization failed")
+                }
+                Err(e) => json_error(&e.to_string()),
+            }
+        }
+        QueryCommand::Untested { spec_impl, prefix } => {
+            let (spec, impl_name) = parse_spec_impl(spec_impl.as_deref());
+            let req = UntestedRequest {
+                spec,
+                impl_name,
+                prefix: prefix.map(String::from),
+            };
+            match qc.client.untested(req).await {
+                Ok(resp) => {
+                    facet_json::to_string_pretty(&resp).expect("JSON serialization failed")
+                }
+                Err(e) => json_error(&e.to_string()),
+            }
+        }
+        QueryCommand::Stale { spec_impl, prefix } => {
+            let (spec, impl_name) = parse_spec_impl(spec_impl.as_deref());
+            let req = StaleRequest {
+                spec,
+                impl_name,
+                prefix: prefix.map(String::from),
+            };
+            match qc.client.stale(req).await {
+                Ok(resp) => {
+                    facet_json::to_string_pretty(&resp).expect("JSON serialization failed")
+                }
+                Err(e) => json_error(&e.to_string()),
+            }
+        }
+        QueryCommand::Unmapped { spec_impl, path } => {
+            let (spec, impl_name) = parse_spec_impl(spec_impl.as_deref());
+            let req = UnmappedRequest {
+                spec,
+                impl_name,
+                path: path.map(String::from),
+            };
+            match qc.client.unmapped(req).await {
+                Ok(resp) => {
+                    facet_json::to_string_pretty(&resp).expect("JSON serialization failed")
+                }
+                Err(e) => json_error(&e.to_string()),
+            }
+        }
+        QueryCommand::Rule { rule_ids } => {
+            let mut infos = Vec::new();
+            for raw_id in &rule_ids {
+                let Some(parsed) = tracey_core::parse_rule_id(raw_id) else {
+                    return json_error(&format!("invalid rule ID: {raw_id}"));
+                };
+                match qc.client.rule(parsed).await {
+                    Ok(Some(info)) => infos.push(info),
+                    Ok(None) => return json_error(&format!("rule not found: {raw_id}")),
+                    Err(e) => return json_error(&e.to_string()),
+                }
+            }
+            if infos.len() == 1 {
+                facet_json::to_string_pretty(&infos.into_iter().next().unwrap())
+                    .expect("JSON serialization failed")
+            } else {
+                facet_json::to_string_pretty(&infos).expect("JSON serialization failed")
+            }
+        }
+        QueryCommand::Config => match qc.client.config().await {
+            Ok(resp) => facet_json::to_string_pretty(&resp).expect("JSON serialization failed"),
+            Err(e) => json_error(&e.to_string()),
+        },
+        QueryCommand::Validate { spec_impl } => {
+            if spec_impl.is_some() {
+                let (spec, impl_name) = parse_spec_impl(spec_impl.as_deref());
+                let req = ValidateRequest { spec, impl_name };
+                match qc.client.validate(req).await {
+                    Ok(resp) => {
+                        facet_json::to_string_pretty(&resp).expect("JSON serialization failed")
+                    }
+                    Err(e) => json_error(&e.to_string()),
+                }
+            } else {
+                // Validate all spec/impl combinations
+                let status = match qc.client.status().await {
+                    Ok(s) => s,
+                    Err(e) => return json_error(&format!("error getting status: {e}")),
+                };
+
+                let mut results = Vec::new();
+                for impl_status in &status.impls {
+                    let req = ValidateRequest {
+                        spec: Some(impl_status.spec.clone()),
+                        impl_name: Some(impl_status.impl_name.clone()),
+                    };
+                    match qc.client.validate(req).await {
+                        Ok(result) => results.push(result),
+                        Err(e) => {
+                            return json_error(&format!(
+                                "error validating {}/{}: {e}",
+                                impl_status.spec, impl_status.impl_name
+                            ))
+                        }
+                    }
+                }
+
+                facet_json::to_string_pretty(&results).expect("JSON serialization failed")
+            }
         }
     }
 }
@@ -621,7 +780,7 @@ fn show_logs(root: Option<PathBuf>, follow: bool, lines: usize) -> Result<()> {
 
 /// r[impl daemon.cli.status]
 /// Show daemon status by connecting and calling health()
-async fn show_status(root: Option<PathBuf>) -> Result<()> {
+async fn show_status(root: Option<PathBuf>, json: bool) -> Result<()> {
     use roam_stream::{Connector, HandshakeConfig, NoDispatcher, connect};
     use std::time::Duration;
 
@@ -636,7 +795,11 @@ async fn show_status(root: Option<PathBuf>) -> Result<()> {
     let stream = match roam_local::connect(&endpoint).await {
         Ok(s) => s,
         Err(_) => {
-            println!("{}: No daemon running", "Status".yellow());
+            if json {
+                println!("{}", json_error("no daemon running"));
+            } else {
+                println!("{}: No daemon running", "Status".yellow());
+            }
             return Ok(());
         }
     };
@@ -666,36 +829,52 @@ async fn show_status(root: Option<PathBuf>) -> Result<()> {
 
     match tokio::time::timeout(Duration::from_secs(1), client.health()).await {
         Ok(Ok(health)) => {
-            println!("{}: Daemon is running", "Status".green());
-            println!("  Uptime: {}s", health.uptime_secs);
-            println!("  Data version: {}", health.version);
-            println!(
-                "  Watcher: {}",
-                if health.watcher_active {
-                    "active".green().to_string()
-                } else {
-                    "inactive".yellow().to_string()
+            if json {
+                println!(
+                    "{}",
+                    facet_json::to_string_pretty(&health)
+                        .expect("JSON serialization failed")
+                );
+            } else {
+                println!("{}: Daemon is running", "Status".green());
+                println!("  Uptime: {}s", health.uptime_secs);
+                println!("  Data version: {}", health.version);
+                println!(
+                    "  Watcher: {}",
+                    if health.watcher_active {
+                        "active".green().to_string()
+                    } else {
+                        "inactive".yellow().to_string()
+                    }
+                );
+                if let Some(err) = &health.watcher_error {
+                    println!("  Watcher error: {}", err.as_str().red());
                 }
-            );
-            if let Some(err) = &health.watcher_error {
-                println!("  Watcher error: {}", err.as_str().red());
+                if let Some(err) = &health.config_error {
+                    println!("  Config error: {}", err.as_str().red());
+                }
+                println!("  File events: {}", health.watcher_event_count);
+                println!("  Watched dirs: {}", health.watched_directories.len());
             }
-            if let Some(err) = &health.config_error {
-                println!("  Config error: {}", err.as_str().red());
-            }
-            println!("  File events: {}", health.watcher_event_count);
-            println!("  Watched dirs: {}", health.watched_directories.len());
         }
         Ok(Err(e)) => {
-            println!("{}: Daemon connection failed", "Status".red());
-            println!("  Error: {e}");
+            if json {
+                println!("{}", json_error(&format!("daemon connection failed: {e}")));
+            } else {
+                println!("{}: Daemon connection failed", "Status".red());
+                println!("  Error: {e}");
+            }
         }
         Err(_) => {
-            println!(
-                "{}: Daemon not responding (health check timed out)",
-                "Status".yellow()
-            );
-            println!("  The daemon may be stuck. Run 'tracey kill' to restart it.");
+            if json {
+                println!("{}", json_error("daemon not responding (health check timed out)"));
+            } else {
+                println!(
+                    "{}: Daemon not responding (health check timed out)",
+                    "Status".yellow()
+                );
+                println!("  The daemon may be stuck. Run 'tracey kill' to restart it.");
+            }
         }
     }
 

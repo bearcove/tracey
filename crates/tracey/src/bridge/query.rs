@@ -28,7 +28,7 @@ fn format_config_error_banner(error: &str) -> String {
 }
 
 /// Parse "spec/impl" format into `(Option<spec>, Option<impl>)`.
-fn parse_spec_impl(spec_impl: Option<&str>) -> (Option<String>, Option<String>) {
+pub fn parse_spec_impl(spec_impl: Option<&str>) -> (Option<String>, Option<String>) {
     match spec_impl {
         Some(s) if s.contains('/') => {
             let parts: Vec<&str> = s.splitn(2, '/').collect();
@@ -51,7 +51,7 @@ fn unknown_rule_reference_from_error(error: &ValidationError) -> Option<(String,
 /// Shared query client used by both MCP and CLI.
 #[derive(Clone)]
 pub struct QueryClient {
-    client: DaemonClient,
+    pub client: DaemonClient,
     caller: Caller,
 }
 
