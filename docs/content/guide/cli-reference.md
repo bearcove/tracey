@@ -106,7 +106,7 @@ tracey gc [--dry-run]
 
 | Flag | Description |
 |------|-------------|
-| `-n, --dry-run` | Show what would be removed without deleting anything |
+| `--dry-run` | Show what would be removed without deleting anything |
 
 ## Terminal queries
 

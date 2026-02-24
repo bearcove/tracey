@@ -72,27 +72,29 @@ pub fn state_base_dir() -> PathBuf {
     base.join("tracey")
 }
 
-/// Compute the per-project state directory path.
-///
-/// Returns `{state_home}/tracey/{hash}` where `hash` is the first 16 hex
-/// characters of the Blake3 hash of the canonical project root path.
-pub fn state_dir(project_root: &Path) -> PathBuf {
+fn state_dir_inner(project_root: &Path) -> (PathBuf, PathBuf) {
     let canonical =
         std::fs::canonicalize(project_root).unwrap_or_else(|_| project_root.to_path_buf());
     let hash = blake3::hash(canonical.as_os_str().as_encoded_bytes());
     let short_hash = &hash.to_hex()[..16];
 
-    state_base_dir().join(short_hash)
+    (state_base_dir().join(short_hash), canonical)
+}
+
+/// Compute the per-project state directory path.
+///
+/// Returns `{state_home}/tracey/{hash}` where `hash` is the first 16 hex
+/// characters of the Blake3 hash of the canonical project root path.
+pub fn state_dir(project_root: &Path) -> PathBuf {
+    state_dir_inner(project_root).0
 }
 
 /// Create the per-project state directory and write a `project-root` metadata
 /// file for reverse lookups. Returns the directory path.
 pub fn ensure_state_dir(project_root: &Path) -> Result<PathBuf> {
-    let dir = state_dir(project_root);
+    let (dir, canonical) = state_dir_inner(project_root);
     std::fs::create_dir_all(&dir)?;
 
-    let canonical =
-        std::fs::canonicalize(project_root).unwrap_or_else(|_| project_root.to_path_buf());
     let meta_path = dir.join("project-root");
     std::fs::write(&meta_path, canonical.as_os_str().as_encoded_bytes())?;
 
@@ -112,18 +114,16 @@ pub fn local_endpoint(project_root: &Path) -> PathBuf {
 
 /// Get the local IPC endpoint for a workspace.
 ///
-/// On Unix, this returns a path to `.tracey/daemon.sock`.
+/// On Unix, this returns a path to `<state_dir>/daemon.sock`.
 /// On Windows, this returns a named pipe path like `\\.\pipe\tracey-{hash}`.
 #[cfg(windows)]
 pub fn local_endpoint(project_root: &Path) -> String {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-
-    let mut hasher = DefaultHasher::new();
-    project_root.hash(&mut hasher);
-    let hash = hasher.finish();
-
-    format!(r"\\.\pipe\tracey-{:016x}", hash)
+    let dir = state_dir(project_root);
+    let hash = dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .expect("state_dir hash");
+    format!(r"\\.\pipe\tracey-{hash}")
 }
 
 /// Legacy alias for `local_endpoint` (Unix only).
@@ -135,6 +135,56 @@ pub fn socket_path(project_root: &Path) -> PathBuf {
 /// Path to the daemon PID file within the state directory.
 pub fn pid_file_path(project_root: &Path) -> PathBuf {
     state_dir(project_root).join("daemon.pid")
+}
+
+/// Check whether a process with the given PID is alive.
+#[cfg(unix)]
+pub fn is_pid_alive(pid: u32) -> bool {
+    // Signal 0 doesn't send a signal; it just checks whether the process exists.
+    unsafe extern "C" {
+        fn kill(pid: i32, sig: i32) -> i32;
+    }
+    unsafe { kill(pid as i32, 0) == 0 }
+}
+
+/// Check whether a process with the given PID is alive.
+#[cfg(not(unix))]
+pub fn is_pid_alive(_pid: u32) -> bool {
+    true // best-effort on non-Unix; rely on socket connect to detect dead daemon
+}
+
+/// Read a PID file at the given path and return `(pid, protocol_version)` if it
+/// parses correctly. Returns `None` if the file doesn't exist or is malformed.
+pub fn read_pid_file_at(path: &Path) -> Option<(u32, u32)> {
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(e) => {
+            warn!("Failed to read PID file {}: {e}", path.display());
+            return None;
+        }
+    };
+
+    let mut pid = None;
+    let mut version = None;
+    for line in content.lines() {
+        if let Some(v) = line.strip_prefix("pid=") {
+            pid = v.parse().ok();
+        } else if let Some(v) = line.strip_prefix("version=") {
+            version = v.parse().ok();
+        }
+    }
+
+    match (pid, version) {
+        (Some(p), Some(v)) => Some((p, v)),
+        _ => {
+            warn!(
+                "PID file {} has unexpected format, ignoring it",
+                path.display()
+            );
+            None
+        }
+    }
 }
 
 /// RAII guard that writes the PID file on creation and removes it on drop.

@@ -1254,6 +1254,14 @@ fn run_gc(dry_run: bool) -> Result<()> {
             continue;
         }
 
+        // Don't remove state dirs with a live daemon, even if the project root is gone.
+        let pid_path = dir.join("daemon.pid");
+        if let Some((pid, _)) = daemon::read_pid_file_at(&pid_path)
+            && daemon::is_pid_alive(pid)
+        {
+            continue;
+        }
+
         if dry_run {
             println!("Would remove: {}", dir.display());
         } else {
