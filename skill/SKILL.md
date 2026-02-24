@@ -11,7 +11,7 @@ Add proper spec annotations to code using Tracey's requirement tracking system.
 
 Tracey maintains traceability between specification requirements and code. This skill helps add proper `r[impl req.id]` and `r[verify req.id]` annotations to code, find which requirements need implementation or testing, and understand Tracey annotation syntax.
 
-**Primary Interface:** Use Tracey MCP tools (`tracey_status`, `tracey_uncovered`, `tracey_untested`, `tracey_rule`, `tracey_unmapped`) to discover requirements and validate coverage. The MCP tools provide self-documenting output showing which prefixes to use and what requirements need work.
+**Primary Interface:** Use Tracey MCP tools (`tracey_status`, `tracey_uncovered`, `tracey_untested`, `tracey_stale`, `tracey_rule`, `tracey_unmapped`, `tracey_validate`, `tracey_config`) to discover requirements and validate coverage. The MCP tools provide self-documenting output showing which prefixes to use and what requirements need work.
 
 ## When to Use
 
@@ -29,8 +29,11 @@ Use this skill when:
 | `tracey_status` | See configured specs, prefixes, and coverage percentages |
 | `tracey_uncovered` | List requirements without implementation |
 | `tracey_untested` | List requirements without verification/tests |
+| `tracey_stale` | List references that point to older requirement versions |
 | `tracey_unmapped` | Show code that lacks requirement references |
 | `tracey_rule <id>` | Get full details about a specific requirement |
+| `tracey_validate` | Validate references and naming for a spec/impl |
+| `tracey_config` | Display configured specs, impls, include/exclude globs |
 
 **Tip:** Start with `tracey_status` to see what prefix to use (e.g., `r[...]` vs `shm[...]`), then use `tracey_uncovered` or `tracey_untested` to find work that needs doing.
 

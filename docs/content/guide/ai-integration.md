@@ -10,17 +10,22 @@ Tracey exposes its coverage analysis as MCP (Model Context Protocol) tools, lett
 Register tracey with supported MCP clients:
 
 ```bash
-tracey mcp register
+tracey ai
 ```
 
-This checks your `PATH`, then runs MCP registration for whichever clients are installed (`codex` and/or `claude`). It prints each command before executing it.
+This checks your `PATH`, prompts before running each MCP registration command, and installs the bundled Tracey skill for the selected clients.
 
 Use `--codex` or `--claude` to target only one:
 
 ```bash
-tracey mcp register --codex
-tracey mcp register --claude
+tracey ai --codex
+tracey ai --claude
 ```
+
+Manual commands are still available:
+
+- `tracey mcp register` - register MCP only
+- `tracey skill install` - install/reinstall the bundled skill only
 
 ## Available tools
 

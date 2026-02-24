@@ -162,6 +162,16 @@ Full language server with:
 
 Install the [Zed extension](tracey-zed/) or point any LSP-compatible editor at `tracey lsp`.
 
+### AI Setup (`tracey ai`)
+
+Set up AI assistants in one command:
+
+```bash
+tracey ai           # register MCP + install skill for codex/claude
+tracey ai --codex   # codex only
+tracey ai --claude  # claude only
+```
+
 ### MCP Server (`tracey mcp`)
 
 Exposes tracey as an [MCP](https://modelcontextprotocol.io/) tool server for AI assistants. Tools include `tracey_status`, `tracey_uncovered`, `tracey_untested`, `tracey_stale`, `tracey_unmapped`, `tracey_rule`, `tracey_config`, `tracey_validate`, and more.
@@ -182,7 +192,7 @@ tracey query validate            # check for broken refs, naming issues
 
 ### AI Skill (`tracey skill install`)
 
-Bundled skill for Claude Code and Codex that teaches the AI how to add correct tracey annotations:
+Bundled skill for Claude Code and Codex that teaches the AI how to add correct tracey annotations. Use this when you want to install or refresh the skill without touching MCP registration:
 
 ```bash
 tracey skill install --claude    # install to ~/.claude/skills/tracey
