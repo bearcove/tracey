@@ -338,7 +338,8 @@ async fn main() -> Result<()> {
             let config_path = project_root.join(&config);
 
             // r[impl daemon.logs.file]
-            let log_path = project_root.join(".tracey/daemon.log");
+            daemon::ensure_state_dir(&project_root)?;
+            let log_path = daemon::state_dir(&project_root).join("daemon.log");
             init_tracing(TracingConfig {
                 log_file: Some(log_path),
                 enable_console: true,
@@ -667,8 +668,7 @@ fn init_tracing(config: TracingConfig) -> Result<()> {
 
 /// Build a bridge log path with process ID in the filename.
 fn bridge_log_path(project_root: &std::path::Path, bridge: &str) -> PathBuf {
-    project_root
-        .join(".tracey")
+    daemon::state_dir(project_root)
         .join(format!("{bridge}-{}.log", std::process::id()))
 }
 
@@ -709,7 +709,7 @@ fn write_bridge_start_marker(
 }
 
 /// r[impl daemon.cli.logs]
-/// Show daemon logs from .tracey/daemon.log
+/// Show daemon logs from the state directory
 fn show_logs(root: Option<PathBuf>, follow: bool, lines: usize) -> Result<()> {
     use std::io::{BufRead, BufReader, Seek, SeekFrom};
 
@@ -718,7 +718,7 @@ fn show_logs(root: Option<PathBuf>, follow: bool, lines: usize) -> Result<()> {
         None => find_project_root()?,
     };
 
-    let log_path = project_root.join(".tracey/daemon.log");
+    let log_path = daemon::state_dir(&project_root).join("daemon.log");
 
     if !log_path.exists() {
         eprintln!(

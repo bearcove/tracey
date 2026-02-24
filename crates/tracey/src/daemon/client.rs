@@ -130,11 +130,11 @@ impl DaemonConnector {
     }
 
     fn startup_lock_path(&self) -> PathBuf {
-        self.project_root.join(".tracey").join("daemon-start.lock")
+        super::state_dir(&self.project_root).join("daemon-start.lock")
     }
 
     fn acquire_startup_lock(&self, timeout: Duration) -> io::Result<StartupLock> {
-        super::ensure_tracey_dir(&self.project_root).map_err(io::Error::other)?;
+        super::ensure_state_dir(&self.project_root).map_err(io::Error::other)?;
 
         let lock_path = self.startup_lock_path();
         let started = Instant::now();
@@ -200,10 +200,10 @@ impl DaemonConnector {
                     io::ErrorKind::TimedOut,
                     format!(
                         "Daemon failed to start within {}s (last connect error: {}). \
-                         Check logs at {}/.tracey/daemon.log",
+                         Check logs at {}/daemon.log",
                         timeout.as_secs(),
                         last_connect_error.as_deref().unwrap_or("unavailable"),
-                        self.project_root.display()
+                        super::state_dir(&self.project_root).display()
                     ),
                 ));
             }

@@ -6,12 +6,19 @@
 //! over local IPC (Unix sockets on Unix, named pipes on Windows).
 //! HTTP, MCP, and LSP bridges connect as clients.
 //!
+//! ## State Directory
+//!
+//! Runtime state (socket, PID file, lock file, logs) is stored under
+//! `$XDG_STATE_HOME/tracey/<hash>` (or platform equivalent), where `<hash>`
+//! is a truncated Blake3 hash of the canonical project root path. A
+//! `project-root` metadata file inside each state dir enables reverse lookups.
+//!
 //! ## Socket Location
 //!
 //! r[impl daemon.lifecycle.socket]
 //!
-//! The daemon listens on `.tracey/daemon.sock` in the workspace root (Unix)
-//! or a named pipe derived from the workspace path (Windows).
+//! The daemon listens on `<state_dir>/daemon.sock` (Unix) or a named pipe
+//! derived from the workspace path (Windows).
 //!
 //! ## Lifecycle
 //!
@@ -44,19 +51,57 @@ pub use watcher::WatcherState as DaemonWatcherState;
 /// Default idle timeout in seconds (10 minutes)
 const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 600;
 
-/// Socket file name within .tracey directory (Unix only)
+/// Socket file name within the state directory (Unix only)
 #[cfg(unix)]
 const SOCKET_FILENAME: &str = "daemon.sock";
 
+/// Compute the per-project state directory path.
+///
+/// Returns `{state_home}/tracey/{hash}` where `hash` is the first 16 hex
+/// characters of the Blake3 hash of the canonical project root path, and
+/// `state_home` is resolved via `dirs::state_dir()` with platform-specific
+/// fallbacks (`~/.local/state` on Linux, `~/Library/Application Support` on
+/// macOS via `dirs::data_local_dir()`).
+pub fn state_dir(project_root: &Path) -> PathBuf {
+    let canonical = std::fs::canonicalize(project_root)
+        .unwrap_or_else(|_| project_root.to_path_buf());
+    let hash = blake3::hash(canonical.as_os_str().as_encoded_bytes());
+    let short_hash = &hash.to_hex()[..16];
+
+    let base = dirs::state_dir()
+        .or_else(dirs::data_local_dir)
+        .unwrap_or_else(|| {
+            dirs::home_dir()
+                .expect("could not determine home directory")
+                .join(".local/state")
+        });
+
+    base.join("tracey").join(short_hash)
+}
+
+/// Create the per-project state directory and write a `project-root` metadata
+/// file for reverse lookups. Returns the directory path.
+pub fn ensure_state_dir(project_root: &Path) -> Result<PathBuf> {
+    let dir = state_dir(project_root);
+    std::fs::create_dir_all(&dir)?;
+
+    let canonical = std::fs::canonicalize(project_root)
+        .unwrap_or_else(|_| project_root.to_path_buf());
+    let meta_path = dir.join("project-root");
+    std::fs::write(&meta_path, canonical.as_os_str().as_encoded_bytes())?;
+
+    Ok(dir)
+}
+
 /// Get the local IPC endpoint for a workspace.
 ///
-/// On Unix, this returns a path to `.tracey/daemon.sock`.
+/// On Unix, this returns a path to `<state_dir>/daemon.sock`.
 /// On Windows, this returns a named pipe path like `\\.\pipe\tracey-{hash}`.
 ///
 /// r[impl daemon.roam.unix-socket]
 #[cfg(unix)]
 pub fn local_endpoint(project_root: &Path) -> PathBuf {
-    project_root.join(".tracey").join(SOCKET_FILENAME)
+    state_dir(project_root).join(SOCKET_FILENAME)
 }
 
 /// Get the local IPC endpoint for a workspace.
@@ -81,9 +126,9 @@ pub fn socket_path(project_root: &Path) -> PathBuf {
     local_endpoint(project_root)
 }
 
-/// Path to the daemon PID file within the workspace.
+/// Path to the daemon PID file within the state directory.
 pub fn pid_file_path(project_root: &Path) -> PathBuf {
-    project_root.join(".tracey/daemon.pid")
+    state_dir(project_root).join("daemon.pid")
 }
 
 /// RAII guard that writes the PID file on creation and removes it on drop.
@@ -110,43 +155,6 @@ impl Drop for PidFile {
     }
 }
 
-/// Ensure the .tracey directory exists and is gitignored.
-pub fn ensure_tracey_dir(project_root: &Path) -> Result<PathBuf> {
-    let dir = project_root.join(".tracey");
-    std::fs::create_dir_all(&dir)?;
-
-    // Ensure .tracey/ is in .gitignore
-    let gitignore_path = project_root.join(".gitignore");
-    let needs_entry = if gitignore_path.exists() {
-        let content = std::fs::read_to_string(&gitignore_path).unwrap_or_default();
-        !content.lines().any(|line| {
-            let trimmed = line.trim();
-            trimmed == ".tracey" || trimmed == ".tracey/" || trimmed == "/.tracey/"
-        })
-    } else {
-        true
-    };
-
-    if needs_entry {
-        use std::io::Write;
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&gitignore_path)?;
-        // Add newline before if file exists and doesn't end with newline
-        if gitignore_path.exists() {
-            let content = std::fs::read_to_string(&gitignore_path).unwrap_or_default();
-            if !content.is_empty() && !content.ends_with('\n') {
-                writeln!(file)?;
-            }
-        }
-        writeln!(file, ".tracey/")?;
-        info!("Added .tracey/ to .gitignore");
-    }
-
-    Ok(dir)
-}
-
 /// Run the daemon for the given workspace.
 ///
 /// r[impl daemon.roam.protocol]
@@ -156,8 +164,8 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
     // r[impl daemon.logs.file]
     info!("Starting tracey daemon for {}", project_root.display());
 
-    // Ensure .tracey directory exists
-    ensure_tracey_dir(&project_root)?;
+    // Ensure state directory exists
+    ensure_state_dir(&project_root)?;
 
     // Write PID file; it is removed automatically when this guard drops.
     let _pid_file = PidFile::create(&project_root)?;
