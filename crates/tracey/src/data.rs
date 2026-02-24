@@ -2456,8 +2456,10 @@ async fn load_spec_content(
         }
     }
 
-    // Sort by weight
-    files.sort_by_key(|(_, _, weight)| *weight);
+    // Sort by weight first, then lexicographically by path for deterministic order.
+    files.sort_by(|(path_a, _, weight_a), (path_b, _, weight_b)| {
+        weight_a.cmp(weight_b).then_with(|| path_a.cmp(path_b))
+    });
 
     // Concatenate all markdown files to render as one document
     // This ensures heading IDs are hierarchical across all files
