@@ -337,6 +337,96 @@ specs (
     );
 }
 
+#[tokio::test]
+async fn test_spec_content_orders_files_by_weight_then_path() {
+    let temp = common::create_temp_project();
+    let spec_dir = temp.path().join("spec-order");
+    std::fs::create_dir_all(&spec_dir).expect("Failed to create spec-order dir");
+
+    std::fs::write(
+        spec_dir.join("02-beta.md"),
+        r#"# Beta
+
+r[order.beta]
+Beta rule.
+"#,
+    )
+    .expect("Failed to write 02-beta.md");
+
+    std::fs::write(
+        spec_dir.join("01-alpha.md"),
+        r#"# Alpha
+
+r[order.alpha]
+Alpha rule.
+"#,
+    )
+    .expect("Failed to write 01-alpha.md");
+
+    std::fs::write(
+        spec_dir.join("00-weighted.md"),
+        r#"+++
+weight = -10
++++
+
+# Weighted
+
+r[order.weighted]
+Weighted rule.
+"#,
+    )
+    .expect("Failed to write 00-weighted.md");
+
+    std::fs::write(
+        temp.path().join("config.styx"),
+        r#"
+specs (
+  {
+    name test
+    include (spec-order/*.md)
+    impls (
+      {
+        name rust
+        include (src/**/*.rs)
+      }
+    )
+  }
+)
+"#,
+    )
+    .expect("Failed to write config");
+
+    let engine = Arc::new(
+        tracey::daemon::Engine::new(temp.path().to_path_buf(), temp.path().join("config.styx"))
+            .await
+            .expect("Failed to create engine"),
+    );
+    let service = tracey::daemon::TraceyService::new(engine);
+    let rpc_service = common::create_test_rpc_service(service).await;
+
+    let spec_content = rpc(rpc_service
+        .client
+        .spec_content("test".to_string(), "rust".to_string())
+        .await)
+    .expect("Expected spec content");
+
+    assert_eq!(
+        spec_content.sections[0].source_file, "spec-order/00-weighted.md",
+        "Expected first rendered file to use lowest weight"
+    );
+
+    let titles: Vec<&str> = spec_content
+        .outline
+        .iter()
+        .map(|entry| entry.title.as_str())
+        .collect();
+    assert_eq!(
+        titles,
+        vec!["Weighted", "Alpha", "Beta"],
+        "Expected order by weight, then lexicographically by path for equal weights"
+    );
+}
+
 // ============================================================================
 // LSP API Tests
 // ============================================================================
