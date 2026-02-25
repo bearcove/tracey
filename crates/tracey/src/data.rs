@@ -2176,13 +2176,13 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
             let exclude: Vec<String> = impl_config.exclude.to_vec();
             let impl_key: ImplKey = (spec_name.clone(), impl_name.clone());
             let (
-                refs,
-                parse_warnings,
+                mut refs,
+                mut parse_warnings,
                 scan_warnings,
-                impl_code_units,
-                impl_file_contents,
-                impl_source_reqs_by_file,
-                impl_walk_full_scan,
+                mut impl_code_units,
+                mut impl_file_contents,
+                mut impl_source_reqs_by_file,
+                mut impl_walk_full_scan,
             ) = scan_impl_files(
                 project_root,
                 &include,
@@ -2193,6 +2193,43 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
                 &mut cache_stats,
             )
             .await;
+
+            // r[impl config.impl.test_include.extraction]
+            if !impl_config.test_include.is_empty() {
+                let test_include: Vec<String> = impl_config.test_include.to_vec();
+                let (
+                    test_refs,
+                    test_parse_warnings,
+                    test_scan_warnings,
+                    test_code_units,
+                    test_file_contents,
+                    test_source_reqs_by_file,
+                    test_walk_full_scan,
+                ) = scan_impl_files(
+                    project_root,
+                    &test_include,
+                    &exclude,
+                    overlay,
+                    cache,
+                    changed_files,
+                    &mut cache_stats,
+                )
+                .await;
+                refs.extend(test_refs);
+                parse_warnings.extend(test_parse_warnings);
+                for w in test_scan_warnings {
+                    if !quiet {
+                        eprintln!("{}", w.yellow());
+                    }
+                }
+                impl_code_units.extend(test_code_units);
+                impl_file_contents.extend(test_file_contents);
+                for (path, reqs) in test_source_reqs_by_file {
+                    impl_source_reqs_by_file.entry(path).or_insert(reqs);
+                }
+                impl_walk_full_scan = impl_walk_full_scan || test_walk_full_scan;
+            }
+
             let warning_count = scan_warnings.len();
             let scan_elapsed_ms = scan_start.elapsed().as_millis();
 

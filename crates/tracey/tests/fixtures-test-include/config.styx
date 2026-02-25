@@ -1,0 +1,13 @@
+specs (
+  {
+    name test
+    include (spec.md)
+    impls (
+      {
+        name rust
+        include (src/**/*.rs)
+        test_include (tests/**/*.rs)
+      }
+    )
+  }
+)

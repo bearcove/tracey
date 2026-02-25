@@ -472,6 +472,30 @@ mod tests {
         assert!(result.warnings.is_empty());
     }
 
+    // r[verify config.impl.test_include.extraction]
+    #[test]
+    fn test_memory_sources_python() {
+        let result = Reqs::extract(
+            MemorySources::new()
+                .add("test_auth.py", "# r[verify auth.login]")
+                .add(
+                    "test_session.py",
+                    "# r[verify session.create]\n# r[verify session.expire]",
+                ),
+        )
+        .unwrap();
+
+        assert_eq!(result.reqs.len(), 3);
+        assert_eq!(result.reqs.references[0].req_id, "auth.login");
+        assert_eq!(
+            result.reqs.references[0].verb,
+            crate::lexer::RefVerb::Verify
+        );
+        assert_eq!(result.reqs.references[1].req_id, "session.create");
+        assert_eq!(result.reqs.references[2].req_id, "session.expire");
+        assert!(result.warnings.is_empty());
+    }
+
     #[test]
     fn test_memory_sources_mixed_languages() {
         let result = Reqs::extract(

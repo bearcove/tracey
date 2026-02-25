@@ -512,6 +512,9 @@ Each impl configuration MAY have a `test_include` field with one or more glob pa
 r[config.impl.test_include.verify-only]
 Files matched by `test_include` patterns MUST only contain `verify` annotations. Any `impl` annotation in a test file is a hard error.
 
+r[config.impl.test_include.extraction]
+Annotations from files matched by `test_include` patterns MUST be extracted and included in coverage analysis. Specifically, `verify` annotations from test files MUST count toward the verification percentage for the implementation.
+
 Example configuration separating implementation and test files:
 
 ```styx
