@@ -185,15 +185,31 @@ tool_box!(
 // MCP Handler
 // ============================================================================
 
+#[derive(Debug, Default, Clone)]
+struct RootRefreshState {
+    client_supports_root_list: Option<bool>,
+    last_client_roots: Vec<String>,
+    last_selected_root: Option<PathBuf>,
+    last_refresh_error: Option<String>,
+}
+
 /// MCP handler that delegates to the daemon.
 struct TraceyHandler {
+    startup_cwd: Option<PathBuf>,
+    startup_project_root: PathBuf,
+    config_path: PathBuf,
     active_project_root: Arc<RwLock<PathBuf>>,
+    root_refresh_state: Arc<RwLock<RootRefreshState>>,
 }
 
 impl TraceyHandler {
-    pub fn new(project_root: PathBuf) -> Self {
+    pub fn new(project_root: PathBuf, config_path: PathBuf) -> Self {
         Self {
+            startup_cwd: std::env::current_dir().ok(),
+            startup_project_root: project_root.clone(),
+            config_path,
             active_project_root: Arc::new(RwLock::new(project_root)),
+            root_refresh_state: Arc::new(RwLock::new(RootRefreshState::default())),
         }
     }
 
@@ -203,19 +219,94 @@ impl TraceyHandler {
     }
 
     async fn refresh_project_root_from_client_roots(&self, runtime: Arc<dyn McpServer>) {
-        if runtime.client_supports_root_list() != Some(true) {
+        let supports_roots = runtime.client_supports_root_list();
+        {
+            let mut state = self.root_refresh_state.write().await;
+            state.client_supports_root_list = supports_roots;
+        }
+
+        if supports_roots != Some(true) {
             return;
         }
 
-        let Ok(result) = runtime.request_root_list(None).await else {
-            return;
+        match runtime.request_root_list(None).await {
+            Ok(result) => {
+                let roots = result
+                    .roots
+                    .iter()
+                    .map(format_root_entry)
+                    .collect::<Vec<_>>();
+                let selected = select_project_root_from_roots(&result.roots);
+
+                let mut state = self.root_refresh_state.write().await;
+                state.last_client_roots = roots;
+
+                if let Some(project_root) = selected {
+                    *self.active_project_root.write().await = project_root.clone();
+                    state.last_selected_root = Some(project_root);
+                    state.last_refresh_error = None;
+                } else {
+                    state.last_refresh_error =
+                        Some("roots/list returned no usable file:// root".to_string());
+                }
+            }
+            Err(e) => {
+                let mut state = self.root_refresh_state.write().await;
+                state.last_refresh_error = Some(format!("roots/list request failed: {e}"));
+            }
+        }
+    }
+
+    async fn mcp_routing_diagnostics(&self) -> String {
+        let active_root = self.active_project_root.read().await.clone();
+        let state = self.root_refresh_state.read().await.clone();
+
+        let startup_cwd = self
+            .startup_cwd
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "(unknown)".to_string());
+
+        let supports_roots = match state.client_supports_root_list {
+            Some(true) => "yes",
+            Some(false) => "no",
+            None => "unknown",
         };
 
-        let Some(project_root) = select_project_root_from_roots(&result.roots) else {
-            return;
+        let roots_summary = if state.last_client_roots.is_empty() {
+            "(none)".to_string()
+        } else {
+            let mut entries = state.last_client_roots;
+            if entries.len() > 8 {
+                entries.truncate(8);
+                entries.push("...".to_string());
+            }
+            entries.join(" | ")
         };
 
-        *self.active_project_root.write().await = project_root;
+        let selected_root = state
+            .last_selected_root
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "(none)".to_string());
+        let refresh_error = state
+            .last_refresh_error
+            .as_deref()
+            .unwrap_or("(none)")
+            .to_string();
+
+        format!(
+            "\n---\nMCP routing diagnostics:\n- pid: {}\n- startup cwd: {}\n- startup project root: {}\n- startup config path: {}\n- active project root: {}\n- client supports roots/list: {}\n- last client roots: {}\n- last selected root: {}\n- last root refresh error: {}\n",
+            std::process::id(),
+            startup_cwd,
+            self.startup_project_root.display(),
+            self.config_path.display(),
+            active_root.display(),
+            supports_roots,
+            roots_summary,
+            selected_root,
+            refresh_error
+        )
     }
 }
 
@@ -258,9 +349,10 @@ impl ServerHandler for TraceyHandler {
     ) -> std::result::Result<CallToolResult, CallToolError> {
         self.refresh_project_root_from_client_roots(runtime).await;
         let client = self.current_client().await;
+        let tool_name = params.name.clone();
         let args = params.arguments.unwrap_or_default();
 
-        let response = match params.name.as_str() {
+        let mut response = match tool_name.as_str() {
             "tracey_status" => client.status().await,
             "tracey_uncovered" => {
                 let spec_impl = args.get("spec_impl").and_then(|v| v.as_str());
@@ -330,6 +422,10 @@ impl ServerHandler for TraceyHandler {
             }
         };
 
+        if matches!(tool_name.as_str(), "tracey_status" | "tracey_config") {
+            response.push_str(&self.mcp_routing_diagnostics().await);
+        }
+
         Ok(CallToolResult::text_content(vec![response.into()]))
     }
 }
@@ -344,6 +440,13 @@ fn select_project_root_from_roots(roots: &[Root]) -> Option<PathBuf> {
     roots
         .iter()
         .find_map(|root| root_uri_to_project_root(root.uri.as_str()))
+}
+
+fn format_root_entry(root: &Root) -> String {
+    match root.name.as_deref() {
+        Some(name) if !name.is_empty() => format!("{name}: {}", root.uri),
+        _ => root.uri.clone(),
+    }
 }
 
 #[cfg(test)]
@@ -379,6 +482,32 @@ mod tests {
 
         assert_eq!(select_project_root_from_roots(&roots), None);
     }
+
+    #[test]
+    fn format_root_entry_prefers_name_when_available() {
+        let root = Root {
+            name: Some("trame".to_string()),
+            uri: "file:///Users/amos/bearcove/trame".to_string(),
+            meta: None,
+        };
+        assert_eq!(
+            format_root_entry(&root),
+            "trame: file:///Users/amos/bearcove/trame"
+        );
+    }
+
+    #[test]
+    fn format_root_entry_uses_uri_when_name_missing() {
+        let root = Root {
+            name: None,
+            uri: "file:///Users/amos/bearcove/trame".to_string(),
+            meta: None,
+        };
+        assert_eq!(
+            format_root_entry(&root),
+            "file:///Users/amos/bearcove/trame"
+        );
+    }
 }
 
 // ============================================================================
@@ -386,7 +515,7 @@ mod tests {
 // ============================================================================
 
 /// Run the MCP bridge server over stdio.
-pub async fn run(root: Option<PathBuf>, _config_path: PathBuf) -> Result<()> {
+pub async fn run(root: Option<PathBuf>, config_path: PathBuf) -> Result<()> {
     // Determine project root
     let project_root = match root {
         Some(r) => r,
@@ -394,7 +523,7 @@ pub async fn run(root: Option<PathBuf>, _config_path: PathBuf) -> Result<()> {
     };
 
     // Create handler
-    let handler = TraceyHandler::new(project_root);
+    let handler = TraceyHandler::new(project_root, config_path);
 
     // Configure server
     let server_details = InitializeResult {
