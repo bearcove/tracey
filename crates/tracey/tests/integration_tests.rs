@@ -1162,3 +1162,72 @@ pub fn shm_impl() {}
     assert_eq!(alpha.prefix, "r", "alpha should infer r prefix");
     assert_eq!(shm.prefix, "shm", "shm should infer shm prefix");
 }
+
+// ============================================================================
+// test_include extraction
+// ============================================================================
+
+/// r[verify config.impl.test_include.extraction]
+#[tokio::test]
+async fn test_test_include_extracts_verify_annotations() {
+    let service = create_test_service_named("test-include").await;
+
+    // auth.login has a verify annotation in tests/auth_test.rs (matched by test_include only)
+    let rule = rpc(service.client.rule(rid("auth.login")).await);
+    let info = rule.expect("auth.login rule should exist");
+    let coverage = info
+        .coverage
+        .iter()
+        .find(|c| c.impl_name == "rust")
+        .expect("Expected rust impl coverage");
+    assert!(
+        !coverage.verify_refs.is_empty(),
+        "auth.login should have verify refs from test_include files, got none"
+    );
+
+    // auth.session also has a verify annotation in test_include
+    let rule = rpc(service.client.rule(rid("auth.session")).await);
+    let info = rule.expect("auth.session rule should exist");
+    let coverage = info
+        .coverage
+        .iter()
+        .find(|c| c.impl_name == "rust")
+        .expect("Expected rust impl coverage");
+    assert!(
+        !coverage.verify_refs.is_empty(),
+        "auth.session should have verify refs from test_include files, got none"
+    );
+
+    // data.validate has NO verify annotation anywhere
+    let rule = rpc(service.client.rule(rid("data.validate")).await);
+    let info = rule.expect("data.validate rule should exist");
+    let coverage = info
+        .coverage
+        .iter()
+        .find(|c| c.impl_name == "rust")
+        .expect("Expected rust impl coverage");
+    assert!(
+        coverage.verify_refs.is_empty(),
+        "data.validate should have no verify refs"
+    );
+}
+
+/// r[verify config.impl.test_include.extraction]
+#[tokio::test]
+async fn test_test_include_counts_toward_verified() {
+    let service = create_test_service_named("test-include").await;
+    let status = rpc(service.client.status().await);
+
+    let impl_status = status
+        .impls
+        .iter()
+        .find(|i| i.spec == "test" && i.impl_name == "rust")
+        .expect("Expected test/rust impl");
+
+    // auth.login and auth.session are verified via test_include
+    assert!(
+        impl_status.verified_rules >= 2,
+        "Expected at least 2 verified rules from test_include, got {}",
+        impl_status.verified_rules
+    );
+}
