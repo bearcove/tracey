@@ -515,6 +515,28 @@ impl Backend {
         }
     }
 
+    fn is_project_config_uri(uri: &Url, project_root: &Path) -> bool {
+        uri.to_file_path()
+            .map(|path| path == project_root.join(".config/tracey/config.styx"))
+            .unwrap_or(false)
+    }
+
+    async fn refresh_project_diagnostics_for_uri(&self, uri: &Url) {
+        let Some((project_root, daemon_client, should_watch, _)) = self.ensure_project_for_uri(uri)
+        else {
+            return;
+        };
+        self.spawn_watcher_if_needed(project_root.clone(), daemon_client.clone(), should_watch);
+        let _ = daemon_client.reload().await;
+        Self::publish_workspace_diagnostics_with(
+            &self.client,
+            &daemon_client,
+            &project_root,
+            &self.project_state,
+        )
+        .await;
+    }
+
     async fn publish_workspace_diagnostics_with(
         client: &Client,
         daemon_client: &DaemonClient,
@@ -880,6 +902,12 @@ impl LanguageServer for Backend {
         let uri = params.text_document.uri.clone();
         if let Some(content) = params.text {
             self.notify_vfs_change(&uri, &content).await;
+        }
+
+        if let Some((project_root, _, _, _)) = self.ensure_project_for_uri(&uri)
+            && Self::is_project_config_uri(&uri, &project_root)
+        {
+            self.refresh_project_diagnostics_for_uri(&uri).await;
         }
     }
 

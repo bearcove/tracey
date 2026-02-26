@@ -531,3 +531,157 @@ async fn test_lsp_file_watcher_detects_spec_change() {
     )
     .await;
 }
+
+/// Saving fixed config clears `config-error` diagnostics without manual reload.
+///
+/// 1. Create project with semantically invalid config (deprecated `prefix r`)
+/// 2. Initialize LSP and observe `config-error` diagnostic on config file
+/// 3. Write valid config to disk and send didSave for config file (no reload)
+/// 4. Assert config diagnostics clear
+#[tokio::test]
+async fn test_lsp_config_diagnostic_clears_after_save() {
+    let project = tempfile::tempdir().expect("tempdir");
+    let root = project.path();
+
+    std::fs::create_dir_all(root.join(".config/tracey")).expect("create config dir");
+    std::fs::create_dir_all(root.join("src")).expect("create src dir");
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"tracey-config-watcher-test\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .expect("write Cargo.toml");
+    std::fs::write(
+        root.join(".config/tracey/config.styx"),
+        "specs (\n  {\n    name test\n    prefix r\n    include (spec.md)\n    impls (\n      {\n        name rust\n        include (src/**/*.rs)\n      }\n    )\n  }\n)\n",
+    )
+    .expect("write invalid config");
+    std::fs::write(
+        root.join("spec.md"),
+        "# Spec\n\nr[auth.login]\nUsers must log in.\n",
+    )
+    .expect("write spec");
+    std::fs::write(
+        root.join("src/lib.rs"),
+        "/// r[impl auth.login]\npub fn handler() {}\n",
+    )
+    .expect("write source");
+
+    let project_uri = Url::from_directory_path(root)
+        .expect("project uri")
+        .to_string();
+    let config_uri = Url::from_file_path(root.join(".config/tracey/config.styx"))
+        .expect("config uri")
+        .to_string();
+
+    let mut child = Command::new(tracey_bin_path())
+        .arg("lsp")
+        .arg(root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .expect("failed to spawn tracey lsp");
+
+    let mut stdin = child.stdin.take().expect("missing child stdin");
+    let stdout = child.stdout.take().expect("missing child stdout");
+    let mut stdout = BufReader::new(stdout);
+
+    let initialize = request(
+        &mut stdin,
+        &mut stdout,
+        1,
+        "initialize",
+        json!({
+            "capabilities": {},
+            "workspaceFolders": [
+                { "uri": project_uri, "name": "config-watcher-test" }
+            ]
+        }),
+    )
+    .await;
+    assert!(
+        initialize.get("error").is_none(),
+        "initialize failed: {initialize}"
+    );
+
+    send_message(
+        &mut stdin,
+        &json!({
+            "jsonrpc": "2.0",
+            "method": "initialized",
+            "params": {}
+        }),
+    )
+    .await;
+
+    let mut found_config_error = false;
+    for _ in 0..60 {
+        match wait_for_diagnostics(&mut stdout, &config_uri, 20, Duration::from_millis(500)).await {
+            Some(diags) if diagnostics_contain_code(&diags, "config-error") => {
+                found_config_error = true;
+                break;
+            }
+            _ => {
+                sleep(Duration::from_millis(200)).await;
+            }
+        }
+    }
+    assert!(
+        found_config_error,
+        "Expected config-error diagnostic for invalid config"
+    );
+
+    // Fix config on disk and notify LSP save (typical editor workflow),
+    // without invoking manual reload commands.
+    std::fs::write(
+        root.join(".config/tracey/config.styx"),
+        "specs (\n  {\n    name test\n    include (spec.md)\n    impls (\n      {\n        name rust\n        include (src/**/*.rs)\n      }\n    )\n  }\n)\n",
+    )
+    .expect("write fixed config");
+    send_message(
+        &mut stdin,
+        &json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didSave",
+            "params": {
+                "textDocument": {
+                    "uri": config_uri.clone()
+                }
+            }
+        }),
+    )
+    .await;
+
+    let mut config_error_cleared = false;
+    for _ in 0..60 {
+        match wait_for_diagnostics(&mut stdout, &config_uri, 20, Duration::from_millis(500)).await {
+            Some(diags) if diags.is_empty() => {
+                config_error_cleared = true;
+                break;
+            }
+            _ => {
+                sleep(Duration::from_millis(200)).await;
+            }
+        }
+    }
+    assert!(
+        config_error_cleared,
+        "Config diagnostics did not clear after saving fixed config"
+    );
+
+    let shutdown = request_no_params(&mut stdin, &mut stdout, 300, "shutdown").await;
+    assert!(
+        shutdown.get("error").is_none(),
+        "shutdown failed: {shutdown}"
+    );
+
+    send_message(
+        &mut stdin,
+        &json!({
+            "jsonrpc": "2.0",
+            "method": "exit"
+        }),
+    )
+    .await;
+}

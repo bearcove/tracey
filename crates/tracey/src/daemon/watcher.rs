@@ -434,7 +434,22 @@ impl WatcherManager {
 
     /// Watch static paths that should always be monitored.
     fn watch_static_paths(&mut self) -> Result<()> {
-        // Watch config file
+        // Watch the config directory when available so atomic-save patterns
+        // (write temp + rename) keep producing events even if the target file
+        // inode changes.
+        if let Some(config_dir) = self.config_path.parent()
+            && config_dir.exists()
+        {
+            self.watcher
+                .watch(config_dir, RecursiveMode::Recursive)
+                .wrap_err_with(|| {
+                    format!("Failed to watch config directory: {}", config_dir.display())
+                })?;
+            info!("Watching config directory: {}", config_dir.display());
+        }
+
+        // Also watch the config file itself when present; this helps backends
+        // that emit direct file events more reliably than directory events.
         if self.config_path.exists() {
             self.watcher
                 .watch(&self.config_path, RecursiveMode::NonRecursive)

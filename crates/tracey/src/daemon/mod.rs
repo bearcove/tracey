@@ -606,6 +606,26 @@ fn is_temporary_edit_artifact(path: &Path) -> bool {
         || name.starts_with(".#")
 }
 
+fn path_triggers_reconfigure(path: &Path, config_path: &Path, gitignore_path: &Path) -> bool {
+    if path == config_path || path == gitignore_path {
+        return true;
+    }
+
+    // Some watcher backends report parent directories instead of exact files.
+    if config_path.starts_with(path) || gitignore_path.starts_with(path) {
+        return true;
+    }
+
+    // Editors often save via temp files + rename inside `.config/tracey/`.
+    if let Some(config_dir) = config_path.parent()
+        && path.starts_with(config_dir)
+    {
+        return true;
+    }
+
+    false
+}
+
 /// Run the smart file watcher, sending events to the channel.
 ///
 /// This watcher only watches directories derived from config patterns,
@@ -660,7 +680,7 @@ async fn run_smart_watcher(
                 reconfigure_paths_for_handler.lock().unwrap().clone();
             let needs_reconfigure = paths
                 .iter()
-                .any(|p| p == &config_path || p == &gitignore_path);
+                .any(|p| path_triggers_reconfigure(p, &config_path, &gitignore_path));
 
             let watcher_event = if needs_reconfigure {
                 debug!("Config or gitignore changed, sending Reconfigure event");
@@ -751,4 +771,56 @@ pub async fn connect(project_root: &Path) -> Result<roam_local::LocalStream> {
     roam_local::connect(&endpoint)
         .await
         .wrap_err_with(|| format!("Failed to connect to daemon at {}", endpoint))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::path_triggers_reconfigure;
+    use std::path::Path;
+
+    #[test]
+    fn reconfigure_triggers_for_exact_paths() {
+        let config = Path::new("/repo/.config/tracey/config.styx");
+        let gitignore = Path::new("/repo/.gitignore");
+        assert!(path_triggers_reconfigure(config, config, gitignore));
+        assert!(path_triggers_reconfigure(gitignore, config, gitignore));
+    }
+
+    #[test]
+    fn reconfigure_triggers_for_parent_directories() {
+        let config = Path::new("/repo/.config/tracey/config.styx");
+        let gitignore = Path::new("/repo/.gitignore");
+        assert!(path_triggers_reconfigure(
+            Path::new("/repo/.config/tracey"),
+            config,
+            gitignore
+        ));
+        assert!(path_triggers_reconfigure(
+            Path::new("/repo"),
+            config,
+            gitignore
+        ));
+    }
+
+    #[test]
+    fn reconfigure_triggers_for_temp_files_in_config_dir() {
+        let config = Path::new("/repo/.config/tracey/config.styx");
+        let gitignore = Path::new("/repo/.gitignore");
+        assert!(path_triggers_reconfigure(
+            Path::new("/repo/.config/tracey/.config.styx.tmp"),
+            config,
+            gitignore
+        ));
+    }
+
+    #[test]
+    fn reconfigure_ignores_unrelated_paths() {
+        let config = Path::new("/repo/.config/tracey/config.styx");
+        let gitignore = Path::new("/repo/.gitignore");
+        assert!(!path_triggers_reconfigure(
+            Path::new("/repo/src/lib.rs"),
+            config,
+            gitignore
+        ));
+    }
 }
