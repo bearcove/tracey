@@ -85,6 +85,8 @@ export const TAB_ICON_NAMES: Record<string, string> = {
   sources: "folder-open",
 };
 
+export const SIDEBAR_COLLAPSED_STORAGE_KEY = "tracey.sidebar.collapsed";
+
 // Detect platform for keyboard shortcuts
 export const isMac =
   typeof navigator !== "undefined" && navigator.platform.toUpperCase().indexOf("MAC") >= 0;

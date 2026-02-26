@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { EDITORS } from "../config";
+import { EDITORS, SIDEBAR_COLLAPSED_STORAGE_KEY } from "../config";
 import { useFile } from "../hooks";
 import { FilePath, html, LangIcon } from "../main";
 import type { FileContent, SourcesViewProps, TreeNodeWithCoverage } from "../types";
@@ -295,6 +295,15 @@ export function SourcesView({
   onSelectRule,
   onClearContext,
 }: SourcesViewProps) {
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "1";
+  });
+
+  useEffect(() => {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, sidebarCollapsed ? "1" : "0");
+  }, [sidebarCollapsed]);
+
   const fileTree = useMemo(() => buildFileTree(data.files), [data.files]);
   const file = useFile(selectedFile);
 
@@ -365,8 +374,25 @@ export function SourcesView({
       </div>
     </div>
     <div class="main">
-      <div class="sidebar">
-        ${contextRule
+      <div class="sidebar ${sidebarCollapsed ? "collapsed" : ""}">
+        <div class="sidebar-collapse-control">
+          <button
+            class="sidebar-collapse-btn"
+            type="button"
+            onClick=${() => setSidebarCollapsed((collapsed) => !collapsed)}
+            title=${sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-label=${sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-expanded=${!sidebarCollapsed}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              ${sidebarCollapsed
+                ? html`<path d="M9 18l6-6-6-6" />`
+                : html`<path d="M15 18l-6-6 6-6" />`}
+            </svg>
+          </button>
+        </div>
+        ${!sidebarCollapsed &&
+        (contextRule
           ? html`
               ${/* r[impl dashboard.sources.req-context] */ null}
               <div class="rule-context">
@@ -426,7 +452,7 @@ export function SourcesView({
                   search=${search}
                 />
               </div>
-            `}
+            `)}
       </div>
       <div class="content">
         ${file
