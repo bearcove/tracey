@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { render } from "preact";
-import { EDITORS } from "../config";
+import { EDITORS, SIDEBAR_COLLAPSED_STORAGE_KEY } from "../config";
 import { useSpec } from "../hooks";
 import { CoverageArc, html, showRefsPopup } from "../main";
 import type { OutlineEntry, SpecViewProps, FileContent } from "../types";
@@ -247,6 +247,15 @@ export function SpecView({
   scrollPosition,
   onScrollChange,
 }: SpecViewProps) {
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "1";
+  });
+
+  useEffect(() => {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, sidebarCollapsed ? "1" : "0");
+  }, [sidebarCollapsed]);
+
   // Use selectedSpec or default to first spec
   const specName = selectedSpec || config.specs?.[0]?.name || null;
   const spec = useSpec(specName, version);
@@ -1085,25 +1094,44 @@ export function SpecView({
 
   return html`
     <div class="main">
-      <div class="sidebar">
-        <div class="sidebar-header">
-          <span>Outline</span>
-          <span class="outline-legend">
-            <span class="legend-item"><span class="legend-dot legend-dot--impl"></span>${overallCoverage.implPct}%</span>
-            <span class="legend-item"><span class="legend-dot legend-dot--test"></span>${overallCoverage.verifyPct}%</span>
-          </span>
+      <div class="sidebar ${sidebarCollapsed ? "collapsed" : ""}">
+        <div class="sidebar-collapse-control">
+          <button
+            class="sidebar-collapse-btn"
+            type="button"
+            onClick=${() => setSidebarCollapsed((collapsed) => !collapsed)}
+            title=${sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-label=${sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-expanded=${!sidebarCollapsed}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              ${sidebarCollapsed
+                ? html`<path d="M9 18l6-6-6-6" />`
+                : html`<path d="M15 18l-6-6 6-6" />`}
+            </svg>
+          </button>
         </div>
-        <div class="sidebar-content">
-          <ul class="outline-tree">
-            <${OutlineTree}
-              nodes=${outlineTree}
-              activeHeading=${activeHeading}
-              specName=${specName}
-              impl=${selectedImpl}
-              onSelectHeading=${scrollToHeading}
-            />
-          </ul>
-        </div>
+        ${!sidebarCollapsed &&
+        html`
+          <div class="sidebar-header">
+            <span>Outline</span>
+            <span class="outline-legend">
+              <span class="legend-item"><span class="legend-dot legend-dot--impl"></span>${overallCoverage.implPct}%</span>
+              <span class="legend-item"><span class="legend-dot legend-dot--test"></span>${overallCoverage.verifyPct}%</span>
+            </span>
+          </div>
+          <div class="sidebar-content">
+            <ul class="outline-tree">
+              <${OutlineTree}
+                nodes=${outlineTree}
+                activeHeading=${activeHeading}
+                specName=${specName}
+                impl=${selectedImpl}
+                onSelectHeading=${scrollToHeading}
+              />
+            </ul>
+          </div>
+        `}
       </div>
       <div class="content">
         <div class="content-body" ref=${contentBodyRef}>
