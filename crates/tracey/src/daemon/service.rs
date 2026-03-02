@@ -7,7 +7,6 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tracey_core::{RuleId, RuleIdMatch, classify_reference_for_rule, parse_rule_id};
 use tracey_proto::*;
-use tracing::debug;
 
 use super::engine::Engine;
 use super::watcher::WatcherState;
@@ -1330,165 +1329,44 @@ impl TraceyDaemon for TraceyService {
             return diagnostics;
         }
 
-        // For source files, use build data only — no live extraction.
-        let Some(reqs) = lookup_source_reqs(&data, &path) else {
-            return diagnostics;
+        // For source files, use precomputed build diagnostics (single source of truth).
+        let project_root = self.inner.engine.project_root();
+        let canonical_root = project_root
+            .canonicalize()
+            .unwrap_or_else(|_| project_root.to_path_buf());
+        let canonical_path = path.canonicalize().unwrap_or_else(|_| path.clone());
+        let relative_path = if canonical_path.is_absolute() {
+            canonical_path
+                .strip_prefix(&canonical_root)
+                .ok()
+                .map(|p| p.to_string_lossy())
+        } else {
+            Some(canonical_path.to_string_lossy())
         };
-
-        // Check if this is a test file
-        let is_test = data.test_files.contains(&path);
-
-        // Build set of known prefixes
-        let known_prefixes: std::collections::HashSet<_> = data
-            .config
-            .specs
+        let normalized = relative_path.map(|p| p.replace('\\', "/"));
+        if let Some(precomputed) = data
+            .workspace_diagnostics
             .iter()
-            .map(|s| s.prefix.as_str())
-            .collect();
-        // If no prefixes are loaded (e.g. during transient startup/config fallback),
-        // unknown-prefix diagnostics are not actionable and often false positives.
-        if known_prefixes.is_empty() {
-            return diagnostics;
-        }
-        debug!(
-            "lsp_diagnostics path={} refs={} known_prefixes={:?} specs={}",
-            path.display(),
-            reqs.references.len(),
-            known_prefixes,
-            data.config.specs.len()
-        );
-
-        // Build known rules by prefix (using all implementations for each spec).
-        let mut known_rules_by_prefix: std::collections::HashMap<&str, Vec<RuleId>> =
-            std::collections::HashMap::new();
-        let mut rules_by_id: std::collections::HashMap<RuleId, ApiRule> =
-            std::collections::HashMap::new();
-        for spec_cfg in &data.config.specs {
-            let rule_ids = known_rules_by_prefix
-                .entry(spec_cfg.prefix.as_str())
-                .or_default();
-            for ((spec_name, _), forward_data) in &data.forward_by_impl {
-                if spec_name == &spec_cfg.name {
-                    for rule in &forward_data.rules {
-                        rule_ids.push(rule.id.clone());
-                        rules_by_id
-                            .entry(rule.id.clone())
-                            .or_insert_with(|| rule.clone());
-                    }
-                }
-            }
-        }
-        for reference in &reqs.references {
-            let (start_line, start_char, end_line, end_char) =
-                span_to_range(&req.content, reference.span.offset, reference.span.length);
-
-            // Check for unknown prefix
-            if !known_prefixes.contains(reference.prefix.as_str()) {
-                if !source_reference_uses_explicit_verb(
-                    &req.content,
-                    reference.span.offset,
-                    reference.span.length,
-                    &reference.prefix,
-                ) {
-                    continue;
-                }
-                debug!(
-                    "lsp_diagnostics unknown-prefix path={} ref_prefix={} ref_id={} known_prefixes={:?}",
-                    path.display(),
-                    reference.prefix,
-                    reference.req_id,
-                    known_prefixes
-                );
-                diagnostics.push(LspDiagnostic {
-                    severity: "hint".to_string(),
-                    code: "unknown-prefix".to_string(),
-                    message: format!("Unknown prefix: '{}'", reference.prefix),
-                    start_line,
-                    start_char,
-                    end_line,
-                    end_char,
-                });
-                continue;
-            }
-
-            let known_for_prefix = known_rules_by_prefix
-                .get(reference.prefix.as_str())
-                .map(Vec::as_slice)
-                .unwrap_or(&[]);
-            match classify_reference_against_known_rules(&reference.req_id, known_for_prefix) {
-                KnownRuleMatch::Exact => {}
-                KnownRuleMatch::Stale(current_rule_id) => {
-                    // r[impl lsp.diagnostics.stale]
-                    // r[impl lsp.diagnostics.stale.message-prefix]
-                    // r[impl lsp.diagnostics.stale.diff+2]
-                    let message = stale_diagnostic_message_short(
-                        &reference.req_id,
-                        rules_by_id.get(&current_rule_id),
-                    );
-                    diagnostics.push(LspDiagnostic {
-                        severity: "warning".to_string(),
-                        code: "stale".to_string(),
-                        message,
-                        start_line,
-                        start_char,
-                        end_line,
-                        end_char,
-                    });
-                }
-                KnownRuleMatch::Missing => {
-                    let message =
-                        unknown_rule_message_with_suggestions(&reference.req_id, known_for_prefix);
-                    diagnostics.push(LspDiagnostic {
-                        severity: "warning".to_string(),
-                        code: "orphaned".to_string(),
-                        message,
-                        start_line,
-                        start_char,
-                        end_line,
-                        end_char,
-                    });
-                }
-            }
-
-            // Check for impl in test file
-            if is_test && reference.verb == tracey_core::RefVerb::Impl {
-                diagnostics.push(LspDiagnostic {
-                    severity: "warning".to_string(),
-                    code: "impl-in-test".to_string(),
-                    message: "Implementation reference in test file (use 'verify' instead)"
-                        .to_string(),
-                    start_line,
-                    start_char,
-                    end_line,
-                    end_char,
-                });
-            }
+            .find(|entry| normalized.as_deref() == Some(entry.path.as_str()))
+        {
+            return precomputed.diagnostics.clone();
         }
 
-        // Check warnings from parsing
-        for warning in &reqs.warnings {
-            let (start_line, start_char, end_line, end_char) =
-                span_to_range(&req.content, warning.span.offset, warning.span.length);
-
-            let message = match &warning.kind {
-                tracey_core::WarningKind::UnknownVerb(verb) => {
-                    format!("Unknown verb: '{}'", verb)
-                }
-                tracey_core::WarningKind::MalformedReference => "Malformed reference".to_string(),
-            };
-
-            diagnostics.push(LspDiagnostic {
-                severity: "warning".to_string(),
-                code: "parse-warning".to_string(),
-                message,
-                start_line,
-                start_char,
-                end_line,
-                end_char,
-            });
-        }
-
-        diagnostics
+        // Live fallback for VFS-only files that are not part of the precomputed workspace set yet.
+        let reqs = lookup_source_reqs(&data, &path)
+            .cloned()
+            .unwrap_or_else(|| tracey_core::Reqs::extract_from_content(&path, &req.content));
+        let is_test = {
+            let canonical = path.canonicalize().unwrap_or_else(|_| path.clone());
+            data.test_files.contains(&path) || data.test_files.contains(&canonical)
+        };
+        crate::data::compute_source_file_diagnostics(
+            &req.content,
+            &reqs,
+            is_test,
+            &data.config,
+            &data.forward_by_impl,
+        )
     }
 
     /// Get diagnostics for all files in the workspace
@@ -2301,26 +2179,6 @@ fn extract_markdown_rule_references(content: &str) -> Vec<MarkdownRuleReference>
     }
 
     out
-}
-
-fn source_reference_uses_explicit_verb(
-    content: &str,
-    offset: usize,
-    length: usize,
-    prefix: &str,
-) -> bool {
-    let end = offset.saturating_add(length);
-    let Some(span_text) = content.get(offset..end) else {
-        return true;
-    };
-    let Some(inner) = span_text
-        .strip_prefix(prefix)
-        .and_then(|s| s.strip_prefix('['))
-        .and_then(|s| s.strip_suffix(']'))
-    else {
-        return true;
-    };
-    inner.contains(' ')
 }
 
 /// Look up build-data reqs for a source file path.

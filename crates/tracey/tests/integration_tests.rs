@@ -763,6 +763,41 @@ async fn test_validate_returns_results() {
     // The fixture has valid data, so should have no errors (or minimal)
 }
 
+#[tokio::test]
+async fn test_validate_ignores_short_form_prose_unknown_prefix() {
+    let (temp, service) = create_isolated_test_service().await;
+    let prose_file = temp.path().join("src/prose.rs");
+    std::fs::write(
+        &prose_file,
+        "/// chunk[i] immediately follows, etc.\nfn prose() {}\n",
+    )
+    .expect("Failed to write prose file");
+
+    rpc(service.client.reload().await);
+
+    let result = rpc(service
+        .client
+        .validate(ValidateRequest {
+            spec: Some("test".to_string()),
+            impl_name: Some("rust".to_string()),
+        })
+        .await);
+
+    let prose_path = prose_file.display().to_string();
+    let unknown_prefix_in_prose: Vec<_> = result
+        .errors
+        .iter()
+        .filter(|e| e.code == ValidationErrorCode::UnknownPrefix)
+        .filter(|e| e.file.as_deref() == Some(prose_path.as_str()))
+        .collect();
+
+    assert!(
+        unknown_prefix_in_prose.is_empty(),
+        "Expected no UnknownPrefix errors for short-form prose in src/prose.rs, got: {:?}",
+        unknown_prefix_in_prose
+    );
+}
+
 // ============================================================================
 // Semantic Tokens Tests
 // ============================================================================

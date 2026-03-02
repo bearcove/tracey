@@ -1357,6 +1357,7 @@ fn compute_validation_by_impl(
     forward_by_impl: &BTreeMap<ImplKey, ApiSpecForward>,
     reverse_by_impl: &BTreeMap<ImplKey, ApiReverseData>,
     source_reqs_by_file: &BTreeMap<PathBuf, Reqs>,
+    file_contents: &BTreeMap<PathBuf, String>,
     test_files: &std::collections::HashSet<PathBuf>,
 ) -> BTreeMap<ImplKey, ValidationResult> {
     let mut out = BTreeMap::new();
@@ -1503,9 +1504,23 @@ fn compute_validation_by_impl(
                 else {
                     continue;
                 };
+                let content = file_contents
+                    .get(&canonical)
+                    .or_else(|| file_contents.get(&file_path));
 
                 for reference in &reqs.references {
                     if !known_prefixes.contains(reference.prefix.as_str()) {
+                        let explicit_verb = content.map_or(true, |file_content| {
+                            source_reference_uses_explicit_verb(
+                                file_content,
+                                reference.span.offset,
+                                reference.span.length,
+                                &reference.prefix,
+                            )
+                        });
+                        if !explicit_verb {
+                            continue;
+                        }
                         errors.push(ValidationError {
                             code: ValidationErrorCode::UnknownPrefix,
                             message: format!(
@@ -1632,14 +1647,13 @@ fn source_reference_uses_explicit_verb(
     inner.contains(' ')
 }
 
-fn compute_workspace_diagnostics(
-    abs_root: &Path,
+pub(crate) fn compute_source_file_diagnostics(
+    content: &str,
+    reqs: &Reqs,
+    is_test: bool,
     config: &ApiConfig,
     forward_by_impl: &BTreeMap<ImplKey, ApiSpecForward>,
-    source_reqs_by_file: &BTreeMap<PathBuf, Reqs>,
-    file_contents: &BTreeMap<PathBuf, String>,
-    test_files: &std::collections::HashSet<PathBuf>,
-) -> Vec<LspFileDiagnostics> {
+) -> Vec<LspDiagnostic> {
     let known_prefixes: std::collections::HashSet<&str> =
         config.specs.iter().map(|s| s.prefix.as_str()).collect();
     if known_prefixes.is_empty() {
@@ -1664,85 +1678,65 @@ fn compute_workspace_diagnostics(
         }
     }
 
-    let mut out = Vec::new();
-    for (path, reqs) in source_reqs_by_file {
-        let Some(content) = file_contents.get(path) else {
+    let mut diagnostics = Vec::new();
+
+    for reference in &reqs.references {
+        let (start_line, start_char, end_line, end_char) =
+            span_to_range(content, reference.span.offset, reference.span.length);
+
+        if !known_prefixes.contains(reference.prefix.as_str()) {
+            if !source_reference_uses_explicit_verb(
+                content,
+                reference.span.offset,
+                reference.span.length,
+                &reference.prefix,
+            ) {
+                continue;
+            }
+            diagnostics.push(LspDiagnostic {
+                severity: "hint".to_string(),
+                code: "unknown-prefix".to_string(),
+                message: format!("Unknown prefix: '{}'", reference.prefix),
+                start_line,
+                start_char,
+                end_line,
+                end_char,
+            });
             continue;
-        };
-        let is_test = test_files.contains(path);
-        let mut diagnostics = Vec::new();
+        }
 
-        for reference in &reqs.references {
-            let (start_line, start_char, end_line, end_char) =
-                span_to_range(content, reference.span.offset, reference.span.length);
-
-            if !known_prefixes.contains(reference.prefix.as_str()) {
-                if !source_reference_uses_explicit_verb(
-                    content,
-                    reference.span.offset,
-                    reference.span.length,
-                    &reference.prefix,
-                ) {
-                    continue;
-                }
+        let known_for_prefix = known_rules_by_prefix
+            .get(reference.prefix.as_str())
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        match classify_reference_against_known_rules(&reference.req_id, known_for_prefix) {
+            KnownRuleMatch::Exact => {}
+            KnownRuleMatch::Stale(current_rule_id) => {
+                let message = stale_diagnostic_message_short(
+                    &reference.req_id,
+                    rules_by_id.get(&current_rule_id),
+                );
                 diagnostics.push(LspDiagnostic {
-                    severity: "hint".to_string(),
-                    code: "unknown-prefix".to_string(),
-                    message: format!("Unknown prefix: '{}'", reference.prefix),
+                    severity: "warning".to_string(),
+                    code: "stale".to_string(),
+                    message,
                     start_line,
                     start_char,
                     end_line,
                     end_char,
                 });
-                continue;
             }
-
-            let known_for_prefix = known_rules_by_prefix
-                .get(reference.prefix.as_str())
-                .map(Vec::as_slice)
-                .unwrap_or(&[]);
-            match classify_reference_against_known_rules(&reference.req_id, known_for_prefix) {
-                KnownRuleMatch::Exact => {}
-                KnownRuleMatch::Stale(current_rule_id) => {
-                    let message = stale_diagnostic_message_short(
-                        &reference.req_id,
-                        rules_by_id.get(&current_rule_id),
-                    );
-                    diagnostics.push(LspDiagnostic {
-                        severity: "warning".to_string(),
-                        code: "stale".to_string(),
-                        message,
-                        start_line,
-                        start_char,
-                        end_line,
-                        end_char,
-                    });
-                }
-                KnownRuleMatch::Missing => {
-                    let message = unknown_rule_message_with_context(
-                        &reference.prefix,
-                        &reference.verb,
-                        &reference.req_id,
-                        known_for_prefix,
-                    );
-                    diagnostics.push(LspDiagnostic {
-                        severity: "warning".to_string(),
-                        code: "orphaned".to_string(),
-                        message,
-                        start_line,
-                        start_char,
-                        end_line,
-                        end_char,
-                    });
-                }
-            }
-
-            if is_test && reference.verb == RefVerb::Impl {
+            KnownRuleMatch::Missing => {
+                let message = unknown_rule_message_with_context(
+                    &reference.prefix,
+                    &reference.verb,
+                    &reference.req_id,
+                    known_for_prefix,
+                );
                 diagnostics.push(LspDiagnostic {
                     severity: "warning".to_string(),
-                    code: "impl-in-test".to_string(),
-                    message: "Implementation reference in test file (use 'verify' instead)"
-                        .to_string(),
+                    code: "orphaned".to_string(),
+                    message,
                     start_line,
                     start_char,
                     end_line,
@@ -1751,26 +1745,59 @@ fn compute_workspace_diagnostics(
             }
         }
 
-        for warning in &reqs.warnings {
-            let (start_line, start_char, end_line, end_char) =
-                span_to_range(content, warning.span.offset, warning.span.length);
-            let message = match &warning.kind {
-                tracey_core::WarningKind::UnknownVerb(verb) => {
-                    format!("Unknown verb: '{}'", verb)
-                }
-                tracey_core::WarningKind::MalformedReference => "Malformed reference".to_string(),
-            };
-
+        if is_test && reference.verb == RefVerb::Impl {
             diagnostics.push(LspDiagnostic {
                 severity: "warning".to_string(),
-                code: "parse-warning".to_string(),
-                message,
+                code: "impl-in-test".to_string(),
+                message: "Implementation reference in test file (use 'verify' instead)".to_string(),
                 start_line,
                 start_char,
                 end_line,
                 end_char,
             });
         }
+    }
+
+    for warning in &reqs.warnings {
+        let (start_line, start_char, end_line, end_char) =
+            span_to_range(content, warning.span.offset, warning.span.length);
+        let message = match &warning.kind {
+            tracey_core::WarningKind::UnknownVerb(verb) => {
+                format!("Unknown verb: '{}'", verb)
+            }
+            tracey_core::WarningKind::MalformedReference => "Malformed reference".to_string(),
+        };
+
+        diagnostics.push(LspDiagnostic {
+            severity: "warning".to_string(),
+            code: "parse-warning".to_string(),
+            message,
+            start_line,
+            start_char,
+            end_line,
+            end_char,
+        });
+    }
+
+    diagnostics
+}
+
+fn compute_workspace_diagnostics(
+    abs_root: &Path,
+    config: &ApiConfig,
+    forward_by_impl: &BTreeMap<ImplKey, ApiSpecForward>,
+    source_reqs_by_file: &BTreeMap<PathBuf, Reqs>,
+    file_contents: &BTreeMap<PathBuf, String>,
+    test_files: &std::collections::HashSet<PathBuf>,
+) -> Vec<LspFileDiagnostics> {
+    let mut out = Vec::new();
+    for (path, reqs) in source_reqs_by_file {
+        let Some(content) = file_contents.get(path) else {
+            continue;
+        };
+        let is_test = test_files.contains(path);
+        let diagnostics =
+            compute_source_file_diagnostics(content, reqs, is_test, config, forward_by_impl);
 
         if diagnostics.is_empty() {
             continue;
@@ -2388,6 +2415,7 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
         &forward_by_impl,
         &reverse_by_impl,
         &all_source_reqs_by_file,
+        &all_file_contents,
         &test_files,
     );
     let workspace_diagnostics = compute_workspace_diagnostics(
