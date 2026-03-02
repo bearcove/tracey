@@ -1510,7 +1510,7 @@ fn compute_validation_by_impl(
 
                 for reference in &reqs.references {
                     if !known_prefixes.contains(reference.prefix.as_str()) {
-                        let explicit_verb = content.map_or(true, |file_content| {
+                        let explicit_verb = content.is_none_or(|file_content| {
                             source_reference_uses_explicit_verb(
                                 file_content,
                                 reference.span.offset,
