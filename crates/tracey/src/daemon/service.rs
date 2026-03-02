@@ -1384,6 +1384,14 @@ impl TraceyDaemon for TraceyService {
 
             // Check for unknown prefix
             if !known_prefixes.contains(reference.prefix.as_str()) {
+                if !source_reference_uses_explicit_verb(
+                    &req.content,
+                    reference.span.offset,
+                    reference.span.length,
+                    &reference.prefix,
+                ) {
+                    continue;
+                }
                 debug!(
                     "lsp_diagnostics unknown-prefix path={} ref_prefix={} ref_id={} known_prefixes={:?}",
                     path.display(),
@@ -1392,7 +1400,7 @@ impl TraceyDaemon for TraceyService {
                     known_prefixes
                 );
                 diagnostics.push(LspDiagnostic {
-                    severity: "error".to_string(),
+                    severity: "hint".to_string(),
                     code: "unknown-prefix".to_string(),
                     message: format!("Unknown prefix: '{}'", reference.prefix),
                     start_line,
@@ -2293,6 +2301,26 @@ fn extract_markdown_rule_references(content: &str) -> Vec<MarkdownRuleReference>
     }
 
     out
+}
+
+fn source_reference_uses_explicit_verb(
+    content: &str,
+    offset: usize,
+    length: usize,
+    prefix: &str,
+) -> bool {
+    let end = offset.saturating_add(length);
+    let Some(span_text) = content.get(offset..end) else {
+        return true;
+    };
+    let Some(inner) = span_text
+        .strip_prefix(prefix)
+        .and_then(|s| s.strip_prefix('['))
+        .and_then(|s| s.strip_suffix(']'))
+    else {
+        return true;
+    };
+    inner.contains(' ')
 }
 
 /// Look up build-data reqs for a source file path.

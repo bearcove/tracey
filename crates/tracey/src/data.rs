@@ -1612,6 +1612,26 @@ fn compute_validation_by_impl(
     out
 }
 
+fn source_reference_uses_explicit_verb(
+    content: &str,
+    offset: usize,
+    length: usize,
+    prefix: &str,
+) -> bool {
+    let end = offset.saturating_add(length);
+    let Some(span_text) = content.get(offset..end) else {
+        return true;
+    };
+    let Some(inner) = span_text
+        .strip_prefix(prefix)
+        .and_then(|s| s.strip_prefix('['))
+        .and_then(|s| s.strip_suffix(']'))
+    else {
+        return true;
+    };
+    inner.contains(' ')
+}
+
 fn compute_workspace_diagnostics(
     abs_root: &Path,
     config: &ApiConfig,
@@ -1657,8 +1677,16 @@ fn compute_workspace_diagnostics(
                 span_to_range(content, reference.span.offset, reference.span.length);
 
             if !known_prefixes.contains(reference.prefix.as_str()) {
+                if !source_reference_uses_explicit_verb(
+                    content,
+                    reference.span.offset,
+                    reference.span.length,
+                    &reference.prefix,
+                ) {
+                    continue;
+                }
                 diagnostics.push(LspDiagnostic {
-                    severity: "error".to_string(),
+                    severity: "hint".to_string(),
                     code: "unknown-prefix".to_string(),
                     message: format!("Unknown prefix: '{}'", reference.prefix),
                     start_line,

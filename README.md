@@ -16,7 +16,7 @@ Tracey uses lightweight annotations in markdown and source code comments to link
 - Analyzing impact when requirements or code changes
 - Detecting stale references when spec text changes but code annotations haven't been updated
 
-For the full specification, see [docs/content/spec/tracey.md](docs/content/spec/tracey.md).
+For the full specification, see [docs/spec/tracey.md](docs/spec/tracey.md).
 
 ## Installation
 

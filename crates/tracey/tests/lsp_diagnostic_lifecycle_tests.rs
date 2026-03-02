@@ -718,6 +718,35 @@ async fn test_unknown_prefix_diagnostic() {
     );
 }
 
+/// Test that short-form prose like `chunk[i]` does not trigger unknown-prefix diagnostics.
+#[tokio::test]
+async fn test_unknown_prefix_ignored_for_short_form_prose() {
+    let (temp, service) = create_isolated_test_service().await;
+    let test_file = temp.path().join("src/prose.rs");
+    let content = "/// chunk[i] immediately follows.\nfn prose() {}\n";
+    std::fs::write(&test_file, content).expect("Failed to write prose file");
+
+    rpc(service
+        .client
+        .vfs_open(test_file.display().to_string(), content.to_string())
+        .await);
+
+    let diagnostics = rpc(service
+        .client
+        .lsp_diagnostics(LspDocumentRequest {
+            path: test_file.display().to_string(),
+            content: content.to_string(),
+        })
+        .await);
+
+    let unknown_prefix = diagnostics.iter().find(|d| d.code == "unknown-prefix");
+    assert!(
+        unknown_prefix.is_none(),
+        "Expected no unknown-prefix diagnostic for short-form prose chunk[i], got: {:?}",
+        diagnostics
+    );
+}
+
 // ============================================================================
 // LSP Bridge Behavior Simulation Tests
 // ============================================================================
