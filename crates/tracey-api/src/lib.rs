@@ -266,6 +266,8 @@ pub enum ValidationErrorCode {
     UnknownPrefix,
     /// Impl annotation in test file (only verify allowed)
     ImplInTestFile,
+    /// File matched by include/test_include could not be parsed
+    IncludeUnparseableFile,
 }
 
 /// Validation results for a spec/implementation pair

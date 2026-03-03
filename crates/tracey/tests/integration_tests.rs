@@ -764,6 +764,67 @@ async fn test_validate_returns_results() {
 }
 
 #[tokio::test]
+async fn test_validate_reports_include_unparseable_files() {
+    let temp = common::create_temp_project();
+    std::fs::write(
+        temp.path().join("config.styx"),
+        r#"
+specs (
+  {
+    name test
+    include (spec.md)
+    impls (
+      {
+        name rust
+        include (
+          src/**/*.rs
+          justfile
+        )
+      }
+    )
+  }
+)
+"#,
+    )
+    .expect("Failed to write config");
+    std::fs::write(
+        temp.path().join("justfile"),
+        r#"# r[impl auth.login]
+run:
+  @echo "hello"
+"#,
+    )
+    .expect("Failed to write justfile");
+
+    let engine = Arc::new(
+        tracey::daemon::Engine::new(temp.path().to_path_buf(), temp.path().join("config.styx"))
+            .await
+            .expect("Failed to create engine"),
+    );
+    let service = tracey::daemon::TraceyService::new(engine);
+    let service = common::create_test_rpc_service(service).await;
+
+    let result = rpc(service
+        .client
+        .validate(ValidateRequest {
+            spec: Some("test".to_string()),
+            impl_name: Some("rust".to_string()),
+        })
+        .await);
+
+    let include_error = result
+        .errors
+        .iter()
+        .find(|e| e.code == ValidationErrorCode::IncludeUnparseableFile)
+        .expect("Expected IncludeUnparseableFile validation error");
+    assert!(
+        include_error.message.contains("justfile"),
+        "Expected include parse failure message to mention justfile, got: {}",
+        include_error.message
+    );
+}
+
+#[tokio::test]
 async fn test_validate_ignores_short_form_prose_unknown_prefix() {
     let (temp, service) = create_isolated_test_service().await;
     let prose_file = temp.path().join("src/prose.rs");

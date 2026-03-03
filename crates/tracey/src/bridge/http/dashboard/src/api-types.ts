@@ -59,7 +59,7 @@ export interface RuleId {
 /**
  * Error codes for validation errors
  */
-export type ValidationErrorCode = "circular_dependency" | "invalid_naming" | "unknown_requirement" | "stale_requirement" | "duplicate_requirement" | "unknown_prefix" | "impl_in_test_file";
+export type ValidationErrorCode = "circular_dependency" | "invalid_naming" | "unknown_requirement" | "stale_requirement" | "duplicate_requirement" | "unknown_prefix" | "impl_in_test_file" | "include_unparseable_file";
 
 /**
  * Validation results for a spec/implementation pair
