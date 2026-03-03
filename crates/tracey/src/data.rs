@@ -1391,29 +1391,230 @@ fn span_to_range(content: &str, offset: usize, length: usize) -> (u32, u32, u32,
     }
 }
 
+struct SourceDiagnosticContext {
+    known_prefixes: std::collections::HashSet<String>,
+    known_rules_by_prefix: HashMap<String, Vec<RuleId>>,
+    rules_by_id: HashMap<RuleId, ApiRule>,
+}
+
+#[derive(Debug, Clone)]
+enum SourceDiagnosticIssueCode {
+    UnknownPrefix,
+    Stale { current_rule_id: RuleId },
+    UnknownRequirement,
+    ImplInTestFile,
+    ParseWarning,
+}
+
+#[derive(Debug, Clone)]
+struct SourceDiagnosticIssue {
+    code: SourceDiagnosticIssueCode,
+    message: String,
+    line: usize,
+    start_line: u32,
+    start_char: u32,
+    end_line: u32,
+    end_char: u32,
+    reference_rule_id: Option<RuleId>,
+    reference_text: Option<String>,
+}
+
+fn build_source_diagnostic_context(
+    config: &ApiConfig,
+    forward_by_impl: &BTreeMap<ImplKey, ApiSpecForward>,
+) -> SourceDiagnosticContext {
+    let known_prefixes: std::collections::HashSet<String> =
+        config.specs.iter().map(|s| s.prefix.clone()).collect();
+
+    let mut known_rules_by_prefix: HashMap<String, Vec<RuleId>> = HashMap::new();
+    let mut rules_by_id: HashMap<RuleId, ApiRule> = HashMap::new();
+    for spec_cfg in &config.specs {
+        let rule_ids = known_rules_by_prefix
+            .entry(spec_cfg.prefix.clone())
+            .or_default();
+        for ((spec_name, _), forward_data) in forward_by_impl {
+            if spec_name == &spec_cfg.name {
+                for rule in &forward_data.rules {
+                    rule_ids.push(rule.id.clone());
+                    rules_by_id
+                        .entry(rule.id.clone())
+                        .or_insert_with(|| rule.clone());
+                }
+            }
+        }
+    }
+
+    SourceDiagnosticContext {
+        known_prefixes,
+        known_rules_by_prefix,
+        rules_by_id,
+    }
+}
+
+fn collect_source_diagnostic_issues(
+    content: &str,
+    reqs: &Reqs,
+    is_test: bool,
+    ctx: &SourceDiagnosticContext,
+) -> Vec<SourceDiagnosticIssue> {
+    if ctx.known_prefixes.is_empty() {
+        return Vec::new();
+    }
+
+    let mut diagnostics = Vec::new();
+
+    for reference in &reqs.references {
+        let (start_line, start_char, end_line, end_char) =
+            span_to_range(content, reference.span.offset, reference.span.length);
+
+        if !ctx.known_prefixes.contains(reference.prefix.as_str()) {
+            if !source_reference_uses_explicit_verb(
+                content,
+                reference.span.offset,
+                reference.span.length,
+                &reference.prefix,
+            ) {
+                continue;
+            }
+            diagnostics.push(SourceDiagnosticIssue {
+                code: SourceDiagnosticIssueCode::UnknownPrefix,
+                message: format!("Unknown prefix: '{}'", reference.prefix),
+                line: reference.line,
+                start_line,
+                start_char,
+                end_line,
+                end_char,
+                reference_rule_id: None,
+                reference_text: None,
+            });
+            continue;
+        }
+
+        let known_for_prefix = ctx
+            .known_rules_by_prefix
+            .get(reference.prefix.as_str())
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        match classify_reference_against_known_rules(&reference.req_id, known_for_prefix) {
+            KnownRuleMatch::Exact => {}
+            KnownRuleMatch::Stale(current_rule_id) => {
+                let message = stale_diagnostic_message_short(
+                    &reference.req_id,
+                    ctx.rules_by_id.get(&current_rule_id),
+                );
+                diagnostics.push(SourceDiagnosticIssue {
+                    code: SourceDiagnosticIssueCode::Stale { current_rule_id },
+                    message,
+                    line: reference.line,
+                    start_line,
+                    start_char,
+                    end_line,
+                    end_char,
+                    reference_rule_id: Some(reference.req_id.clone()),
+                    reference_text: None,
+                });
+            }
+            KnownRuleMatch::Missing => {
+                let message = unknown_rule_message_with_context(
+                    &reference.prefix,
+                    &reference.verb,
+                    &reference.req_id,
+                    known_for_prefix,
+                );
+                diagnostics.push(SourceDiagnosticIssue {
+                    code: SourceDiagnosticIssueCode::UnknownRequirement,
+                    message,
+                    line: reference.line,
+                    start_line,
+                    start_char,
+                    end_line,
+                    end_char,
+                    reference_rule_id: Some(reference.req_id.clone()),
+                    reference_text: Some(format!(
+                        "{}[{} {}]",
+                        reference.prefix, reference.verb, reference.req_id
+                    )),
+                });
+            }
+        }
+
+        if is_test && reference.verb == RefVerb::Impl {
+            diagnostics.push(SourceDiagnosticIssue {
+                code: SourceDiagnosticIssueCode::ImplInTestFile,
+                message: "Implementation reference in test file (use 'verify' instead)".to_string(),
+                line: reference.line,
+                start_line,
+                start_char,
+                end_line,
+                end_char,
+                reference_rule_id: Some(reference.req_id.clone()),
+                reference_text: None,
+            });
+        }
+    }
+
+    for warning in &reqs.warnings {
+        let (start_line, start_char, end_line, end_char) =
+            span_to_range(content, warning.span.offset, warning.span.length);
+        let message = match &warning.kind {
+            tracey_core::WarningKind::UnknownVerb(verb) => {
+                format!("Unknown verb: '{}'", verb)
+            }
+            tracey_core::WarningKind::MalformedReference => "Malformed reference".to_string(),
+        };
+
+        diagnostics.push(SourceDiagnosticIssue {
+            code: SourceDiagnosticIssueCode::ParseWarning,
+            message,
+            line: warning.line,
+            start_line,
+            start_char,
+            end_line,
+            end_char,
+            reference_rule_id: None,
+            reference_text: None,
+        });
+    }
+
+    diagnostics
+}
+
+fn source_issue_to_lsp(issue: SourceDiagnosticIssue) -> LspDiagnostic {
+    let (severity, code) = match issue.code {
+        SourceDiagnosticIssueCode::UnknownPrefix => ("hint", "unknown-prefix"),
+        SourceDiagnosticIssueCode::Stale { .. } => ("warning", "stale"),
+        SourceDiagnosticIssueCode::UnknownRequirement => ("warning", "orphaned"),
+        SourceDiagnosticIssueCode::ImplInTestFile => ("warning", "impl-in-test"),
+        SourceDiagnosticIssueCode::ParseWarning => ("warning", "parse-warning"),
+    };
+    LspDiagnostic {
+        severity: severity.to_string(),
+        code: code.to_string(),
+        message: issue.message,
+        start_line: issue.start_line,
+        start_char: issue.start_char,
+        end_line: issue.end_line,
+        end_char: issue.end_char,
+    }
+}
+
 fn compute_validation_by_impl(
     abs_root: &Path,
+    config_path: &Path,
     config: &ApiConfig,
     forward_by_impl: &BTreeMap<ImplKey, ApiSpecForward>,
     reverse_by_impl: &BTreeMap<ImplKey, ApiReverseData>,
     source_reqs_by_file: &BTreeMap<PathBuf, Reqs>,
     file_contents: &BTreeMap<PathBuf, String>,
     test_files: &std::collections::HashSet<PathBuf>,
+    include_parse_failures_by_impl: &BTreeMap<ImplKey, BTreeMap<PathBuf, String>>,
 ) -> BTreeMap<ImplKey, ValidationResult> {
     let mut out = BTreeMap::new();
-    let known_prefixes: std::collections::HashSet<&str> =
-        config.specs.iter().map(|s| s.prefix.as_str()).collect();
+    let source_ctx = build_source_diagnostic_context(config, forward_by_impl);
 
     for (impl_key, forward_data) in forward_by_impl {
         let (spec, impl_name) = impl_key;
         let mut errors = Vec::new();
-
-        let known_rule_ids: Vec<RuleId> = forward_data.rules.iter().map(|r| r.id.clone()).collect();
-        let rules_by_id: HashMap<RuleId, &ApiRule> = forward_data
-            .rules
-            .iter()
-            .map(|rule| (rule.id.clone(), rule))
-            .collect();
 
         let mut seen_ids: HashMap<RuleId, (&Option<String>, Option<usize>)> = HashMap::new();
         let mut seen_bases: HashMap<String, (&RuleId, &Option<String>, Option<usize>)> =
@@ -1484,55 +1685,9 @@ fn compute_validation_by_impl(
                     reference_text: None,
                 });
             }
-
-            for impl_ref in &rule.impl_refs {
-                let ref_path = abs_root.join(&impl_ref.file);
-                if test_files.contains(&ref_path) {
-                    errors.push(ValidationError {
-                        code: ValidationErrorCode::ImplInTestFile,
-                        message: format!(
-                            "Test file contains impl annotation for '{}' - test files may only contain verify annotations",
-                            rule.id
-                        ),
-                        file: Some(impl_ref.file.clone()),
-                        line: Some(impl_ref.line),
-                        column: None,
-                        related_rules: vec![rule.id.clone()],
-                        reference_rule_id: None,
-                        reference_text: None,
-                    });
-                }
-            }
         }
 
         if let Some(reverse_data) = reverse_by_impl.get(impl_key) {
-            let current_spec_prefix: Option<&str> = config
-                .specs
-                .iter()
-                .find(|s| s.name == *spec)
-                .map(|s| s.prefix.as_str());
-
-            let known_rule_ids_for_prefix: Vec<RuleId> = if let Some(prefix) = current_spec_prefix {
-                let spec_names: std::collections::HashSet<&str> = config
-                    .specs
-                    .iter()
-                    .filter(|s| s.prefix == prefix)
-                    .map(|s| s.name.as_str())
-                    .collect();
-
-                forward_by_impl
-                    .iter()
-                    .filter(|((spec_name, _), _)| spec_names.contains(spec_name.as_str()))
-                    .flat_map(|(_, forward)| forward.rules.iter().map(|r| r.id.clone()))
-                    .collect()
-            } else {
-                Vec::new()
-            };
-
-            let mut available_prefixes: Vec<_> = known_prefixes.iter().copied().collect();
-            available_prefixes.sort_unstable();
-            let available_prefixes_joined = available_prefixes.join(", ");
-
             for file_entry in &reverse_data.files {
                 let file_path = abs_root.join(&file_entry.path);
                 let canonical = file_path
@@ -1547,87 +1702,74 @@ fn compute_validation_by_impl(
                 let content = file_contents
                     .get(&canonical)
                     .or_else(|| file_contents.get(&file_path));
+                let Some(content) = content else {
+                    continue;
+                };
 
-                for reference in &reqs.references {
-                    if !known_prefixes.contains(reference.prefix.as_str()) {
-                        let explicit_verb = content.is_none_or(|file_content| {
-                            source_reference_uses_explicit_verb(
-                                file_content,
-                                reference.span.offset,
-                                reference.span.length,
-                                &reference.prefix,
-                            )
-                        });
-                        if !explicit_verb {
-                            continue;
+                let is_test = test_files.contains(&file_path) || test_files.contains(&canonical);
+                let issues = collect_source_diagnostic_issues(content, reqs, is_test, &source_ctx);
+                for issue in issues {
+                    let (code, related_rules) = match issue.code {
+                        SourceDiagnosticIssueCode::UnknownPrefix => {
+                            (ValidationErrorCode::UnknownPrefix, Vec::new())
                         }
-                        errors.push(ValidationError {
-                            code: ValidationErrorCode::UnknownPrefix,
-                            message: format!(
-                                "Unknown prefix '{}' - available prefixes: {}",
-                                reference.prefix, available_prefixes_joined
-                            ),
-                            file: Some(file_entry.path.clone()),
-                            line: Some(reference.line),
-                            column: None,
-                            related_rules: vec![],
-                            reference_rule_id: None,
-                            reference_text: None,
-                        });
-                    } else if current_spec_prefix == Some(reference.prefix.as_str()) {
-                        match classify_reference_against_known_rules(
-                            &reference.req_id,
-                            &known_rule_ids,
-                        ) {
-                            KnownRuleMatch::Exact => {}
-                            KnownRuleMatch::Stale(current_rule_id) => {
-                                let message = stale_diagnostic_message_short(
-                                    &reference.req_id,
-                                    rules_by_id.get(&current_rule_id).copied(),
-                                );
-                                errors.push(ValidationError {
-                                    code: ValidationErrorCode::StaleRequirement,
-                                    message,
-                                    file: Some(file_entry.path.clone()),
-                                    line: Some(reference.line),
-                                    column: None,
-                                    related_rules: vec![current_rule_id],
-                                    reference_rule_id: Some(reference.req_id.clone()),
-                                    reference_text: None,
-                                });
-                            }
-                            KnownRuleMatch::Missing => {
-                                match classify_reference_against_known_rules(
-                                    &reference.req_id,
-                                    &known_rule_ids_for_prefix,
-                                ) {
-                                    KnownRuleMatch::Exact | KnownRuleMatch::Stale(_) => {}
-                                    KnownRuleMatch::Missing => {
-                                        let message = unknown_rule_message_with_context(
-                                            &reference.prefix,
-                                            &reference.verb,
-                                            &reference.req_id,
-                                            &known_rule_ids_for_prefix,
-                                        );
-                                        errors.push(ValidationError {
-                                            code: ValidationErrorCode::UnknownRequirement,
-                                            message,
-                                            file: Some(file_entry.path.clone()),
-                                            line: Some(reference.line),
-                                            column: None,
-                                            related_rules: vec![],
-                                            reference_rule_id: Some(reference.req_id.clone()),
-                                            reference_text: Some(format!(
-                                                "{}[{} {}]",
-                                                reference.prefix, reference.verb, reference.req_id
-                                            )),
-                                        });
-                                    }
-                                }
-                            }
+                        SourceDiagnosticIssueCode::Stale { current_rule_id } => {
+                            (ValidationErrorCode::StaleRequirement, vec![current_rule_id])
                         }
-                    }
+                        SourceDiagnosticIssueCode::UnknownRequirement => {
+                            (ValidationErrorCode::UnknownRequirement, Vec::new())
+                        }
+                        SourceDiagnosticIssueCode::ImplInTestFile => (
+                            ValidationErrorCode::ImplInTestFile,
+                            issue
+                                .reference_rule_id
+                                .clone()
+                                .map_or_else(Vec::new, |id| vec![id]),
+                        ),
+                        SourceDiagnosticIssueCode::ParseWarning => continue,
+                    };
+                    errors.push(ValidationError {
+                        code,
+                        message: issue.message,
+                        file: Some(file_entry.path.clone()),
+                        line: Some(issue.line),
+                        column: Some(issue.start_char as usize + 1),
+                        related_rules,
+                        reference_rule_id: issue.reference_rule_id,
+                        reference_text: issue.reference_text,
+                    });
                 }
+            }
+        }
+
+        if let Some(parse_failures) = include_parse_failures_by_impl.get(impl_key) {
+            let config_rel_path = config_path
+                .strip_prefix(abs_root)
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|_| compute_relative_path(abs_root, config_path));
+            let supported_file_types = SUPPORTED_EXTENSIONS
+                .iter()
+                .map(|ext| format!(".{ext}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            for (path, reason) in parse_failures {
+                let rel_path = path
+                    .strip_prefix(abs_root)
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_else(|_| compute_relative_path(abs_root, path));
+                errors.push(ValidationError {
+                    code: ValidationErrorCode::IncludeUnparseableFile,
+                    message: format!(
+                        "Include discovered '{rel_path}' but Tracey could not parse it ({reason}). Supported file types: {supported_file_types}. To fix this, either move/rename annotations to a supported file type, or update include/exclude patterns so this file is not scanned."
+                    ),
+                    file: Some(config_rel_path.clone()),
+                    line: Some(1),
+                    column: Some(1),
+                    related_rules: Vec::new(),
+                    reference_rule_id: None,
+                    reference_text: None,
+                });
             }
         }
 
@@ -1694,132 +1836,11 @@ pub(crate) fn compute_source_file_diagnostics(
     config: &ApiConfig,
     forward_by_impl: &BTreeMap<ImplKey, ApiSpecForward>,
 ) -> Vec<LspDiagnostic> {
-    let known_prefixes: std::collections::HashSet<&str> =
-        config.specs.iter().map(|s| s.prefix.as_str()).collect();
-    if known_prefixes.is_empty() {
-        return Vec::new();
-    }
-
-    let mut known_rules_by_prefix: HashMap<&str, Vec<RuleId>> = HashMap::new();
-    let mut rules_by_id: HashMap<RuleId, ApiRule> = HashMap::new();
-    for spec_cfg in &config.specs {
-        let rule_ids = known_rules_by_prefix
-            .entry(spec_cfg.prefix.as_str())
-            .or_default();
-        for ((spec_name, _), forward_data) in forward_by_impl {
-            if spec_name == &spec_cfg.name {
-                for rule in &forward_data.rules {
-                    rule_ids.push(rule.id.clone());
-                    rules_by_id
-                        .entry(rule.id.clone())
-                        .or_insert_with(|| rule.clone());
-                }
-            }
-        }
-    }
-
-    let mut diagnostics = Vec::new();
-
-    for reference in &reqs.references {
-        let (start_line, start_char, end_line, end_char) =
-            span_to_range(content, reference.span.offset, reference.span.length);
-
-        if !known_prefixes.contains(reference.prefix.as_str()) {
-            if !source_reference_uses_explicit_verb(
-                content,
-                reference.span.offset,
-                reference.span.length,
-                &reference.prefix,
-            ) {
-                continue;
-            }
-            diagnostics.push(LspDiagnostic {
-                severity: "hint".to_string(),
-                code: "unknown-prefix".to_string(),
-                message: format!("Unknown prefix: '{}'", reference.prefix),
-                start_line,
-                start_char,
-                end_line,
-                end_char,
-            });
-            continue;
-        }
-
-        let known_for_prefix = known_rules_by_prefix
-            .get(reference.prefix.as_str())
-            .map(Vec::as_slice)
-            .unwrap_or(&[]);
-        match classify_reference_against_known_rules(&reference.req_id, known_for_prefix) {
-            KnownRuleMatch::Exact => {}
-            KnownRuleMatch::Stale(current_rule_id) => {
-                let message = stale_diagnostic_message_short(
-                    &reference.req_id,
-                    rules_by_id.get(&current_rule_id),
-                );
-                diagnostics.push(LspDiagnostic {
-                    severity: "warning".to_string(),
-                    code: "stale".to_string(),
-                    message,
-                    start_line,
-                    start_char,
-                    end_line,
-                    end_char,
-                });
-            }
-            KnownRuleMatch::Missing => {
-                let message = unknown_rule_message_with_context(
-                    &reference.prefix,
-                    &reference.verb,
-                    &reference.req_id,
-                    known_for_prefix,
-                );
-                diagnostics.push(LspDiagnostic {
-                    severity: "warning".to_string(),
-                    code: "orphaned".to_string(),
-                    message,
-                    start_line,
-                    start_char,
-                    end_line,
-                    end_char,
-                });
-            }
-        }
-
-        if is_test && reference.verb == RefVerb::Impl {
-            diagnostics.push(LspDiagnostic {
-                severity: "warning".to_string(),
-                code: "impl-in-test".to_string(),
-                message: "Implementation reference in test file (use 'verify' instead)".to_string(),
-                start_line,
-                start_char,
-                end_line,
-                end_char,
-            });
-        }
-    }
-
-    for warning in &reqs.warnings {
-        let (start_line, start_char, end_line, end_char) =
-            span_to_range(content, warning.span.offset, warning.span.length);
-        let message = match &warning.kind {
-            tracey_core::WarningKind::UnknownVerb(verb) => {
-                format!("Unknown verb: '{}'", verb)
-            }
-            tracey_core::WarningKind::MalformedReference => "Malformed reference".to_string(),
-        };
-
-        diagnostics.push(LspDiagnostic {
-            severity: "warning".to_string(),
-            code: "parse-warning".to_string(),
-            message,
-            start_line,
-            start_char,
-            end_line,
-            end_char,
-        });
-    }
-
-    diagnostics
+    let ctx = build_source_diagnostic_context(config, forward_by_impl);
+    collect_source_diagnostic_issues(content, reqs, is_test, &ctx)
+        .into_iter()
+        .map(source_issue_to_lsp)
+        .collect()
 }
 
 fn compute_workspace_diagnostics(
@@ -1833,13 +1854,16 @@ fn compute_workspace_diagnostics(
     include_parse_failures: &BTreeMap<PathBuf, String>,
 ) -> Vec<LspFileDiagnostics> {
     let mut out = Vec::new();
+    let source_ctx = build_source_diagnostic_context(config, forward_by_impl);
     for (path, reqs) in source_reqs_by_file {
         let Some(content) = file_contents.get(path) else {
             continue;
         };
         let is_test = test_files.contains(path);
-        let diagnostics =
-            compute_source_file_diagnostics(content, reqs, is_test, config, forward_by_impl);
+        let diagnostics = collect_source_diagnostic_issues(content, reqs, is_test, &source_ctx)
+            .into_iter()
+            .map(source_issue_to_lsp)
+            .collect::<Vec<_>>();
 
         if diagnostics.is_empty() {
             continue;
@@ -2154,6 +2178,8 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
     let mut total_code_files = 0usize;
     let mut total_code_units = 0usize;
     let mut include_parse_failures: BTreeMap<PathBuf, String> = BTreeMap::new();
+    let mut include_parse_failures_by_impl: BTreeMap<ImplKey, BTreeMap<PathBuf, String>> =
+        BTreeMap::new();
     let total_impls: usize = config.specs.iter().map(|s| s.impls.len()).sum();
 
     info!(
@@ -2346,7 +2372,14 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
             )
             .await;
             for (path, reason) in parse_failures {
-                include_parse_failures.entry(path).or_insert(reason);
+                include_parse_failures
+                    .entry(path.clone())
+                    .or_insert_with(|| reason.clone());
+                include_parse_failures_by_impl
+                    .entry(impl_key.clone())
+                    .or_default()
+                    .entry(path)
+                    .or_insert(reason);
             }
 
             // r[impl config.impl.test_include.extraction]
@@ -2374,7 +2407,14 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
                 refs.extend(test_refs);
                 parse_warnings.extend(test_parse_warnings);
                 for (path, reason) in test_parse_failures {
-                    include_parse_failures.entry(path).or_insert(reason);
+                    include_parse_failures
+                        .entry(path.clone())
+                        .or_insert_with(|| reason.clone());
+                    include_parse_failures_by_impl
+                        .entry(impl_key.clone())
+                        .or_default()
+                        .entry(path)
+                        .or_insert(reason);
                 }
                 for w in test_scan_warnings {
                     if !quiet {
@@ -2515,12 +2555,14 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
 
     let validation_by_impl = compute_validation_by_impl(
         &abs_root,
+        config_path,
         &api_config,
         &forward_by_impl,
         &reverse_by_impl,
         &all_source_reqs_by_file,
         &all_file_contents,
         &test_files,
+        &include_parse_failures_by_impl,
     );
     let workspace_diagnostics = compute_workspace_diagnostics(
         &abs_root,

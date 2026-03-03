@@ -70,26 +70,40 @@ async fn send_message(stdin: &mut ChildStdin, value: &serde_json::Value) {
 }
 
 async fn read_message(stdout: &mut BufReader<ChildStdout>) -> serde_json::Value {
+    fn extract_content_length(line: &str) -> Option<usize> {
+        if let Some((key, value)) = line.split_once(':')
+            && key.trim().eq_ignore_ascii_case("content-length")
+        {
+            return value.trim().parse::<usize>().ok();
+        }
+
+        let lower = line.to_ascii_lowercase();
+        let marker = "content-length:";
+        let idx = lower.find(marker)?;
+        let start = idx + marker.len();
+        line[start..].trim().parse::<usize>().ok()
+    }
+
     let mut content_length = None;
+    let mut headers = Vec::new();
     loop {
         let mut line = String::new();
         let bytes_read = stdout.read_line(&mut line).await.expect("read header line");
         assert!(bytes_read > 0, "unexpected EOF while reading LSP header");
 
-        if line == "\r\n" {
+        if line == "\r\n" || line == "\n" {
             break;
         }
 
         let trimmed = line.trim();
-        if let Some(value) = trimmed
-            .strip_prefix("Content-Length:")
-            .or_else(|| trimmed.strip_prefix("content-length:"))
-        {
-            content_length = Some(value.trim().parse::<usize>().expect("parse content length"));
+        headers.push(trimmed.to_string());
+        if let Some(length) = extract_content_length(trimmed) {
+            content_length = Some(length);
         }
     }
 
-    let content_length = content_length.expect("missing Content-Length");
+    let content_length = content_length
+        .unwrap_or_else(|| panic!("missing Content-Length in headers: {:?}", headers));
     let mut body = vec![0u8; content_length];
     stdout.read_exact(&mut body).await.expect("read body");
     serde_json::from_slice(&body).expect("parse JSON body")
