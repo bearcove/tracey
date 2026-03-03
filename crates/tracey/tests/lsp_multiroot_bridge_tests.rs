@@ -70,6 +70,20 @@ async fn send_message(stdin: &mut ChildStdin, value: &serde_json::Value) {
 }
 
 async fn read_message(stdout: &mut BufReader<ChildStdout>) -> serde_json::Value {
+    fn extract_content_length(line: &str) -> Option<usize> {
+        if let Some((key, value)) = line.split_once(':')
+            && key.trim().eq_ignore_ascii_case("content-length")
+        {
+            return value.trim().parse::<usize>().ok();
+        }
+
+        let lower = line.to_ascii_lowercase();
+        let marker = "content-length:";
+        let idx = lower.find(marker)?;
+        let start = idx + marker.len();
+        line[start..].trim().parse::<usize>().ok()
+    }
+
     let mut content_length = None;
     let mut headers = Vec::new();
     loop {
@@ -83,10 +97,8 @@ async fn read_message(stdout: &mut BufReader<ChildStdout>) -> serde_json::Value 
 
         let trimmed = line.trim();
         headers.push(trimmed.to_string());
-        if let Some((key, value)) = trimmed.split_once(':')
-            && key.trim().eq_ignore_ascii_case("content-length")
-        {
-            content_length = Some(value.trim().parse::<usize>().expect("parse content length"));
+        if let Some(length) = extract_content_length(trimmed) {
+            content_length = Some(length);
         }
     }
 
