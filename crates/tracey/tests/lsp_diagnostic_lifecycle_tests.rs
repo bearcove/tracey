@@ -413,6 +413,86 @@ fn broken() {}"#;
     );
 }
 
+#[tokio::test]
+async fn test_workspace_diagnostics_reports_include_unparseable_files_on_config() {
+    let temp = common::create_temp_project();
+
+    std::fs::write(
+        temp.path().join("config.styx"),
+        r#"
+specs (
+  {
+    name test
+    include (spec.md)
+    impls (
+      {
+        name rust
+        include (
+          src/**/*.rs
+          justfile
+        )
+      }
+    )
+  }
+)
+"#,
+    )
+    .expect("Failed to write config");
+
+    std::fs::write(
+        temp.path().join("justfile"),
+        r#"# r[impl auth.login]
+run:
+  @echo "hello"
+"#,
+    )
+    .expect("Failed to write justfile");
+
+    let engine = Arc::new(
+        tracey::daemon::Engine::new(temp.path().to_path_buf(), temp.path().join("config.styx"))
+            .await
+            .expect("Failed to create engine"),
+    );
+    let service = tracey::daemon::TraceyService::new(engine);
+    let service = common::create_test_rpc_service(service).await;
+
+    let workspace_diags = rpc(service.client.lsp_workspace_diagnostics().await);
+    let config_diags = workspace_diags
+        .iter()
+        .find(|fd| fd.path.ends_with("config.styx"))
+        .unwrap_or_else(|| {
+            panic!(
+                "Expected diagnostics on config.styx, got: {:?}",
+                workspace_diags
+                    .iter()
+                    .map(|fd| &fd.path)
+                    .collect::<Vec<_>>()
+            )
+        });
+
+    let include_parse_diag = config_diags
+        .diagnostics
+        .iter()
+        .find(|d| d.code == "include-unparseable-file")
+        .expect("Expected include-unparseable-file diagnostic");
+
+    assert!(
+        include_parse_diag.message.contains("justfile"),
+        "Diagnostic should mention unparseable discovered file. Message: {}",
+        include_parse_diag.message
+    );
+    assert!(
+        include_parse_diag.message.contains("Supported file types:"),
+        "Diagnostic should include supported file type guidance. Message: {}",
+        include_parse_diag.message
+    );
+    assert!(
+        include_parse_diag.message.contains(".rs"),
+        "Diagnostic should list supported extensions. Message: {}",
+        include_parse_diag.message
+    );
+}
+
 /// Test that workspace diagnostics excludes fixed files.
 ///
 /// This tests the daemon service layer - the actual LSP bridge bug

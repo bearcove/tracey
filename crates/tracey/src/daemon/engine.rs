@@ -122,6 +122,7 @@ impl Engine {
         let mut build_cache = BuildCache::default();
         let data = match build_dashboard_data_with_overlay_and_cache(
             &project_root,
+            &config_path,
             &config,
             1,
             false,
@@ -139,6 +140,7 @@ impl Engine {
                 config = Config::default();
                 build_dashboard_data_with_overlay_and_cache(
                     &project_root,
+                    &config_path,
                     &config,
                     1,
                     false,
@@ -422,6 +424,7 @@ impl Engine {
         // should not fail the daemon; keep the previous snapshot and record error.
         let build_result = build_dashboard_data_with_overlay_and_cache(
             &self.project_root,
+            &self.config_path,
             &config,
             new_version,
             true,

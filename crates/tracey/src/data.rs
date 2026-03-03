@@ -18,11 +18,11 @@ use std::sync::Mutex;
 use std::time::Instant;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracey_core::code_units::CodeUnit;
-use tracey_core::is_supported_extension;
 use tracey_core::{
     ParseWarning, RefVerb, ReqDefinition, ReqReference, Reqs, RuleId, RuleIdMatch,
     classify_reference_for_rule, parse_rule_id,
 };
+use tracey_core::{SUPPORTED_EXTENSIONS, is_supported_extension};
 use tracing::info;
 
 // Markdown rendering
@@ -719,7 +719,7 @@ fn build_scan_roots(
     for pattern in include {
         let (base_path, glob_suffix) = split_glob_prefix(pattern);
 
-        let resolved_root = if base_path.is_empty() {
+        let mut resolved_root = if base_path.is_empty() {
             project_root.to_path_buf()
         } else {
             project_root.join(base_path)
@@ -734,14 +734,37 @@ fn build_scan_roots(
             continue;
         }
 
-        // For exact paths (no glob suffix), match everything under the resolved root
-        let effective_glob = if glob_suffix.is_empty() {
-            "**/*"
+        // For exact-file patterns (e.g. "justfile"), anchor at parent and match file name.
+        // For exact-directory patterns, match everything under the directory.
+        let effective_glob = if glob_suffix.is_empty() && resolved_root.is_file() {
+            let file_name = match resolved_root.file_name() {
+                Some(name) => name.to_string_lossy().to_string(),
+                None => {
+                    warnings.push(format!(
+                        "Warning: Could not determine file name for include path '{}'",
+                        pattern
+                    ));
+                    continue;
+                }
+            };
+            resolved_root = match resolved_root.parent() {
+                Some(parent) => parent.to_path_buf(),
+                None => {
+                    warnings.push(format!(
+                        "Warning: Could not determine parent directory for include path '{}'",
+                        pattern
+                    ));
+                    continue;
+                }
+            };
+            file_name
+        } else if glob_suffix.is_empty() {
+            "**/*".to_string()
         } else {
-            glob_suffix
+            glob_suffix.to_string()
         };
 
-        let matcher = match globset::Glob::new(effective_glob) {
+        let matcher = match globset::Glob::new(&effective_glob) {
             Ok(glob) => glob.compile_matcher(),
             Err(e) => {
                 warnings.push(format!(
@@ -878,13 +901,13 @@ fn get_cached_impl_scan_paths(
     let entry = cache.impl_scan_paths.entry(key).or_default();
     let did_full_walk;
     if entry.files.is_empty() {
-        entry.files = full_walk_for_roots(&roots, true, false, exclude);
+        entry.files = full_walk_for_roots(&roots, false, false, exclude);
         did_full_walk = true;
     } else if !changed_files.is_empty() {
-        update_cached_scan_paths(entry, &roots, changed_files, true, false, exclude);
+        update_cached_scan_paths(entry, &roots, changed_files, false, false, exclude);
         did_full_walk = false;
     } else {
-        entry.files = full_walk_for_roots(&roots, true, false, exclude);
+        entry.files = full_walk_for_roots(&roots, false, false, exclude);
         did_full_walk = true;
     }
     (entry.files.clone(), warnings, did_full_walk)
@@ -1098,6 +1121,7 @@ async fn scan_impl_files(
 ) -> (
     Vec<ReqReference>,
     Vec<ParseWarning>,
+    Vec<(PathBuf, String)>,
     Vec<String>,
     BTreeMap<PathBuf, Vec<CodeUnit>>,
     BTreeMap<PathBuf, String>,
@@ -1108,12 +1132,6 @@ async fn scan_impl_files(
         get_cached_impl_scan_paths(project_root, include, exclude, changed_files, cache);
     let (impl_roots, _) = build_scan_roots(project_root, include);
     for overlay_path in overlay.keys() {
-        if overlay_path
-            .extension()
-            .is_none_or(|ext| !is_supported_extension(ext))
-        {
-            continue;
-        }
         if path_matches_any_root(overlay_path, &impl_roots)
             && !path_matches_excludes(overlay_path, &impl_roots, exclude)
         {
@@ -1122,29 +1140,51 @@ async fn scan_impl_files(
     }
     let mut refs = Vec::new();
     let mut parse_warnings = Vec::new();
+    let mut parse_failures = Vec::new();
     let mut code_units_by_file: BTreeMap<PathBuf, Vec<CodeUnit>> = BTreeMap::new();
     let mut file_contents: BTreeMap<PathBuf, String> = BTreeMap::new();
     let mut reqs_by_file: BTreeMap<PathBuf, Reqs> = BTreeMap::new();
     for path in files {
-        if let Ok(parsed) = get_cached_source_file(&path, overlay, cache, stats).await {
-            reqs_by_file.insert(
-                path.clone(),
-                Reqs {
-                    references: parsed.refs.clone(),
-                    warnings: parsed.parse_warnings.clone(),
-                },
-            );
-            refs.extend(parsed.refs);
-            parse_warnings.extend(parsed.parse_warnings);
-            if !parsed.code_units.is_empty() {
-                code_units_by_file.insert(path.clone(), parsed.code_units);
+        match path.extension() {
+            Some(ext) if is_supported_extension(ext) => {}
+            Some(ext) => {
+                parse_failures.push((
+                    path.clone(),
+                    format!("unsupported file extension '.{}'", ext.to_string_lossy()),
+                ));
+                continue;
             }
-            file_contents.insert(path, parsed.content);
+            None => {
+                parse_failures.push((path.clone(), "file has no extension".to_string()));
+                continue;
+            }
+        }
+
+        match get_cached_source_file(&path, overlay, cache, stats).await {
+            Ok(parsed) => {
+                reqs_by_file.insert(
+                    path.clone(),
+                    Reqs {
+                        references: parsed.refs.clone(),
+                        warnings: parsed.parse_warnings.clone(),
+                    },
+                );
+                refs.extend(parsed.refs);
+                parse_warnings.extend(parsed.parse_warnings);
+                if !parsed.code_units.is_empty() {
+                    code_units_by_file.insert(path.clone(), parsed.code_units);
+                }
+                file_contents.insert(path, parsed.content);
+            }
+            Err(err) => {
+                parse_failures.push((path, format!("failed to read/parse file: {err}")));
+            }
         }
     }
     (
         refs,
         parse_warnings,
+        parse_failures,
         warnings,
         code_units_by_file,
         file_contents,
@@ -1784,11 +1824,13 @@ pub(crate) fn compute_source_file_diagnostics(
 
 fn compute_workspace_diagnostics(
     abs_root: &Path,
+    config_path: &Path,
     config: &ApiConfig,
     forward_by_impl: &BTreeMap<ImplKey, ApiSpecForward>,
     source_reqs_by_file: &BTreeMap<PathBuf, Reqs>,
     file_contents: &BTreeMap<PathBuf, String>,
     test_files: &std::collections::HashSet<PathBuf>,
+    include_parse_failures: &BTreeMap<PathBuf, String>,
 ) -> Vec<LspFileDiagnostics> {
     let mut out = Vec::new();
     for (path, reqs) in source_reqs_by_file {
@@ -1809,6 +1851,44 @@ fn compute_workspace_diagnostics(
             .unwrap_or_else(|_| compute_relative_path(abs_root, path));
         out.push(LspFileDiagnostics {
             path: rel_path,
+            diagnostics,
+        });
+    }
+
+    if !include_parse_failures.is_empty() {
+        let config_rel_path = config_path
+            .strip_prefix(abs_root)
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| compute_relative_path(abs_root, config_path));
+        let supported_file_types = SUPPORTED_EXTENSIONS
+            .iter()
+            .map(|ext| format!(".{ext}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        let diagnostics = include_parse_failures
+            .iter()
+            .map(|(path, reason)| {
+                let rel_path = path
+                    .strip_prefix(abs_root)
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_else(|_| compute_relative_path(abs_root, path));
+                LspDiagnostic {
+                    severity: "warning".to_string(),
+                    code: "include-unparseable-file".to_string(),
+                    message: format!(
+                        "Include discovered '{rel_path}' but Tracey could not parse it ({reason}). Supported file types: {supported_file_types}. To fix this, either move/rename annotations to a supported file type, or update include/exclude patterns so this file is not scanned."
+                    ),
+                    start_line: 0,
+                    start_char: 0,
+                    end_line: 0,
+                    end_char: 1,
+                }
+            })
+            .collect();
+
+        out.push(LspFileDiagnostics {
+            path: config_rel_path,
             diagnostics,
         });
     }
@@ -1993,8 +2073,15 @@ pub async fn build_dashboard_data(
     quiet: bool,
 ) -> Result<DashboardData> {
     let mut cache = BuildCache::default();
+    let default_config_path = project_root.join(".config/tracey/config.styx");
+    let config_path = if default_config_path.exists() {
+        default_config_path
+    } else {
+        project_root.join("config.styx")
+    };
     build_dashboard_data_with_overlay_and_cache(
         project_root,
+        &config_path,
         config,
         version,
         quiet,
@@ -2013,8 +2100,15 @@ pub async fn build_dashboard_data_with_overlay(
     overlay: &FileOverlay,
 ) -> Result<DashboardData> {
     let mut cache = BuildCache::default();
+    let default_config_path = project_root.join(".config/tracey/config.styx");
+    let config_path = if default_config_path.exists() {
+        default_config_path
+    } else {
+        project_root.join("config.styx")
+    };
     build_dashboard_data_with_overlay_and_cache(
         project_root,
+        &config_path,
         config,
         version,
         quiet,
@@ -2027,6 +2121,7 @@ pub async fn build_dashboard_data_with_overlay(
 
 pub async fn build_dashboard_data_with_overlay_and_cache(
     project_root: &Path,
+    config_path: &Path,
     config: &Config,
     version: u64,
     quiet: bool,
@@ -2058,6 +2153,7 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
     let mut total_source_refs = 0usize;
     let mut total_code_files = 0usize;
     let mut total_code_units = 0usize;
+    let mut include_parse_failures: BTreeMap<PathBuf, String> = BTreeMap::new();
     let total_impls: usize = config.specs.iter().map(|s| s.impls.len()).sum();
 
     info!(
@@ -2233,6 +2329,7 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
             let (
                 mut refs,
                 mut parse_warnings,
+                parse_failures,
                 scan_warnings,
                 mut impl_code_units,
                 mut impl_file_contents,
@@ -2248,6 +2345,9 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
                 &mut cache_stats,
             )
             .await;
+            for (path, reason) in parse_failures {
+                include_parse_failures.entry(path).or_insert(reason);
+            }
 
             // r[impl config.impl.test_include.extraction]
             if !impl_config.test_include.is_empty() {
@@ -2255,6 +2355,7 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
                 let (
                     test_refs,
                     test_parse_warnings,
+                    test_parse_failures,
                     test_scan_warnings,
                     test_code_units,
                     test_file_contents,
@@ -2272,6 +2373,9 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
                 .await;
                 refs.extend(test_refs);
                 parse_warnings.extend(test_parse_warnings);
+                for (path, reason) in test_parse_failures {
+                    include_parse_failures.entry(path).or_insert(reason);
+                }
                 for w in test_scan_warnings {
                     if !quiet {
                         eprintln!("{}", w.yellow());
@@ -2420,11 +2524,13 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
     );
     let workspace_diagnostics = compute_workspace_diagnostics(
         &abs_root,
+        config_path,
         &api_config,
         &forward_by_impl,
         &all_source_reqs_by_file,
         &all_file_contents,
         &test_files,
+        &include_parse_failures,
     );
 
     let elapsed = build_start.elapsed();
