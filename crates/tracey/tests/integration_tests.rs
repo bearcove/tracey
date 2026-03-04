@@ -542,6 +542,47 @@ async fn test_lsp_definition_on_markdown_backtick_reference() {
 }
 
 #[tokio::test]
+async fn test_workspace_diagnostics_include_spec_coverage_hints() {
+    let service = create_test_service().await;
+
+    let all_diags = rpc(service.client.lsp_workspace_diagnostics().await);
+    let spec_diags: Vec<_> = all_diags
+        .iter()
+        .filter(|d| d.path.ends_with("spec.md"))
+        .flat_map(|d| &d.diagnostics)
+        .collect();
+
+    // data.format and error.logging have no implementations -> "uncovered" hints
+    let uncovered: Vec<_> = spec_diags
+        .iter()
+        .filter(|d| d.code == "uncovered")
+        .collect();
+    assert!(
+        uncovered.len() >= 2,
+        "Expected at least 2 uncovered hints (data.format, error.logging), got {}: {uncovered:?}",
+        uncovered.len()
+    );
+
+    // auth.session and auth.logout have impl but no verify -> "untested" hints
+    let untested: Vec<_> = spec_diags.iter().filter(|d| d.code == "untested").collect();
+    assert!(
+        untested.len() >= 2,
+        "Expected at least 2 untested hints (auth.session, auth.logout), got {}: {untested:?}",
+        untested.len()
+    );
+
+    // All coverage hints should be severity "hint"
+    for d in &spec_diags {
+        if d.code == "uncovered" || d.code == "untested" {
+            assert_eq!(
+                d.severity, "hint",
+                "Coverage diagnostic should be severity 'hint'"
+            );
+        }
+    }
+}
+
+#[tokio::test]
 async fn test_lsp_diagnostics_orphaned_markdown_backtick_reference() {
     let service = create_test_service().await;
 
