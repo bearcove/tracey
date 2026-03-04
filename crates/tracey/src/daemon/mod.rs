@@ -312,6 +312,8 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
         // r[impl server.watch.respect-gitignore]
         // Build gitignore matcher for filtering file watcher events
         let mut gitignore = build_gitignore(&project_root_for_rebuild);
+        let canonical_project_root = std::fs::canonicalize(&project_root_for_rebuild)
+            .unwrap_or_else(|_| project_root_for_rebuild.clone());
 
         while let Some(event) = watcher_rx.recv().await {
             match event {
@@ -366,9 +368,18 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
                     }
 
                     // Filter changed files
-                    let relative_paths: Vec<_> = changed_files
+                    let relative_paths: Vec<PathBuf> = changed_files
                         .iter()
-                        .filter_map(|p| p.strip_prefix(&project_root_for_rebuild).ok())
+                        .filter_map(|p| {
+                            if let Ok(rel) = p.strip_prefix(&project_root_for_rebuild) {
+                                return Some(rel.to_path_buf());
+                            }
+                            let canonical = p.canonicalize().ok()?;
+                            canonical
+                                .strip_prefix(&canonical_project_root)
+                                .ok()
+                                .map(Path::to_path_buf)
+                        })
                         .filter(|p| !is_temporary_edit_artifact(p))
                         .filter(|p| {
                             // Keep paths that are NOT ignored by gitignore
@@ -496,10 +507,24 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
                 tokio::spawn(async move {
                     // Create dispatcher (wraps service with generated dispatch + tracing)
                     let dispatcher = TraceyDaemonDispatcher::new(service);
+                    let (session_task_tx, session_task_rx) =
+                        tokio::sync::oneshot::channel::<tokio::task::JoinHandle<()>>();
 
-                    match roam::acceptor(stream).establish::<()>(dispatcher).await {
-                        Ok((_client, _session_handle)) => {
+                    match roam::acceptor(stream)
+                        .spawn_fn(move |fut| {
+                            let handle = tokio::spawn(fut);
+                            let _ = session_task_tx.send(handle);
+                        })
+                        .establish::<tracey_proto::TraceyDaemonClient>(dispatcher)
+                        .await
+                    {
+                        Ok((client_guard, session_handle)) => {
                             info!("Connection established");
+                            let _client_guard = client_guard;
+                            let _session_handle = session_handle;
+                            if let Ok(session_task) = session_task_rx.await {
+                                let _ = session_task.await;
+                            }
                         }
                         Err(e) => {
                             error!("Connection setup failed: {}", e);

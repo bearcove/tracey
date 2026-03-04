@@ -515,9 +515,12 @@ async fn test_lsp_file_watcher_detects_spec_change() {
     let mut orphan_cleared = false;
     for _ in 0..60 {
         match wait_for_diagnostics(&mut stdout, &lib_uri, 20, Duration::from_millis(500)).await {
-            Some(diags) if !diagnostics_contain_code(&diags, "orphaned") => {
-                orphan_cleared = true;
-                break;
+            Some(diags) => {
+                let has_orphaned = diagnostics_contain_code(&diags, "orphaned");
+                if !has_orphaned {
+                    orphan_cleared = true;
+                    break;
+                }
             }
             _ => {
                 sleep(Duration::from_millis(200)).await;
@@ -625,6 +628,21 @@ async fn test_lsp_config_diagnostic_clears_after_save() {
             "jsonrpc": "2.0",
             "method": "initialized",
             "params": {}
+        }),
+    )
+    .await;
+
+    // Trigger config diagnostics explicitly via save notification.
+    send_message(
+        &mut stdin,
+        &json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didSave",
+            "params": {
+                "textDocument": {
+                    "uri": config_uri.clone()
+                }
+            }
         }),
     )
     .await;

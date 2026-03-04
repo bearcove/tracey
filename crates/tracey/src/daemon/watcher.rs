@@ -212,6 +212,16 @@ pub fn glob_to_watch_dir(pattern: &str) -> PathBuf {
 ///
 /// The result is deduplicated and sorted.
 pub fn extract_watch_dirs_from_config(config: &Config, project_root: &Path) -> HashSet<PathBuf> {
+    fn normalize_watch_path(path: PathBuf) -> Option<PathBuf> {
+        if path.is_dir() {
+            return Some(path);
+        }
+        if path.is_file() {
+            return path.parent().map(Path::to_path_buf);
+        }
+        None
+    }
+
     let mut dirs = HashSet::new();
 
     // Canonicalize project root for comparison
@@ -231,6 +241,9 @@ pub fn extract_watch_dirs_from_config(config: &Config, project_root: &Path) -> H
             let full_path = project_root.join(&dir);
             // Canonicalize to resolve .. components and get clean absolute paths
             if let Ok(canonical) = full_path.canonicalize() {
+                let Some(canonical) = normalize_watch_path(canonical) else {
+                    continue;
+                };
                 // Double-check it's inside the project root
                 if let Some(ref root) = canonical_project_root
                     && !canonical.starts_with(root)
@@ -256,7 +269,9 @@ pub fn extract_watch_dirs_from_config(config: &Config, project_root: &Path) -> H
                 let dir = glob_to_watch_dir(include);
                 let full_path = project_root.join(&dir);
                 if let Ok(canonical) = full_path.canonicalize() {
-                    dirs.insert(canonical);
+                    if let Some(canonical) = normalize_watch_path(canonical) {
+                        dirs.insert(canonical);
+                    }
                 }
             }
 
@@ -264,7 +279,9 @@ pub fn extract_watch_dirs_from_config(config: &Config, project_root: &Path) -> H
                 let dir = glob_to_watch_dir(test_include);
                 let full_path = project_root.join(&dir);
                 if let Ok(canonical) = full_path.canonicalize() {
-                    dirs.insert(canonical);
+                    if let Some(canonical) = normalize_watch_path(canonical) {
+                        dirs.insert(canonical);
+                    }
                 }
             }
         }

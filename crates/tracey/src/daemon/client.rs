@@ -26,7 +26,7 @@ pub fn new_client(project_root: PathBuf) -> DaemonClient {
 }
 
 impl DaemonClient {
-    async fn connect_inner(&self) -> io::Result<TraceyDaemonClient> {
+    async fn connect_inner(&self) -> io::Result<roam_stream::LocalLink> {
         let start = Instant::now();
         debug!(
             project_root = %self.project_root.display(),
@@ -38,15 +38,7 @@ impl DaemonClient {
             elapsed_ms = start.elapsed().as_millis(),
             "daemon client: local transport connected"
         );
-        let (client, _session_handle) = roam::initiator(stream)
-            .establish::<TraceyDaemonClient>(())
-            .await
-            .map_err(|e| io::Error::other(format!("failed to establish RPC session: {e}")))?;
-        debug!(
-            elapsed_ms = start.elapsed().as_millis(),
-            "daemon client: roam session established"
-        );
-        Ok(client)
+        Ok(stream)
     }
 
     async fn with_client<T, E, F, Fut>(&self, f: F) -> Result<T, roam::RoamError<E>>
@@ -60,14 +52,36 @@ impl DaemonClient {
             callsite = format_args!("{}:{}", callsite.file(), callsite.line()),
             "daemon client: with_client start"
         );
-        let client = match self.connect_inner().await {
-            Ok(client) => client,
+        let stream = match self.connect_inner().await {
+            Ok(stream) => stream,
             Err(e) => {
                 warn!(
                     elapsed_ms = start.elapsed().as_millis(),
                     error = %e,
                     callsite = format_args!("{}:{}", callsite.file(), callsite.line()),
                     "daemon client: connect_inner failed"
+                );
+                return Err(roam::RoamError::Cancelled);
+            }
+        };
+        let (client, _session_handle) = match roam::initiator(stream)
+            .establish::<TraceyDaemonClient>(())
+            .await
+        {
+            Ok(parts) => {
+                debug!(
+                    elapsed_ms = start.elapsed().as_millis(),
+                    callsite = format_args!("{}:{}", callsite.file(), callsite.line()),
+                    "daemon client: roam session established"
+                );
+                parts
+            }
+            Err(e) => {
+                warn!(
+                    elapsed_ms = start.elapsed().as_millis(),
+                    error = %e,
+                    callsite = format_args!("{}:{}", callsite.file(), callsite.line()),
+                    "daemon client: roam session establish failed"
                 );
                 return Err(roam::RoamError::Cancelled);
             }
