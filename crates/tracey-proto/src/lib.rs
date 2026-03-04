@@ -740,9 +740,6 @@ pub trait TraceyDaemon {
     /// Get completions for a position
     async fn lsp_completions(&self, req: LspPositionRequest) -> Vec<LspCompletionItem>;
 
-    /// Get diagnostics for a file
-    async fn lsp_diagnostics(&self, req: LspDocumentRequest) -> Vec<LspDiagnostic>;
-
     /// Get diagnostics for all files in the workspace
     ///
     /// This returns diagnostics for all spec files and implementation files

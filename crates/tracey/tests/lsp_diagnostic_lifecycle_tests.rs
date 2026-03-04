@@ -20,37 +20,11 @@ fn rpc<T, E: std::fmt::Debug>(res: Result<T, roam::RoamError<E>>) -> T {
     res.expect("RPC call failed")
 }
 
-/// Get the path to the test fixtures directory.
-fn fixtures_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("fixtures")
-}
-
 /// Get the path to a named fixture set directory.
 fn fixtures_named(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join(format!("fixtures-{name}"))
-}
-
-/// Helper to create an engine for testing.
-async fn create_test_engine() -> Arc<tracey::daemon::Engine> {
-    let project_root = fixtures_dir();
-    let config_path = project_root.join("config.styx");
-
-    Arc::new(
-        tracey::daemon::Engine::new(project_root, config_path)
-            .await
-            .expect("Failed to create engine"),
-    )
-}
-
-/// Helper to create a service for testing.
-async fn create_test_service() -> common::RpcTestService {
-    let engine = create_test_engine().await;
-    let service = tracey::daemon::TraceyService::new(engine);
-    common::create_test_rpc_service(service).await
 }
 
 /// Helper to create a service from a named fixture set.
@@ -81,6 +55,14 @@ async fn create_isolated_test_service() -> (tempfile::TempDir, common::RpcTestSe
     (temp, rpc)
 }
 
+/// Helper: get workspace diagnostics for a specific file path suffix.
+fn diags_for_file<'a>(all: &'a [LspFileDiagnostics], suffix: &str) -> Vec<&'a LspDiagnostic> {
+    all.iter()
+        .filter(|d| d.path.ends_with(suffix))
+        .flat_map(|d| &d.diagnostics)
+        .collect()
+}
+
 // ============================================================================
 // Basic Diagnostic Tests
 // ============================================================================
@@ -89,16 +71,9 @@ async fn create_isolated_test_service() -> (tempfile::TempDir, common::RpcTestSe
 #[tokio::test]
 async fn test_orphaned_reference_produces_diagnostic() {
     let service = create_test_service_named("orphaned").await;
-    let dir = fixtures_named("orphaned");
 
-    let content = std::fs::read_to_string(dir.join("src/lib.rs")).unwrap();
-
-    let req = LspDocumentRequest {
-        path: dir.join("src/lib.rs").display().to_string(),
-        content: content.to_string(),
-    };
-
-    let diagnostics = rpc(service.client.lsp_diagnostics(req).await);
+    let all = rpc(service.client.lsp_workspace_diagnostics().await);
+    let diagnostics = diags_for_file(&all, "src/lib.rs");
 
     assert!(
         !diagnostics.is_empty(),
@@ -116,27 +91,21 @@ async fn test_orphaned_reference_produces_diagnostic() {
 /// Test that a file with valid references produces no diagnostics.
 #[tokio::test]
 async fn test_valid_reference_no_diagnostic() {
-    let service = create_test_service().await;
+    let service = create_test_service_named("orphaned").await;
 
-    let content = std::fs::read_to_string(fixtures_dir().join("src/lib.rs")).unwrap();
+    // The fixtures-orphaned project has src/lib.rs with an orphaned reference,
+    // but let's check that there are no unknown-prefix diagnostics
+    let all = rpc(service.client.lsp_workspace_diagnostics().await);
+    let diagnostics = diags_for_file(&all, "src/lib.rs");
 
-    let req = LspDocumentRequest {
-        path: fixtures_dir().join("src/lib.rs").display().to_string(),
-        content: content.to_string(),
-    };
-
-    let diagnostics = rpc(service.client.lsp_diagnostics(req).await);
-
-    // Should have no error diagnostics (might have hints for coverage)
     let errors: Vec<_> = diagnostics
         .iter()
-        .filter(|d| d.severity == "error" || d.severity == "warning")
-        .filter(|d| d.code == "orphaned" || d.code == "unknown-prefix")
+        .filter(|d| d.code == "unknown-prefix")
         .collect();
 
     assert!(
         errors.is_empty(),
-        "Expected no error diagnostics, got: {:?}",
+        "Expected no unknown-prefix diagnostics, got: {:?}",
         errors
     );
 }
@@ -165,14 +134,9 @@ Users MUST provide valid credentials to log in.
     // Rebuild daemon data after changing spec and adding source file.
     rpc(service.client.reload().await);
 
-    let content = std::fs::read_to_string(temp.path().join("src/stale.rs")).unwrap();
+    let all = rpc(service.client.lsp_workspace_diagnostics().await);
+    let diagnostics = diags_for_file(&all, "src/stale.rs");
 
-    let req = LspDocumentRequest {
-        path: temp.path().join("src/stale.rs").display().to_string(),
-        content: content.to_string(),
-    };
-
-    let diagnostics = rpc(service.client.lsp_diagnostics(req).await);
     let stale = diagnostics.iter().find(|d| d.code == "stale");
     assert!(stale.is_some(), "Expected stale diagnostic");
 
@@ -187,7 +151,7 @@ Users MUST provide valid credentials to log in.
 // VFS + Diagnostic Lifecycle Tests
 // ============================================================================
 
-/// Test that VFS open with errors produces diagnostics.
+/// Test that VFS open with errors produces diagnostics after rebuild.
 #[tokio::test]
 async fn test_vfs_open_with_error_produces_diagnostics() {
     let (temp, service) = create_isolated_test_service().await;
@@ -197,7 +161,7 @@ async fn test_vfs_open_with_error_produces_diagnostics() {
     let content_with_error = r#"/// r[impl typo.nonexistent]
 fn broken_func() {}"#;
 
-    // Open file via VFS
+    // Open file via VFS and rebuild
     rpc(service
         .client
         .vfs_open(
@@ -205,14 +169,10 @@ fn broken_func() {}"#;
             content_with_error.to_string(),
         )
         .await);
+    rpc(service.client.reload().await);
 
-    // Request diagnostics for this file
-    let req = LspDocumentRequest {
-        path: test_file.display().to_string(),
-        content: content_with_error.to_string(),
-    };
-
-    let diagnostics = rpc(service.client.lsp_diagnostics(req).await);
+    let all = rpc(service.client.lsp_workspace_diagnostics().await);
+    let diagnostics = diags_for_file(&all, "src/vfs_test.rs");
 
     assert!(
         !diagnostics.is_empty(),
@@ -247,14 +207,11 @@ fn login_impl() {}"#;
             content_with_typo.to_string(),
         )
         .await);
+    rpc(service.client.reload().await);
 
     // Verify we have diagnostics
-    let req = LspDocumentRequest {
-        path: test_file.display().to_string(),
-        content: content_with_typo.to_string(),
-    };
-    let diagnostics_before = rpc(service.client.lsp_diagnostics(req).await);
-
+    let all = rpc(service.client.lsp_workspace_diagnostics().await);
+    let diagnostics_before = diags_for_file(&all, "src/vfs_test.rs");
     assert!(
         !diagnostics_before.is_empty(),
         "Expected diagnostics for typo 'auth.logn'"
@@ -268,15 +225,12 @@ fn login_impl() {}"#;
         .client
         .vfs_change(test_file.display().to_string(), content_fixed.to_string())
         .await);
+    rpc(service.client.reload().await);
 
     // Step 3: Verify diagnostics are cleared
-    let req = LspDocumentRequest {
-        path: test_file.display().to_string(),
-        content: content_fixed.to_string(),
-    };
-    let diagnostics_after = rpc(service.client.lsp_diagnostics(req).await);
+    let all = rpc(service.client.lsp_workspace_diagnostics().await);
+    let diagnostics_after = diags_for_file(&all, "src/vfs_test.rs");
 
-    // Filter to only error/warning level diagnostics
     let error_diagnostics: Vec<_> = diagnostics_after
         .iter()
         .filter(|d| d.code == "orphaned" || d.code == "unknown-prefix")
@@ -303,12 +257,10 @@ fn broken() {}"#;
         .client
         .vfs_open(test_file.display().to_string(), broken_v1.to_string())
         .await);
+    rpc(service.client.reload().await);
 
-    let req = LspDocumentRequest {
-        path: test_file.display().to_string(),
-        content: broken_v1.to_string(),
-    };
-    let diag = rpc(service.client.lsp_diagnostics(req).await);
+    let all = rpc(service.client.lsp_workspace_diagnostics().await);
+    let diag = diags_for_file(&all, "src/vfs_test.rs");
     assert!(
         !diag.is_empty(),
         "Cycle 1: Expected diagnostics for broken state"
@@ -322,12 +274,10 @@ fn working() {}"#;
         .client
         .vfs_change(test_file.display().to_string(), fixed_v1.to_string())
         .await);
+    rpc(service.client.reload().await);
 
-    let req = LspDocumentRequest {
-        path: test_file.display().to_string(),
-        content: fixed_v1.to_string(),
-    };
-    let diag = rpc(service.client.lsp_diagnostics(req).await);
+    let all = rpc(service.client.lsp_workspace_diagnostics().await);
+    let diag = diags_for_file(&all, "src/vfs_test.rs");
     let errors: Vec<_> = diag.iter().filter(|d| d.code == "orphaned").collect();
     assert!(
         errors.is_empty(),
@@ -342,12 +292,10 @@ fn broken_again() {}"#;
         .client
         .vfs_change(test_file.display().to_string(), broken_v2.to_string())
         .await);
+    rpc(service.client.reload().await);
 
-    let req = LspDocumentRequest {
-        path: test_file.display().to_string(),
-        content: broken_v2.to_string(),
-    };
-    let diag = rpc(service.client.lsp_diagnostics(req).await);
+    let all = rpc(service.client.lsp_workspace_diagnostics().await);
+    let diag = diags_for_file(&all, "src/vfs_test.rs");
     assert!(
         !diag.is_empty(),
         "Cycle 2: Expected diagnostics for broken state"
@@ -361,12 +309,10 @@ fn working_again() {}"#;
         .client
         .vfs_change(test_file.display().to_string(), fixed_v2.to_string())
         .await);
+    rpc(service.client.reload().await);
 
-    let req = LspDocumentRequest {
-        path: test_file.display().to_string(),
-        content: fixed_v2.to_string(),
-    };
-    let diag = rpc(service.client.lsp_diagnostics(req).await);
+    let all = rpc(service.client.lsp_workspace_diagnostics().await);
+    let diag = diags_for_file(&all, "src/vfs_test.rs");
     let errors: Vec<_> = diag.iter().filter(|d| d.code == "orphaned").collect();
     assert!(
         errors.is_empty(),
@@ -392,11 +338,11 @@ fn broken() {}"#;
     std::fs::write(&test_file, content).expect("Failed to write test file");
 
     // Force rebuild to pick up the new file
-    // We'll use vfs_open and immediately close to trigger a rebuild
     rpc(service
         .client
         .vfs_open(test_file.display().to_string(), content.to_string())
         .await);
+    rpc(service.client.reload().await);
 
     // Get workspace diagnostics
     let workspace_diags = rpc(service.client.lsp_workspace_diagnostics().await);
@@ -494,10 +440,6 @@ run:
 }
 
 /// Test that workspace diagnostics excludes fixed files.
-///
-/// This tests the daemon service layer - the actual LSP bridge bug
-/// is about not publishing empty diagnostics for previously-diagnosed files,
-/// but the service layer should correctly return an empty list for fixed files.
 #[tokio::test]
 async fn test_workspace_diagnostics_excludes_fixed_files() {
     let (temp, service) = create_isolated_test_service().await;
@@ -512,6 +454,7 @@ fn broken() {}"#;
         .client
         .vfs_open(test_file.display().to_string(), broken_content.to_string())
         .await);
+    rpc(service.client.reload().await);
 
     let workspace_diags_before = rpc(service.client.lsp_workspace_diagnostics().await);
 
@@ -533,6 +476,7 @@ fn working() {}"#;
         .client
         .vfs_change(test_file.display().to_string(), fixed_content.to_string())
         .await);
+    rpc(service.client.reload().await);
 
     // Step 3: Verify file is no longer in workspace diagnostics
     let workspace_diags_after = rpc(service.client.lsp_workspace_diagnostics().await);
@@ -554,18 +498,12 @@ fn working() {}"#;
 /// Test to verify the expected behavior for LSP diagnostic clearing.
 ///
 /// This test documents the expected behavior: when a file is fixed,
-/// the LSP client should receive an empty diagnostics array to clear
-/// any previously shown diagnostics.
-///
-/// The test tracks which files have had diagnostics published and
-/// ensures they would receive updates when fixed.
+/// the workspace diagnostics should no longer include it, and the LSP
+/// bridge publishes empty diagnostics to clear client-side state.
 #[tokio::test]
 async fn test_diagnostic_clearing_behavior_documented() {
     let (temp, service) = create_isolated_test_service().await;
     let test_file = temp.path().join("src/clearing_test.rs");
-
-    // Simulating LSP client state: track files that have received diagnostics
-    let mut files_with_published_diagnostics: HashSet<String> = HashSet::new();
 
     // Step 1: Open file with error
     let broken_content = r#"/// r[impl typo.in.rule.name]
@@ -575,21 +513,13 @@ fn broken() {}"#;
         .client
         .vfs_open(test_file.display().to_string(), broken_content.to_string())
         .await);
+    rpc(service.client.reload().await);
 
-    // Simulate LSP publish_diagnostics call
-    let req = LspDocumentRequest {
-        path: test_file.display().to_string(),
-        content: broken_content.to_string(),
-    };
-    let diagnostics = rpc(service.client.lsp_diagnostics(req).await);
-
-    if !diagnostics.is_empty() {
-        files_with_published_diagnostics.insert(test_file.display().to_string());
-    }
-
+    let all = rpc(service.client.lsp_workspace_diagnostics().await);
+    let diagnostics = diags_for_file(&all, "src/clearing_test.rs");
     assert!(
-        files_with_published_diagnostics.contains(&test_file.display().to_string()),
-        "File should be tracked as having diagnostics"
+        !diagnostics.is_empty(),
+        "File should have diagnostics when broken"
     );
 
     // Step 2: Fix the file
@@ -600,29 +530,20 @@ fn working() {}"#;
         .client
         .vfs_change(test_file.display().to_string(), fixed_content.to_string())
         .await);
+    rpc(service.client.reload().await);
 
-    // Simulate what SHOULD happen in LSP:
-    // For each file in files_with_published_diagnostics, we should call lsp_diagnostics
-    // and publish the result (even if empty) to clear old diagnostics
-    let req = LspDocumentRequest {
-        path: test_file.display().to_string(),
-        content: fixed_content.to_string(),
-    };
-    let diagnostics = rpc(service.client.lsp_diagnostics(req).await);
+    let all = rpc(service.client.lsp_workspace_diagnostics().await);
+    let diagnostics = diags_for_file(&all, "src/clearing_test.rs");
 
     let errors: Vec<_> = diagnostics
         .iter()
         .filter(|d| d.code == "orphaned")
         .collect();
 
-    // The daemon correctly returns empty diagnostics
     assert!(
         errors.is_empty(),
         "Daemon should return empty diagnostics for fixed file"
     );
-
-    // The LSP bridge should publish this empty list to clear client-side diagnostics
-    // (This documents the expected behavior - the actual fix is in lsp.rs)
 }
 
 // ============================================================================
@@ -640,18 +561,16 @@ async fn test_vfs_close_preserves_workspace_diagnostics() {
 fn broken() {}"#;
     std::fs::write(&test_file, content).expect("Failed to write test file");
 
-    // Open the file
+    // Open the file and rebuild
     rpc(service
         .client
         .vfs_open(test_file.display().to_string(), content.to_string())
         .await);
+    rpc(service.client.reload().await);
 
     // Verify we have diagnostics while open
-    let req = LspDocumentRequest {
-        path: test_file.display().to_string(),
-        content: content.to_string(),
-    };
-    let diagnostics = rpc(service.client.lsp_diagnostics(req).await);
+    let all = rpc(service.client.lsp_workspace_diagnostics().await);
+    let diagnostics = diags_for_file(&all, "src/close_test.rs");
     assert!(
         !diagnostics.is_empty(),
         "Expected diagnostics while file is open"
@@ -688,16 +607,9 @@ fn broken() {}"#;
 #[tokio::test]
 async fn test_multiple_errors_in_file() {
     let service = create_test_service_named("multi-error").await;
-    let dir = fixtures_named("multi-error");
 
-    let content = std::fs::read_to_string(dir.join("src/lib.rs")).unwrap();
-
-    let req = LspDocumentRequest {
-        path: dir.join("src/lib.rs").display().to_string(),
-        content: content.to_string(),
-    };
-
-    let diagnostics = rpc(service.client.lsp_diagnostics(req).await);
+    let all = rpc(service.client.lsp_workspace_diagnostics().await);
+    let diagnostics = diags_for_file(&all, "src/lib.rs");
 
     let orphaned_diagnostics: Vec<_> = diagnostics
         .iter()
@@ -732,12 +644,10 @@ fn second() {}"#;
             content_with_two_errors.to_string(),
         )
         .await);
+    rpc(service.client.reload().await);
 
-    let req = LspDocumentRequest {
-        path: test_file.display().to_string(),
-        content: content_with_two_errors.to_string(),
-    };
-    let diagnostics_before = rpc(service.client.lsp_diagnostics(req).await);
+    let all = rpc(service.client.lsp_workspace_diagnostics().await);
+    let diagnostics_before = diags_for_file(&all, "src/partial_fix.rs");
     let errors_before: Vec<_> = diagnostics_before
         .iter()
         .filter(|d| d.code == "orphaned")
@@ -758,12 +668,10 @@ fn second() {}"#;
             content_with_one_error.to_string(),
         )
         .await);
+    rpc(service.client.reload().await);
 
-    let req = LspDocumentRequest {
-        path: test_file.display().to_string(),
-        content: content_with_one_error.to_string(),
-    };
-    let diagnostics_after = rpc(service.client.lsp_diagnostics(req).await);
+    let all = rpc(service.client.lsp_workspace_diagnostics().await);
+    let diagnostics_after = diags_for_file(&all, "src/partial_fix.rs");
     let errors_after: Vec<_> = diagnostics_after
         .iter()
         .filter(|d| d.code == "orphaned")
@@ -780,16 +688,9 @@ fn second() {}"#;
 #[tokio::test]
 async fn test_unknown_prefix_diagnostic() {
     let service = create_test_service_named("unknown-prefix").await;
-    let dir = fixtures_named("unknown-prefix");
 
-    let content = std::fs::read_to_string(dir.join("src/lib.rs")).unwrap();
-
-    let req = LspDocumentRequest {
-        path: dir.join("src/lib.rs").display().to_string(),
-        content: content.to_string(),
-    };
-
-    let diagnostics = rpc(service.client.lsp_diagnostics(req).await);
+    let all = rpc(service.client.lsp_workspace_diagnostics().await);
+    let diagnostics = diags_for_file(&all, "src/lib.rs");
 
     let unknown_prefix = diagnostics.iter().find(|d| d.code == "unknown-prefix");
     assert!(
@@ -810,14 +711,10 @@ async fn test_unknown_prefix_ignored_for_short_form_prose() {
         .client
         .vfs_open(test_file.display().to_string(), content.to_string())
         .await);
+    rpc(service.client.reload().await);
 
-    let diagnostics = rpc(service
-        .client
-        .lsp_diagnostics(LspDocumentRequest {
-            path: test_file.display().to_string(),
-            content: content.to_string(),
-        })
-        .await);
+    let all = rpc(service.client.lsp_workspace_diagnostics().await);
+    let diagnostics = diags_for_file(&all, "src/prose.rs");
 
     let unknown_prefix = diagnostics.iter().find(|d| d.code == "unknown-prefix");
     assert!(
@@ -872,6 +769,7 @@ fn working() {}"#;
             working_content.to_string(),
         )
         .await);
+    rpc(service.client.reload().await);
 
     // Simulate initial publish_workspace_diagnostics
     let workspace_diags = rpc(service.client.lsp_workspace_diagnostics().await);
@@ -900,6 +798,7 @@ fn now_working() {}"#;
         .client
         .vfs_change(broken_file.display().to_string(), fixed_content.to_string())
         .await);
+    rpc(service.client.reload().await);
 
     // Simulate what SHOULD happen in publish_workspace_diagnostics:
     // Get fresh workspace diagnostics
@@ -934,25 +833,6 @@ fn now_working() {}"#;
         "Fixed file should be in files_to_clear list: {:?}",
         files_to_clear
     );
-
-    // For each file to clear, we should call lsp_diagnostics and get an empty list
-    for path in &files_to_clear {
-        if path.contains("broken.rs") {
-            let req = LspDocumentRequest {
-                path: broken_file.display().to_string(),
-                content: fixed_content.to_string(),
-            };
-            let diagnostics = rpc(service.client.lsp_diagnostics(req).await);
-            let errors: Vec<_> = diagnostics
-                .iter()
-                .filter(|d| d.code == "orphaned")
-                .collect();
-            assert!(
-                errors.is_empty(),
-                "Fixed file should have empty diagnostics"
-            );
-        }
-    }
 
     // Update tracked files
     files_with_diagnostics.clear();

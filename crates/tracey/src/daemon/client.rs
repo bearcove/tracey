@@ -263,13 +263,6 @@ impl DaemonClient {
         self.with_client(|c| async move { c.lsp_completions(req).await })
             .await
     }
-    pub async fn lsp_diagnostics(
-        &self,
-        req: tracey_proto::LspDocumentRequest,
-    ) -> Result<Vec<tracey_proto::LspDiagnostic>, roam::RoamError> {
-        self.with_client(|c| async move { c.lsp_diagnostics(req).await })
-            .await
-    }
     pub async fn lsp_workspace_diagnostics(
         &self,
     ) -> Result<Vec<tracey_proto::LspFileDiagnostics>, roam::RoamError> {

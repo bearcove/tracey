@@ -17,8 +17,6 @@ use roam::Tx;
 // Re-export the generated dispatcher from tracey-proto
 pub use tracey_proto::TraceyDaemonDispatcher;
 
-const STALE_IMPLEMENTATION_MUST_CHANGE_PREFIX: &str = "Implementation must be changed to match updated rule text — and ONLY ONCE THAT'S DONE must the code annotation be bumped";
-
 #[derive(Debug, Clone)]
 struct HistoricalRuleText {
     text: String,
@@ -1161,192 +1159,11 @@ impl TraceyDaemon for TraceyService {
         completions
     }
 
-    /// Get diagnostics for a file
+    /// Get diagnostics for all files in the workspace
     ///
     /// r[impl lsp.diagnostics.orphaned]
     /// r[impl lsp.diagnostics.duplicate-definition]
     /// r[impl lsp.diagnostics.impl-in-test]
-    async fn lsp_diagnostics(&self, req: LspDocumentRequest) -> Vec<LspDiagnostic> {
-        let data = self.inner.engine.data().await;
-        let path = PathBuf::from(&req.path);
-
-        let mut diagnostics = Vec::new();
-
-        // For markdown spec files, show coverage diagnostics for definitions
-        // and validate inline cross-references like `r[foo.bar]`.
-        if path.extension().is_some_and(|ext| ext == "md") {
-            let options = marq::RenderOptions::default();
-            if let Ok(doc) = marq::render(&req.content, &options).await {
-                for def in &doc.reqs {
-                    // Use marker_span for diagnostics (only squiggle the marker, not content)
-                    let (start_line, start_char, end_line, end_char) =
-                        span_to_range(&req.content, def.marker_span.offset, def.marker_span.length);
-
-                    // Look up the rule to check coverage
-                    if let Some(def_id) = parse_rule_id(&def.id.to_string())
-                        && let Some((_, rule)) = find_rule_in_data(&data, &def_id)
-                    {
-                        let impl_count = rule.impl_refs.len();
-                        let verify_count = rule.verify_refs.len();
-
-                        if impl_count == 0 {
-                            diagnostics.push(LspDiagnostic {
-                                severity: "hint".to_string(),
-                                code: "uncovered".to_string(),
-                                message: "Requirement has no implementations".to_string(),
-                                start_line,
-                                start_char,
-                                end_line,
-                                end_char,
-                            });
-                        } else if verify_count == 0 {
-                            diagnostics.push(LspDiagnostic {
-                                severity: "hint".to_string(),
-                                code: "untested".to_string(),
-                                message: format!(
-                                    "Requirement has {} impl but no verification",
-                                    impl_count
-                                ),
-                                start_line,
-                                start_char,
-                                end_line,
-                                end_char,
-                            });
-                        }
-                    }
-                }
-            }
-
-            let known_prefixes: std::collections::HashSet<_> = data
-                .config
-                .specs
-                .iter()
-                .map(|s| s.prefix.as_str())
-                .collect();
-            if known_prefixes.is_empty() {
-                return diagnostics;
-            }
-
-            let mut known_rules_by_prefix: std::collections::HashMap<&str, Vec<RuleId>> =
-                std::collections::HashMap::new();
-            let mut rules_by_id: std::collections::HashMap<RuleId, ApiRule> =
-                std::collections::HashMap::new();
-            for spec_cfg in &data.config.specs {
-                let rule_ids = known_rules_by_prefix
-                    .entry(spec_cfg.prefix.as_str())
-                    .or_default();
-                for ((spec_name, _), forward_data) in &data.forward_by_impl {
-                    if spec_name == &spec_cfg.name {
-                        for rule in &forward_data.rules {
-                            rule_ids.push(rule.id.clone());
-                            rules_by_id
-                                .entry(rule.id.clone())
-                                .or_insert_with(|| rule.clone());
-                        }
-                    }
-                }
-            }
-
-            for reference in extract_markdown_rule_references(&req.content) {
-                let (start_line, start_char, end_line, end_char) =
-                    span_to_range(&req.content, reference.span_offset, reference.span_length);
-
-                if !known_prefixes.contains(reference.prefix.as_str()) {
-                    diagnostics.push(LspDiagnostic {
-                        severity: "error".to_string(),
-                        code: "unknown-prefix".to_string(),
-                        message: format!("Unknown prefix: '{}'", reference.prefix),
-                        start_line,
-                        start_char,
-                        end_line,
-                        end_char,
-                    });
-                    continue;
-                }
-
-                let known_for_prefix = known_rules_by_prefix
-                    .get(reference.prefix.as_str())
-                    .map(Vec::as_slice)
-                    .unwrap_or(&[]);
-                match classify_reference_against_known_rules(&reference.req_id, known_for_prefix) {
-                    KnownRuleMatch::Exact => {}
-                    KnownRuleMatch::Stale(current_rule_id) => {
-                        let message = stale_diagnostic_message_short(
-                            &reference.req_id,
-                            rules_by_id.get(&current_rule_id),
-                        );
-                        diagnostics.push(LspDiagnostic {
-                            severity: "warning".to_string(),
-                            code: "stale".to_string(),
-                            message,
-                            start_line,
-                            start_char,
-                            end_line,
-                            end_char,
-                        });
-                    }
-                    KnownRuleMatch::Missing => {
-                        let message = unknown_rule_message_with_suggestions(
-                            &reference.req_id,
-                            known_for_prefix,
-                        );
-                        diagnostics.push(LspDiagnostic {
-                            severity: "warning".to_string(),
-                            code: "orphaned".to_string(),
-                            message,
-                            start_line,
-                            start_char,
-                            end_line,
-                            end_char,
-                        });
-                    }
-                }
-            }
-
-            return diagnostics;
-        }
-
-        // For source files, use precomputed build diagnostics (single source of truth).
-        let project_root = self.inner.engine.project_root();
-        let canonical_root = project_root
-            .canonicalize()
-            .unwrap_or_else(|_| project_root.to_path_buf());
-        let canonical_path = path.canonicalize().unwrap_or_else(|_| path.clone());
-        let relative_path = if canonical_path.is_absolute() {
-            canonical_path
-                .strip_prefix(&canonical_root)
-                .ok()
-                .map(|p| p.to_string_lossy())
-        } else {
-            Some(canonical_path.to_string_lossy())
-        };
-        let normalized = relative_path.map(|p| p.replace('\\', "/"));
-        if let Some(precomputed) = data
-            .workspace_diagnostics
-            .iter()
-            .find(|entry| normalized.as_deref() == Some(entry.path.as_str()))
-        {
-            return precomputed.diagnostics.clone();
-        }
-
-        // Live fallback for VFS-only files that are not part of the precomputed workspace set yet.
-        let reqs = lookup_source_reqs(&data, &path)
-            .cloned()
-            .unwrap_or_else(|| tracey_core::Reqs::extract_from_content(&path, &req.content));
-        let is_test = {
-            let canonical = path.canonicalize().unwrap_or_else(|_| path.clone());
-            data.test_files.contains(&path) || data.test_files.contains(&canonical)
-        };
-        crate::data::compute_source_file_diagnostics(
-            &req.content,
-            &reqs,
-            is_test,
-            &data.config,
-            &data.forward_by_impl,
-        )
-    }
-
-    /// Get diagnostics for all files in the workspace
     async fn lsp_workspace_diagnostics(&self) -> Vec<LspFileDiagnostics> {
         let data = self.inner.engine.data().await;
         data.workspace_diagnostics.clone()
@@ -2296,58 +2113,6 @@ fn span_to_range(content: &str, offset: usize, length: usize) -> (u32, u32, u32,
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum KnownRuleMatch {
-    Exact,
-    Stale(RuleId),
-    Missing,
-}
-
-// r[impl coverage.compute.stale]
-// r[impl coverage.compute.stale.update]
-fn classify_reference_against_known_rules(
-    reference_id: &RuleId,
-    known_rule_ids: &[RuleId],
-) -> KnownRuleMatch {
-    let mut stale_target: Option<RuleId> = None;
-
-    for rule_id in known_rule_ids {
-        match classify_reference_for_rule(rule_id, reference_id) {
-            RuleIdMatch::Exact => return KnownRuleMatch::Exact,
-            RuleIdMatch::Stale => {
-                stale_target = Some(rule_id.clone());
-            }
-            RuleIdMatch::NoMatch => {}
-        }
-    }
-
-    if let Some(rule_id) = stale_target {
-        KnownRuleMatch::Stale(rule_id)
-    } else {
-        KnownRuleMatch::Missing
-    }
-}
-
-fn unknown_rule_message_with_suggestions(
-    reference_id: &RuleId,
-    known_rule_ids: &[RuleId],
-) -> String {
-    let suggestions = suggest_similar_rule_ids(reference_id, known_rule_ids, 3);
-    if suggestions.is_empty() {
-        format!("Reference to unknown rule '{}'", reference_id)
-    } else {
-        format!(
-            "Reference to unknown rule '{}' (did you mean: {})",
-            reference_id,
-            suggestions
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join(", ")
-        )
-    }
-}
-
 /// Find a rule by ID in the engine data
 fn find_rule_in_data<'a>(
     data: &'a crate::data::DashboardData,
@@ -2412,23 +2177,6 @@ async fn load_previous_rule_text_from_git(
     }
 
     None
-}
-
-/// Short stale diagnostic for LSP — just the prefix and reference info, no diff.
-fn stale_diagnostic_message_short(
-    reference_rule_id: &RuleId,
-    current_rule: Option<&ApiRule>,
-) -> String {
-    let mut message = String::from(STALE_IMPLEMENTATION_MUST_CHANGE_PREFIX);
-    if let Some(current_rule) = current_rule {
-        message.push_str(&format!(
-            ". Reference '{}' is stale; current rule is '{}'.",
-            reference_rule_id, current_rule.id
-        ));
-    } else {
-        message.push_str(". The referenced annotation is stale, but the latest matching rule could not be loaded.");
-    }
-    message
 }
 
 /// Save config to file

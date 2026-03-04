@@ -1829,20 +1829,6 @@ fn source_reference_uses_explicit_verb(
     inner.contains(' ')
 }
 
-pub(crate) fn compute_source_file_diagnostics(
-    content: &str,
-    reqs: &Reqs,
-    is_test: bool,
-    config: &ApiConfig,
-    forward_by_impl: &BTreeMap<ImplKey, ApiSpecForward>,
-) -> Vec<LspDiagnostic> {
-    let ctx = build_source_diagnostic_context(config, forward_by_impl);
-    collect_source_diagnostic_issues(content, reqs, is_test, &ctx)
-        .into_iter()
-        .map(source_issue_to_lsp)
-        .collect()
-}
-
 async fn compute_workspace_diagnostics(
     abs_root: &Path,
     config_path: &Path,
