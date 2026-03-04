@@ -27,12 +27,25 @@ pub fn new_client(project_root: PathBuf) -> DaemonClient {
 
 impl DaemonClient {
     async fn connect_inner(&self) -> io::Result<TraceyDaemonClient> {
+        let start = Instant::now();
+        debug!(
+            project_root = %self.project_root.display(),
+            "daemon client: connect_inner start"
+        );
         let connector = DaemonConnector::new(self.project_root.clone());
         let stream = connector.connect().await?;
+        debug!(
+            elapsed_ms = start.elapsed().as_millis(),
+            "daemon client: local transport connected"
+        );
         let (client, _session_handle) = roam::initiator(stream)
             .establish::<TraceyDaemonClient>(())
             .await
             .map_err(|e| io::Error::other(format!("failed to establish RPC session: {e}")))?;
+        debug!(
+            elapsed_ms = start.elapsed().as_millis(),
+            "daemon client: roam session established"
+        );
         Ok(client)
     }
 
@@ -41,11 +54,42 @@ impl DaemonClient {
         F: FnOnce(TraceyDaemonClient) -> Fut,
         Fut: Future<Output = Result<T, roam::RoamError<E>>>,
     {
+        let start = Instant::now();
+        let callsite = std::panic::Location::caller();
+        debug!(
+            callsite = format_args!("{}:{}", callsite.file(), callsite.line()),
+            "daemon client: with_client start"
+        );
         let client = match self.connect_inner().await {
             Ok(client) => client,
-            Err(_) => return Err(roam::RoamError::Cancelled),
+            Err(e) => {
+                warn!(
+                    elapsed_ms = start.elapsed().as_millis(),
+                    error = %e,
+                    callsite = format_args!("{}:{}", callsite.file(), callsite.line()),
+                    "daemon client: connect_inner failed"
+                );
+                return Err(roam::RoamError::Cancelled);
+            }
         };
-        f(client).await
+        let result = f(client).await;
+        match &result {
+            Ok(_) => {
+                debug!(
+                    elapsed_ms = start.elapsed().as_millis(),
+                    callsite = format_args!("{}:{}", callsite.file(), callsite.line()),
+                    "daemon client: with_client ok"
+                );
+            }
+            Err(_e) => {
+                warn!(
+                    elapsed_ms = start.elapsed().as_millis(),
+                    callsite = format_args!("{}:{}", callsite.file(), callsite.line()),
+                    "daemon client: with_client returned roam error"
+                );
+            }
+        }
+        result
     }
 
     pub async fn status(&self) -> Result<tracey_proto::StatusResponse, roam::RoamError> {
