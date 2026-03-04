@@ -882,8 +882,8 @@ async fn show_status(root: Option<PathBuf>, json: bool) -> Result<()> {
     Ok(())
 }
 
-const SKILL_MD: &str = include_str!("../../../skill/SKILL.md");
-const SPEC_MD: &str = include_str!("../../../skill/references/tracey-spec.md");
+const SKILL_MD: &str = include_str!("../skill/SKILL.md");
+const SPEC_MD: &str = include_str!("../skill/references/tracey-spec.md");
 const CODEX_MCP_REGISTER_ARGS: &[&str] = &["mcp", "add", "tracey", "--", "tracey", "mcp"];
 const CLAUDE_MCP_REGISTER_ARGS: &[&str] = &[
     "mcp",
