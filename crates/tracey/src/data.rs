@@ -1598,6 +1598,7 @@ fn source_issue_to_lsp(issue: SourceDiagnosticIssue) -> LspDiagnostic {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn compute_validation_by_impl(
     abs_root: &Path,
     config_path: &Path,
@@ -1829,6 +1830,7 @@ fn source_reference_uses_explicit_verb(
     inner.contains(' ')
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn compute_workspace_diagnostics(
     abs_root: &Path,
     config_path: &Path,
@@ -2454,6 +2456,7 @@ pub async fn build_dashboard_data_with_overlay(
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn build_dashboard_data_with_overlay_and_cache(
     project_root: &Path,
     config_path: &Path,

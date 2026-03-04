@@ -717,6 +717,64 @@ fn parse_required_cwd(args: &JsonMap<String, JsonValue>) -> std::result::Result<
     Ok(cwd_path.to_path_buf())
 }
 
+// ============================================================================
+// Entry Point
+// ============================================================================
+
+/// Run the MCP bridge server over stdio.
+pub async fn run(root: Option<PathBuf>, config_path: PathBuf) -> Result<()> {
+    // Determine project root
+    let project_root = match root {
+        Some(r) => r,
+        None => crate::find_project_root()?,
+    };
+
+    // Create handler
+    let handler = TraceyHandler::new(project_root, config_path);
+
+    // Configure server
+    let server_details = InitializeResult {
+        server_info: Implementation {
+            name: "tracey".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
+            description: Some("Spec coverage tool for Rust codebases".into()),
+            title: Some("Tracey".into()),
+            icons: vec![],
+            website_url: Some("https://github.com/bearcove/tracey".into()),
+        },
+        capabilities: ServerCapabilities {
+            tools: Some(ServerCapabilitiesTools { list_changed: None }),
+            ..Default::default()
+        },
+        protocol_version: LATEST_PROTOCOL_VERSION.into(),
+        instructions: Some(
+            "Tracey is a spec coverage tool. Use the MCP tools to query coverage status, \
+             uncovered rules, untested rules, unmapped code, and rule details."
+                .into(),
+        ),
+        meta: None,
+    };
+
+    // Start server
+    let transport = StdioTransport::new(TransportOptions::default())
+        .map_err(|e| eyre::eyre!("Failed to create stdio transport: {:?}", e))?;
+    let options = McpServerOptions {
+        server_details,
+        transport,
+        handler: handler.to_mcp_server_handler(),
+        task_store: None,
+        client_task_store: None,
+    };
+
+    let server = server_runtime::create_server(options);
+    server
+        .start()
+        .await
+        .map_err(|e| eyre::eyre!("MCP server error: {:?}", e))?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -794,62 +852,4 @@ mod tests {
         let error = parse_required_cwd(&args).unwrap_err();
         assert_eq!(error, "Error: `cwd` must be an absolute path, got `.`");
     }
-}
-
-// ============================================================================
-// Entry Point
-// ============================================================================
-
-/// Run the MCP bridge server over stdio.
-pub async fn run(root: Option<PathBuf>, config_path: PathBuf) -> Result<()> {
-    // Determine project root
-    let project_root = match root {
-        Some(r) => r,
-        None => crate::find_project_root()?,
-    };
-
-    // Create handler
-    let handler = TraceyHandler::new(project_root, config_path);
-
-    // Configure server
-    let server_details = InitializeResult {
-        server_info: Implementation {
-            name: "tracey".into(),
-            version: env!("CARGO_PKG_VERSION").into(),
-            description: Some("Spec coverage tool for Rust codebases".into()),
-            title: Some("Tracey".into()),
-            icons: vec![],
-            website_url: Some("https://github.com/bearcove/tracey".into()),
-        },
-        capabilities: ServerCapabilities {
-            tools: Some(ServerCapabilitiesTools { list_changed: None }),
-            ..Default::default()
-        },
-        protocol_version: LATEST_PROTOCOL_VERSION.into(),
-        instructions: Some(
-            "Tracey is a spec coverage tool. Use the MCP tools to query coverage status, \
-             uncovered rules, untested rules, unmapped code, and rule details."
-                .into(),
-        ),
-        meta: None,
-    };
-
-    // Start server
-    let transport = StdioTransport::new(TransportOptions::default())
-        .map_err(|e| eyre::eyre!("Failed to create stdio transport: {:?}", e))?;
-    let options = McpServerOptions {
-        server_details,
-        transport,
-        handler: handler.to_mcp_server_handler(),
-        task_store: None,
-        client_task_store: None,
-    };
-
-    let server = server_runtime::create_server(options);
-    server
-        .start()
-        .await
-        .map_err(|e| eyre::eyre!("MCP server error: {:?}", e))?;
-
-    Ok(())
 }

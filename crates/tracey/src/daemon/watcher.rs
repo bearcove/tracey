@@ -268,20 +268,20 @@ pub fn extract_watch_dirs_from_config(config: &Config, project_root: &Path) -> H
             for include in &impl_.include {
                 let dir = glob_to_watch_dir(include);
                 let full_path = project_root.join(&dir);
-                if let Ok(canonical) = full_path.canonicalize() {
-                    if let Some(canonical) = normalize_watch_path(canonical) {
-                        dirs.insert(canonical);
-                    }
+                if let Some(canonical) =
+                    full_path.canonicalize().ok().and_then(normalize_watch_path)
+                {
+                    dirs.insert(canonical);
                 }
             }
 
             for test_include in &impl_.test_include {
                 let dir = glob_to_watch_dir(test_include);
                 let full_path = project_root.join(&dir);
-                if let Ok(canonical) = full_path.canonicalize() {
-                    if let Some(canonical) = normalize_watch_path(canonical) {
-                        dirs.insert(canonical);
-                    }
+                if let Some(canonical) =
+                    full_path.canonicalize().ok().and_then(normalize_watch_path)
+                {
+                    dirs.insert(canonical);
                 }
             }
         }

@@ -457,7 +457,7 @@ async fn test_rebuild_add_new_source_file() {
         .expect("write new source file");
 
     engine
-        .rebuild_with_changes(&[new_file.clone()])
+        .rebuild_with_changes(std::slice::from_ref(&new_file))
         .await
         .expect("rebuild failed");
 

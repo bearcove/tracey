@@ -178,17 +178,16 @@ async fn wait_for_diagnostics(
             Err(_) => return None,
         };
 
-        if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics") {
-            if let Some(params) = msg.get("params") {
-                if params.get("uri").and_then(|u| u.as_str()) == Some(file_uri) {
-                    let diags = params
-                        .get("diagnostics")
-                        .and_then(|d| d.as_array())
-                        .cloned()
-                        .unwrap_or_default();
-                    return Some(diags);
-                }
-            }
+        if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics")
+            && let Some(params) = msg.get("params")
+            && params.get("uri").and_then(|u| u.as_str()) == Some(file_uri)
+        {
+            let diags = params
+                .get("diagnostics")
+                .and_then(|d| d.as_array())
+                .cloned()
+                .unwrap_or_default();
+            return Some(diags);
         }
     }
     None
