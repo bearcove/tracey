@@ -576,8 +576,8 @@ specs (
 ```
 
 With this configuration:
-- `r[impl auth.login]` refers to `myapp` spec's `auth.login` requirement
-- `h2[impl stream.priority]` refers to `http2` spec's `stream.priority` requirement
+- 'r[impl auth.login]' refers to `myapp` spec's `auth.login` requirement
+- 'h2[impl stream.priority]' refers to `http2` spec's `stream.priority` requirement
 
 ## File Walking
 
