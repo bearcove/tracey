@@ -11,7 +11,7 @@ use tracey_proto::*;
 
 mod common;
 
-fn rpc<T, E: std::fmt::Debug>(res: Result<T, roam_stream::CallError<E>>) -> T {
+fn rpc<T, E: std::fmt::Debug>(res: Result<T, roam::RoamError<E>>) -> T {
     res.expect("RPC call failed")
 }
 

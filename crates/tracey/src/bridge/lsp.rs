@@ -23,7 +23,7 @@ use tracey_core::{RefVerb, parse_rule_id};
 use tracey_proto::*;
 
 /// Convert roam RPC result to a simple Result
-fn rpc<T, E: std::fmt::Debug>(res: Result<T, roam_stream::CallError<E>>) -> Result<T, String> {
+fn rpc<T, E: std::fmt::Debug>(res: Result<T, roam::RoamError<E>>) -> Result<T, String> {
     res.map_err(|e| format!("RPC error: {:?}", e))
 }
 

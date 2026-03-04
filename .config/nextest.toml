@@ -1,0 +1,15 @@
+# Enable experimental features
+experimental = ["setup-scripts"]
+
+[profile.patient]
+slow-timeout = { period = "30s", terminate-after = 4 }
+
+[profile.default]
+# Fail fast - stop on first failure
+fail-fast = true
+
+# Status level
+status-level = "pass"
+
+# Slow test warning threshold
+slow-timeout = { period = "2s", terminate-after = 2 }

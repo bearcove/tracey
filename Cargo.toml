@@ -21,13 +21,17 @@ tracey-proto = { path = "crates/tracey-proto", version = "1.2.0" }
 tracey-config = { path = "crates/tracey-config", version = "1.2.0" }
 
 # Facet ecosystem
-facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-axum = { git = "https://github.com/facet-rs/facet-axum", branch = "main" }
-facet-styx = { git = "https://github.com/bearcove/styx", branch = "main" }
-styx-embed = { git = "https://github.com/bearcove/styx", branch = "main" }
-facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-error = { git = "https://github.com/facet-rs/facet", branch = "main" }
-figue = { git = "https://github.com/bearcove/figue", branch = "main" }
+facet = { version = "0.44" }
+facet-axum = { version = "0.44" }
+facet-styx = { version = "2.0.0" }
+facet-json = { version = "0.44" }
+facet-error = { version = "0.44" }
+
+# Styx
+styx-embed = { version = "2.0.0" }
+
+# Figue
+figue = { version = "2.0.0" }
 
 # Error handling
 eyre = "0.6"
@@ -143,7 +147,34 @@ notify = "8"
 tantivy = "0.22"
 
 # Markdown processing (with syntax highlighting and diagram handlers)
-marq = { git = "https://github.com/bearcove/marq", branch = "main", features = ["all-handlers"] }
+marq = { version = "1.0.0", features = ["all-handlers"] }
+pulldown-cmark = "0.13"
+
+# CLI/runtime dependencies
+indoc = "2"
+urlencoding = "2.1"
+blake3 = "1.5"
+rust-mcp-sdk = { version = "0.8", default-features = false, features = [
+  "stdio",
+  "server",
+  "macros",
+] }
+async-trait = "0.1"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.148"
+url = { version = "*", features = ["serde"] }
+tower-lsp = "0.20"
+open = "5"
+dirs = "6.0.0"
+facet-typescript = { version = "0.44" }
+time = { version = "0.3", features = ["formatting"] }
+tempfile = "3.24.0"
+
+# roam RPC framework
+roam = "7.0.0"
+roam-core = "7.0.0"
+roam-stream = "7.0.0"
+roam-local = "7.0.0"
 
 # The profile that 'dist' will build with
 [profile.dist]

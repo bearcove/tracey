@@ -1,9 +1,9 @@
 //! Client for connecting to the tracey daemon.
 //!
-//! Uses roam's `connect()` with auto-reconnection.
+//! Uses roam v7 session builders.
 
-use roam_stream::{Connector, HandshakeConfig, NoDispatcher, connect};
 use std::fs::OpenOptions;
+use std::future::Future;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -14,19 +14,294 @@ use super::{is_pid_alive, local_endpoint, pid_file_path, read_pid_file_at};
 // Re-export the generated client from tracey-proto
 pub use tracey_proto::TraceyDaemonClient;
 
-/// Type alias for the full daemon client type.
-pub type DaemonClient = TraceyDaemonClient<roam_stream::Client<DaemonConnector, NoDispatcher>>;
+/// Daemon client facade.
+#[derive(Clone)]
+pub struct DaemonClient {
+    project_root: PathBuf,
+}
 
 /// Create a new daemon client for the given project root.
-///
-/// The client will automatically:
-/// - Connect to the daemon on first use (lazy)
-/// - Start the daemon if it's not running
-/// - Reconnect transparently if the connection drops
 pub fn new_client(project_root: PathBuf) -> DaemonClient {
-    let connector = DaemonConnector::new(project_root);
-    let client = connect(connector, HandshakeConfig::default(), NoDispatcher);
-    TraceyDaemonClient::new(client)
+    DaemonClient { project_root }
+}
+
+impl DaemonClient {
+    async fn connect_inner(&self) -> io::Result<TraceyDaemonClient> {
+        let connector = DaemonConnector::new(self.project_root.clone());
+        let stream = connector.connect().await?;
+        let (client, _session_handle) = roam::initiator(stream)
+            .establish::<TraceyDaemonClient>(())
+            .await
+            .map_err(|e| io::Error::other(format!("failed to establish RPC session: {e}")))?;
+        Ok(client)
+    }
+
+    async fn with_client<T, E, F, Fut>(&self, f: F) -> Result<T, roam::RoamError<E>>
+    where
+        F: FnOnce(TraceyDaemonClient) -> Fut,
+        Fut: Future<Output = Result<T, roam::RoamError<E>>>,
+    {
+        let client = match self.connect_inner().await {
+            Ok(client) => client,
+            Err(_) => return Err(roam::RoamError::Cancelled),
+        };
+        f(client).await
+    }
+
+    pub async fn status(&self) -> Result<tracey_proto::StatusResponse, roam::RoamError> {
+        self.with_client(|c| async move { c.status().await }).await
+    }
+    pub async fn uncovered(
+        &self,
+        req: tracey_proto::UncoveredRequest,
+    ) -> Result<tracey_proto::UncoveredResponse, roam::RoamError> {
+        self.with_client(|c| async move { c.uncovered(req).await })
+            .await
+    }
+    pub async fn untested(
+        &self,
+        req: tracey_proto::UntestedRequest,
+    ) -> Result<tracey_proto::UntestedResponse, roam::RoamError> {
+        self.with_client(|c| async move { c.untested(req).await })
+            .await
+    }
+    pub async fn stale(
+        &self,
+        req: tracey_proto::StaleRequest,
+    ) -> Result<tracey_proto::StaleResponse, roam::RoamError> {
+        self.with_client(|c| async move { c.stale(req).await })
+            .await
+    }
+    pub async fn unmapped(
+        &self,
+        req: tracey_proto::UnmappedRequest,
+    ) -> Result<tracey_proto::UnmappedResponse, roam::RoamError> {
+        self.with_client(|c| async move { c.unmapped(req).await })
+            .await
+    }
+    pub async fn rule(
+        &self,
+        rule_id: tracey_core::RuleId,
+    ) -> Result<Option<tracey_proto::RuleInfo>, roam::RoamError> {
+        self.with_client(|c| async move { c.rule(rule_id).await })
+            .await
+    }
+    pub async fn config(&self) -> Result<tracey_api::ApiConfig, roam::RoamError> {
+        self.with_client(|c| async move { c.config().await }).await
+    }
+    pub async fn vfs_open(&self, path: String, content: String) -> Result<(), roam::RoamError> {
+        self.with_client(|c| async move { c.vfs_open(path, content).await })
+            .await
+    }
+    pub async fn vfs_change(&self, path: String, content: String) -> Result<(), roam::RoamError> {
+        self.with_client(|c| async move { c.vfs_change(path, content).await })
+            .await
+    }
+    pub async fn vfs_close(&self, path: String) -> Result<(), roam::RoamError> {
+        self.with_client(|c| async move { c.vfs_close(path).await })
+            .await
+    }
+    pub async fn reload(&self) -> Result<tracey_proto::ReloadResponse, roam::RoamError> {
+        self.with_client(|c| async move { c.reload().await }).await
+    }
+    pub async fn version(&self) -> Result<u64, roam::RoamError> {
+        self.with_client(|c| async move { c.version().await }).await
+    }
+    pub async fn health(&self) -> Result<tracey_proto::HealthResponse, roam::RoamError> {
+        self.with_client(|c| async move { c.health().await }).await
+    }
+    pub async fn shutdown(&self) -> Result<(), roam::RoamError> {
+        self.with_client(|c| async move { c.shutdown().await })
+            .await
+    }
+    pub async fn subscribe(
+        &self,
+        updates: roam::Tx<tracey_proto::DataUpdate>,
+    ) -> Result<(), roam::RoamError> {
+        self.with_client(|c| async move { c.subscribe(updates).await })
+            .await
+    }
+    pub async fn forward(
+        &self,
+        spec: String,
+        impl_name: String,
+    ) -> Result<Option<tracey_api::ApiSpecForward>, roam::RoamError> {
+        self.with_client(|c| async move { c.forward(spec, impl_name).await })
+            .await
+    }
+    pub async fn reverse(
+        &self,
+        spec: String,
+        impl_name: String,
+    ) -> Result<Option<tracey_api::ApiReverseData>, roam::RoamError> {
+        self.with_client(|c| async move { c.reverse(spec, impl_name).await })
+            .await
+    }
+    pub async fn file(
+        &self,
+        req: tracey_proto::FileRequest,
+    ) -> Result<Option<tracey_api::ApiFileData>, roam::RoamError> {
+        self.with_client(|c| async move { c.file(req).await }).await
+    }
+    pub async fn spec_content(
+        &self,
+        spec: String,
+        impl_name: String,
+    ) -> Result<Option<tracey_api::ApiSpecData>, roam::RoamError> {
+        self.with_client(|c| async move { c.spec_content(spec, impl_name).await })
+            .await
+    }
+    pub async fn search(
+        &self,
+        query: String,
+        limit: u32,
+    ) -> Result<Vec<tracey_proto::SearchResult>, roam::RoamError> {
+        self.with_client(|c| async move { c.search(query, limit).await })
+            .await
+    }
+    pub async fn update_file_range(
+        &self,
+        req: tracey_proto::UpdateFileRangeRequest,
+    ) -> Result<(), roam::RoamError<tracey_proto::UpdateError>> {
+        self.with_client(|c| async move { c.update_file_range(req).await })
+            .await
+    }
+    pub async fn is_test_file(&self, path: String) -> Result<bool, roam::RoamError> {
+        self.with_client(|c| async move { c.is_test_file(path).await })
+            .await
+    }
+    pub async fn lsp_hover(
+        &self,
+        req: tracey_proto::LspPositionRequest,
+    ) -> Result<Option<tracey_proto::HoverInfo>, roam::RoamError> {
+        self.with_client(|c| async move { c.lsp_hover(req).await })
+            .await
+    }
+    pub async fn lsp_definition(
+        &self,
+        req: tracey_proto::LspPositionRequest,
+    ) -> Result<Vec<tracey_proto::LspLocation>, roam::RoamError> {
+        self.with_client(|c| async move { c.lsp_definition(req).await })
+            .await
+    }
+    pub async fn lsp_implementation(
+        &self,
+        req: tracey_proto::LspPositionRequest,
+    ) -> Result<Vec<tracey_proto::LspLocation>, roam::RoamError> {
+        self.with_client(|c| async move { c.lsp_implementation(req).await })
+            .await
+    }
+    pub async fn lsp_references(
+        &self,
+        req: tracey_proto::LspReferencesRequest,
+    ) -> Result<Vec<tracey_proto::LspLocation>, roam::RoamError> {
+        self.with_client(|c| async move { c.lsp_references(req).await })
+            .await
+    }
+    pub async fn lsp_completions(
+        &self,
+        req: tracey_proto::LspPositionRequest,
+    ) -> Result<Vec<tracey_proto::LspCompletionItem>, roam::RoamError> {
+        self.with_client(|c| async move { c.lsp_completions(req).await })
+            .await
+    }
+    pub async fn lsp_diagnostics(
+        &self,
+        req: tracey_proto::LspDocumentRequest,
+    ) -> Result<Vec<tracey_proto::LspDiagnostic>, roam::RoamError> {
+        self.with_client(|c| async move { c.lsp_diagnostics(req).await })
+            .await
+    }
+    pub async fn lsp_workspace_diagnostics(
+        &self,
+    ) -> Result<Vec<tracey_proto::LspFileDiagnostics>, roam::RoamError> {
+        self.with_client(|c| async move { c.lsp_workspace_diagnostics().await })
+            .await
+    }
+    pub async fn lsp_document_symbols(
+        &self,
+        req: tracey_proto::LspDocumentRequest,
+    ) -> Result<Vec<tracey_proto::LspSymbol>, roam::RoamError> {
+        self.with_client(|c| async move { c.lsp_document_symbols(req).await })
+            .await
+    }
+    pub async fn lsp_workspace_symbols(
+        &self,
+        query: String,
+    ) -> Result<Vec<tracey_proto::LspSymbol>, roam::RoamError> {
+        self.with_client(|c| async move { c.lsp_workspace_symbols(query).await })
+            .await
+    }
+    pub async fn lsp_semantic_tokens(
+        &self,
+        req: tracey_proto::LspDocumentRequest,
+    ) -> Result<Vec<tracey_proto::LspSemanticToken>, roam::RoamError> {
+        self.with_client(|c| async move { c.lsp_semantic_tokens(req).await })
+            .await
+    }
+    pub async fn lsp_code_lens(
+        &self,
+        req: tracey_proto::LspDocumentRequest,
+    ) -> Result<Vec<tracey_proto::LspCodeLens>, roam::RoamError> {
+        self.with_client(|c| async move { c.lsp_code_lens(req).await })
+            .await
+    }
+    pub async fn lsp_inlay_hints(
+        &self,
+        req: tracey_proto::InlayHintsRequest,
+    ) -> Result<Vec<tracey_proto::LspInlayHint>, roam::RoamError> {
+        self.with_client(|c| async move { c.lsp_inlay_hints(req).await })
+            .await
+    }
+    pub async fn lsp_prepare_rename(
+        &self,
+        req: tracey_proto::LspPositionRequest,
+    ) -> Result<Option<tracey_proto::PrepareRenameResult>, roam::RoamError> {
+        self.with_client(|c| async move { c.lsp_prepare_rename(req).await })
+            .await
+    }
+    pub async fn lsp_rename(
+        &self,
+        req: tracey_proto::LspRenameRequest,
+    ) -> Result<Vec<tracey_proto::LspTextEdit>, roam::RoamError> {
+        self.with_client(|c| async move { c.lsp_rename(req).await })
+            .await
+    }
+    pub async fn lsp_code_actions(
+        &self,
+        req: tracey_proto::LspPositionRequest,
+    ) -> Result<Vec<tracey_proto::LspCodeAction>, roam::RoamError> {
+        self.with_client(|c| async move { c.lsp_code_actions(req).await })
+            .await
+    }
+    pub async fn lsp_document_highlight(
+        &self,
+        req: tracey_proto::LspPositionRequest,
+    ) -> Result<Vec<tracey_proto::LspLocation>, roam::RoamError> {
+        self.with_client(|c| async move { c.lsp_document_highlight(req).await })
+            .await
+    }
+    pub async fn validate(
+        &self,
+        req: tracey_proto::ValidateRequest,
+    ) -> Result<tracey_api::ValidationResult, roam::RoamError> {
+        self.with_client(|c| async move { c.validate(req).await })
+            .await
+    }
+    pub async fn config_add_exclude(
+        &self,
+        req: tracey_proto::ConfigPatternRequest,
+    ) -> Result<(), roam::RoamError<String>> {
+        self.with_client(|c| async move { c.config_add_exclude(req).await })
+            .await
+    }
+    pub async fn config_add_include(
+        &self,
+        req: tracey_proto::ConfigPatternRequest,
+    ) -> Result<(), roam::RoamError<String>> {
+        self.with_client(|c| async move { c.config_add_include(req).await })
+            .await
+    }
 }
 
 /// Connector that establishes connections to the tracey daemon.
@@ -57,7 +332,7 @@ impl DaemonConnector {
         pid: u32,
         endpoint: &(impl AsRef<std::path::Path> + std::fmt::Debug),
         timeout: Duration,
-    ) -> io::Result<Option<roam_local::LocalStream>> {
+    ) -> io::Result<Option<roam_stream::LocalLink>> {
         let start = Instant::now();
         let mut last_error: Option<String> = None;
 
@@ -70,7 +345,7 @@ impl DaemonConnector {
                 return Ok(None);
             }
 
-            match roam_local::connect(endpoint).await {
+            match roam_stream::LocalLink::connect(&endpoint.as_ref().to_string_lossy()).await {
                 Ok(stream) => return Ok(Some(stream)),
                 Err(e) => {
                     last_error = Some(e.to_string());
@@ -185,7 +460,7 @@ impl DaemonConnector {
     }
 
     /// Wait for the daemon endpoint to appear and connect.
-    async fn wait_and_connect(&self) -> io::Result<roam_local::LocalStream> {
+    async fn wait_and_connect(&self) -> io::Result<roam_stream::LocalLink> {
         let endpoint = local_endpoint(&self.project_root);
         let start = Instant::now();
         let timeout = Duration::from_secs(5);
@@ -208,7 +483,7 @@ impl DaemonConnector {
                 ));
             }
 
-            match roam_local::connect(&endpoint).await {
+            match roam_stream::LocalLink::connect(&endpoint.to_string_lossy()).await {
                 Ok(stream) => return Ok(stream),
                 Err(e) => {
                     last_connect_error = Some(e.to_string());
@@ -253,10 +528,8 @@ fn kill_pid(pid: u32) {
 #[cfg(not(unix))]
 fn kill_pid(_pid: u32) {}
 
-impl Connector for DaemonConnector {
-    type Transport = roam_local::LocalStream;
-
-    async fn connect(&self) -> io::Result<Self::Transport> {
+impl DaemonConnector {
+    pub async fn connect(&self) -> io::Result<roam_stream::LocalLink> {
         let endpoint = local_endpoint(&self.project_root);
         debug!(
             "DaemonConnector::connect project_root={} endpoint={:?}",
@@ -275,7 +548,7 @@ impl Connector for DaemonConnector {
 
                 if alive && version_ok {
                     // Happy path: daemon should be running.
-                    match roam_local::connect(&endpoint).await {
+                    match roam_stream::LocalLink::connect(&endpoint.to_string_lossy()).await {
                         Ok(stream) => return Ok(stream),
                         Err(e) => {
                             let age = pid_file_age(&self.project_root);
@@ -341,7 +614,7 @@ impl Connector for DaemonConnector {
         if let Some((pid, version)) = read_pid_file(&self.project_root)
             && is_pid_alive(pid)
             && version == tracey_proto::PROTOCOL_VERSION
-            && let Ok(stream) = roam_local::connect(&endpoint).await
+            && let Ok(stream) = roam_stream::LocalLink::connect(&endpoint.to_string_lossy()).await
         {
             debug!(
                 "Daemon became available while waiting for startup lock (pid={})",

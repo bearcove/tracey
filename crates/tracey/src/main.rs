@@ -280,7 +280,7 @@ async fn main() -> Result<()> {
     }
 
     let config = args::builder::<Args>()
-        .map_err(|e| eyre!("failed to initialize CLI parser: {e}"))?
+        .map_err(|e| eyre!("failed to initialize CLI parser: {e:?}"))?
         .cli(|cli| cli.args(raw_args.clone().into_iter()))
         .help(|h| {
             h.program_name(env!("CARGO_PKG_NAME"))
@@ -497,7 +497,7 @@ async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> Str
     match query {
         QueryCommand::Status => match qc.client.status().await {
             Ok(resp) => facet_json::to_string_pretty(&resp).expect("JSON serialization failed"),
-            Err(e) => json_error(&e.to_string()),
+            Err(e) => json_error(&format!("{e:?}")),
         },
         QueryCommand::Uncovered { spec_impl, prefix } => {
             let (spec, impl_name) = parse_spec_impl(spec_impl.as_deref());
@@ -508,7 +508,7 @@ async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> Str
             };
             match qc.client.uncovered(req).await {
                 Ok(resp) => facet_json::to_string_pretty(&resp).expect("JSON serialization failed"),
-                Err(e) => json_error(&e.to_string()),
+                Err(e) => json_error(&format!("{e:?}")),
             }
         }
         QueryCommand::Untested { spec_impl, prefix } => {
@@ -520,7 +520,7 @@ async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> Str
             };
             match qc.client.untested(req).await {
                 Ok(resp) => facet_json::to_string_pretty(&resp).expect("JSON serialization failed"),
-                Err(e) => json_error(&e.to_string()),
+                Err(e) => json_error(&format!("{e:?}")),
             }
         }
         QueryCommand::Stale { spec_impl, prefix } => {
@@ -532,7 +532,7 @@ async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> Str
             };
             match qc.client.stale(req).await {
                 Ok(resp) => facet_json::to_string_pretty(&resp).expect("JSON serialization failed"),
-                Err(e) => json_error(&e.to_string()),
+                Err(e) => json_error(&format!("{e:?}")),
             }
         }
         QueryCommand::Unmapped { spec_impl, path } => {
@@ -544,7 +544,7 @@ async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> Str
             };
             match qc.client.unmapped(req).await {
                 Ok(resp) => facet_json::to_string_pretty(&resp).expect("JSON serialization failed"),
-                Err(e) => json_error(&e.to_string()),
+                Err(e) => json_error(&format!("{e:?}")),
             }
         }
         QueryCommand::Rule { rule_ids } => {
@@ -556,7 +556,7 @@ async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> Str
                 match qc.client.rule(parsed).await {
                     Ok(Some(info)) => infos.push(info),
                     Ok(None) => return json_error(&format!("rule not found: {raw_id}")),
-                    Err(e) => return json_error(&e.to_string()),
+                    Err(e) => return json_error(&format!("{e:?}")),
                 }
             }
             if infos.len() == 1 {
@@ -568,7 +568,7 @@ async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> Str
         }
         QueryCommand::Config => match qc.client.config().await {
             Ok(resp) => facet_json::to_string_pretty(&resp).expect("JSON serialization failed"),
-            Err(e) => json_error(&e.to_string()),
+            Err(e) => json_error(&format!("{e:?}")),
         },
         QueryCommand::Validate { spec_impl } => {
             if spec_impl.is_some() {
@@ -578,13 +578,13 @@ async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> Str
                     Ok(resp) => {
                         facet_json::to_string_pretty(&resp).expect("JSON serialization failed")
                     }
-                    Err(e) => json_error(&e.to_string()),
+                    Err(e) => json_error(&format!("{e:?}")),
                 }
             } else {
                 // Validate all spec/impl combinations
                 let status = match qc.client.status().await {
                     Ok(s) => s,
-                    Err(e) => return json_error(&format!("error getting status: {e}")),
+                    Err(e) => return json_error(&format!("error getting status: {e:?}")),
                 };
 
                 let mut results = Vec::new();
@@ -597,7 +597,7 @@ async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> Str
                         Ok(result) => results.push(result),
                         Err(e) => {
                             return json_error(&format!(
-                                "error validating {}/{}: {e}",
+                                "error validating {}/{}: {e:?}",
                                 impl_status.spec, impl_status.impl_name
                             ));
                         }
@@ -796,7 +796,6 @@ fn show_logs(root: Option<PathBuf>, follow: bool, lines: usize) -> Result<()> {
 /// r[impl daemon.cli.status]
 /// Show daemon status by connecting and calling health()
 async fn show_status(root: Option<PathBuf>, json: bool) -> Result<()> {
-    use roam_stream::{Connector, HandshakeConfig, NoDispatcher, connect};
     use std::time::Duration;
 
     let project_root = match root {
@@ -807,7 +806,7 @@ async fn show_status(root: Option<PathBuf>, json: bool) -> Result<()> {
     let endpoint = daemon::local_endpoint(&project_root);
 
     // Try to connect without auto-starting
-    let stream = match roam_local::connect(&endpoint).await {
+    let stream = match roam_stream::LocalLink::connect(&endpoint.to_string_lossy()).await {
         Ok(s) => s,
         Err(_) => {
             if json {
@@ -819,28 +818,10 @@ async fn show_status(root: Option<PathBuf>, json: bool) -> Result<()> {
         }
     };
 
-    struct DirectConnector {
-        stream: std::sync::Mutex<Option<roam_local::LocalStream>>,
-    }
-
-    impl Connector for DirectConnector {
-        type Transport = roam_local::LocalStream;
-        async fn connect(&self) -> std::io::Result<Self::Transport> {
-            self.stream
-                .lock()
-                .unwrap()
-                .take()
-                .ok_or_else(|| std::io::Error::other("already connected"))
-        }
-    }
-
-    let client = tracey_proto::TraceyDaemonClient::new(connect(
-        DirectConnector {
-            stream: std::sync::Mutex::new(Some(stream)),
-        },
-        HandshakeConfig::default(),
-        NoDispatcher,
-    ));
+    let (client, _session_handle) = roam::initiator(stream)
+        .establish::<tracey_proto::TraceyDaemonClient>(())
+        .await
+        .map_err(|e| eyre::eyre!("failed to connect to daemon: {e:?}"))?;
 
     match tokio::time::timeout(Duration::from_secs(1), client.health()).await {
         Ok(Ok(health)) => {
@@ -873,10 +854,13 @@ async fn show_status(root: Option<PathBuf>, json: bool) -> Result<()> {
         }
         Ok(Err(e)) => {
             if json {
-                println!("{}", json_error(&format!("daemon connection failed: {e}")));
+                println!(
+                    "{}",
+                    json_error(&format!("daemon connection failed: {e:?}"))
+                );
             } else {
                 println!("{}: Daemon connection failed", "Status".red());
-                println!("  Error: {e}");
+                println!("  Error: {e:?}");
             }
         }
         Err(_) => {
@@ -1029,7 +1013,7 @@ fn load_bump_config(config_path: &std::path::Path) -> tracey::config::Config {
         Ok(cfg) => cfg,
         Err(e) => {
             eprintln!(
-                "warning: failed to parse tracey config at {}: {e}",
+                "warning: failed to parse tracey config at {}: {e:?}",
                 config_path.display()
             );
             tracey::config::Config::default()
@@ -1215,30 +1199,12 @@ async fn kill_daemon(root: Option<PathBuf>) -> Result<()> {
     }
 
     // Try to connect and send shutdown
-    match roam_local::connect(&endpoint).await {
+    match roam_stream::LocalLink::connect(&endpoint.to_string_lossy()).await {
         Ok(stream) => {
-            use roam_stream::{Connector, HandshakeConfig, NoDispatcher, connect};
-
-            struct DirectConnector {
-                stream: std::sync::Mutex<Option<roam_local::LocalStream>>,
-            }
-
-            impl Connector for DirectConnector {
-                type Transport = roam_local::LocalStream;
-                async fn connect(&self) -> std::io::Result<Self::Transport> {
-                    self.stream
-                        .lock()
-                        .unwrap()
-                        .take()
-                        .ok_or_else(|| std::io::Error::other("already connected"))
-                }
-            }
-
-            let connector = DirectConnector {
-                stream: std::sync::Mutex::new(Some(stream)),
-            };
-            let client = connect(connector, HandshakeConfig::default(), NoDispatcher);
-            let client = tracey_proto::TraceyDaemonClient::new(client);
+            let (client, _session_handle) = roam::initiator(stream)
+                .establish::<tracey_proto::TraceyDaemonClient>(())
+                .await
+                .map_err(|e| eyre::eyre!("failed to connect to daemon: {e:?}"))?;
 
             match client.shutdown().await {
                 Ok(()) => {
@@ -1246,7 +1212,7 @@ async fn kill_daemon(root: Option<PathBuf>) -> Result<()> {
                 }
                 Err(e) => {
                     // Connection may close before we get a response, that's OK
-                    let err_str = e.to_string();
+                    let err_str = format!("{e:?}");
                     if err_str.contains("closed") {
                         println!("{}: Daemon stopped", "Success".green());
                     } else {

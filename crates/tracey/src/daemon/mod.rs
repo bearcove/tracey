@@ -32,11 +32,10 @@ pub mod service;
 pub mod watcher;
 
 use eyre::{Result, WrapErr};
-use roam_local::LocalListener;
-use roam_stream::{ConnectionError, HandshakeConfig, accept};
+use roam_stream::LocalLinkAcceptor;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
 
@@ -452,23 +451,19 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
     // Bind local IPC listener
     // Note: on Windows, accept() takes &mut self (to swap server instances)
     #[cfg(unix)]
-    let listener = LocalListener::bind(&endpoint)
+    let listener = LocalLinkAcceptor::bind(endpoint.to_string_lossy().to_string())
         .wrap_err_with(|| format!("Failed to bind socket at {}", endpoint.display()))?;
     #[cfg(windows)]
-    let mut listener =
-        LocalListener::bind(&endpoint).wrap_err_with(|| "Failed to bind named pipe")?;
+    let listener =
+        LocalLinkAcceptor::bind(&endpoint).wrap_err_with(|| "Failed to bind named pipe")?;
 
     #[cfg(unix)]
     info!("Daemon listening on {}", endpoint.display());
     #[cfg(windows)]
     info!("Daemon listening on {}", endpoint);
 
-    // Default handshake configuration
-    let handshake_config = HandshakeConfig::default();
-
     // r[impl daemon.lifecycle.idle-timeout]
-    // Track active connections and last activity for idle timeout
-    let active_connections = Arc::new(AtomicUsize::new(0));
+    // Track last activity for idle timeout
     let last_activity = Arc::new(AtomicU64::new(
         Instant::now().elapsed().as_secs(), // Will be updated on each connection
     ));
@@ -493,56 +488,26 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
             Ok(Ok(stream)) => {
                 // Update last activity
                 last_activity.store(start_time.elapsed().as_secs(), Ordering::Relaxed);
-                active_connections.fetch_add(1, Ordering::Relaxed);
-
-                info!(
-                    "New connection accepted (active: {})",
-                    active_connections.load(Ordering::Relaxed)
-                );
+                info!("New connection accepted");
 
                 let service = service.clone();
-                let config = handshake_config.clone();
-                let active_connections = Arc::clone(&active_connections);
                 let last_activity = Arc::clone(&last_activity);
 
                 tokio::spawn(async move {
                     // Create dispatcher (wraps service with generated dispatch + tracing)
                     let dispatcher = TraceyDaemonDispatcher::new(service);
 
-                    // Accept connection with roam-stream (handles framing and hello exchange)
-                    match accept(stream, config, dispatcher).await {
-                        Ok((_handle, _incoming, driver)) => {
+                    match roam::acceptor(stream).establish::<()>(dispatcher).await {
+                        Ok((_client, _session_handle)) => {
                             info!("Connection established");
-                            // Run the driver (handles all RPC dispatch)
-                            if let Err(e) = driver.run().await {
-                                match e {
-                                    ConnectionError::Closed => {
-                                        info!("Connection closed cleanly");
-                                    }
-                                    ConnectionError::ProtocolViolation { rule_id, .. } => {
-                                        warn!("Protocol violation: {}", rule_id);
-                                    }
-                                    ConnectionError::Io(e) => {
-                                        error!("IO error: {}", e);
-                                    }
-                                    ConnectionError::Dispatch(e) => {
-                                        error!("Dispatch error: {}", e);
-                                    }
-                                    ConnectionError::UnsupportedProtocolVersion => {
-                                        warn!("Unsupported protocol version");
-                                    }
-                                }
-                            }
                         }
                         Err(e) => {
-                            error!("Connection setup failed: {:?}", e);
+                            error!("Connection setup failed: {}", e);
                         }
                     }
 
-                    // Connection done, update counters
-                    let remaining = active_connections.fetch_sub(1, Ordering::Relaxed) - 1;
                     last_activity.store(start_time.elapsed().as_secs(), Ordering::Relaxed);
-                    info!("Connection closed (active: {})", remaining);
+                    info!("Connection closed");
                 });
             }
             Ok(Err(e)) => {
@@ -550,18 +515,15 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
             }
             Err(_) => {
                 // Timeout - check if we should exit due to idle
-                let current_connections = active_connections.load(Ordering::Relaxed);
-                if current_connections == 0 {
-                    let last = last_activity.load(Ordering::Relaxed);
-                    let now = start_time.elapsed().as_secs();
-                    let idle_secs = now.saturating_sub(last);
+                let last = last_activity.load(Ordering::Relaxed);
+                let now = start_time.elapsed().as_secs();
+                let idle_secs = now.saturating_sub(last);
 
-                    if idle_secs >= DEFAULT_IDLE_TIMEOUT_SECS {
-                        info!("No connections for {} seconds, shutting down", idle_secs);
-                        // Clean up endpoint
-                        let _ = roam_local::remove_endpoint(&endpoint);
-                        return Ok(());
-                    }
+                if idle_secs >= DEFAULT_IDLE_TIMEOUT_SECS {
+                    info!("No connections for {} seconds, shutting down", idle_secs);
+                    // Clean up endpoint
+                    let _ = roam_local::remove_endpoint(&endpoint);
+                    return Ok(());
                 }
             }
         }

@@ -193,7 +193,7 @@ impl QueryClient {
 
                 output
             }
-            Err(e) => format!("Error: {e}"),
+            Err(e) => format!("Error: {e:?}"),
         };
 
         self.with_config_banner(output).await
@@ -241,7 +241,7 @@ impl QueryClient {
 
                 output
             }
-            Err(e) => format!("Error: {e}"),
+            Err(e) => format!("Error: {e:?}"),
         };
 
         self.with_config_banner(output).await
@@ -289,7 +289,7 @@ impl QueryClient {
 
                 output
             }
-            Err(e) => format!("Error: {e}"),
+            Err(e) => format!("Error: {e:?}"),
         };
 
         self.with_config_banner(output).await
@@ -367,7 +367,7 @@ impl QueryClient {
 
                 output
             }
-            Err(e) => format!("Error: {e}"),
+            Err(e) => format!("Error: {e:?}"),
         };
 
         self.with_config_banner(output).await
@@ -430,7 +430,7 @@ impl QueryClient {
                     output
                 }
             }
-            Err(e) => format!("Error: {e}"),
+            Err(e) => format!("Error: {e:?}"),
         };
 
         self.with_config_banner(output).await
@@ -444,7 +444,7 @@ impl QueryClient {
         let output = match self.client.rule(rule_id.clone()).await {
             Ok(Some(info)) => format_rule_info(&info),
             Ok(None) => format!("Rule not found: {}", rule_id),
-            Err(e) => format!("Error: {e}"),
+            Err(e) => format!("Error: {e:?}"),
         };
 
         self.with_config_banner(output).await
@@ -462,7 +462,7 @@ impl QueryClient {
             match self.client.rule(rule_id.clone()).await {
                 Ok(Some(info)) => sections.push(format_rule_info(&info)),
                 Ok(None) => sections.push(format!("Rule not found: {}", rule_id)),
-                Err(e) => sections.push(format!("Error querying '{}': {e}", rule_id)),
+                Err(e) => sections.push(format!("Error querying '{}': {e:?}", rule_id)),
             }
         }
 
@@ -490,7 +490,7 @@ impl QueryClient {
 
                 output
             }
-            Err(e) => format!("Error: {e}"),
+            Err(e) => format!("Error: {e:?}"),
         };
 
         self.with_config_banner(output).await
@@ -502,7 +502,7 @@ impl QueryClient {
                 "Reload complete (version {}, took {}ms)",
                 response.version, response.rebuild_time_ms
             ),
-            Err(e) => format!("Error: {e}"),
+            Err(e) => format!("Error: {e:?}"),
         };
 
         self.with_config_banner(output).await
@@ -515,7 +515,7 @@ impl QueryClient {
             let req = ValidateRequest { spec, impl_name };
             match self.client.validate(req).await {
                 Ok(result) => format_validation_result(&result),
-                Err(e) => format!("Error: {e}"),
+                Err(e) => format!("Error: {e:?}"),
             }
         } else {
             // No filter provided: validate ALL spec/impl combinations.
@@ -523,7 +523,7 @@ impl QueryClient {
                 Ok(s) => s,
                 Err(e) => {
                     return self
-                        .with_config_banner(format!("Error getting status: {e}"))
+                        .with_config_banner(format!("Error getting status: {e:?}"))
                         .await;
                 }
             };
@@ -603,7 +603,7 @@ impl QueryClient {
                         }
                         Err(e) => {
                             output.push_str(&format!(
-                                "✗ {}/{}: Error: {e}\n\n",
+                                "✗ {}/{}: Error: {e:?}\n\n",
                                 impl_status.spec, impl_status.impl_name
                             ));
                         }
@@ -651,7 +651,7 @@ impl QueryClient {
 
         let output = match self.client.config_add_exclude(req).await {
             Ok(()) => format!("Added exclude pattern: {pattern}"),
-            Err(e) => format!("Error: {e}"),
+            Err(e) => format!("Error: {e:?}"),
         };
 
         self.with_config_banner(output).await
@@ -668,7 +668,7 @@ impl QueryClient {
 
         let output = match self.client.config_add_include(req).await {
             Ok(()) => format!("Added include pattern: {pattern}"),
-            Err(e) => format!("Error: {e}"),
+            Err(e) => format!("Error: {e:?}"),
         };
 
         self.with_config_banner(output).await
