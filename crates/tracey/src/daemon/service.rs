@@ -1827,134 +1827,6 @@ struct RuleAtPosition {
     span_length: usize,
 }
 
-struct MarkdownRuleReference {
-    prefix: String,
-    req_id: RuleId,
-    span_offset: usize,
-    span_length: usize,
-}
-
-fn parse_markdown_fence(line: &[u8], mut i: usize) -> Option<(u8, usize)> {
-    while i < line.len() && matches!(line[i], b' ' | b'\t') {
-        i += 1;
-    }
-    let fence_char = *line.get(i)?;
-    if fence_char != b'`' && fence_char != b'~' {
-        return None;
-    }
-    let mut count = 0usize;
-    while i + count < line.len() && line[i + count] == fence_char {
-        count += 1;
-    }
-    (count >= 3).then_some((fence_char, count))
-}
-
-fn markdown_fenced_code_mask(content: &str) -> Vec<bool> {
-    let mut mask = vec![false; content.len()];
-    let mut line_start = 0usize;
-    let mut in_fence: Option<(u8, usize)> = None;
-
-    for line in content.split_inclusive('\n') {
-        let line_end = line_start + line.len();
-        let fence = parse_markdown_fence(line.as_bytes(), 0);
-
-        if let Some((fence_char, fence_len)) = fence {
-            match in_fence {
-                Some((open_char, open_len)) if fence_char == open_char && fence_len >= open_len => {
-                    mask[line_start..line_end].fill(true);
-                    in_fence = None;
-                    line_start = line_end;
-                    continue;
-                }
-                None => {
-                    in_fence = Some((fence_char, fence_len));
-                    mask[line_start..line_end].fill(true);
-                    line_start = line_end;
-                    continue;
-                }
-                _ => {}
-            }
-        }
-
-        if in_fence.is_some() {
-            mask[line_start..line_end].fill(true);
-        }
-
-        line_start = line_end;
-    }
-
-    mask
-}
-
-fn extract_markdown_rule_references(content: &str) -> Vec<MarkdownRuleReference> {
-    let bytes = content.as_bytes();
-    let mut out = Vec::new();
-    let fenced_code_mask = markdown_fenced_code_mask(content);
-    let mut i = 0usize;
-
-    while i < bytes.len() {
-        if fenced_code_mask.get(i).copied().unwrap_or(false) {
-            i += 1;
-            continue;
-        }
-
-        let c = bytes[i];
-        if !c.is_ascii_lowercase() && !c.is_ascii_digit() {
-            i += 1;
-            continue;
-        }
-
-        let start = i;
-        let mut prefix_end = i + 1;
-        while prefix_end < bytes.len()
-            && (bytes[prefix_end].is_ascii_lowercase() || bytes[prefix_end].is_ascii_digit())
-        {
-            prefix_end += 1;
-        }
-        if prefix_end >= bytes.len() || bytes[prefix_end] != b'[' {
-            i += 1;
-            continue;
-        }
-
-        let req_start = prefix_end + 1;
-        let mut req_end = req_start;
-        while req_end < bytes.len()
-            && (bytes[req_end].is_ascii_lowercase()
-                || bytes[req_end].is_ascii_digit()
-                || matches!(bytes[req_end], b'.' | b'-' | b'+'))
-        {
-            req_end += 1;
-        }
-        if req_end >= bytes.len() || bytes[req_end] != b']' || req_end == req_start {
-            i += 1;
-            continue;
-        }
-
-        let Some(prefix) = content.get(start..prefix_end) else {
-            i += 1;
-            continue;
-        };
-        let Some(req_text) = content.get(req_start..req_end) else {
-            i += 1;
-            continue;
-        };
-        let Some(req_id) = parse_rule_id(req_text) else {
-            i += 1;
-            continue;
-        };
-
-        out.push(MarkdownRuleReference {
-            prefix: prefix.to_string(),
-            req_id,
-            span_offset: start,
-            span_length: req_end - start + 1,
-        });
-        i = req_end + 1;
-    }
-
-    out
-}
-
 /// Look up build-data reqs for a source file path.
 /// Returns `None` if the file was not part of the build scan.
 fn lookup_source_reqs<'a>(
@@ -2001,22 +1873,21 @@ async fn find_rule_at_position(
             return Some(rule);
         }
 
-        extract_markdown_rule_references(content)
-            .into_iter()
-            .find_map(|r| {
-                let start = r.span_offset;
-                let end = r.span_offset + r.span_length;
-                if target_offset >= start && target_offset < end {
-                    Some(RuleAtPosition {
-                        req_id: r.req_id,
-                        prefix: Some(r.prefix),
-                        span_offset: r.span_offset,
-                        span_length: r.span_length,
-                    })
-                } else {
-                    None
-                }
-            })
+        doc.inline_code_spans.iter().find_map(|code_span| {
+            let (prefix, req_id) = crate::data::parse_inline_rule_reference(&code_span.content)?;
+            let start = code_span.span.offset;
+            let end = code_span.span.offset + code_span.span.length;
+            if target_offset >= start && target_offset < end {
+                Some(RuleAtPosition {
+                    req_id,
+                    prefix: Some(prefix),
+                    span_offset: code_span.span.offset,
+                    span_length: code_span.span.length,
+                })
+            } else {
+                None
+            }
+        })
     } else {
         let reqs = lookup_source_reqs(data, path)?;
         let ref_at_pos = find_ref_at_position(reqs, content, line, character)?;

@@ -2599,9 +2599,9 @@ dependencies = [
 
 [[package]]
 name = "marq"
-version = "1.0.0"
+version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9bda82a7ab8ba4ce88b140e7be23188e907900a8a26e7c6a9f0f3d18a1b12585"
+checksum = "6e2a82134caf023f0254d3333bc737cfc68d0346b2af3c2fe9172c5b4d04fcf8"
 dependencies = [
  "aasvg",
  "arborium",

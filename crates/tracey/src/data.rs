@@ -1917,129 +1917,29 @@ async fn compute_workspace_diagnostics(
     out
 }
 
-struct MarkdownRuleReference {
-    prefix: String,
-    req_id: RuleId,
-    span_offset: usize,
-    span_length: usize,
-}
-
-fn parse_markdown_fence(line: &[u8], mut i: usize) -> Option<(u8, usize)> {
-    while i < line.len() && matches!(line[i], b' ' | b'\t') {
-        i += 1;
-    }
-    let fence_char = *line.get(i)?;
-    if fence_char != b'`' && fence_char != b'~' {
+/// Parse an inline code span content like `r[auth.login]` into (prefix, rule_id).
+/// Returns None if the content doesn't match the `PREFIX[RULE_ID]` pattern.
+pub(crate) fn parse_inline_rule_reference(content: &str) -> Option<(String, RuleId)> {
+    let bytes = content.as_bytes();
+    let bracket = bytes.iter().position(|&b| b == b'[')?;
+    if bracket == 0 {
         return None;
     }
-    let mut count = 0usize;
-    while i + count < line.len() && line[i + count] == fence_char {
-        count += 1;
+    let prefix = &content[..bracket];
+    if !prefix
+        .bytes()
+        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+    {
+        return None;
     }
-    (count >= 3).then_some((fence_char, count))
-}
-
-fn markdown_fenced_code_mask(content: &str) -> Vec<bool> {
-    let mut mask = vec![false; content.len()];
-    let mut line_start = 0usize;
-    let mut in_fence: Option<(u8, usize)> = None;
-
-    for line in content.split_inclusive('\n') {
-        let line_end = line_start + line.len();
-        let fence = parse_markdown_fence(line.as_bytes(), 0);
-
-        if let Some((fence_char, fence_len)) = fence {
-            match in_fence {
-                Some((open_char, open_len)) if fence_char == open_char && fence_len >= open_len => {
-                    mask[line_start..line_end].fill(true);
-                    in_fence = None;
-                    line_start = line_end;
-                    continue;
-                }
-                None => {
-                    in_fence = Some((fence_char, fence_len));
-                    mask[line_start..line_end].fill(true);
-                    line_start = line_end;
-                    continue;
-                }
-                _ => {}
-            }
-        }
-
-        if in_fence.is_some() {
-            mask[line_start..line_end].fill(true);
-        }
-
-        line_start = line_end;
+    let rest = &content[bracket + 1..];
+    let close = rest.find(']')?;
+    if close + bracket + 2 != content.len() {
+        return None; // extra chars after ]
     }
-
-    mask
-}
-
-fn extract_markdown_rule_references(content: &str) -> Vec<MarkdownRuleReference> {
-    let bytes = content.as_bytes();
-    let mut out = Vec::new();
-    let fenced_code_mask = markdown_fenced_code_mask(content);
-    let mut i = 0usize;
-
-    while i < bytes.len() {
-        if fenced_code_mask.get(i).copied().unwrap_or(false) {
-            i += 1;
-            continue;
-        }
-
-        let c = bytes[i];
-        if !c.is_ascii_lowercase() && !c.is_ascii_digit() {
-            i += 1;
-            continue;
-        }
-
-        let start = i;
-        let mut prefix_end = i + 1;
-        while prefix_end < bytes.len()
-            && (bytes[prefix_end].is_ascii_lowercase() || bytes[prefix_end].is_ascii_digit())
-        {
-            prefix_end += 1;
-        }
-        if prefix_end >= bytes.len() || bytes[prefix_end] != b'[' {
-            i += 1;
-            continue;
-        }
-
-        let req_start = prefix_end + 1;
-        let mut req_end = req_start;
-        while req_end < bytes.len() && bytes[req_end] != b']' && bytes[req_end] != b'\n' {
-            req_end += 1;
-        }
-        if req_end >= bytes.len() || bytes[req_end] != b']' {
-            i = prefix_end + 1;
-            continue;
-        }
-
-        let prefix = &content[start..prefix_end];
-        let req_str = &content[req_start..req_end];
-
-        if let Some(rule_id) = parse_rule_id(req_str) {
-            // Skip if this looks like a requirement definition (at line start)
-            let line_start = content[..start].rfind('\n').map_or(0, |p| p + 1);
-            let before = content[line_start..start].trim();
-            if before.is_empty() {
-                i = req_end + 1;
-                continue;
-            }
-
-            out.push(MarkdownRuleReference {
-                prefix: prefix.to_string(),
-                req_id: rule_id,
-                span_offset: start,
-                span_length: req_end + 1 - start,
-            });
-        }
-
-        i = req_end + 1;
-    }
-
-    out
+    let rule_str = &rest[..close];
+    let rule_id = parse_rule_id(rule_str)?;
+    Some((prefix.to_string(), rule_id))
 }
 
 /// Compute diagnostics for spec markdown files: coverage hints + cross-reference validation.
@@ -2128,94 +2028,97 @@ async fn compute_spec_file_diagnostics(
                     }
                 }
             }
-        }
 
-        // Cross-reference validation
-        for reference in extract_markdown_rule_references(content) {
-            let (start_line, start_char, end_line, end_char) =
-                span_to_range(content, reference.span_offset, reference.span_length);
-
-            if !known_prefixes.contains(reference.prefix.as_str()) {
-                diagnostics.push(LspDiagnostic {
-                    severity: "error".to_string(),
-                    code: "unknown-prefix".to_string(),
-                    message: format!("Unknown prefix: '{}'", reference.prefix),
-                    start_line,
-                    start_char,
-                    end_line,
-                    end_char,
-                });
-                continue;
-            }
-
-            let known_for_prefix = known_rules_by_prefix
-                .get(reference.prefix.as_str())
-                .map(Vec::as_slice)
-                .unwrap_or(&[]);
-
-            // Classify reference against known rules
-            let mut stale_target: Option<RuleId> = None;
-            let mut exact = false;
-            for rule_id in known_for_prefix {
-                match classify_reference_for_rule(rule_id, &reference.req_id) {
-                    RuleIdMatch::Exact => {
-                        exact = true;
-                        break;
-                    }
-                    RuleIdMatch::Stale => {
-                        stale_target = Some(rule_id.clone());
-                    }
-                    RuleIdMatch::NoMatch => {}
-                }
-            }
-
-            if exact {
-                continue;
-            }
-
-            if let Some(current_rule_id) = stale_target {
-                let mut message = String::from(STALE_IMPLEMENTATION_MUST_CHANGE_PREFIX);
-                if let Some(current_rule) = rules_by_id.get(&current_rule_id) {
-                    message.push_str(&format!(
-                        ". Reference '{}' is stale; current rule is '{}'.",
-                        reference.req_id, current_rule.id
-                    ));
-                } else {
-                    message.push_str(". The referenced annotation is stale, but the latest matching rule could not be loaded.");
-                }
-                diagnostics.push(LspDiagnostic {
-                    severity: "warning".to_string(),
-                    code: "stale".to_string(),
-                    message,
-                    start_line,
-                    start_char,
-                    end_line,
-                    end_char,
-                });
-            } else {
-                let suggestions = suggest_similar_rule_ids(&reference.req_id, known_for_prefix, 3);
-                let message = if suggestions.is_empty() {
-                    format!("Reference to unknown rule '{}'", reference.req_id)
-                } else {
-                    format!(
-                        "Reference to unknown rule '{}' (did you mean: {})",
-                        reference.req_id,
-                        suggestions
-                            .iter()
-                            .map(ToString::to_string)
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    )
+            // Cross-reference validation: only backtick inline code spans like `r[auth.login]`
+            for code_span in &doc.inline_code_spans {
+                let Some((prefix, req_id)) = parse_inline_rule_reference(&code_span.content) else {
+                    continue;
                 };
-                diagnostics.push(LspDiagnostic {
-                    severity: "warning".to_string(),
-                    code: "orphaned".to_string(),
-                    message,
-                    start_line,
-                    start_char,
-                    end_line,
-                    end_char,
-                });
+                let (start_line, start_char, end_line, end_char) =
+                    span_to_range(content, code_span.span.offset, code_span.span.length);
+
+                if !known_prefixes.contains(prefix.as_str()) {
+                    diagnostics.push(LspDiagnostic {
+                        severity: "error".to_string(),
+                        code: "unknown-prefix".to_string(),
+                        message: format!("Unknown prefix: '{prefix}'"),
+                        start_line,
+                        start_char,
+                        end_line,
+                        end_char,
+                    });
+                    continue;
+                }
+
+                let known_for_prefix = known_rules_by_prefix
+                    .get(prefix.as_str())
+                    .map(Vec::as_slice)
+                    .unwrap_or(&[]);
+
+                // Classify reference against known rules
+                let mut stale_target: Option<RuleId> = None;
+                let mut exact = false;
+                for rule_id in known_for_prefix {
+                    match classify_reference_for_rule(rule_id, &req_id) {
+                        RuleIdMatch::Exact => {
+                            exact = true;
+                            break;
+                        }
+                        RuleIdMatch::Stale => {
+                            stale_target = Some(rule_id.clone());
+                        }
+                        RuleIdMatch::NoMatch => {}
+                    }
+                }
+
+                if exact {
+                    continue;
+                }
+
+                if let Some(current_rule_id) = stale_target {
+                    let mut message = String::from(STALE_IMPLEMENTATION_MUST_CHANGE_PREFIX);
+                    if let Some(current_rule) = rules_by_id.get(&current_rule_id) {
+                        message.push_str(&format!(
+                            ". Reference '{}' is stale; current rule is '{}'.",
+                            req_id, current_rule.id
+                        ));
+                    } else {
+                        message.push_str(". The referenced annotation is stale, but the latest matching rule could not be loaded.");
+                    }
+                    diagnostics.push(LspDiagnostic {
+                        severity: "warning".to_string(),
+                        code: "stale".to_string(),
+                        message,
+                        start_line,
+                        start_char,
+                        end_line,
+                        end_char,
+                    });
+                } else {
+                    let suggestions = suggest_similar_rule_ids(&req_id, known_for_prefix, 3);
+                    let message = if suggestions.is_empty() {
+                        format!("Reference to unknown rule '{req_id}'")
+                    } else {
+                        format!(
+                            "Reference to unknown rule '{}' (did you mean: {})",
+                            req_id,
+                            suggestions
+                                .iter()
+                                .map(ToString::to_string)
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )
+                    };
+                    diagnostics.push(LspDiagnostic {
+                        severity: "warning".to_string(),
+                        code: "orphaned".to_string(),
+                        message,
+                        start_line,
+                        start_char,
+                        end_line,
+                        end_char,
+                    });
+                }
             }
         }
 
