@@ -221,52 +221,6 @@ struct LspProjectState {
 }
 
 impl Backend {
-    fn set_tracked_diagnostic_state(
-        project_state: &Arc<Mutex<LspProjectState>>,
-        project_root: &Path,
-        abs_path: &str,
-        has_diagnostics: bool,
-    ) {
-        let mut state = project_state.lock().unwrap();
-        let tracked = state
-            .files_with_diagnostics
-            .entry(project_root.to_path_buf())
-            .or_default();
-        if has_diagnostics {
-            tracked.insert(abs_path.to_string());
-        } else {
-            tracked.remove(abs_path);
-            if tracked.is_empty() {
-                state.files_with_diagnostics.remove(project_root);
-            }
-        }
-    }
-
-    fn to_lsp_diagnostic(d: tracey_proto::LspDiagnostic) -> Diagnostic {
-        Diagnostic {
-            range: Range {
-                start: Position {
-                    line: d.start_line,
-                    character: d.start_char,
-                },
-                end: Position {
-                    line: d.end_line,
-                    character: d.end_char,
-                },
-            },
-            severity: Some(match d.severity.as_str() {
-                "error" => DiagnosticSeverity::ERROR,
-                "warning" => DiagnosticSeverity::WARNING,
-                "info" => DiagnosticSeverity::INFORMATION,
-                _ => DiagnosticSeverity::HINT,
-            }),
-            code: Some(NumberOrString::String(d.code)),
-            source: Some("tracey".into()),
-            message: d.message,
-            ..Default::default()
-        }
-    }
-
     /// Get path and content for a document, for daemon calls.
     fn get_path_and_content(&self, uri: &Url) -> Option<(String, String)> {
         let state = self.doc_state.lock().unwrap();
@@ -534,23 +488,6 @@ impl Backend {
             tokio::spawn(async move {
                 let _ = bg_client.vfs_open(bg_path, bg_content).await;
             });
-            let tracked_path = path.clone();
-            if let Ok(diags) = rpc(daemon_client
-                .lsp_diagnostics(LspDocumentRequest { path, content })
-                .await)
-            {
-                let has_diagnostics = !diags.is_empty();
-                let diagnostics = diags.into_iter().map(Self::to_lsp_diagnostic).collect();
-                self.client
-                    .publish_diagnostics(uri.clone(), diagnostics, None)
-                    .await;
-                Self::set_tracked_diagnostic_state(
-                    &self.project_state,
-                    &project_root,
-                    &tracked_path,
-                    has_diagnostics,
-                );
-            }
         }
         self.spawn_watcher_if_needed(project_root, daemon_client, should_watch);
     }
@@ -570,23 +507,6 @@ impl Backend {
             tokio::spawn(async move {
                 let _ = bg_client.vfs_change(bg_path, bg_content).await;
             });
-            let tracked_path = path.clone();
-            if let Ok(diags) = rpc(daemon_client
-                .lsp_diagnostics(LspDocumentRequest { path, content })
-                .await)
-            {
-                let has_diagnostics = !diags.is_empty();
-                let diagnostics = diags.into_iter().map(Self::to_lsp_diagnostic).collect();
-                self.client
-                    .publish_diagnostics(uri.clone(), diagnostics, None)
-                    .await;
-                Self::set_tracked_diagnostic_state(
-                    &self.project_state,
-                    &project_root,
-                    &tracked_path,
-                    has_diagnostics,
-                );
-            }
         }
         self.spawn_watcher_if_needed(project_root, daemon_client, should_watch);
     }
@@ -604,10 +524,6 @@ impl Backend {
             tokio::spawn(async move {
                 let _ = bg_client.vfs_close(bg_path).await;
             });
-            self.client
-                .publish_diagnostics(uri.clone(), vec![], None)
-                .await;
-            Self::set_tracked_diagnostic_state(&self.project_state, &project_root, &path, false);
         }
         self.spawn_watcher_if_needed(project_root, daemon_client, should_watch);
     }
