@@ -198,10 +198,10 @@ pub async fn run(
     Ok(())
 }
 
-// Embedded dashboard assets (colocated in src/bridge/http/dashboard/)
-static INDEX_HTML: &str = include_str!("dashboard/dist/index.html");
-static INDEX_CSS: &str = include_str!("dashboard/dist/assets/index.css");
-static INDEX_JS: &str = include_str!("dashboard/dist/assets/index.js");
+// Embedded dashboard assets (built into OUT_DIR by build.rs)
+static INDEX_HTML: &str = include_str!(concat!(env!("OUT_DIR"), "/dashboard/dist/index.html"));
+static INDEX_CSS: &str = include_str!(concat!(env!("OUT_DIR"), "/dashboard/dist/assets/index.css"));
+static INDEX_JS: &str = include_str!(concat!(env!("OUT_DIR"), "/dashboard/dist/assets/index.js"));
 
 /// SPA fallback - serve index.html for all non-API routes.
 async fn spa_fallback() -> Html<&'static str> {

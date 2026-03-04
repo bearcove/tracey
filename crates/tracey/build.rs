@@ -166,29 +166,49 @@ fn generate_typescript_types() {
     }
 }
 
+fn copy_dir_recursive(src: &Path, dst: &Path) {
+    fs::create_dir_all(dst).expect("Failed to create directory");
+    for entry in fs::read_dir(src).expect("Failed to read directory") {
+        let entry = entry.expect("Failed to read entry");
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        // Skip node_modules and dist — those belong in OUT_DIR only
+        if name_str == "node_modules" || name_str == "dist" {
+            continue;
+        }
+        let src_path = entry.path();
+        let dst_path = dst.join(&name);
+        if src_path.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path);
+        } else {
+            fs::copy(&src_path, &dst_path).expect("Failed to copy file");
+        }
+    }
+}
+
 fn build_dashboard() {
-    // Dashboard is colocated with the HTTP bridge
-    let dashboard_dir = Path::new("src/bridge/http/dashboard");
-    let dist_dir = dashboard_dir.join("dist");
+    let out_dir = std::env::var("OUT_DIR").unwrap();
+    let dashboard_src = Path::new("src/bridge/http/dashboard");
+    let dashboard_out = Path::new(&out_dir).join("dashboard");
+    let dist_dir = dashboard_out.join("dist");
 
     // Re-run if dashboard source changes
     println!("cargo:rerun-if-changed=src/bridge/http/dashboard/src");
     println!("cargo:rerun-if-changed=src/bridge/http/dashboard/index.html");
     println!("cargo:rerun-if-changed=src/bridge/http/dashboard/package.json");
     println!("cargo:rerun-if-changed=src/bridge/http/dashboard/vite.config.ts");
-    // Re-run if output is missing (so deleting dist triggers rebuild)
-    println!("cargo:rerun-if-changed=src/bridge/http/dashboard/dist/index.html");
-    println!("cargo:rerun-if-changed=src/bridge/http/dashboard/dist/assets/index.js");
-    println!("cargo:rerun-if-changed=src/bridge/http/dashboard/dist/assets/index.css");
 
-    // Skip build if dist already exists (for faster incremental builds)
-    // To force rebuild, delete the dist directory
+    // Skip build if dist already exists in OUT_DIR (for faster incremental builds)
     if dist_dir.join("index.html").exists()
         && dist_dir.join("assets/index.js").exists()
         && dist_dir.join("assets/index.css").exists()
     {
         return;
     }
+
+    // Copy dashboard source into OUT_DIR so pnpm/vite run entirely outside the source tree
+    copy_dir_recursive(dashboard_src, &dashboard_out);
+    let dashboard_dir = &dashboard_out;
 
     // Check if node is available
     let node_check = shell_command("node").arg("--version").output();
@@ -312,7 +332,7 @@ fn build_dashboard() {
         panic!("pnpm install failed");
     }
 
-    // Build the dashboard
+    // Build the dashboard (output goes to OUT_DIR/dashboard/dist)
     let status = shell_command("pnpm")
         .args(["run", "build"])
         .current_dir(dashboard_dir)
