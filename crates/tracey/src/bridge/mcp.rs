@@ -678,8 +678,7 @@ impl ServerHandler for TraceyHandler {
 
 fn root_uri_to_project_root(uri: &str) -> Option<PathBuf> {
     let url = Url::parse(uri).ok()?;
-    let path = url.to_file_path().ok()?;
-    Some(crate::find_project_root_from(&path))
+    url.to_file_path().ok()
 }
 
 fn select_project_root_from_roots(roots: &[Root]) -> Option<PathBuf> {
