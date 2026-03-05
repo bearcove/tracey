@@ -524,7 +524,10 @@ impl QueryClient {
             // No filter provided: validate ALL spec/impl combinations.
             let status = match self.client.status().await {
                 Ok(s) => s,
-                Err(e) => (format!("Error getting status: {e:?}"), true),
+                Err(e) => {
+                    let output = format!("Error getting status: {e:?}");
+                    return (self.with_config_banner(output).await, true);
+                }
             };
 
             if status.impls.is_empty() {
