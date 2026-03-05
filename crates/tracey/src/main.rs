@@ -431,41 +431,51 @@ async fn main() -> Result<()> {
             })?;
 
             if json {
-                let output = query_json(&query_client, query).await;
+                let (output, has_errors) = query_json(&query_client, query).await;
                 println!("{}", output);
+                if has_errors {
+                    std::process::exit(1);
+                }
                 return Ok(());
             }
 
-            let output = match query {
-                QueryCommand::Status => query_client.status().await,
-                QueryCommand::Uncovered { spec_impl, prefix } => {
+            let (output, has_errors) = match query {
+                QueryCommand::Status => (query_client.status().await, false),
+                QueryCommand::Uncovered { spec_impl, prefix } => (
                     query_client
                         .uncovered(spec_impl.as_deref(), prefix.as_deref())
-                        .await
-                }
-                QueryCommand::Untested { spec_impl, prefix } => {
+                        .await,
+                    false,
+                ),
+                QueryCommand::Untested { spec_impl, prefix } => (
                     query_client
                         .untested(spec_impl.as_deref(), prefix.as_deref())
-                        .await
-                }
-                QueryCommand::Unmapped { spec_impl, path } => {
+                        .await,
+                    false,
+                ),
+                QueryCommand::Unmapped { spec_impl, path } => (
                     query_client
                         .unmapped(spec_impl.as_deref(), path.as_deref())
-                        .await
-                }
-                QueryCommand::Stale { spec_impl, prefix } => {
+                        .await,
+                    false,
+                ),
+                QueryCommand::Stale { spec_impl, prefix } => (
                     query_client
                         .stale(spec_impl.as_deref(), prefix.as_deref())
-                        .await
-                }
-                QueryCommand::Rule { rule_ids } => query_client.rules(&rule_ids).await,
-                QueryCommand::Config => query_client.config().await,
+                        .await,
+                    false,
+                ),
+                QueryCommand::Rule { rule_ids } => (query_client.rules(&rule_ids).await, false),
+                QueryCommand::Config => (query_client.config().await, false),
                 QueryCommand::Validate { spec_impl } => {
                     query_client.validate(spec_impl.as_deref()).await
                 }
             };
 
             println!("{}", output);
+            if has_errors {
+                std::process::exit(1);
+            }
             Ok(())
         }
 
@@ -490,14 +500,17 @@ fn json_error(message: &str) -> String {
 
 /// Handle `tracey query --json <subcommand>` by calling the daemon client
 /// directly and serializing the typed response as JSON.
-async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> String {
+async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> (String, bool) {
     use bridge::query::parse_spec_impl;
     use tracey_proto::*;
 
     match query {
         QueryCommand::Status => match qc.client.status().await {
-            Ok(resp) => facet_json::to_string_pretty(&resp).expect("JSON serialization failed"),
-            Err(e) => json_error(&format!("{e:?}")),
+            Ok(resp) => (
+                facet_json::to_string_pretty(&resp).expect("JSON serialization failed"),
+                false,
+            ),
+            Err(e) => (json_error(&format!("{e:?}")), false),
         },
         QueryCommand::Uncovered { spec_impl, prefix } => {
             let (spec, impl_name) = parse_spec_impl(spec_impl.as_deref());
@@ -507,8 +520,11 @@ async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> Str
                 prefix,
             };
             match qc.client.uncovered(req).await {
-                Ok(resp) => facet_json::to_string_pretty(&resp).expect("JSON serialization failed"),
-                Err(e) => json_error(&format!("{e:?}")),
+                Ok(resp) => (
+                    facet_json::to_string_pretty(&resp).expect("JSON serialization failed"),
+                    false,
+                ),
+                Err(e) => (json_error(&format!("{e:?}")), false),
             }
         }
         QueryCommand::Untested { spec_impl, prefix } => {
@@ -519,8 +535,11 @@ async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> Str
                 prefix,
             };
             match qc.client.untested(req).await {
-                Ok(resp) => facet_json::to_string_pretty(&resp).expect("JSON serialization failed"),
-                Err(e) => json_error(&format!("{e:?}")),
+                Ok(resp) => (
+                    facet_json::to_string_pretty(&resp).expect("JSON serialization failed"),
+                    false,
+                ),
+                Err(e) => (json_error(&format!("{e:?}")), false),
             }
         }
         QueryCommand::Stale { spec_impl, prefix } => {
@@ -531,8 +550,11 @@ async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> Str
                 prefix,
             };
             match qc.client.stale(req).await {
-                Ok(resp) => facet_json::to_string_pretty(&resp).expect("JSON serialization failed"),
-                Err(e) => json_error(&format!("{e:?}")),
+                Ok(resp) => (
+                    facet_json::to_string_pretty(&resp).expect("JSON serialization failed"),
+                    false,
+                ),
+                Err(e) => (json_error(&format!("{e:?}")), false),
             }
         }
         QueryCommand::Unmapped { spec_impl, path } => {
@@ -543,32 +565,44 @@ async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> Str
                 path,
             };
             match qc.client.unmapped(req).await {
-                Ok(resp) => facet_json::to_string_pretty(&resp).expect("JSON serialization failed"),
-                Err(e) => json_error(&format!("{e:?}")),
+                Ok(resp) => (
+                    facet_json::to_string_pretty(&resp).expect("JSON serialization failed"),
+                    false,
+                ),
+                Err(e) => (json_error(&format!("{e:?}")), false),
             }
         }
         QueryCommand::Rule { rule_ids } => {
             let mut infos = Vec::new();
             for raw_id in &rule_ids {
                 let Some(parsed) = tracey_core::parse_rule_id(raw_id) else {
-                    return json_error(&format!("invalid rule ID: {raw_id}"));
+                    return (json_error(&format!("invalid rule ID: {raw_id}")), false);
                 };
                 match qc.client.rule(parsed).await {
                     Ok(Some(info)) => infos.push(info),
-                    Ok(None) => return json_error(&format!("rule not found: {raw_id}")),
-                    Err(e) => return json_error(&format!("{e:?}")),
+                    Ok(None) => return (json_error(&format!("rule not found: {raw_id}")), false),
+                    Err(e) => return (json_error(&format!("{e:?}")), false),
                 }
             }
             if infos.len() == 1 {
-                facet_json::to_string_pretty(&infos.into_iter().next().unwrap())
-                    .expect("JSON serialization failed")
+                (
+                    facet_json::to_string_pretty(&infos.into_iter().next().unwrap())
+                        .expect("JSON serialization failed"),
+                    false,
+                )
             } else {
-                facet_json::to_string_pretty(&infos).expect("JSON serialization failed")
+                (
+                    facet_json::to_string_pretty(&infos).expect("JSON serialization failed"),
+                    false,
+                )
             }
         }
         QueryCommand::Config => match qc.client.config().await {
-            Ok(resp) => facet_json::to_string_pretty(&resp).expect("JSON serialization failed"),
-            Err(e) => json_error(&format!("{e:?}")),
+            Ok(resp) => (
+                facet_json::to_string_pretty(&resp).expect("JSON serialization failed"),
+                false,
+            ),
+            Err(e) => (json_error(&format!("{e:?}")), false),
         },
         QueryCommand::Validate { spec_impl } => {
             if spec_impl.is_some() {
@@ -576,35 +610,48 @@ async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> Str
                 let req = ValidateRequest { spec, impl_name };
                 match qc.client.validate(req).await {
                     Ok(resp) => {
-                        facet_json::to_string_pretty(&resp).expect("JSON serialization failed")
+                        let has_errors = resp.error_count > 0;
+                        (
+                            facet_json::to_string_pretty(&resp).expect("JSON serialization failed"),
+                            has_errors,
+                        )
                     }
-                    Err(e) => json_error(&format!("{e:?}")),
+                    Err(e) => (json_error(&format!("{e:?}")), true),
                 }
             } else {
                 // Validate all spec/impl combinations
                 let status = match qc.client.status().await {
                     Ok(s) => s,
-                    Err(e) => return json_error(&format!("error getting status: {e:?}")),
+                    Err(e) => return (json_error(&format!("error getting status: {e:?}")), true),
                 };
 
                 let mut results = Vec::new();
+                let mut has_errors = false;
                 for impl_status in &status.impls {
                     let req = ValidateRequest {
                         spec: Some(impl_status.spec.clone()),
                         impl_name: Some(impl_status.impl_name.clone()),
                     };
                     match qc.client.validate(req).await {
-                        Ok(result) => results.push(result),
+                        Ok(result) => {
+                            has_errors |= result.error_count > 0;
+                            results.push(result)
+                        }
                         Err(e) => {
-                            return json_error(&format!(
-                                "error validating {}/{}: {e:?}",
-                                impl_status.spec, impl_status.impl_name
-                            ));
+                            return (
+                                json_error(&format!(
+                                    "error validating {}/{}: {e:?}",
+                                    impl_status.spec, impl_status.impl_name
+                                )),
+                                true,
+                            );
                         }
                     }
                 }
 
-                facet_json::to_string_pretty(&results).expect("JSON serialization failed")
+                let json =
+                    facet_json::to_string_pretty(&results).expect("JSON serialization failed");
+                (json, has_errors)
             }
         }
     }

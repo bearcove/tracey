@@ -508,33 +508,33 @@ impl QueryClient {
         self.with_config_banner(output).await
     }
 
-    pub async fn validate(&self, spec_impl: Option<&str>) -> String {
-        let output = if spec_impl.is_some() {
+    pub async fn validate(&self, spec_impl: Option<&str>) -> (String, bool) {
+        let (output, has_errors) = if spec_impl.is_some() {
             // If a specific spec/impl was requested, validate just that one.
             let (spec, impl_name) = parse_spec_impl(spec_impl);
             let req = ValidateRequest { spec, impl_name };
             match self.client.validate(req).await {
-                Ok(result) => format_validation_result(&result),
-                Err(e) => format!("Error: {e:?}"),
+                Ok(result) => {
+                    let has_errors = result.error_count > 0;
+                    (format_validation_result(&result), has_errors)
+                }
+                Err(e) => (format!("Error: {e:?}"), true),
             }
         } else {
             // No filter provided: validate ALL spec/impl combinations.
             let status = match self.client.status().await {
                 Ok(s) => s,
-                Err(e) => {
-                    return self
-                        .with_config_banner(format!("Error getting status: {e:?}"))
-                        .await;
-                }
+                Err(e) => (format!("Error getting status: {e:?}"), true),
             };
 
             if status.impls.is_empty() {
-                "No spec/impl combinations configured.".to_string()
+                ("No spec/impl combinations configured.".to_string(), false)
             } else {
                 let mut output = String::new();
                 let mut total_errors = 0;
                 let mut unique_unknown_rules: BTreeSet<String> = BTreeSet::new();
                 let mut unknown_reference_counts: BTreeMap<String, usize> = BTreeMap::new();
+                let mut has_errors = false;
 
                 for impl_status in &status.impls {
                     let req = ValidateRequest {
@@ -545,6 +545,7 @@ impl QueryClient {
                     match self.client.validate(req).await {
                         Ok(result) => {
                             total_errors += result.error_count;
+                            has_errors |= result.error_count > 0;
                             let mut unknown_for_impl = 0usize;
                             let mut non_unknown_errors = Vec::new();
                             for error in &result.errors {
@@ -606,6 +607,8 @@ impl QueryClient {
                                 "✗ {}/{}: Error: {e:?}\n\n",
                                 impl_status.spec, impl_status.impl_name
                             ));
+                            total_errors += 1;
+                            has_errors = true;
                         }
                     }
                 }
@@ -633,11 +636,11 @@ impl QueryClient {
                     "tracey query validate <spec>/<impl>",
                     "tracey_validate with a spec_impl parameter to validate a specific one (e.g., \"my-spec/rust\")",
                 ));
-                output
+                (output, has_errors)
             }
         };
 
-        self.with_config_banner(output).await
+        (self.with_config_banner(output).await, has_errors)
     }
 
     pub async fn config_exclude(&self, spec_impl: Option<&str>, pattern: &str) -> String {
