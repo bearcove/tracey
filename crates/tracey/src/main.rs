@@ -540,7 +540,7 @@ fn json_error(message: &str) -> String {
 /// Handle `tracey query --json <subcommand>` by calling the daemon client
 /// directly and serializing the typed response as JSON.
 async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> (String, bool) {
-    use bridge::query::parse_spec_impl;
+    use bridge::query::{parse_spec_impl, validate_spec_impl_selection};
     use tracey_proto::*;
 
     match query {
@@ -552,7 +552,21 @@ async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> (St
             Err(e) => (json_error(&format!("{e:?}")), false),
         },
         QueryCommand::Uncovered { spec_impl, prefix } => {
-            let (spec, impl_name) = parse_spec_impl(spec_impl.as_deref());
+            let (spec, impl_name) = match spec_impl.as_deref() {
+                Some(raw) => {
+                    let config = match qc.client.config().await {
+                        Ok(config) => config,
+                        Err(e) => {
+                            return (json_error(&format!("failed to load config: {e:?}")), false);
+                        }
+                    };
+                    match validate_spec_impl_selection(Some(raw), &config) {
+                        Ok(values) => values,
+                        Err(error) => return (json_error(&error), false),
+                    }
+                }
+                None => parse_spec_impl(None),
+            };
             let req = UncoveredRequest {
                 spec,
                 impl_name,
@@ -567,7 +581,21 @@ async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> (St
             }
         }
         QueryCommand::Untested { spec_impl, prefix } => {
-            let (spec, impl_name) = parse_spec_impl(spec_impl.as_deref());
+            let (spec, impl_name) = match spec_impl.as_deref() {
+                Some(raw) => {
+                    let config = match qc.client.config().await {
+                        Ok(config) => config,
+                        Err(e) => {
+                            return (json_error(&format!("failed to load config: {e:?}")), false);
+                        }
+                    };
+                    match validate_spec_impl_selection(Some(raw), &config) {
+                        Ok(values) => values,
+                        Err(error) => return (json_error(&error), false),
+                    }
+                }
+                None => parse_spec_impl(None),
+            };
             let req = UntestedRequest {
                 spec,
                 impl_name,
@@ -582,7 +610,21 @@ async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> (St
             }
         }
         QueryCommand::Stale { spec_impl, prefix } => {
-            let (spec, impl_name) = parse_spec_impl(spec_impl.as_deref());
+            let (spec, impl_name) = match spec_impl.as_deref() {
+                Some(raw) => {
+                    let config = match qc.client.config().await {
+                        Ok(config) => config,
+                        Err(e) => {
+                            return (json_error(&format!("failed to load config: {e:?}")), false);
+                        }
+                    };
+                    match validate_spec_impl_selection(Some(raw), &config) {
+                        Ok(values) => values,
+                        Err(error) => return (json_error(&error), false),
+                    }
+                }
+                None => parse_spec_impl(None),
+            };
             let req = StaleRequest {
                 spec,
                 impl_name,
@@ -597,7 +639,21 @@ async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> (St
             }
         }
         QueryCommand::Unmapped { spec_impl, path } => {
-            let (spec, impl_name) = parse_spec_impl(spec_impl.as_deref());
+            let (spec, impl_name) = match spec_impl.as_deref() {
+                Some(raw) => {
+                    let config = match qc.client.config().await {
+                        Ok(config) => config,
+                        Err(e) => {
+                            return (json_error(&format!("failed to load config: {e:?}")), false);
+                        }
+                    };
+                    match validate_spec_impl_selection(Some(raw), &config) {
+                        Ok(values) => values,
+                        Err(error) => return (json_error(&error), false),
+                    }
+                }
+                None => parse_spec_impl(None),
+            };
             let req = UnmappedRequest {
                 spec,
                 impl_name,
@@ -649,7 +705,15 @@ async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> (St
                 Err(e) => return (json_error(&e.to_string()), true),
             };
             if spec_impl.is_some() {
-                let (spec, impl_name) = parse_spec_impl(spec_impl.as_deref());
+                let config = match qc.client.config().await {
+                    Ok(config) => config,
+                    Err(e) => return (json_error(&format!("failed to load config: {e:?}")), true),
+                };
+                let (spec, impl_name) =
+                    match validate_spec_impl_selection(spec_impl.as_deref(), &config) {
+                        Ok(values) => values,
+                        Err(error) => return (json_error(&error), true),
+                    };
                 let req = ValidateRequest { spec, impl_name };
                 match qc.client.validate(req).await {
                     Ok(resp) => {

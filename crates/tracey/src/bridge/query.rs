@@ -39,6 +39,61 @@ pub fn parse_spec_impl(spec_impl: Option<&str>) -> (Option<String>, Option<Strin
     }
 }
 
+fn valid_spec_impl_values(config: &ApiConfig) -> Vec<String> {
+    config
+        .specs
+        .iter()
+        .flat_map(|spec| {
+            spec.implementations
+                .iter()
+                .map(move |impl_name| format!("{}/{}", spec.name, impl_name))
+        })
+        .collect()
+}
+
+fn unknown_spec_impl_error(spec_impl: &str, config: &ApiConfig) -> String {
+    let valid_values = valid_spec_impl_values(config);
+    if valid_values.is_empty() {
+        format!("unknown spec_impl \"{spec_impl}\". No spec/impl combinations are configured")
+    } else {
+        format!(
+            "unknown spec_impl \"{spec_impl}\". Valid values: {}",
+            valid_values
+                .iter()
+                .map(|value| format!("\"{value}\""))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    }
+}
+
+pub fn validate_spec_impl_selection(
+    spec_impl: Option<&str>,
+    config: &ApiConfig,
+) -> Result<(Option<String>, Option<String>), String> {
+    let Some(raw) = spec_impl else {
+        return Ok((None, None));
+    };
+
+    if raw.contains('/') {
+        let (spec, impl_name) = parse_spec_impl(Some(raw));
+        let spec_name = spec.as_deref().unwrap_or_default();
+        let impl_value = impl_name.as_deref().unwrap_or_default();
+        let is_valid = config.specs.iter().any(|entry| {
+            entry.name == spec_name && entry.implementations.iter().any(|v| v == impl_value)
+        });
+        if is_valid {
+            Ok((spec, impl_name))
+        } else {
+            Err(unknown_spec_impl_error(raw, config))
+        }
+    } else if config.specs.iter().any(|entry| entry.name == raw) {
+        Ok((Some(raw.to_string()), None))
+    } else {
+        Err(unknown_spec_impl_error(raw, config))
+    }
+}
+
 fn unknown_rule_reference_from_error(error: &ValidationError) -> Option<(String, String)> {
     let rule_id = error.reference_rule_id.as_ref()?.to_string();
     let reference = error
@@ -77,6 +132,18 @@ impl QueryClient {
         } else {
             output
         }
+    }
+
+    async fn checked_spec_impl(
+        &self,
+        spec_impl: Option<&str>,
+    ) -> Result<(Option<String>, Option<String>), String> {
+        let config = self
+            .client
+            .config()
+            .await
+            .map_err(|e| format!("failed to load config: {e:?}"))?;
+        validate_spec_impl_selection(spec_impl, &config)
     }
 
     fn hint(&self, cli_text: &str, mcp_text: &str) -> String {
@@ -201,7 +268,10 @@ impl QueryClient {
 
     /// Get rules without implementation references
     pub async fn uncovered(&self, spec_impl: Option<&str>, prefix: Option<&str>) -> String {
-        let (spec, impl_name) = parse_spec_impl(spec_impl);
+        let (spec, impl_name) = match self.checked_spec_impl(spec_impl).await {
+            Ok(values) => values,
+            Err(error) => return self.with_config_banner(format!("Error: {error}")).await,
+        };
 
         let req = UncoveredRequest {
             spec,
@@ -249,7 +319,10 @@ impl QueryClient {
 
     /// Get rules without verification references
     pub async fn untested(&self, spec_impl: Option<&str>, prefix: Option<&str>) -> String {
-        let (spec, impl_name) = parse_spec_impl(spec_impl);
+        let (spec, impl_name) = match self.checked_spec_impl(spec_impl).await {
+            Ok(values) => values,
+            Err(error) => return self.with_config_banner(format!("Error: {error}")).await,
+        };
 
         let req = UntestedRequest {
             spec,
@@ -297,7 +370,10 @@ impl QueryClient {
 
     /// Get code units without rule references
     pub async fn unmapped(&self, spec_impl: Option<&str>, path: Option<&str>) -> String {
-        let (spec, impl_name) = parse_spec_impl(spec_impl);
+        let (spec, impl_name) = match self.checked_spec_impl(spec_impl).await {
+            Ok(values) => values,
+            Err(error) => return self.with_config_banner(format!("Error: {error}")).await,
+        };
 
         let req = UnmappedRequest {
             spec,
@@ -375,7 +451,10 @@ impl QueryClient {
 
     /// Get stale references (code pointing to older rule versions)
     pub async fn stale(&self, spec_impl: Option<&str>, prefix: Option<&str>) -> String {
-        let (spec, impl_name) = parse_spec_impl(spec_impl);
+        let (spec, impl_name) = match self.checked_spec_impl(spec_impl).await {
+            Ok(values) => values,
+            Err(error) => return self.with_config_banner(format!("Error: {error}")).await,
+        };
 
         let req = StaleRequest {
             spec,
@@ -511,7 +590,15 @@ impl QueryClient {
     pub async fn validate(&self, spec_impl: Option<&str>, deny_warnings: bool) -> (String, bool) {
         let (output, has_errors) = if spec_impl.is_some() {
             // If a specific spec/impl was requested, validate just that one.
-            let (spec, impl_name) = parse_spec_impl(spec_impl);
+            let (spec, impl_name) = match self.checked_spec_impl(spec_impl).await {
+                Ok(values) => values,
+                Err(error) => {
+                    return (
+                        self.with_config_banner(format!("Error: {error}")).await,
+                        true,
+                    );
+                }
+            };
             let req = ValidateRequest { spec, impl_name };
             match self.client.validate(req).await {
                 Ok(result) => {
@@ -653,7 +740,10 @@ impl QueryClient {
     }
 
     pub async fn config_exclude(&self, spec_impl: Option<&str>, pattern: &str) -> String {
-        let (spec, impl_name) = parse_spec_impl(spec_impl);
+        let (spec, impl_name) = match self.checked_spec_impl(spec_impl).await {
+            Ok(values) => values,
+            Err(error) => return self.with_config_banner(format!("Error: {error}")).await,
+        };
 
         let req = ConfigPatternRequest {
             spec,
@@ -670,7 +760,10 @@ impl QueryClient {
     }
 
     pub async fn config_include(&self, spec_impl: Option<&str>, pattern: &str) -> String {
-        let (spec, impl_name) = parse_spec_impl(spec_impl);
+        let (spec, impl_name) = match self.checked_spec_impl(spec_impl).await {
+            Ok(values) => values,
+            Err(error) => return self.with_config_banner(format!("Error: {error}")).await,
+        };
 
         let req = ConfigPatternRequest {
             spec,
@@ -787,11 +880,56 @@ fn format_validation_result(result: &tracey_proto::ValidationResult) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_rule_info, format_validation_result};
+    use super::{format_rule_info, format_validation_result, validate_spec_impl_selection};
+    use tracey_api::{ApiConfig, ApiSpecInfo};
     use tracey_core::parse_rule_id;
     use tracey_proto::{
         ApiCodeRef, RuleCoverage, RuleInfo, ValidationError, ValidationErrorCode, ValidationResult,
     };
+
+    fn sample_config() -> ApiConfig {
+        ApiConfig {
+            project_root: "/tmp/project".to_string(),
+            specs: vec![
+                ApiSpecInfo {
+                    name: "ship".to_string(),
+                    prefix: "r".to_string(),
+                    source: None,
+                    source_url: None,
+                    implementations: vec!["rust".to_string(), "typescript".to_string()],
+                },
+                ApiSpecInfo {
+                    name: "other".to_string(),
+                    prefix: "r".to_string(),
+                    source: None,
+                    source_url: None,
+                    implementations: vec!["rust".to_string()],
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn validate_spec_impl_selection_accepts_known_full_value() {
+        let config = sample_config();
+        let actual = validate_spec_impl_selection(Some("ship/typescript"), &config)
+            .expect("expected valid spec/impl");
+        assert_eq!(
+            actual,
+            (Some("ship".to_string()), Some("typescript".to_string()))
+        );
+    }
+
+    #[test]
+    fn validate_spec_impl_selection_rejects_unknown_value_with_valid_choices() {
+        let config = sample_config();
+        let error = validate_spec_impl_selection(Some("typescript"), &config)
+            .expect_err("expected invalid bare impl name to fail");
+        assert_eq!(
+            error,
+            "unknown spec_impl \"typescript\". Valid values: \"ship/rust\", \"ship/typescript\", \"other/rust\""
+        );
+    }
 
     #[test]
     fn stale_validation_output_is_concise() {
