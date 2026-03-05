@@ -16,6 +16,7 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/bearcove/tracey/release
 Or build from source:
 
 ```bash
+pnpm --version # pnpm is required
 cargo install --locked --git https://github.com/bearcove/tracey --branch main tracey
 ```
 
