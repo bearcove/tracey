@@ -627,7 +627,7 @@ impl ServerHandler for TraceyHandler {
             "tracey_reload" => client.reload().await,
             "tracey_validate" => {
                 let spec_impl = args.get("spec_impl").and_then(|v| v.as_str());
-                client.validate(spec_impl).await.0
+                client.validate(spec_impl, false).await.0
             }
             "tracey_config_exclude" => {
                 let spec_impl = args.get("spec_impl").and_then(|v| v.as_str());

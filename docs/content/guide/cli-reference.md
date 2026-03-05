@@ -185,8 +185,13 @@ tracey query config [ROOT]
 Run all validation checks: broken references, naming violations, circular dependencies, orphaned requirements, duplicates, stale references.
 
 ```
-tracey query validate [--spec_impl SPEC/IMPL] [ROOT]
+tracey query validate [--spec_impl SPEC/IMPL] [--deny warnings] [ROOT]
 ```
+
+Exit code behavior:
+- Fails (non-zero) when validation errors are present.
+- Warnings do not fail by default.
+- Use `--deny warnings` to make warnings fail the command.
 
 ## Spec versioning
 

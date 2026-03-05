@@ -264,7 +264,43 @@ enum QueryCommand {
         /// Spec/impl to validate (e.g., "my-spec/rust"). Optional if only one exists.
         #[facet(args::named, default)]
         spec_impl: Option<String>,
+
+        /// Diagnostics to deny as fatal (repeatable). Supported values: warnings.
+        #[facet(args::named, default)]
+        deny: Vec<String>,
     },
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct ValidationDeny {
+    warnings: bool,
+}
+
+impl ValidationDeny {
+    fn parse(values: &[String]) -> Result<Self> {
+        let mut deny = Self::default();
+        for raw in values {
+            for token in raw.split(',') {
+                let token = token.trim().to_ascii_lowercase();
+                if token.is_empty() {
+                    continue;
+                }
+                match token.as_str() {
+                    "warnings" | "warning" => deny.warnings = true,
+                    other => {
+                        return Err(eyre!(
+                            "unknown value for --deny: {other} (supported: warnings)"
+                        ));
+                    }
+                }
+            }
+        }
+        Ok(deny)
+    }
+
+    fn should_fail(self, error_count: usize, warning_count: usize) -> bool {
+        error_count > 0 || (self.warnings && warning_count > 0)
+    }
 }
 
 // Embed the config schema for zero-execution discovery by styx tooling
@@ -467,8 +503,11 @@ async fn main() -> Result<()> {
                 ),
                 QueryCommand::Rule { rule_ids } => (query_client.rules(&rule_ids).await, false),
                 QueryCommand::Config => (query_client.config().await, false),
-                QueryCommand::Validate { spec_impl } => {
-                    query_client.validate(spec_impl.as_deref()).await
+                QueryCommand::Validate { spec_impl, deny } => {
+                    let deny = ValidationDeny::parse(&deny)?;
+                    query_client
+                        .validate(spec_impl.as_deref(), deny.warnings)
+                        .await
                 }
             };
 
@@ -604,13 +643,17 @@ async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> (St
             ),
             Err(e) => (json_error(&format!("{e:?}")), false),
         },
-        QueryCommand::Validate { spec_impl } => {
+        QueryCommand::Validate { spec_impl, deny } => {
+            let deny = match ValidationDeny::parse(&deny) {
+                Ok(deny) => deny,
+                Err(e) => return (json_error(&e.to_string()), true),
+            };
             if spec_impl.is_some() {
                 let (spec, impl_name) = parse_spec_impl(spec_impl.as_deref());
                 let req = ValidateRequest { spec, impl_name };
                 match qc.client.validate(req).await {
                     Ok(resp) => {
-                        let has_errors = resp.error_count > 0;
+                        let has_errors = deny.should_fail(resp.error_count, resp.warning_count);
                         (
                             facet_json::to_string_pretty(&resp).expect("JSON serialization failed"),
                             has_errors,
@@ -626,7 +669,8 @@ async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> (St
                 };
 
                 let mut results = Vec::new();
-                let mut has_errors = false;
+                let mut total_errors = 0usize;
+                let mut total_warnings = 0usize;
                 for impl_status in &status.impls {
                     let req = ValidateRequest {
                         spec: Some(impl_status.spec.clone()),
@@ -634,7 +678,8 @@ async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> (St
                     };
                     match qc.client.validate(req).await {
                         Ok(result) => {
-                            has_errors |= result.error_count > 0;
+                            total_errors += result.error_count;
+                            total_warnings += result.warning_count;
                             results.push(result)
                         }
                         Err(e) => {
@@ -651,9 +696,44 @@ async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> (St
 
                 let json =
                     facet_json::to_string_pretty(&results).expect("JSON serialization failed");
-                (json, has_errors)
+                (json, deny.should_fail(total_errors, total_warnings))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ValidationDeny;
+
+    #[test]
+    fn parse_validation_deny_accepts_warnings_variants() {
+        let deny = ValidationDeny::parse(&["warnings".to_string()]).expect("parse warnings");
+        assert!(deny.warnings);
+        let deny = ValidationDeny::parse(&["warning".to_string()]).expect("parse warning");
+        assert!(deny.warnings);
+        let deny =
+            ValidationDeny::parse(&["warnings,warning".to_string()]).expect("parse comma list");
+        assert!(deny.warnings);
+    }
+
+    #[test]
+    fn parse_validation_deny_rejects_unknown_values() {
+        let err = ValidationDeny::parse(&["errors".to_string()]).expect_err("should fail");
+        assert!(err.to_string().contains("unknown value for --deny"));
+    }
+
+    #[test]
+    fn validation_deny_default_only_fails_on_errors() {
+        let deny = ValidationDeny::default();
+        assert!(!deny.should_fail(0, 1));
+        assert!(deny.should_fail(1, 0));
+    }
+
+    #[test]
+    fn validation_deny_warnings_fails_on_warnings() {
+        let deny = ValidationDeny::parse(&["warnings".to_string()]).expect("parse warnings");
+        assert!(deny.should_fail(0, 1));
     }
 }
 

@@ -508,14 +508,15 @@ impl QueryClient {
         self.with_config_banner(output).await
     }
 
-    pub async fn validate(&self, spec_impl: Option<&str>) -> (String, bool) {
+    pub async fn validate(&self, spec_impl: Option<&str>, deny_warnings: bool) -> (String, bool) {
         let (output, has_errors) = if spec_impl.is_some() {
             // If a specific spec/impl was requested, validate just that one.
             let (spec, impl_name) = parse_spec_impl(spec_impl);
             let req = ValidateRequest { spec, impl_name };
             match self.client.validate(req).await {
                 Ok(result) => {
-                    let has_errors = result.error_count > 0;
+                    let has_errors =
+                        result.error_count > 0 || (deny_warnings && result.warning_count > 0);
                     (format_validation_result(&result), has_errors)
                 }
                 Err(e) => (format!("Error: {e:?}"), true),
@@ -537,6 +538,7 @@ impl QueryClient {
                 let mut total_errors = 0;
                 let mut unique_unknown_rules: BTreeSet<String> = BTreeSet::new();
                 let mut unknown_reference_counts: BTreeMap<String, usize> = BTreeMap::new();
+                let mut total_warnings = 0usize;
                 let mut has_errors = false;
 
                 for impl_status in &status.impls {
@@ -548,7 +550,8 @@ impl QueryClient {
                     match self.client.validate(req).await {
                         Ok(result) => {
                             total_errors += result.error_count;
-                            has_errors |= result.error_count > 0;
+                            total_warnings += result.warning_count;
+                            has_errors = total_errors > 0 || (deny_warnings && total_warnings > 0);
                             let mut unknown_for_impl = 0usize;
                             let mut non_unknown_errors = Vec::new();
                             for error in &result.errors {
@@ -622,6 +625,9 @@ impl QueryClient {
                     status.impls.len(),
                     total_errors
                 ));
+                if total_warnings > 0 {
+                    output.push_str(&format!("Total warnings: {}\n", total_warnings));
+                }
                 if !unknown_reference_counts.is_empty() {
                     output.push_str(&format!(
                         "Unique unknown rules: {} ({} total occurrences)\n",
