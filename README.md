@@ -188,7 +188,10 @@ tracey query stale               # references pointing to older rule versions
 tracey query unmapped            # source tree with coverage percentages
 tracey query rule auth.login     # full details for a specific rule
 tracey query validate            # check for broken refs, naming issues
+tracey query validate --deny warnings # also fail on warnings
 ```
+
+`tracey query validate` exits non-zero on validation errors. Warnings are non-fatal by default, and become fatal only with `--deny warnings`.
 
 ### AI Skill (`tracey skill install`)
 
