@@ -80,6 +80,7 @@ pub const SUPPORTED_EXTENSIONS: &[&str] = &[
     "sh",     // Shell/Bash
     "bash",   // Bash
     "zsh",    // Zsh
+    "nix",    // Nix
 ];
 
 /// Check if a file extension is supported for scanning
@@ -473,6 +474,7 @@ mod tests {
     }
 
     // r[verify config.impl.test_include.extraction]
+    #[cfg(feature = "reverse")]
     #[test]
     fn test_memory_sources_python() {
         let result = Reqs::extract(
@@ -509,6 +511,22 @@ mod tests {
         assert_eq!(result.reqs.len(), 3);
     }
 
+    #[cfg(feature = "reverse")]
+    #[test]
+    fn test_memory_sources_nix() {
+        let result = Reqs::extract(
+            MemorySources::new()
+                .add("default.nix", "# r[impl nix.req.one]")
+                .add("flake.nix", "/* r[verify nix.req.two] */\n{ }"),
+        )
+        .unwrap();
+
+        assert_eq!(result.reqs.len(), 2);
+        assert_eq!(result.reqs.references[0].req_id, "nix.req.one");
+        assert_eq!(result.reqs.references[1].req_id, "nix.req.two");
+        assert!(result.warnings.is_empty());
+    }
+
     #[test]
     fn test_supported_extensions() {
         use std::ffi::OsStr;
@@ -520,6 +538,7 @@ mod tests {
         assert!(is_supported_extension(OsStr::new("js")));
         assert!(is_supported_extension(OsStr::new("go")));
         assert!(is_supported_extension(OsStr::new("php")));
+        assert!(is_supported_extension(OsStr::new("nix")));
 
         assert!(!is_supported_extension(OsStr::new("md")));
         assert!(!is_supported_extension(OsStr::new("txt")));

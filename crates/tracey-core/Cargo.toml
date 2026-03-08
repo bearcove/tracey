@@ -50,6 +50,7 @@ reverse = [
   "dep:arborium-cmake",
   "dep:arborium-ocaml",
   "dep:arborium-bash",
+  "dep:arborium-nix",
 ]
 
 [dependencies]
@@ -92,3 +93,4 @@ arborium-powershell = { workspace = true, optional = true }
 arborium-cmake = { workspace = true, optional = true }
 arborium-ocaml = { workspace = true, optional = true }
 arborium-bash = { workspace = true, optional = true }
+arborium-nix = { workspace = true, optional = true }

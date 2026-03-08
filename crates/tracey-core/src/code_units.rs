@@ -178,6 +178,7 @@ pub fn extract(path: &Path, source: &str) -> CodeUnits {
         "cmake" => extract_cmake(path, source),
         "ml" | "mli" => extract_ocaml(path, source),
         "sh" | "bash" | "zsh" => extract_bash(path, source),
+        "nix" => extract_nix(path, source),
         _ => CodeUnits::new(),
     }
 }
@@ -1064,6 +1065,31 @@ fn bash_node_kind(kind: &str) -> Option<CodeUnitKind> {
     }
 }
 
+/// Extract code units from Nix source code
+pub fn extract_nix(path: &Path, source: &str) -> CodeUnits {
+    let mut parser = Parser::new();
+    parser
+        .set_language(&arborium_nix::language().into())
+        .expect("Failed to load Nix grammar");
+
+    let Some(tree) = parser.parse(source, None) else {
+        return CodeUnits::new();
+    };
+
+    let mut units = CodeUnits::new();
+    let root = tree.root_node();
+    extract_units_recursive(path, source, root, &mut units, nix_node_kind);
+    units
+}
+
+fn nix_node_kind(kind: &str) -> Option<CodeUnitKind> {
+    match kind {
+        "function_expression" => Some(CodeUnitKind::Function),
+        "binding" => Some(CodeUnitKind::Const),
+        _ => None,
+    }
+}
+
 fn extract_units_recursive<F>(
     path: &Path,
     source: &str,
@@ -1465,6 +1491,7 @@ pub fn extract_refs_with_warnings(path: &Path, source: &str) -> ExtractedRefs {
         "cmake" => arborium_cmake::language(),
         "ml" | "mli" => arborium_ocaml::language(),
         "sh" | "bash" | "zsh" => arborium_bash::language(),
+        "nix" => arborium_nix::language(),
         _ => return ExtractedRefs::default(),
     };
 
@@ -3208,6 +3235,49 @@ function helper {
             !func_units.is_empty(),
             "Should find function definitions in bash"
         );
+    }
+
+    #[test]
+    fn test_nix_code_units() {
+        let source = r#"# r[impl nix.feature]
+{
+  greet = name: "Hello, ${name}!";
+
+  /* r[impl nix.config] */
+  settings = {
+    enabled = true;
+  };
+}
+"#;
+        let units = extract_nix(Path::new("test.nix"), source);
+
+        let bindings: Vec<_> = units
+            .units
+            .iter()
+            .filter(|u| u.kind == CodeUnitKind::Const)
+            .collect();
+        assert!(!bindings.is_empty(), "Should find attrset bindings in Nix");
+
+        let funcs: Vec<_> = units
+            .units
+            .iter()
+            .filter(|u| u.kind == CodeUnitKind::Function)
+            .collect();
+        assert!(!funcs.is_empty(), "Should find function expressions in Nix");
+    }
+
+    #[test]
+    fn test_nix_refs() {
+        let source = r#"# r[impl nix.line]
+{
+  /* r[verify nix.block] */
+  foo = 1;
+}
+"#;
+        let refs = extract_refs(Path::new("test.nix"), source);
+        assert_eq!(refs.len(), 2, "Should find refs in both # and /* */ comments");
+        assert_eq!(refs[0].req_id, "nix.line");
+        assert_eq!(refs[1].req_id, "nix.block");
     }
 
     #[test]

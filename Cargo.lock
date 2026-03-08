@@ -4458,6 +4458,7 @@ dependencies = [
  "arborium-julia",
  "arborium-lua",
  "arborium-matlab",
+ "arborium-nix",
  "arborium-ocaml",
  "arborium-perl",
  "arborium-php",

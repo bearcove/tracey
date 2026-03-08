@@ -93,6 +93,7 @@ arborium = { version = "2", features = [
   "lang-d",
   "lang-powershell",
   "lang-cmake",
+  "lang-nix",
 ] }
 arborium-rust = "2"
 arborium-swift = "2"
@@ -123,6 +124,7 @@ arborium-powershell = "2"
 arborium-cmake = "2"
 arborium-ocaml = "2"
 arborium-bash = "2"
+arborium-nix = "2"
 
 # HTTP server for serve command
 axum = { version = "0.8", features = ["ws"] }
