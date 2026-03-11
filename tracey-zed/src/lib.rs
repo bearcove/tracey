@@ -2,19 +2,27 @@
 //!
 //! r[impl zed.extension.manifest]
 //! r[impl zed.extension.language-server]
+//! r[impl zed.extension.context-server]
 //! r[impl zed.filetypes.source]
 //! r[impl zed.filetypes.spec]
 //! r[impl zed.filetypes.config]
 //! r[impl zed.install.manual]
 //! r[impl zed.install.extension-registry]
 //!
-//! This extension provides language server support for tracey, enabling
-//! requirement traceability features in Zed.
+//! This extension provides both language server (LSP) and context server (MCP)
+//! support for tracey, enabling requirement traceability features in Zed.
+//!
+//! - The **LSP** provides diagnostics, hover, go-to-definition, etc. for
+//!   requirement annotations in source code and spec files.
+//! - The **MCP context server** exposes tracey's query tools (status, uncovered,
+//!   untested, stale, unmapped, rule, config, reload, validate, etc.) to Zed's
+//!   AI assistant panel.
 //!
 //! File type activation is configured in `extension.toml` via the `languages` list.
+//! The context server is configured in `extension.toml` via the `context_servers` table.
 
 use std::fs;
-use zed_extension_api::{self as zed, LanguageServerId, Result};
+use zed_extension_api::{self as zed, ContextServerId, LanguageServerId, Project, Result};
 
 /// The GitHub repository for tracey releases.
 const GITHUB_REPO: &str = "bearcove/tracey";
@@ -71,25 +79,30 @@ impl TraceyExtension {
     /// r[impl zed.install.binary]
     /// r[impl zed.install.binary-options]
     ///
-    /// Ensure the tracey binary is installed, downloading if necessary.
-    /// Supports multiple installation methods:
-    /// - Binary in PATH (for local development)
-    /// - Pre-installed binary in extension directory
-    /// - Automatic download from GitHub releases
-    fn ensure_binary_installed(
+    /// Ensure the tracey binary is available, downloading from GitHub releases
+    /// if necessary. Both the LSP and MCP context server share this binary.
+    ///
+    /// When called from the language server path, `language_server_id` is
+    /// provided so we can report installation status in the Zed UI. When called
+    /// from the context server path we pass `None` (there is no status API for
+    /// context servers).
+    fn ensure_binary(
         &mut self,
-        language_server_id: &LanguageServerId,
-        worktree: &zed::Worktree,
+        language_server_id: Option<&LanguageServerId>,
+        worktree: Option<&zed::Worktree>,
     ) -> Result<String> {
         // Return cached path if we have it
         if let Some(path) = &self.cached_binary_path {
             return Ok(path.clone());
         }
 
-        // Check if binary exists in PATH first (for local development)
-        if let Some(path) = worktree.which(binary_name()) {
-            self.cached_binary_path = Some(path.clone());
-            return Ok(path);
+        // Check if binary exists in PATH first (for local development).
+        // Only possible when we have a worktree handle (LSP path).
+        if let Some(wt) = worktree {
+            if let Some(path) = wt.which(binary_name()) {
+                self.cached_binary_path = Some(path.clone());
+                return Ok(path);
+            }
         }
 
         // Check if binary already exists in extension directory
@@ -99,11 +112,13 @@ impl TraceyExtension {
             return Ok(binary_path);
         }
 
-        // Need to download - update status
-        zed::set_language_server_installation_status(
-            language_server_id,
-            &zed::LanguageServerInstallationStatus::CheckingForUpdate,
-        );
+        // Need to download — update status if we have an LSP id
+        if let Some(lsp_id) = language_server_id {
+            zed::set_language_server_installation_status(
+                lsp_id,
+                &zed::LanguageServerInstallationStatus::CheckingForUpdate,
+            );
+        }
 
         // Get latest release from GitHub
         let release = zed::latest_github_release(
@@ -129,10 +144,12 @@ impl TraceyExtension {
             })?;
 
         // Download the asset
-        zed::set_language_server_installation_status(
-            language_server_id,
-            &zed::LanguageServerInstallationStatus::Downloading,
-        );
+        if let Some(lsp_id) = language_server_id {
+            zed::set_language_server_installation_status(
+                lsp_id,
+                &zed::LanguageServerInstallationStatus::Downloading,
+            );
+        }
 
         let download_path = format!("./tracey-{}.tar.gz", release.version);
         zed::download_file(
@@ -165,11 +182,30 @@ impl zed::Extension for TraceyExtension {
         language_server_id: &LanguageServerId,
         worktree: &zed::Worktree,
     ) -> Result<zed::Command> {
-        let binary_path = self.ensure_binary_installed(language_server_id, worktree)?;
+        let binary_path = self.ensure_binary(Some(language_server_id), Some(worktree))?;
 
         Ok(zed::Command {
             command: binary_path,
             args: vec!["lsp".to_string()],
+            env: Default::default(),
+        })
+    }
+
+    /// r[impl zed.extension.context-server-config]
+    ///
+    /// Returns the command used to start the tracey MCP context server.
+    /// Zed will spawn this process and communicate with it over stdio using
+    /// the Model Context Protocol.
+    fn context_server_command(
+        &mut self,
+        _context_server_id: &ContextServerId,
+        _project: &Project,
+    ) -> Result<zed::Command> {
+        let binary_path = self.ensure_binary(None, None)?;
+
+        Ok(zed::Command {
+            command: binary_path,
+            args: vec!["mcp".to_string()],
             env: Default::default(),
         })
     }
