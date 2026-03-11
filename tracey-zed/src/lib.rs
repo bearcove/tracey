@@ -1,6 +1,6 @@
 //! Tracey extension for Zed editor.
 //!
-//! r[impl zed.extension.manifest]
+//! r[impl zed.extension.manifest+2]
 //! r[impl zed.extension.language-server]
 //! r[impl zed.extension.context-server]
 //! r[impl zed.filetypes.source]
