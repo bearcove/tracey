@@ -1482,12 +1482,12 @@ The server MAY provide inlay hints after requirement definitions showing impleme
 
 ## Zed Extension
 
-The tracey-zed extension integrates tracey with the Zed editor, providing requirement traceability features through the LSP server.
+The tracey-zed extension integrates tracey with the Zed editor, providing requirement traceability features through the LSP server and exposing query tools to the AI assistant through the MCP context server.
 
 ### Extension Structure
 
-r[zed.extension.manifest]
-The extension MUST provide an `extension.toml` manifest declaring the extension name, version, and language server configuration.
+r[zed.extension.manifest+2]
+The extension MUST provide an `extension.toml` manifest declaring the extension name, version, language server configuration, and context server configuration.
 
 r[zed.extension.language-server]
 The extension MUST configure tracey as a language server, specifying supported file types and the command to start the LSP server.
@@ -1497,6 +1497,14 @@ The extension MUST configure tracey as a language server, specifying supported f
 > - Binary name or path to the tracey executable
 > - Arguments to start LSP mode (`lsp`)
 > - Supported file extensions (`.rs`, `.ts`, `.tsx`, `.js`, `.jsx`, `.py`, `.go`, `.swift`, `.java`, `.md`)
+
+r[zed.extension.context-server]
+The extension MUST configure tracey as a context server (MCP), exposing tracey's query tools to Zed's AI assistant.
+
+> r[zed.extension.context-server-config]
+> The context server configuration MUST include:
+> - Binary name or path to the tracey executable
+> - Arguments to start MCP mode (`mcp`)
 
 ### File Type Support
 
