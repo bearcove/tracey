@@ -1279,6 +1279,7 @@ fn unknown_rule_message_with_context(
     }
 }
 
+// r[impl ref.syntax.req-id]
 fn is_valid_rule_id(id: &RuleId) -> bool {
     let base_id = &id.base;
     for segment in base_id.split('.') {
@@ -1287,14 +1288,7 @@ fn is_valid_rule_id(id: &RuleId) -> bool {
         }
         if !segment
             .chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-        {
-            return false;
-        }
-        if !segment
-            .chars()
-            .next()
-            .is_some_and(|c| c.is_ascii_lowercase())
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
         {
             return false;
         }
@@ -1675,7 +1669,7 @@ fn compute_validation_by_impl(
                 errors.push(ValidationError {
                     code: ValidationErrorCode::InvalidNaming,
                     message: format!(
-                        "Rule ID '{}' doesn't follow naming convention (use dot-separated lowercase segments)",
+                        "Rule ID '{}' doesn't follow naming convention (use dot-separated segments of letters, digits, hyphens, or underscores)",
                         rule.id
                     ),
                     file: rule.source_file.clone(),
