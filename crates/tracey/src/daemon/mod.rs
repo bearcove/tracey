@@ -33,6 +33,7 @@ pub mod watcher;
 
 use eyre::{Result, WrapErr};
 use roam_stream::LocalLinkAcceptor;
+use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -102,19 +103,21 @@ pub fn ensure_state_dir(project_root: &Path) -> Result<PathBuf> {
 
 /// Get the local IPC endpoint for a workspace.
 ///
-/// On Unix, this returns a path to `<state_dir>/daemon.sock`.
-/// On Windows, this returns a named pipe path like `\\.\pipe\tracey-{hash}`.
+/// On Unix, this returns a string representing a path to `<state_dir>/daemon.sock`.
+/// On Windows, this returns a string representing a named pipe path like `\\.\pipe\tracey-{hash}`.
 ///
 /// r[impl daemon.roam.unix-socket]
 #[cfg(unix)]
-pub fn local_endpoint(project_root: &Path) -> PathBuf {
-    state_dir(project_root).join(SOCKET_FILENAME)
+pub fn local_endpoint(project_root: &Path) -> String  {
+    state_dir(project_root)
+        .join(SOCKET_FILENAME)
+        .to_string_lossy().into_owned()
 }
 
 /// Get the local IPC endpoint for a workspace.
 ///
-/// On Unix, this returns a path to `<state_dir>/daemon.sock`.
-/// On Windows, this returns a named pipe path like `\\.\pipe\tracey-{hash}`.
+/// On Unix, this returns a string representing a path to `<state_dir>/daemon.sock`.
+/// On Windows, this returns a string representing a named pipe path like `\\.\pipe\tracey-{hash}`.
 #[cfg(windows)]
 pub fn local_endpoint(project_root: &Path) -> String {
     let dir = state_dir(project_root);
@@ -122,13 +125,7 @@ pub fn local_endpoint(project_root: &Path) -> String {
         .file_name()
         .and_then(|n| n.to_str())
         .expect("state_dir hash");
-    format!(r"\\.\pipe\tracey-{hash}")
-}
-
-/// Legacy alias for `local_endpoint` (Unix only).
-#[cfg(unix)]
-pub fn socket_path(project_root: &Path) -> PathBuf {
-    local_endpoint(project_root)
+    format!(r"\\.\pipe\tracey-{hash}").into()
 }
 
 /// Path to the daemon PID file within the state directory.
@@ -232,15 +229,9 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
     // Remove stale endpoint if it exists; if it's alive, fail fast instead.
     if roam_local::endpoint_exists(&endpoint) {
         if roam_local::connect(&endpoint).await.is_ok() {
-            #[cfg(unix)]
-            eyre::bail!("Daemon already running at {}", endpoint.display());
-            #[cfg(windows)]
-            eyre::bail!("Daemon already running");
+            eyre::bail!("Daemon already running at {}", endpoint);
         } else {
-            #[cfg(unix)]
-            info!("Removing stale socket at {}", endpoint.display());
-            #[cfg(windows)]
-            info!("Removing stale endpoint");
+            info!("Removing stale socket at {}", endpoint);
             let _ = roam_local::remove_endpoint(&endpoint);
         }
     }
@@ -462,15 +453,12 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
     // Bind local IPC listener
     // Note: on Windows, accept() takes &mut self (to swap server instances)
     #[cfg(unix)]
-    let listener = LocalLinkAcceptor::bind(endpoint.to_string_lossy().to_string())
-        .wrap_err_with(|| format!("Failed to bind socket at {}", endpoint.display()))?;
+    let listener = LocalLinkAcceptor::bind(&endpoint)
+        .wrap_err_with(|| format!("Failed to bind socket at {}", endpoint))?;
     #[cfg(windows)]
     let listener =
         LocalLinkAcceptor::bind(&endpoint).wrap_err_with(|| "Failed to bind named pipe")?;
 
-    #[cfg(unix)]
-    info!("Daemon listening on {}", endpoint.display());
-    #[cfg(windows)]
     info!("Daemon listening on {}", endpoint);
 
     // r[impl daemon.lifecycle.idle-timeout]
@@ -747,7 +735,7 @@ pub async fn connect(project_root: &Path) -> Result<roam_local::LocalStream> {
     let endpoint = local_endpoint(project_root);
     roam_local::connect(&endpoint)
         .await
-        .wrap_err_with(|| format!("Failed to connect to daemon at {}", endpoint.display()))
+        .wrap_err_with(|| format!("Failed to connect to daemon at {}", endpoint))
 }
 
 /// Connect to a running daemon, or return an error.

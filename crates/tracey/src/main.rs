@@ -997,7 +997,7 @@ async fn show_status(root: Option<PathBuf>, json: bool) -> Result<()> {
     let endpoint = daemon::local_endpoint(&project_root);
 
     // Try to connect without auto-starting
-    let stream = match roam_stream::LocalLink::connect(&endpoint.to_string_lossy()).await {
+    let stream = match roam_stream::LocalLink::connect(&endpoint).await {
         Ok(s) => s,
         Err(_) => {
             if json {
@@ -1390,7 +1390,7 @@ async fn kill_daemon(root: Option<PathBuf>) -> Result<()> {
     }
 
     // Try to connect and send shutdown
-    match roam_stream::LocalLink::connect(&endpoint.to_string_lossy()).await {
+    match roam_stream::LocalLink::connect(&endpoint).await {
         Ok(stream) => {
             let (client, _session_handle) = roam::initiator(stream)
                 .establish::<tracey_proto::TraceyDaemonClient>(())
