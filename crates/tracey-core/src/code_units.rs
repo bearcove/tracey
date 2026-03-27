@@ -3275,7 +3275,11 @@ function helper {
 }
 "#;
         let refs = extract_refs(Path::new("test.nix"), source);
-        assert_eq!(refs.len(), 2, "Should find refs in both # and /* */ comments");
+        assert_eq!(
+            refs.len(),
+            2,
+            "Should find refs in both # and /* */ comments"
+        );
         assert_eq!(refs[0].req_id, "nix.line");
         assert_eq!(refs[1].req_id, "nix.block");
     }

@@ -33,7 +33,6 @@ pub mod watcher;
 
 use eyre::{Result, WrapErr};
 use roam_stream::LocalLinkAcceptor;
-use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -108,10 +107,11 @@ pub fn ensure_state_dir(project_root: &Path) -> Result<PathBuf> {
 ///
 /// r[impl daemon.roam.unix-socket]
 #[cfg(unix)]
-pub fn local_endpoint(project_root: &Path) -> String  {
+pub fn local_endpoint(project_root: &Path) -> String {
     state_dir(project_root)
         .join(SOCKET_FILENAME)
-        .to_string_lossy().into_owned()
+        .to_string_lossy()
+        .into_owned()
 }
 
 /// Get the local IPC endpoint for a workspace.
