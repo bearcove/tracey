@@ -2599,9 +2599,9 @@ dependencies = [
 
 [[package]]
 name = "marq"
-version = "2.0.0"
+version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e2a82134caf023f0254d3333bc737cfc68d0346b2af3c2fe9172c5b4d04fcf8"
+checksum = "18d4ac04a6da2cfd142aee2a057bebeeaa69ea3a30dfd792673361956052cf79"
 dependencies = [
  "aasvg",
  "arborium",
@@ -2613,6 +2613,7 @@ dependencies = [
  "pulldown-cmark",
  "regex",
  "thiserror 2.0.18",
+ "tree-sitter-vixen",
 ]
 
 [[package]]
@@ -4556,6 +4557,16 @@ name = "tree-sitter-language"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "009994f150cc0cd50ff54917d5bc8bffe8cad10ca10d81c34da2ec421ae61782"
+
+[[package]]
+name = "tree-sitter-vixen"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4bb3c7202cbc879bf0dad79aefa385e573cd5003b2501455a37b74743d83fa41"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
 
 [[package]]
 name = "try-lock"
