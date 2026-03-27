@@ -4,6 +4,7 @@
 //! daemon's roam RPC interface. Bridges are thin protocol adapters that
 //! connect as clients to the daemon.
 
+pub mod export;
 pub mod http;
 pub mod lsp;
 pub mod mcp;
