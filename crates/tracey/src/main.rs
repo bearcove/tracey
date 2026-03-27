@@ -181,6 +181,25 @@ enum Command {
         #[facet(rename = "dry-run", args::named, default)]
         dry_run: bool,
     },
+
+    /// Export a static, deployable site from the current spec coverage data.
+    Export {
+        /// Output directory (will be created; existing contents overwritten)
+        #[facet(args::positional)]
+        output: PathBuf,
+
+        /// Project root directory (default: current directory)
+        #[facet(args::positional, default)]
+        root: Option<PathBuf>,
+
+        /// Path to config file
+        #[facet(args::named, args::short = 'c', default = ".config/tracey/config.styx")]
+        config: PathBuf,
+
+        /// Also export individual source file pages (includes full source code).
+        #[facet(args::named, default)]
+        sources: bool,
+    },
 }
 
 /// Skill subcommands
@@ -519,6 +538,13 @@ async fn main() -> Result<()> {
         }
 
         Command::Gc { dry_run } => run_gc(dry_run),
+
+        Command::Export {
+            output,
+            root,
+            config,
+            sources,
+        } => bridge::export::run(root, config, output, sources).await,
     }
 }
 
