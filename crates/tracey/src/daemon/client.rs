@@ -381,7 +381,7 @@ impl DaemonConnector {
     async fn wait_for_existing_daemon(
         &self,
         pid: u32,
-        endpoint: &(impl AsRef<std::path::Path> + std::fmt::Debug),
+        endpoint: &str,
         timeout: Duration,
     ) -> io::Result<Option<roam_stream::LocalLink>> {
         let start = Instant::now();
@@ -396,7 +396,7 @@ impl DaemonConnector {
                 return Ok(None);
             }
 
-            match roam_stream::LocalLink::connect(&endpoint.as_ref().to_string_lossy()).await {
+            match roam_stream::LocalLink::connect(&endpoint).await {
                 Ok(stream) => return Ok(Some(stream)),
                 Err(e) => {
                     last_error = Some(e.to_string());
@@ -534,7 +534,7 @@ impl DaemonConnector {
                 ));
             }
 
-            match roam_stream::LocalLink::connect(&endpoint.to_string_lossy()).await {
+            match roam_stream::LocalLink::connect(&endpoint).await {
                 Ok(stream) => return Ok(stream),
                 Err(e) => {
                     last_connect_error = Some(e.to_string());
@@ -599,7 +599,7 @@ impl DaemonConnector {
 
                 if alive && version_ok {
                     // Happy path: daemon should be running.
-                    match roam_stream::LocalLink::connect(&endpoint.to_string_lossy()).await {
+                    match roam_stream::LocalLink::connect(&endpoint).await {
                         Ok(stream) => return Ok(stream),
                         Err(e) => {
                             let age = pid_file_age(&self.project_root);
@@ -665,7 +665,7 @@ impl DaemonConnector {
         if let Some((pid, version)) = read_pid_file(&self.project_root)
             && is_pid_alive(pid)
             && version == tracey_proto::PROTOCOL_VERSION
-            && let Ok(stream) = roam_stream::LocalLink::connect(&endpoint.to_string_lossy()).await
+            && let Ok(stream) = roam_stream::LocalLink::connect(&endpoint).await
         {
             debug!(
                 "Daemon became available while waiting for startup lock (pid={})",
