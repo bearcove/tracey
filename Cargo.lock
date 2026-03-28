@@ -1458,7 +1458,9 @@ dependencies = [
 
 [[package]]
 name = "facet-cbor"
-version = "0.2.0"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "44a78e302a804170ac74780d8350a0d8036226ee8448ca653897fde12228a577"
 dependencies = [
  "facet",
  "facet-core",
@@ -2686,7 +2688,8 @@ dependencies = [
 [[package]]
 name = "moire"
 version = "1.0.0"
-source = "git+https://github.com/bearcove/moire?rev=13eac79#13eac79c1b128282dd792a611319d0a1016ad15d"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac52dcc0ff5b4710a66626370b1bf85ba3d924fd8019e8cfa100e8dafffda4ad"
 dependencies = [
  "moire-macros-noop",
  "moire-tokio",
@@ -2696,12 +2699,14 @@ dependencies = [
 [[package]]
 name = "moire-macros-noop"
 version = "1.0.0"
-source = "git+https://github.com/bearcove/moire?rev=13eac79#13eac79c1b128282dd792a611319d0a1016ad15d"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92ccdc0bf403f5ecf29c09e8e9f178caed89a914ea032e0c2d99d3824b78892d"
 
 [[package]]
 name = "moire-runtime"
 version = "1.0.0"
-source = "git+https://github.com/bearcove/moire?rev=13eac79#13eac79c1b128282dd792a611319d0a1016ad15d"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "568cc05b223c4c76247467e3bdaa7862f05c38d5c8f6e44198613880f90ecd98"
 dependencies = [
  "ctor",
  "facet",
@@ -2717,8 +2722,10 @@ dependencies = [
 [[package]]
 name = "moire-tokio"
 version = "1.0.0"
-source = "git+https://github.com/bearcove/moire?rev=13eac79#13eac79c1b128282dd792a611319d0a1016ad15d"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fdb30c43038ce71c727da5a4ff01d09dd4c823486cc17b3b08661420d0ceda43"
 dependencies = [
+ "ctor",
  "moire-runtime",
  "moire-types",
  "parking_lot",
@@ -2728,7 +2735,8 @@ dependencies = [
 [[package]]
 name = "moire-trace-capture"
 version = "1.0.0"
-source = "git+https://github.com/bearcove/moire?rev=13eac79#13eac79c1b128282dd792a611319d0a1016ad15d"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6685ebbdee1253529c9074c41d8288504b640ffe8c21176ce464fef5c5c00c38"
 dependencies = [
  "libc",
  "moire-trace-types",
@@ -2737,7 +2745,8 @@ dependencies = [
 [[package]]
 name = "moire-trace-types"
 version = "1.0.0"
-source = "git+https://github.com/bearcove/moire?rev=13eac79#13eac79c1b128282dd792a611319d0a1016ad15d"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ef6f98b447211257a517d101f0f5cf4300627cd6fd1c0c13ff53d157a872c9d"
 dependencies = [
  "facet",
 ]
@@ -2745,7 +2754,8 @@ dependencies = [
 [[package]]
 name = "moire-types"
 version = "1.0.0"
-source = "git+https://github.com/bearcove/moire?rev=13eac79#13eac79c1b128282dd792a611319d0a1016ad15d"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "667b2fc41e30d3b0f7d0d29e978d3f473afaf0e0be355202eead317e35ace200"
 dependencies = [
  "facet",
  "facet-value",
@@ -2755,7 +2765,8 @@ dependencies = [
 [[package]]
 name = "moire-wasm"
 version = "1.0.0"
-source = "git+https://github.com/bearcove/moire?rev=13eac79#13eac79c1b128282dd792a611319d0a1016ad15d"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f143cef34407271acdbca3af106d82b330693e0990ef87df146441392d8a9577"
 dependencies = [
  "async-channel",
  "async-lock",
@@ -2770,7 +2781,8 @@ dependencies = [
 [[package]]
 name = "moire-wire"
 version = "1.0.0"
-source = "git+https://github.com/bearcove/moire?rev=13eac79#13eac79c1b128282dd792a611319d0a1016ad15d"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf0ec84eeb2e23a83339cf5edc9d5a3a9ec5849416bd4051951fba416ea3e0f7"
 dependencies = [
  "facet",
  "facet-json",
@@ -4582,7 +4594,9 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vox"
-version = "0.2.0"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dae75f6e8068fd96e32cefc4897c2b3f0369a43b7640fcfef8c0ef0810070899"
 dependencies = [
  "facet",
  "tracing",
@@ -4594,7 +4608,9 @@ dependencies = [
 
 [[package]]
 name = "vox-core"
-version = "0.2.0"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "80b37b56aef6db57b629fd7029bf68fe9c92ed08e92191d5ee510f66b56f849d"
 dependencies = [
  "facet",
  "facet-cbor",
@@ -4614,7 +4630,9 @@ dependencies = [
 
 [[package]]
 name = "vox-local"
-version = "0.2.0"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f4053e7496487b934b8c99e2d334487e8e86fe9fe3ef8c3da87b440b03f09a56"
 dependencies = [
  "moire",
  "tokio",
@@ -4622,7 +4640,9 @@ dependencies = [
 
 [[package]]
 name = "vox-macros-core"
-version = "0.2.0"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3b2230b25a7123be3f9932a919f47005050723e7eade8d12f732066078a960fd"
 dependencies = [
  "facet-cargo-toml",
  "heck",
@@ -4633,7 +4653,9 @@ dependencies = [
 
 [[package]]
 name = "vox-macros-parse"
-version = "0.2.0"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e414d81430b9fa6c232b313f68bf4b51fb1432559088f103f65180c5137283aa"
 dependencies = [
  "proc-macro2",
  "unsynn",
@@ -4641,7 +4663,9 @@ dependencies = [
 
 [[package]]
 name = "vox-postcard"
-version = "0.2.0"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b12570182015956ec7f56e6095a8b9697c3fcea37c9235c508ed2bb8133cd05a"
 dependencies = [
  "facet",
  "facet-core",
@@ -4651,7 +4675,9 @@ dependencies = [
 
 [[package]]
 name = "vox-schema"
-version = "0.2.0"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f4d51b82b95aee0c32e37887c9551fe822d9ef491ca77d7283f28a750004e96d"
 dependencies = [
  "blake3",
  "facet",
@@ -4662,7 +4688,9 @@ dependencies = [
 
 [[package]]
 name = "vox-service-macros"
-version = "0.2.0"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "98796a94d18cc3a7f37415798db214f1068c0faf9f2e093e94334a8f81fb0377"
 dependencies = [
  "proc-macro2",
  "vox-macros-core",
@@ -4670,7 +4698,9 @@ dependencies = [
 
 [[package]]
 name = "vox-stream"
-version = "0.2.0"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7bfe52bf2e811869a9fc762e06a253c92749dc41efc621cea65d45a2255e9223"
 dependencies = [
  "moire",
  "tokio",
@@ -4680,7 +4710,9 @@ dependencies = [
 
 [[package]]
 name = "vox-types"
-version = "0.2.0"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22861e99512412f489f9e1f9041d8d28b320aef8dcf4eb8f3a694d3617bd1e95"
 dependencies = [
  "bitflags 2.11.0",
  "blake3",
