@@ -781,6 +781,51 @@ The `tracey web` command MUST start the HTTP dashboard server.
 r[cli.mcp]
 The `tracey mcp` command MUST start an MCP (Model Context Protocol) server over stdio.
 
+r[cli.export]
+The `tracey export <output>` command MUST generate a fully self-contained static HTML site in the given output directory.
+
+### Static HTML Export
+
+The export command produces a directory of HTML files that can be served by any static file host (GitHub Pages, S3, Netlify, etc.) without requiring the daemon at runtime.
+
+r[export.output-structure]
+The export MUST produce an output directory containing:
+- An `index.html` landing page at the root
+- An `assets/` directory with CSS and JavaScript
+- A subdirectory `{spec}/{impl}/` for each spec/implementation pair
+
+r[export.self-contained]
+The exported site MUST NOT require the tracey daemon or any server-side processing to view. All content MUST be pre-rendered as static HTML.
+
+r[export.spec-page]
+For each spec/implementation pair, the export MUST generate a `spec.html` page rendering the full specification with an outline sidebar.
+
+r[export.coverage-page]
+For each spec/implementation pair, the export MUST generate a `coverage.html` page showing implementation and test coverage statistics and a table of all rules with their references.
+
+r[export.sources]
+When the `--sources` flag is passed, the export MUST additionally generate:
+- A `sources.html` index page listing all source files with coverage bars
+- Individual `sources/{file}.html` pages with syntax-highlighted source code
+
+r[export.navigation]
+Each exported page MUST include a header with spec/implementation selector tabs and navigation tabs (Specification, Coverage, and optionally Sources).
+
+r[export.landing-page]
+The root `index.html` MUST serve as a landing page rather than a redirect.
+
+> r[export.landing-page.default-content]
+> When no `README.md` is present in the project root, the landing page MUST render a sensible default describing the export and linking to the specs.
+
+> r[export.landing-page.readme]
+> When a `README.md` file exists in the project root, its rendered markdown content MUST be included on the landing page above the spec grid.
+
+> r[export.landing-page.spec-grid]
+> The landing page MUST display a grid of all spec/implementation pairs in the export, each linking to its spec page. Each card MUST show the spec name, implementation name, and coverage summary (implemented/tested counts).
+
+r[export.mobile-sidebar]
+On viewports narrower than a desktop breakpoint, the outline sidebar MUST be hidden by default and togglable via a button, so the export is usable on mobile devices.
+
 ## Server Architecture
 
 Both `tracey serve` (HTTP) and `tracey mcp` (MCP) share a common headless server core.

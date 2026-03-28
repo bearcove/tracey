@@ -12,6 +12,8 @@ use tracey_api::{
     OutlineEntry,
 };
 
+// r[impl export.output-structure]
+// r[impl export.self-contained]
 pub async fn run(
     root: Option<PathBuf>,
     _config_path: PathBuf,
@@ -23,7 +25,7 @@ pub async fn run(
         None => crate::find_project_root().wrap_err("finding project root")?,
     };
 
-    let client = crate::daemon::new_client(project_root);
+    let client = crate::daemon::new_client(project_root.clone());
     let config = client
         .config()
         .await
@@ -33,12 +35,8 @@ pub async fn run(
         .wrap_err_with(|| format!("creating output directory {}", output.display()))?;
     write_assets(&output).wrap_err("writing static assets")?;
 
-    let first = config.specs.first().and_then(|s| {
-        s.implementations
-            .first()
-            .map(|i| (s.name.clone(), i.clone()))
-    });
-    write_root_index(&output, first.as_ref()).wrap_err("writing root index.html")?;
+    // Collect coverage stats for the landing page while exporting each pair
+    let mut spec_cards: Vec<SpecCard> = Vec::new();
 
     for spec_info in &config.specs {
         for impl_name in &spec_info.implementations {
@@ -67,6 +65,26 @@ pub async fn run(
                     )
                 })?
                 .ok_or_else(|| eyre!("no spec content for {spec_name}/{impl_name}"))?;
+
+            // Collect stats for landing page
+            let total = forward.rules.len();
+            let implemented = forward
+                .rules
+                .iter()
+                .filter(|r| !r.impl_refs.is_empty())
+                .count();
+            let tested = forward
+                .rules
+                .iter()
+                .filter(|r| !r.verify_refs.is_empty())
+                .count();
+            spec_cards.push(SpecCard {
+                spec_name: spec_name.clone(),
+                impl_name: impl_name.clone(),
+                total,
+                implemented,
+                tested,
+            });
 
             let pair_dir = output.join(spec_name).join(impl_name);
             std::fs::create_dir_all(&pair_dir)
@@ -132,12 +150,25 @@ pub async fn run(
         }
     }
 
+    // Generate landing page
+    write_landing_page(&output, &project_root, &spec_cards)
+        .await
+        .wrap_err("writing landing page")?;
+
     eprintln!("\nDone! Static site written to: {}", output.display());
     eprintln!(
         "Serve with:  python3 -m http.server -d {}",
         output.display()
     );
     Ok(())
+}
+
+struct SpecCard {
+    spec_name: String,
+    impl_name: String,
+    total: usize,
+    implemented: usize,
+    tested: usize,
 }
 
 // ============================================================================
@@ -156,22 +187,115 @@ fn write_assets(output: &Path) -> Result<()> {
     Ok(())
 }
 
-fn write_root_index(output: &Path, first: Option<&(String, String)>) -> Result<()> {
-    let html = if let Some((spec, impl_name)) = first {
-        format!(
-            r#"<!DOCTYPE html>
-<html>
+// r[impl export.landing-page]
+// r[impl export.landing-page.default-content]
+// r[impl export.landing-page.readme]
+// r[impl export.landing-page.spec-grid]
+async fn write_landing_page(
+    output: &Path,
+    project_root: &Path,
+    spec_cards: &[SpecCard],
+) -> Result<()> {
+    // Try to read and render README.md from the project root
+    let readme_path = project_root.join("README.md");
+    let intro_html = if readme_path.is_file() {
+        let readme_content = std::fs::read_to_string(&readme_path).wrap_err("reading README.md")?;
+        let opts = marq::RenderOptions::default();
+        let doc = marq::render(&readme_content, &opts)
+            .await
+            .wrap_err("rendering README.md")?;
+        doc.html
+    } else {
+        r#"<h1>Specifications</h1><p>Browse the exported specifications below.</p>"#.to_string()
+    };
+
+    // Build spec card grid
+    let cards = spec_cards
+        .iter()
+        .map(|card| {
+            let impl_class = stat_class(card.implemented, card.total);
+            let test_class = stat_class(card.tested, card.total);
+            let impl_arc = coverage_arc_svg(
+                card.implemented,
+                card.total,
+                "var(--green)",
+                &format!("Impl: {}/{}", card.implemented, card.total),
+            );
+            let test_arc = coverage_arc_svg(
+                card.tested,
+                card.total,
+                "var(--blue)",
+                &format!("Tests: {}/{}", card.tested, card.total),
+            );
+            format!(
+                r#"<a class="spec-card" href="/{spec}/{impl_name}/spec.html">
+  <div class="spec-card-header">
+    <span class="spec-card-name">{spec_escaped}</span>
+    <span class="spec-card-impl">{impl_escaped}</span>
+  </div>
+  <div class="spec-card-stats">
+    <span class="spec-card-stat">{impl_arc} <span class="stat-value {impl_class}">{implemented}/{total}</span> implemented</span>
+    <span class="spec-card-stat">{test_arc} <span class="stat-value {test_class}">{tested}/{total}</span> tested</span>
+  </div>
+</a>"#,
+                spec = card.spec_name,
+                impl_name = card.impl_name,
+                spec_escaped = html_escape(&card.spec_name),
+                impl_escaped = html_escape(&card.impl_name),
+                implemented = card.implemented,
+                tested = card.tested,
+                total = card.total,
+                impl_class = impl_class,
+                test_class = test_class,
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let content = format!(
+        r#"<div class="landing-page">
+  <div class="landing-readme markdown">{intro_html}</div>
+  <div class="landing-grid-section">
+    <h2>Specifications</h2>
+    <div class="landing-grid">{cards}</div>
+  </div>
+</div>"#
+    );
+
+    let html = format!(
+        r#"<!DOCTYPE html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="refresh" content="0; url=/{spec}/{impl_name}/spec.html">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
   <title>Tracey</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Recursive:slnt,wght,CASL,CRSV,MONO@-15..0,300..1000,0..1,0..1,0..1&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/style.css">
 </head>
-<body><p>Redirecting to <a href="/{spec}/{impl_name}/spec.html">spec</a>&hellip;</p></body>
+<body>
+  <div class="app-shell">
+    <div class="layout">
+      <header class="header">
+        <div class="header-inner">
+          <a href="/" class="logo">tracey</a>
+        </div>
+      </header>
+      <div class="main">
+        <div class="content">
+          <div class="content-body">
+            {content}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
 </html>"#
-        )
-    } else {
-        "<!DOCTYPE html>\n<html>\n<head><meta charset=\"UTF-8\"><title>Tracey</title></head>\n<body><p>No specs configured.</p></body>\n</html>\n".to_string()
-    };
+    );
+
     std::fs::write(output.join("index.html"), html).wrap_err("writing index.html")?;
     Ok(())
 }
@@ -180,6 +304,7 @@ fn write_root_index(output: &Path, first: Option<&(String, String)>) -> Result<(
 // Page shell — uses dashboard CSS classes directly
 // ============================================================================
 
+// r[impl export.navigation]
 #[allow(clippy::too_many_arguments)]
 fn page_shell(
     title: &str,
@@ -253,8 +378,15 @@ fn page_shell(
         String::new()
     } else {
         format!(
-            r#"<aside class="sidebar"><div class="sidebar-content">{sidebar_html}</div></aside>"#
+            r#"<aside class="sidebar" id="sidebar"><div class="sidebar-content">{sidebar_html}</div></aside>"#
         )
+    };
+
+    // Mobile sidebar toggle button (only rendered when sidebar has content)
+    let sidebar_toggle = if sidebar_html.is_empty() {
+        String::new()
+    } else {
+        r#"<button class="sidebar-toggle" id="sidebar-toggle" aria-label="Toggle sidebar"><i data-lucide="panel-left"></i></button>"#.to_string()
     };
 
     format!(
@@ -281,12 +413,14 @@ fn page_shell(
     <div class="layout">
       <header class="header">
         <div class="header-inner">
+          <a href="/" class="home-link" title="Landing page"><i data-lucide="home"></i></a>
           <div class="header-pickers">
             {spec_links}
           </div>
           <nav class="nav">
             {nav_tabs}
           </nav>
+          {sidebar_toggle}
           <a href="https://tracey.bearcove.eu/" class="logo">tracey</a>
         </div>
       </header>
@@ -310,6 +444,7 @@ fn page_shell(
 // Spec page
 // ============================================================================
 
+// r[impl export.spec-page]
 fn render_spec_page(
     spec_name: &str,
     impl_name: &str,
@@ -440,6 +575,7 @@ fn coverage_arc_svg(count: usize, total: usize, color: &str, title: &str) -> Str
 // Coverage page
 // ============================================================================
 
+// r[impl export.coverage-page]
 fn render_coverage_page(
     spec_name: &str,
     impl_name: &str,
@@ -591,6 +727,7 @@ fn stat_class(count: usize, total: usize) -> &'static str {
 // Sources index page
 // ============================================================================
 
+// r[impl export.sources]
 fn render_sources_index(
     spec_name: &str,
     impl_name: &str,
@@ -997,6 +1134,23 @@ const ENHANCE_JS: &str = r##"(function () {
       navigator.clipboard.writeText(btn.dataset.reqId).catch(function () {});
     }
   });
+
+  // Mobile sidebar toggle
+  var toggle = document.getElementById("sidebar-toggle");
+  var sidebar = document.getElementById("sidebar");
+  if (toggle && sidebar) {
+    var backdrop = document.createElement("div");
+    backdrop.className = "sidebar-backdrop";
+    document.body.appendChild(backdrop);
+
+    function openSidebar() { sidebar.classList.add("open"); backdrop.classList.add("open"); }
+    function closeSidebar() { sidebar.classList.remove("open"); backdrop.classList.remove("open"); }
+
+    toggle.addEventListener("click", function () {
+      sidebar.classList.contains("open") ? closeSidebar() : openSidebar();
+    });
+    backdrop.addEventListener("click", closeSidebar);
+  }
 })();
 "##;
 
@@ -1004,6 +1158,40 @@ const ENHANCE_JS: &str = r##"(function () {
 /// Only what isn't already covered by the dashboard stylesheet.
 const STATIC_EXTRA_CSS: &str = r#"
 /* ── Static export extras ─────────────────────────────────────── */
+
+/* Requirement coverage — readable for static export readers */
+.req-covered { opacity: 1; }
+.req-partial {
+  border-style: dashed;
+}
+.req-partial::after {
+  content: "partially covered";
+  display: inline-block;
+  font-size: var(--text-xs);
+  color: var(--yellow);
+  margin-left: var(--space-2);
+  font-style: italic;
+}
+.req-uncovered::after {
+  content: "not yet covered";
+  display: inline-block;
+  font-size: var(--text-xs);
+  color: var(--accent);
+  margin-left: var(--space-2);
+  font-style: italic;
+}
+
+/* Home link in header */
+.home-link {
+  display: inline-flex;
+  align-items: center;
+  margin: var(--space-2);
+  color: var(--fg-muted);
+  padding: var(--space-1);
+  border-radius: 4px;
+}
+.home-link:hover { color: var(--fg); background: var(--hover); }
+.home-link svg { width: 18px; height: 18px; }
 
 /* spec-tab links (header pickers) */
 a.spec-tab { text-decoration: none; display: inline-block; }
@@ -1062,4 +1250,104 @@ a.spec-tab { text-decoration: none; display: inline-block; }
 .cov-bar-fill.high { background: var(--green); }
 .cov-bar-fill.med  { background: var(--yellow); }
 .cov-bar-fill.low  { background: var(--red); }
+
+/* r[impl export.mobile-sidebar] Mobile sidebar toggle */
+.sidebar-toggle {
+  display: none;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg-muted);
+  cursor: pointer;
+  padding: var(--space-1) var(--space-2);
+  align-items: center;
+  justify-content: center;
+}
+.sidebar-toggle:hover { color: var(--fg); background: var(--hover); }
+.sidebar-toggle svg { width: 18px; height: 18px; }
+
+@media (max-width: 768px) {
+  .sidebar-toggle { display: inline-flex; }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 100;
+    width: 300px;
+    max-width: 85vw;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+    background: var(--bg);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+  }
+  .sidebar.open { transform: translateX(0); }
+
+  .sidebar-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 99;
+    background: rgba(0, 0, 0, 0.4);
+  }
+  .sidebar-backdrop.open { display: block; }
+}
+
+/* Landing page */
+.landing-page {
+  padding: var(--space-6) var(--space-8);
+  max-width: 1000px;
+}
+.landing-readme { margin-bottom: var(--space-8); }
+.landing-grid-section h2 {
+  font-size: var(--text-lg);
+  margin-bottom: var(--space-4);
+  color: var(--fg);
+}
+.landing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-4);
+}
+.spec-card {
+  display: block;
+  text-decoration: none;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: var(--space-4);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.spec-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+.spec-card-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.spec-card-name {
+  font-size: var(--text-base);
+  font-weight: 600;
+}
+.spec-card-impl {
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+}
+.spec-card-stats {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.spec-card-stat {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+}
 "#;

@@ -183,6 +183,7 @@ enum Command {
     },
 
     /// Export a static, deployable site from the current spec coverage data.
+    // r[impl cli.export]
     Export {
         /// Output directory (will be created; existing contents overwritten)
         #[facet(args::positional)]
