@@ -1158,6 +1158,28 @@ const ENHANCE_JS: &str = r##"(function () {
 const STATIC_EXTRA_CSS: &str = r#"
 /* ── Static export extras ─────────────────────────────────────── */
 
+/* Requirement coverage — readable for static export readers */
+.req-covered { opacity: 1; }
+.req-partial {
+  border-style: dashed;
+}
+.req-partial::after {
+  content: "partially covered";
+  display: inline-block;
+  font-size: var(--text-xs);
+  color: var(--yellow);
+  margin-left: var(--space-2);
+  font-style: italic;
+}
+.req-uncovered::after {
+  content: "not yet covered";
+  display: inline-block;
+  font-size: var(--text-xs);
+  color: var(--accent);
+  margin-left: var(--space-2);
+  font-style: italic;
+}
+
 /* spec-tab links (header pickers) */
 a.spec-tab { text-decoration: none; display: inline-block; }
 
