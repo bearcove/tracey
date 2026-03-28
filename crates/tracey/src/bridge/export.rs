@@ -253,8 +253,15 @@ fn page_shell(
         String::new()
     } else {
         format!(
-            r#"<aside class="sidebar"><div class="sidebar-content">{sidebar_html}</div></aside>"#
+            r#"<aside class="sidebar" id="sidebar"><div class="sidebar-content">{sidebar_html}</div></aside>"#
         )
+    };
+
+    // Mobile sidebar toggle button (only rendered when sidebar has content)
+    let sidebar_toggle = if sidebar_html.is_empty() {
+        String::new()
+    } else {
+        r#"<button class="sidebar-toggle" id="sidebar-toggle" aria-label="Toggle sidebar"><i data-lucide="panel-left"></i></button>"#.to_string()
     };
 
     format!(
@@ -287,6 +294,7 @@ fn page_shell(
           <nav class="nav">
             {nav_tabs}
           </nav>
+          {sidebar_toggle}
           <a href="https://tracey.bearcove.eu/" class="logo">tracey</a>
         </div>
       </header>
@@ -997,6 +1005,23 @@ const ENHANCE_JS: &str = r##"(function () {
       navigator.clipboard.writeText(btn.dataset.reqId).catch(function () {});
     }
   });
+
+  // Mobile sidebar toggle
+  var toggle = document.getElementById("sidebar-toggle");
+  var sidebar = document.getElementById("sidebar");
+  if (toggle && sidebar) {
+    var backdrop = document.createElement("div");
+    backdrop.className = "sidebar-backdrop";
+    document.body.appendChild(backdrop);
+
+    function openSidebar() { sidebar.classList.add("open"); backdrop.classList.add("open"); }
+    function closeSidebar() { sidebar.classList.remove("open"); backdrop.classList.remove("open"); }
+
+    toggle.addEventListener("click", function () {
+      sidebar.classList.contains("open") ? closeSidebar() : openSidebar();
+    });
+    backdrop.addEventListener("click", closeSidebar);
+  }
 })();
 "##;
 
@@ -1062,4 +1087,48 @@ a.spec-tab { text-decoration: none; display: inline-block; }
 .cov-bar-fill.high { background: var(--green); }
 .cov-bar-fill.med  { background: var(--yellow); }
 .cov-bar-fill.low  { background: var(--red); }
+
+/* Mobile sidebar toggle */
+.sidebar-toggle {
+  display: none;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg-muted);
+  cursor: pointer;
+  padding: var(--space-1) var(--space-2);
+  align-items: center;
+  justify-content: center;
+}
+.sidebar-toggle:hover { color: var(--fg); background: var(--hover); }
+.sidebar-toggle svg { width: 18px; height: 18px; }
+
+@media (max-width: 768px) {
+  .sidebar-toggle { display: inline-flex; }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 100;
+    width: 300px;
+    max-width: 85vw;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+    background: var(--bg);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+  }
+  .sidebar.open { transform: translateX(0); }
+
+  .sidebar-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 99;
+    background: rgba(0, 0, 0, 0.4);
+  }
+  .sidebar-backdrop.open { display: block; }
+}
 "#;
