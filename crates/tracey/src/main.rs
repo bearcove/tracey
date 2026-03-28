@@ -477,7 +477,7 @@ async fn main() -> Result<()> {
         Command::Query { root, json, query } => {
             let project_root = root.unwrap_or_else(|| find_project_root().unwrap_or_default());
             let query_client =
-                bridge::query::QueryClient::new(project_root, bridge::query::Caller::Cli);
+                bridge::query::QueryClient::new(project_root, bridge::query::Caller::Cli).await?;
             init_tracing(TracingConfig {
                 log_file: None,
                 enable_console: !json,

@@ -74,7 +74,7 @@ pub async fn run(
     };
 
     // Create client (connects lazily, auto-reconnects)
-    let client = new_client(project_root.clone());
+    let client = new_client(project_root.clone()).await?;
 
     // In dev mode, start Vite dev server
     let vite_server = if dev {

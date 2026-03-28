@@ -23,7 +23,7 @@ pub async fn run(
         None => crate::find_project_root().wrap_err("finding project root")?,
     };
 
-    let client = crate::daemon::new_client(project_root);
+    let client = crate::daemon::new_client(project_root).await?;
     let config = client
         .config()
         .await

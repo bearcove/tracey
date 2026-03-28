@@ -8,6 +8,7 @@
 
 #![allow(clippy::enum_variant_names)]
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -296,6 +297,7 @@ struct TraceyHandler {
     startup_project_root: PathBuf,
     config_path: PathBuf,
     active_project_root: Arc<RwLock<PathBuf>>,
+    clients_by_root: Arc<RwLock<HashMap<PathBuf, query::QueryClient>>>,
     root_refresh_state: Arc<RwLock<RootRefreshState>>,
     trace_sink: Option<McpTraceSink>,
 }
@@ -316,6 +318,7 @@ impl TraceyHandler {
             startup_project_root: project_root.clone(),
             config_path,
             active_project_root: Arc::new(RwLock::new(project_root)),
+            clients_by_root: Arc::new(RwLock::new(HashMap::new())),
             root_refresh_state: Arc::new(RwLock::new(RootRefreshState::default())),
             trace_sink,
         };
@@ -332,9 +335,14 @@ impl TraceyHandler {
         handler
     }
 
-    async fn current_client(&self) -> query::QueryClient {
-        let root = self.active_project_root.read().await.clone();
-        query::QueryClient::new(root, query::Caller::Mcp)
+    async fn current_client(&self, root: PathBuf) -> Result<query::QueryClient, std::io::Error> {
+        if let Some(client) = self.clients_by_root.read().await.get(&root).cloned() {
+            return Ok(client);
+        }
+
+        let client = query::QueryClient::new(root.clone(), query::Caller::Mcp).await?;
+        let mut clients = self.clients_by_root.write().await;
+        Ok(clients.entry(root).or_insert_with(|| client).clone())
     }
 
     fn trace_json(&self, event: &str, payload: JsonValue) {
@@ -588,7 +596,10 @@ impl ServerHandler for TraceyHandler {
                 "project_root": project_root.display().to_string(),
             }),
         );
-        let client = self.current_client().await;
+        let client = self
+            .current_client(project_root)
+            .await
+            .map_err(|e| CallToolError(Box::new(e)))?;
 
         let mut response = match tool_name.as_str() {
             "tracey_status" => client.status().await,

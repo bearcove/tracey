@@ -42,7 +42,7 @@ use vox_stream::LocalLinkAcceptor;
 use service::TraceyDaemonDispatcher;
 use watcher::{WatcherEvent, WatcherManager, WatcherState};
 
-pub use client::{DaemonClient, DaemonConnector, new_client};
+pub use client::{DaemonClient, DaemonConnector, TraceyDaemonClient, new_client};
 pub use engine::Engine;
 pub use service::TraceyService;
 pub use watcher::WatcherState as DaemonWatcherState;
@@ -467,6 +467,8 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
         Instant::now().elapsed().as_secs(), // Will be updated on each connection
     ));
     let start_time = Instant::now();
+    let session_registry = vox::SessionRegistry::default();
+    let next_attachment_id = Arc::new(AtomicU64::new(1));
 
     // Accept connections and handle vox RPC
     loop {
@@ -487,10 +489,12 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
             Ok(Ok(stream)) => {
                 // Update last activity
                 last_activity.store(start_time.elapsed().as_secs(), Ordering::Relaxed);
-                info!("New connection accepted");
+                let attachment_id = next_attachment_id.fetch_add(1, Ordering::Relaxed);
+                info!(attachment_id, "Inbound daemon link accepted");
 
                 let service = service.clone();
                 let last_activity = Arc::clone(&last_activity);
+                let session_registry = session_registry.clone();
 
                 tokio::spawn(async move {
                     // Create dispatcher (wraps service with generated dispatch + tracing)
@@ -503,24 +507,48 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
                             let handle = tokio::spawn(fut);
                             let _ = session_task_tx.send(handle);
                         })
-                        .establish::<tracey_proto::TraceyDaemonClient>(dispatcher)
+                        .session_registry(session_registry)
+                        .resumable()
+                        .establish_or_resume::<tracey_proto::TraceyDaemonClient>(dispatcher)
                         .await
                     {
-                        Ok((client_guard, session_handle)) => {
-                            info!("Connection established");
+                        Ok(vox::SessionAcceptOutcome::Established(
+                            client_guard,
+                            session_handle,
+                        )) => {
+                            let has_resume_key = session_handle.resume_key().is_some();
+                            info!(attachment_id, has_resume_key, "Daemon session established");
                             let _client_guard = client_guard;
                             let _session_handle = session_handle;
-                            if let Ok(session_task) = session_task_rx.await {
-                                let _ = session_task.await;
+                            match session_task_rx.await {
+                                Ok(session_task) => {
+                                    if let Err(error) = session_task.await {
+                                        warn!(
+                                            attachment_id,
+                                            error = %error,
+                                            "Daemon session task ended with join error"
+                                        );
+                                    }
+                                }
+                                Err(_) => {
+                                    warn!(
+                                        attachment_id,
+                                        "Daemon session task channel closed before spawn"
+                                    );
+                                }
                             }
+                            info!(attachment_id, "Daemon session ended");
+                        }
+                        Ok(vox::SessionAcceptOutcome::Resumed) => {
+                            info!(attachment_id, "Daemon session resumed on replacement link");
                         }
                         Err(e) => {
-                            error!("Connection setup failed: {}", e);
+                            error!(attachment_id, error = %e, "Connection setup failed");
                         }
                     }
 
                     last_activity.store(start_time.elapsed().as_secs(), Ordering::Relaxed);
-                    info!("Connection closed");
+                    info!(attachment_id, "Link attachment closed");
                 });
             }
             Ok(Err(e)) => {

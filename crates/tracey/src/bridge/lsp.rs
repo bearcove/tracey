@@ -354,36 +354,67 @@ impl Backend {
             .cloned()
     }
 
-    fn ensure_project_root(&self, root_hint: PathBuf) -> (PathBuf, DaemonClient, bool, bool) {
+    async fn ensure_project_root(
+        &self,
+        root_hint: PathBuf,
+    ) -> Option<(PathBuf, DaemonClient, bool, bool)> {
         let root = crate::find_project_root_from(&root_hint);
+        {
+            let mut state = self.project_state.lock().unwrap();
+            let new_root = state.roots.insert(root.clone());
+            if let Some(daemon_client) = state.daemon_clients.get(&root).cloned() {
+                let should_watch = state.watched_roots.insert(root.clone());
+                return Some((root, daemon_client, should_watch, new_root));
+            }
+        }
+
+        let created_client = match new_client(root.clone()).await {
+            Ok(client) => client,
+            Err(error) => {
+                tracing::warn!(
+                    project_root = %root.display(),
+                    error = %error,
+                    "failed to connect daemon client for project root"
+                );
+                return None;
+            }
+        };
+
         let mut state = self.project_state.lock().unwrap();
         let new_root = state.roots.insert(root.clone());
         let daemon_client = state
             .daemon_clients
             .entry(root.clone())
-            .or_insert_with(|| new_client(root.clone()))
+            .or_insert_with(|| created_client)
             .clone();
         let should_watch = state.watched_roots.insert(root.clone());
-        (root, daemon_client, should_watch, new_root)
+        Some((root, daemon_client, should_watch, new_root))
     }
 
-    fn ensure_project_for_path(&self, path: &Path) -> (PathBuf, DaemonClient, bool, bool) {
+    async fn ensure_project_for_path(
+        &self,
+        path: &Path,
+    ) -> Option<(PathBuf, DaemonClient, bool, bool)> {
         let root = {
             let state = self.project_state.lock().unwrap();
             Self::best_root_for_path(path, &state.roots)
         }
         .unwrap_or_else(|| crate::find_project_root_from(path));
 
-        self.ensure_project_root(root)
+        self.ensure_project_root(root).await
     }
 
-    fn ensure_project_for_uri(&self, uri: &Url) -> Option<(PathBuf, DaemonClient, bool, bool)> {
+    async fn ensure_project_for_uri(
+        &self,
+        uri: &Url,
+    ) -> Option<(PathBuf, DaemonClient, bool, bool)> {
         let path = uri.to_file_path().ok()?;
-        Some(self.ensure_project_for_path(&path))
+        self.ensure_project_for_path(&path).await
     }
 
-    fn project_for_doc_uri(&self, uri: &Url) -> Option<(PathBuf, DaemonClient)> {
-        let (project_root, daemon_client, should_watch, _) = self.ensure_project_for_uri(uri)?;
+    async fn project_for_doc_uri(&self, uri: &Url) -> Option<(PathBuf, DaemonClient)> {
+        let (project_root, daemon_client, should_watch, _) =
+            self.ensure_project_for_uri(uri).await?;
         self.spawn_watcher_if_needed(project_root.clone(), daemon_client.clone(), should_watch);
         Some((project_root, daemon_client))
     }
@@ -475,7 +506,8 @@ impl Backend {
 
     /// Notify daemon that a file was opened.
     async fn notify_vfs_open(&self, uri: &Url, content: &str) {
-        let Some((project_root, daemon_client, should_watch, _)) = self.ensure_project_for_uri(uri)
+        let Some((project_root, daemon_client, should_watch, _)) =
+            self.ensure_project_for_uri(uri).await
         else {
             return;
         };
@@ -494,7 +526,8 @@ impl Backend {
 
     /// Notify daemon that a file changed.
     async fn notify_vfs_change(&self, uri: &Url, content: &str) {
-        let Some((project_root, daemon_client, should_watch, _)) = self.ensure_project_for_uri(uri)
+        let Some((project_root, daemon_client, should_watch, _)) =
+            self.ensure_project_for_uri(uri).await
         else {
             return;
         };
@@ -513,7 +546,8 @@ impl Backend {
 
     /// Notify daemon that a file was closed.
     async fn notify_vfs_close(&self, uri: &Url) {
-        let Some((project_root, daemon_client, should_watch, _)) = self.ensure_project_for_uri(uri)
+        let Some((project_root, daemon_client, should_watch, _)) =
+            self.ensure_project_for_uri(uri).await
         else {
             return;
         };
@@ -535,7 +569,8 @@ impl Backend {
     }
 
     async fn refresh_project_diagnostics_for_uri(&self, uri: &Url) {
-        let Some((project_root, daemon_client, should_watch, _)) = self.ensure_project_for_uri(uri)
+        let Some((project_root, daemon_client, should_watch, _)) =
+            self.ensure_project_for_uri(uri).await
         else {
             return;
         };
@@ -746,7 +781,11 @@ impl Backend {
     }
 
     async fn add_workspace_root(&self, root_hint: PathBuf) {
-        let (project_root, daemon_client, should_watch, _) = self.ensure_project_root(root_hint);
+        let Some((project_root, daemon_client, should_watch, _)) =
+            self.ensure_project_root(root_hint).await
+        else {
+            return;
+        };
         self.clear_workspace_diagnostics_on_startup(&project_root)
             .await;
         self.spawn_watcher_if_needed(project_root, daemon_client, should_watch);
@@ -911,7 +950,7 @@ impl LanguageServer for Backend {
             self.notify_vfs_change(&uri, &content).await;
         }
 
-        if let Some((project_root, _, _, _)) = self.ensure_project_for_uri(&uri)
+        if let Some((project_root, _, _, _)) = self.ensure_project_for_uri(&uri).await
             && Self::is_project_config_uri(&uri, &project_root)
         {
             self.refresh_project_diagnostics_for_uri(&uri).await;
@@ -938,7 +977,7 @@ impl LanguageServer for Backend {
         let Some((path, content)) = self.get_path_and_content(uri) else {
             return Ok(None);
         };
-        let Some((_, daemon_client)) = self.project_for_doc_uri(uri) else {
+        let Some((_, daemon_client)) = self.project_for_doc_uri(uri).await else {
             return Ok(None);
         };
 
@@ -993,7 +1032,7 @@ impl LanguageServer for Backend {
             tracing::debug!(uri = %uri, "hover: no path/content for uri");
             return Ok(None);
         };
-        let Some((project_root, daemon_client)) = self.project_for_doc_uri(uri) else {
+        let Some((project_root, daemon_client)) = self.project_for_doc_uri(uri).await else {
             return Ok(None);
         };
 
@@ -1091,7 +1130,7 @@ impl LanguageServer for Backend {
         let Some((path, content)) = self.get_path_and_content(uri) else {
             return Ok(None);
         };
-        let Some((project_root, daemon_client)) = self.project_for_doc_uri(uri) else {
+        let Some((project_root, daemon_client)) = self.project_for_doc_uri(uri).await else {
             return Ok(None);
         };
 
@@ -1140,7 +1179,7 @@ impl LanguageServer for Backend {
         let Some((path, content)) = self.get_path_and_content(uri) else {
             return Ok(None);
         };
-        let Some((project_root, daemon_client)) = self.project_for_doc_uri(uri) else {
+        let Some((project_root, daemon_client)) = self.project_for_doc_uri(uri).await else {
             return Ok(None);
         };
 
@@ -1189,7 +1228,7 @@ impl LanguageServer for Backend {
         let Some((path, content)) = self.get_path_and_content(uri) else {
             return Ok(None);
         };
-        let Some((project_root, daemon_client)) = self.project_for_doc_uri(uri) else {
+        let Some((project_root, daemon_client)) = self.project_for_doc_uri(uri).await else {
             return Ok(None);
         };
 
@@ -1242,7 +1281,7 @@ impl LanguageServer for Backend {
         let Some((path, content)) = self.get_path_and_content(uri) else {
             return Ok(None);
         };
-        let Some((_, daemon_client)) = self.project_for_doc_uri(uri) else {
+        let Some((_, daemon_client)) = self.project_for_doc_uri(uri).await else {
             return Ok(None);
         };
 
@@ -1290,7 +1329,7 @@ impl LanguageServer for Backend {
         let Some((path, content)) = self.get_path_and_content(uri) else {
             return Ok(None);
         };
-        let Some((_, daemon_client)) = self.project_for_doc_uri(uri) else {
+        let Some((_, daemon_client)) = self.project_for_doc_uri(uri).await else {
             return Ok(None);
         };
 
@@ -1340,7 +1379,11 @@ impl LanguageServer for Backend {
     ) -> LspResult<Option<Vec<SymbolInformation>>> {
         let mut lsp_symbols = Vec::new();
         for root in self.active_roots() {
-            let (project_root, daemon_client, should_watch, _) = self.ensure_project_root(root);
+            let Some((project_root, daemon_client, should_watch, _)) =
+                self.ensure_project_root(root).await
+            else {
+                continue;
+            };
             self.spawn_watcher_if_needed(project_root.clone(), daemon_client.clone(), should_watch);
 
             let Ok(symbols) = rpc(daemon_client
@@ -1392,7 +1435,7 @@ impl LanguageServer for Backend {
         let Some((path, content)) = self.get_path_and_content(uri) else {
             return Ok(None);
         };
-        let Some((_, daemon_client)) = self.project_for_doc_uri(uri) else {
+        let Some((_, daemon_client)) = self.project_for_doc_uri(uri).await else {
             return Ok(None);
         };
 
@@ -1448,11 +1491,14 @@ impl LanguageServer for Backend {
             if args.len() >= 2
                 && let (Some(old_rule), Some(new_rule)) = (args[0].as_str(), args[1].as_str())
             {
-                let scope_root = args
+                let scope_uri = args
                     .get(2)
                     .and_then(|v| v.as_str())
-                    .and_then(|s| Url::parse(s).ok())
-                    .and_then(|uri| self.project_for_doc_uri(&uri).map(|(root, _)| root));
+                    .and_then(|s| Url::parse(s).ok());
+                let scope_root = match scope_uri {
+                    Some(uri) => self.project_for_doc_uri(&uri).await.map(|(root, _)| root),
+                    None => None,
+                };
 
                 self.apply_unknown_requirement_rename(old_rule, new_rule, scope_root)
                     .await?;
@@ -1467,7 +1513,7 @@ impl LanguageServer for Backend {
         let Some((path, content)) = self.get_path_and_content(uri) else {
             return Ok(None);
         };
-        let Some((_, daemon_client)) = self.project_for_doc_uri(uri) else {
+        let Some((_, daemon_client)) = self.project_for_doc_uri(uri).await else {
             return Ok(None);
         };
 
@@ -1517,7 +1563,7 @@ impl LanguageServer for Backend {
         let Some((path, content)) = self.get_path_and_content(uri) else {
             return Ok(None);
         };
-        let Some((_, daemon_client)) = self.project_for_doc_uri(uri) else {
+        let Some((_, daemon_client)) = self.project_for_doc_uri(uri).await else {
             return Ok(None);
         };
 
@@ -1566,7 +1612,7 @@ impl LanguageServer for Backend {
         let Some((path, content)) = self.get_path_and_content(uri) else {
             return Ok(None);
         };
-        let Some((_, daemon_client)) = self.project_for_doc_uri(uri) else {
+        let Some((_, daemon_client)) = self.project_for_doc_uri(uri).await else {
             return Ok(None);
         };
 
@@ -1603,7 +1649,7 @@ impl LanguageServer for Backend {
         let Some((path, content)) = self.get_path_and_content(uri) else {
             return Ok(None);
         };
-        let Some((project_root, daemon_client)) = self.project_for_doc_uri(uri) else {
+        let Some((project_root, daemon_client)) = self.project_for_doc_uri(uri).await else {
             return Ok(None);
         };
 
@@ -1661,7 +1707,7 @@ impl LanguageServer for Backend {
         let Some((path, content)) = self.get_path_and_content(uri) else {
             return Ok(None);
         };
-        let Some((_, daemon_client)) = self.project_for_doc_uri(uri) else {
+        let Some((_, daemon_client)) = self.project_for_doc_uri(uri).await else {
             return Ok(None);
         };
 
