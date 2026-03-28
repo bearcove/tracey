@@ -1416,6 +1416,7 @@ async fn kill_daemon(root: Option<PathBuf>) -> Result<()> {
     }
 
     // Try to connect and send shutdown
+    let mut shutdown_sent = false;
     match vox_stream::LocalLink::connect(&endpoint).await {
         Ok(stream) => {
             let (client, _session_handle) = vox::initiator_on(stream, vox::TransportMode::Bare)
@@ -1425,12 +1426,14 @@ async fn kill_daemon(root: Option<PathBuf>) -> Result<()> {
 
             match client.shutdown().await {
                 Ok(()) => {
+                    shutdown_sent = true;
                     println!("{}: Shutdown signal sent", "Success".green());
                 }
                 Err(e) => {
                     // Connection may close before we get a response, that's OK
                     let err_str = format!("{e:?}");
-                    if err_str.contains("closed") {
+                    if err_str.to_ascii_lowercase().contains("closed") {
+                        shutdown_sent = true;
                         println!("{}: Daemon stopped", "Success".green());
                     } else {
                         println!(
@@ -1450,6 +1453,34 @@ async fn kill_daemon(root: Option<PathBuf>) -> Result<()> {
             );
             let _ = vox_local::remove_endpoint(&endpoint);
             println!("{}: Cleaned up", "Success".green());
+            return Ok(());
+        }
+    }
+
+    // If shutdown was sent (or likely accepted), give daemon a moment to remove its endpoint.
+    if shutdown_sent {
+        for _ in 0..20 {
+            if !vox_local::endpoint_exists(&endpoint) {
+                return Ok(());
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    }
+
+    // Endpoint still exists. If it's not connectable anymore, clean up stale socket.
+    if vox_local::endpoint_exists(&endpoint) {
+        if vox_stream::LocalLink::connect(&endpoint).await.is_err() {
+            println!(
+                "{}: Daemon not responding, cleaning up stale socket",
+                "Info".cyan()
+            );
+            let _ = vox_local::remove_endpoint(&endpoint);
+            println!("{}: Cleaned up", "Success".green());
+        } else if shutdown_sent {
+            println!(
+                "{}: Daemon still appears to be running",
+                "Warning".yellow()
+            );
         }
     }
 

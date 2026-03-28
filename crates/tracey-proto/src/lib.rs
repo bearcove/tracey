@@ -180,6 +180,8 @@ pub struct UnmappedUnit {
 #[derive(Debug, Clone, Facet)]
 #[facet(rename_all = "camelCase")]
 pub struct StatusResponse {
+    #[facet(default)]
+    pub api_schema_version: u32,
     pub impls: Vec<ImplStatus>,
 }
 

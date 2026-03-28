@@ -173,10 +173,10 @@ time = { version = "0.3", features = ["formatting"] }
 tempfile = "3.24.0"
 
 # vox RPC framework
-vox = "0.2.0"
-vox-core = "0.2.0"
-vox-stream = "0.2.0"
-vox-local = "0.2.0"
+vox = { path = "../vox/rust/vox" }
+vox-core = { path = "../vox/rust/vox-core" }
+vox-stream = { path = "../vox/rust/vox-stream" }
+vox-local = { path = "../vox/rust/vox-local" }
 
 # The profile that 'dist' will build with
 [profile.dist]

@@ -227,6 +227,7 @@ impl TraceyDaemon for TraceyService {
         let stats = query.status();
 
         StatusResponse {
+            api_schema_version: 1,
             impls: stats
                 .into_iter()
                 .map(|(spec, impl_name, s)| ImplStatus {

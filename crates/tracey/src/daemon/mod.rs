@@ -512,10 +512,7 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
                         .establish_or_resume::<tracey_proto::TraceyDaemonClient>(dispatcher)
                         .await
                     {
-                        Ok(vox::SessionAcceptOutcome::Established(
-                            client_guard,
-                            session_handle,
-                        )) => {
+                        Ok(vox::SessionAcceptOutcome::Established(client_guard, session_handle)) => {
                             let has_resume_key = session_handle.resume_key().is_some();
                             info!(attachment_id, has_resume_key, "Daemon session established");
                             let _client_guard = client_guard;
