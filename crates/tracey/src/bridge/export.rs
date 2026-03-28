@@ -413,6 +413,7 @@ fn page_shell(
     <div class="layout">
       <header class="header">
         <div class="header-inner">
+          <a href="/" class="home-link" title="Landing page"><i data-lucide="home"></i></a>
           <div class="header-pickers">
             {spec_links}
           </div>
@@ -1179,6 +1180,18 @@ const STATIC_EXTRA_CSS: &str = r#"
   margin-left: var(--space-2);
   font-style: italic;
 }
+
+/* Home link in header */
+.home-link {
+  display: inline-flex;
+  align-items: center;
+  margin: var(--space-2);
+  color: var(--fg-muted);
+  padding: var(--space-1);
+  border-radius: 4px;
+}
+.home-link:hover { color: var(--fg); background: var(--hover); }
+.home-link svg { width: 18px; height: 18px; }
 
 /* spec-tab links (header pickers) */
 a.spec-tab { text-decoration: none; display: inline-block; }
