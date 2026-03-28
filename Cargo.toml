@@ -172,11 +172,11 @@ facet-typescript = { version = "0.44" }
 time = { version = "0.3", features = ["formatting"] }
 tempfile = "3.24.0"
 
-# roam RPC framework
-roam = "7.0.0"
-roam-core = "7.0.0"
-roam-stream = "7.0.0"
-roam-local = "7.0.0"
+# vox RPC framework
+vox = "0.2.2"
+vox-core = "0.2.2"
+vox-stream = "0.2.2"
+vox-local = "0.2.2"
 
 # The profile that 'dist' will build with
 [profile.dist]

@@ -124,7 +124,7 @@ tracey web
 
 ## Architecture
 
-Tracey runs as a persistent daemon per workspace. All interfaces (web dashboard, LSP, MCP, CLI queries) connect to the daemon over a Unix socket using [roam](https://github.com/bearcove/roam) RPC.
+Tracey runs as a persistent daemon per workspace. All interfaces (web dashboard, LSP, MCP, CLI queries) connect to the daemon over a Unix socket using [vox](https://github.com/bearcove/vox) RPC.
 
 ```
                     .tracey/daemon.sock

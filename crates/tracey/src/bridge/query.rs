@@ -3,6 +3,7 @@
 //! This module contains the actual query-to-client formatting logic so both
 //! MCP and terminal queries print the same markdown-like output.
 
+use std::io;
 use std::path::PathBuf;
 use std::{collections::BTreeMap, collections::BTreeSet};
 
@@ -111,11 +112,11 @@ pub struct QueryClient {
 }
 
 impl QueryClient {
-    pub fn new(project_root: PathBuf, caller: Caller) -> Self {
-        Self {
-            client: new_client(project_root),
+    pub async fn new(project_root: PathBuf, caller: Caller) -> io::Result<Self> {
+        Ok(Self {
+            client: new_client(project_root).await?,
             caller,
-        }
+        })
     }
 
     /// Check for config errors and return a warning banner if present.

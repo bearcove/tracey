@@ -477,7 +477,7 @@ async fn main() -> Result<()> {
         Command::Query { root, json, query } => {
             let project_root = root.unwrap_or_else(|| find_project_root().unwrap_or_default());
             let query_client =
-                bridge::query::QueryClient::new(project_root, bridge::query::Caller::Cli);
+                bridge::query::QueryClient::new(project_root, bridge::query::Caller::Cli).await?;
             init_tracing(TracingConfig {
                 log_file: None,
                 enable_console: !json,
@@ -1023,7 +1023,7 @@ async fn show_status(root: Option<PathBuf>, json: bool) -> Result<()> {
     let endpoint = daemon::local_endpoint(&project_root);
 
     // Try to connect without auto-starting
-    let stream = match roam_stream::LocalLink::connect(&endpoint).await {
+    let stream = match vox_stream::LocalLink::connect(&endpoint).await {
         Ok(s) => s,
         Err(_) => {
             if json {
@@ -1035,7 +1035,7 @@ async fn show_status(root: Option<PathBuf>, json: bool) -> Result<()> {
         }
     };
 
-    let (client, _session_handle) = roam::initiator(stream)
+    let (client, _session_handle) = vox::initiator_on(stream, vox::TransportMode::Bare)
         .establish::<tracey_proto::TraceyDaemonClient>(())
         .await
         .map_err(|e| eyre::eyre!("failed to connect to daemon: {e:?}"))?;
@@ -1410,27 +1410,30 @@ async fn kill_daemon(root: Option<PathBuf>) -> Result<()> {
     let endpoint = daemon::local_endpoint(&project_root);
 
     // Check if endpoint exists
-    if !roam_local::endpoint_exists(&endpoint) {
+    if !vox_local::endpoint_exists(&endpoint) {
         println!("{}: No daemon running", "Info".cyan());
         return Ok(());
     }
 
     // Try to connect and send shutdown
-    match roam_stream::LocalLink::connect(&endpoint).await {
+    let mut shutdown_sent = false;
+    match vox_stream::LocalLink::connect(&endpoint).await {
         Ok(stream) => {
-            let (client, _session_handle) = roam::initiator(stream)
+            let (client, _session_handle) = vox::initiator_on(stream, vox::TransportMode::Bare)
                 .establish::<tracey_proto::TraceyDaemonClient>(())
                 .await
                 .map_err(|e| eyre::eyre!("failed to connect to daemon: {e:?}"))?;
 
             match client.shutdown().await {
                 Ok(()) => {
+                    shutdown_sent = true;
                     println!("{}: Shutdown signal sent", "Success".green());
                 }
                 Err(e) => {
                     // Connection may close before we get a response, that's OK
                     let err_str = format!("{e:?}");
-                    if err_str.contains("closed") {
+                    if err_str.to_ascii_lowercase().contains("closed") {
+                        shutdown_sent = true;
                         println!("{}: Daemon stopped", "Success".green());
                     } else {
                         println!(
@@ -1448,8 +1451,36 @@ async fn kill_daemon(root: Option<PathBuf>) -> Result<()> {
                 "{}: Daemon not responding, cleaning up stale socket",
                 "Info".cyan()
             );
-            let _ = roam_local::remove_endpoint(&endpoint);
+            let _ = vox_local::remove_endpoint(&endpoint);
             println!("{}: Cleaned up", "Success".green());
+            return Ok(());
+        }
+    }
+
+    // If shutdown was sent (or likely accepted), give daemon a moment to remove its endpoint.
+    if shutdown_sent {
+        for _ in 0..20 {
+            if !vox_local::endpoint_exists(&endpoint) {
+                return Ok(());
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    }
+
+    // Endpoint still exists. If it's not connectable anymore, clean up stale socket.
+    if vox_local::endpoint_exists(&endpoint) {
+        if vox_stream::LocalLink::connect(&endpoint).await.is_err() {
+            println!(
+                "{}: Daemon not responding, cleaning up stale socket",
+                "Info".cyan()
+            );
+            let _ = vox_local::remove_endpoint(&endpoint);
+            println!("{}: Cleaned up", "Success".green());
+        } else if shutdown_sent {
+            println!(
+                "{}: Daemon still appears to be running",
+                "Warning".yellow()
+            );
         }
     }
 
