@@ -812,7 +812,16 @@ r[export.navigation]
 Each exported page MUST include a header with spec/implementation selector tabs and navigation tabs (Specification, Coverage, and optionally Sources).
 
 r[export.landing-page]
-The root `index.html` MUST serve as a landing page that lists all specs in the export as a navigable grid, allowing users to browse available specifications.
+The root `index.html` MUST serve as a landing page rather than a redirect.
+
+> r[export.landing-page.default-content]
+> When no `README.md` is present in the project root, the landing page MUST render a sensible default describing the export and linking to the specs.
+
+> r[export.landing-page.readme]
+> When a `README.md` file exists in the project root, its rendered markdown content MUST be included on the landing page above the spec grid.
+
+> r[export.landing-page.spec-grid]
+> The landing page MUST display a grid of all spec/implementation pairs in the export, each linking to its spec page. Each card MUST show the spec name, implementation name, and coverage summary (implemented/tested counts).
 
 r[export.mobile-sidebar]
 On viewports narrower than a desktop breakpoint, the outline sidebar MUST be hidden by default and togglable via a button, so the export is usable on mobile devices.
