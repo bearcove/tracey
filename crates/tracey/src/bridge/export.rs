@@ -12,6 +12,8 @@ use tracey_api::{
     OutlineEntry,
 };
 
+// r[impl export.output-structure]
+// r[impl export.self-contained]
 pub async fn run(
     root: Option<PathBuf>,
     _config_path: PathBuf,
@@ -156,6 +158,7 @@ fn write_assets(output: &Path) -> Result<()> {
     Ok(())
 }
 
+// r[impl export.landing-page]
 fn write_root_index(output: &Path, first: Option<&(String, String)>) -> Result<()> {
     let html = if let Some((spec, impl_name)) = first {
         format!(
@@ -180,6 +183,7 @@ fn write_root_index(output: &Path, first: Option<&(String, String)>) -> Result<(
 // Page shell — uses dashboard CSS classes directly
 // ============================================================================
 
+// r[impl export.navigation]
 #[allow(clippy::too_many_arguments)]
 fn page_shell(
     title: &str,
@@ -318,6 +322,7 @@ fn page_shell(
 // Spec page
 // ============================================================================
 
+// r[impl export.spec-page]
 fn render_spec_page(
     spec_name: &str,
     impl_name: &str,
@@ -448,6 +453,7 @@ fn coverage_arc_svg(count: usize, total: usize, color: &str, title: &str) -> Str
 // Coverage page
 // ============================================================================
 
+// r[impl export.coverage-page]
 fn render_coverage_page(
     spec_name: &str,
     impl_name: &str,
@@ -599,6 +605,7 @@ fn stat_class(count: usize, total: usize) -> &'static str {
 // Sources index page
 // ============================================================================
 
+// r[impl export.sources]
 fn render_sources_index(
     spec_name: &str,
     impl_name: &str,
@@ -1088,7 +1095,7 @@ a.spec-tab { text-decoration: none; display: inline-block; }
 .cov-bar-fill.med  { background: var(--yellow); }
 .cov-bar-fill.low  { background: var(--red); }
 
-/* Mobile sidebar toggle */
+/* r[impl export.mobile-sidebar] Mobile sidebar toggle */
 .sidebar-toggle {
   display: none;
   background: none;
