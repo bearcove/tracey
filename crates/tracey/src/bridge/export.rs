@@ -1293,6 +1293,86 @@ a.spec-tab { text-decoration: none; display: inline-block; }
     background: rgba(0, 0, 0, 0.4);
   }
   .sidebar-backdrop.open { display: block; }
+
+  /* Compact header: wrap nav below pickers */
+  .header-inner {
+    flex-wrap: wrap;
+  }
+  .header-pickers {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    flex-shrink: 1;
+    min-width: 0;
+  }
+  .nav {
+    order: 10;
+    width: 100%;
+    border-top: 1px solid var(--border);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .nav-tab {
+    padding: var(--space-2) var(--space-3);
+    font-size: var(--text-xs);
+    white-space: nowrap;
+  }
+  .logo {
+    padding: var(--space-2) var(--space-3);
+    font-size: var(--text-base);
+  }
+
+  /* Reduce page padding */
+  .spec-page {
+    padding: var(--space-4) var(--space-3);
+  }
+  .padded-page {
+    padding: var(--space-3) var(--space-2);
+  }
+  .landing-page {
+    padding: var(--space-4) var(--space-3);
+  }
+
+  /* Requirement containers: compact badges */
+  .req-container {
+    padding: var(--space-4) var(--space-3) var(--space-3) var(--space-3);
+    margin: var(--space-5) 0;
+  }
+  .req-badges-left,
+  .req-badges-right {
+    position: relative;
+    top: auto;
+    inset-inline-start: auto;
+    inset-inline-end: auto;
+    flex-wrap: wrap;
+    gap: var(--space-0-5);
+    margin-bottom: var(--space-1);
+  }
+  .req-badges-right {
+    margin-bottom: var(--space-2);
+  }
+  .req-badge {
+    font-size: var(--text-2xs);
+    padding: var(--space-0-5) var(--space-1-5);
+    white-space: nowrap;
+  }
+
+  /* Coverage table: horizontal scroll */
+  .padded-page table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .rule-refs {
+    white-space: nowrap;
+  }
+
+  /* Source file header */
+  .file-view-header {
+    font-size: var(--text-xs);
+    padding: var(--space-2) var(--space-3);
+    overflow-x: auto;
+    word-break: break-all;
+  }
 }
 
 /* Landing page */
