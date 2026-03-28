@@ -297,12 +297,21 @@ export function SourcesView({
 }: SourcesViewProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
+    if (window.innerWidth < 1200) return true;
     return window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "1";
   });
 
   useEffect(() => {
     window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, sidebarCollapsed ? "1" : "0");
   }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth < 1200) setSidebarCollapsed(true);
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   const fileTree = useMemo(() => buildFileTree(data.files), [data.files]);
   const file = useFile(selectedFile);
