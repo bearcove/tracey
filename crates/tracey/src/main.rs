@@ -1023,7 +1023,7 @@ async fn show_status(root: Option<PathBuf>, json: bool) -> Result<()> {
     let endpoint = daemon::local_endpoint(&project_root);
 
     // Try to connect without auto-starting
-    let stream = match roam_stream::LocalLink::connect(&endpoint).await {
+    let stream = match vox_stream::LocalLink::connect(&endpoint).await {
         Ok(s) => s,
         Err(_) => {
             if json {
@@ -1035,7 +1035,7 @@ async fn show_status(root: Option<PathBuf>, json: bool) -> Result<()> {
         }
     };
 
-    let (client, _session_handle) = roam::initiator(stream)
+    let (client, _session_handle) = vox::initiator_on(stream, vox::TransportMode::Bare)
         .establish::<tracey_proto::TraceyDaemonClient>(())
         .await
         .map_err(|e| eyre::eyre!("failed to connect to daemon: {e:?}"))?;
@@ -1410,15 +1410,15 @@ async fn kill_daemon(root: Option<PathBuf>) -> Result<()> {
     let endpoint = daemon::local_endpoint(&project_root);
 
     // Check if endpoint exists
-    if !roam_local::endpoint_exists(&endpoint) {
+    if !vox_local::endpoint_exists(&endpoint) {
         println!("{}: No daemon running", "Info".cyan());
         return Ok(());
     }
 
     // Try to connect and send shutdown
-    match roam_stream::LocalLink::connect(&endpoint).await {
+    match vox_stream::LocalLink::connect(&endpoint).await {
         Ok(stream) => {
-            let (client, _session_handle) = roam::initiator(stream)
+            let (client, _session_handle) = vox::initiator_on(stream, vox::TransportMode::Bare)
                 .establish::<tracey_proto::TraceyDaemonClient>(())
                 .await
                 .map_err(|e| eyre::eyre!("failed to connect to daemon: {e:?}"))?;
@@ -1448,7 +1448,7 @@ async fn kill_daemon(root: Option<PathBuf>) -> Result<()> {
                 "{}: Daemon not responding, cleaning up stale socket",
                 "Info".cyan()
             );
-            let _ = roam_local::remove_endpoint(&endpoint);
+            let _ = vox_local::remove_endpoint(&endpoint);
             println!("{}: Cleaned up", "Success".green());
         }
     }

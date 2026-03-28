@@ -1,6 +1,6 @@
 //! Client for connecting to the tracey daemon.
 //!
-//! Uses roam v7 session builders.
+//! Uses vox session builders.
 
 use std::fs::OpenOptions;
 use std::future::Future;
@@ -26,7 +26,7 @@ pub fn new_client(project_root: PathBuf) -> DaemonClient {
 }
 
 impl DaemonClient {
-    async fn connect_inner(&self) -> io::Result<roam_stream::LocalLink> {
+    async fn connect_inner(&self) -> io::Result<vox_stream::LocalLink> {
         let start = Instant::now();
         debug!(
             project_root = %self.project_root.display(),
@@ -41,10 +41,10 @@ impl DaemonClient {
         Ok(stream)
     }
 
-    async fn with_client<T, E, F, Fut>(&self, f: F) -> Result<T, roam::RoamError<E>>
+    async fn with_client<T, E, F, Fut>(&self, f: F) -> Result<T, vox::VoxError<E>>
     where
         F: FnOnce(TraceyDaemonClient) -> Fut,
-        Fut: Future<Output = Result<T, roam::RoamError<E>>>,
+        Fut: Future<Output = Result<T, vox::VoxError<E>>>,
     {
         let start = Instant::now();
         let callsite = std::panic::Location::caller();
@@ -61,10 +61,10 @@ impl DaemonClient {
                     callsite = format_args!("{}:{}", callsite.file(), callsite.line()),
                     "daemon client: connect_inner failed"
                 );
-                return Err(roam::RoamError::Cancelled);
+                return Err(vox::VoxError::Cancelled);
             }
         };
-        let (client, _session_handle) = match roam::initiator(stream)
+        let (client, _session_handle) = match vox::initiator_on(stream, vox::TransportMode::Bare)
             .establish::<TraceyDaemonClient>(())
             .await
         {
@@ -72,7 +72,7 @@ impl DaemonClient {
                 debug!(
                     elapsed_ms = start.elapsed().as_millis(),
                     callsite = format_args!("{}:{}", callsite.file(), callsite.line()),
-                    "daemon client: roam session established"
+                    "daemon client: vox session established"
                 );
                 parts
             }
@@ -81,9 +81,9 @@ impl DaemonClient {
                     elapsed_ms = start.elapsed().as_millis(),
                     error = %e,
                     callsite = format_args!("{}:{}", callsite.file(), callsite.line()),
-                    "daemon client: roam session establish failed"
+                    "daemon client: vox session establish failed"
                 );
-                return Err(roam::RoamError::Cancelled);
+                return Err(vox::VoxError::Cancelled);
             }
         };
         let result = f(client).await;
@@ -99,83 +99,83 @@ impl DaemonClient {
                 warn!(
                     elapsed_ms = start.elapsed().as_millis(),
                     callsite = format_args!("{}:{}", callsite.file(), callsite.line()),
-                    "daemon client: with_client returned roam error"
+                    "daemon client: with_client returned vox error"
                 );
             }
         }
         result
     }
 
-    pub async fn status(&self) -> Result<tracey_proto::StatusResponse, roam::RoamError> {
+    pub async fn status(&self) -> Result<tracey_proto::StatusResponse, vox::VoxError> {
         self.with_client(|c| async move { c.status().await }).await
     }
     pub async fn uncovered(
         &self,
         req: tracey_proto::UncoveredRequest,
-    ) -> Result<tracey_proto::UncoveredResponse, roam::RoamError> {
+    ) -> Result<tracey_proto::UncoveredResponse, vox::VoxError> {
         self.with_client(|c| async move { c.uncovered(req).await })
             .await
     }
     pub async fn untested(
         &self,
         req: tracey_proto::UntestedRequest,
-    ) -> Result<tracey_proto::UntestedResponse, roam::RoamError> {
+    ) -> Result<tracey_proto::UntestedResponse, vox::VoxError> {
         self.with_client(|c| async move { c.untested(req).await })
             .await
     }
     pub async fn stale(
         &self,
         req: tracey_proto::StaleRequest,
-    ) -> Result<tracey_proto::StaleResponse, roam::RoamError> {
+    ) -> Result<tracey_proto::StaleResponse, vox::VoxError> {
         self.with_client(|c| async move { c.stale(req).await })
             .await
     }
     pub async fn unmapped(
         &self,
         req: tracey_proto::UnmappedRequest,
-    ) -> Result<tracey_proto::UnmappedResponse, roam::RoamError> {
+    ) -> Result<tracey_proto::UnmappedResponse, vox::VoxError> {
         self.with_client(|c| async move { c.unmapped(req).await })
             .await
     }
     pub async fn rule(
         &self,
         rule_id: tracey_core::RuleId,
-    ) -> Result<Option<tracey_proto::RuleInfo>, roam::RoamError> {
+    ) -> Result<Option<tracey_proto::RuleInfo>, vox::VoxError> {
         self.with_client(|c| async move { c.rule(rule_id).await })
             .await
     }
-    pub async fn config(&self) -> Result<tracey_api::ApiConfig, roam::RoamError> {
+    pub async fn config(&self) -> Result<tracey_api::ApiConfig, vox::VoxError> {
         self.with_client(|c| async move { c.config().await }).await
     }
-    pub async fn vfs_open(&self, path: String, content: String) -> Result<(), roam::RoamError> {
+    pub async fn vfs_open(&self, path: String, content: String) -> Result<(), vox::VoxError> {
         self.with_client(|c| async move { c.vfs_open(path, content).await })
             .await
     }
-    pub async fn vfs_change(&self, path: String, content: String) -> Result<(), roam::RoamError> {
+    pub async fn vfs_change(&self, path: String, content: String) -> Result<(), vox::VoxError> {
         self.with_client(|c| async move { c.vfs_change(path, content).await })
             .await
     }
-    pub async fn vfs_close(&self, path: String) -> Result<(), roam::RoamError> {
+    pub async fn vfs_close(&self, path: String) -> Result<(), vox::VoxError> {
         self.with_client(|c| async move { c.vfs_close(path).await })
             .await
     }
-    pub async fn reload(&self) -> Result<tracey_proto::ReloadResponse, roam::RoamError> {
+    pub async fn reload(&self) -> Result<tracey_proto::ReloadResponse, vox::VoxError> {
         self.with_client(|c| async move { c.reload().await }).await
     }
-    pub async fn version(&self) -> Result<u64, roam::RoamError> {
+    pub async fn version(&self) -> Result<u64, vox::VoxError> {
         self.with_client(|c| async move { c.version().await }).await
     }
-    pub async fn health(&self) -> Result<tracey_proto::HealthResponse, roam::RoamError> {
+    pub async fn health(&self) -> Result<tracey_proto::HealthResponse, vox::VoxError> {
         self.with_client(|c| async move { c.health().await }).await
     }
-    pub async fn shutdown(&self) -> Result<(), roam::RoamError> {
+    pub async fn shutdown(&self) -> Result<(), vox::VoxError> {
         self.with_client(|c| async move { c.shutdown().await })
             .await
     }
     pub async fn subscribe(
         &self,
-        updates: roam::Tx<tracey_proto::DataUpdate>,
-    ) -> Result<(), roam::RoamError> {
+        updates: vox::Tx<tracey_proto::DataUpdate>,
+    ) -> Result<(), vox::VoxError> {
         self.with_client(|c| async move { c.subscribe(updates).await })
             .await
     }
@@ -183,7 +183,7 @@ impl DaemonClient {
         &self,
         spec: String,
         impl_name: String,
-    ) -> Result<Option<tracey_api::ApiSpecForward>, roam::RoamError> {
+    ) -> Result<Option<tracey_api::ApiSpecForward>, vox::VoxError> {
         self.with_client(|c| async move { c.forward(spec, impl_name).await })
             .await
     }
@@ -191,21 +191,21 @@ impl DaemonClient {
         &self,
         spec: String,
         impl_name: String,
-    ) -> Result<Option<tracey_api::ApiReverseData>, roam::RoamError> {
+    ) -> Result<Option<tracey_api::ApiReverseData>, vox::VoxError> {
         self.with_client(|c| async move { c.reverse(spec, impl_name).await })
             .await
     }
     pub async fn file(
         &self,
         req: tracey_proto::FileRequest,
-    ) -> Result<Option<tracey_api::ApiFileData>, roam::RoamError> {
+    ) -> Result<Option<tracey_api::ApiFileData>, vox::VoxError> {
         self.with_client(|c| async move { c.file(req).await }).await
     }
     pub async fn spec_content(
         &self,
         spec: String,
         impl_name: String,
-    ) -> Result<Option<tracey_api::ApiSpecData>, roam::RoamError> {
+    ) -> Result<Option<tracey_api::ApiSpecData>, vox::VoxError> {
         self.with_client(|c| async move { c.spec_content(spec, impl_name).await })
             .await
     }
@@ -213,143 +213,143 @@ impl DaemonClient {
         &self,
         query: String,
         limit: u32,
-    ) -> Result<Vec<tracey_proto::SearchResult>, roam::RoamError> {
+    ) -> Result<Vec<tracey_proto::SearchResult>, vox::VoxError> {
         self.with_client(|c| async move { c.search(query, limit).await })
             .await
     }
     pub async fn update_file_range(
         &self,
         req: tracey_proto::UpdateFileRangeRequest,
-    ) -> Result<(), roam::RoamError<tracey_proto::UpdateError>> {
+    ) -> Result<(), vox::VoxError<tracey_proto::UpdateError>> {
         self.with_client(|c| async move { c.update_file_range(req).await })
             .await
     }
-    pub async fn is_test_file(&self, path: String) -> Result<bool, roam::RoamError> {
+    pub async fn is_test_file(&self, path: String) -> Result<bool, vox::VoxError> {
         self.with_client(|c| async move { c.is_test_file(path).await })
             .await
     }
     pub async fn lsp_hover(
         &self,
         req: tracey_proto::LspPositionRequest,
-    ) -> Result<Option<tracey_proto::HoverInfo>, roam::RoamError> {
+    ) -> Result<Option<tracey_proto::HoverInfo>, vox::VoxError> {
         self.with_client(|c| async move { c.lsp_hover(req).await })
             .await
     }
     pub async fn lsp_definition(
         &self,
         req: tracey_proto::LspPositionRequest,
-    ) -> Result<Vec<tracey_proto::LspLocation>, roam::RoamError> {
+    ) -> Result<Vec<tracey_proto::LspLocation>, vox::VoxError> {
         self.with_client(|c| async move { c.lsp_definition(req).await })
             .await
     }
     pub async fn lsp_implementation(
         &self,
         req: tracey_proto::LspPositionRequest,
-    ) -> Result<Vec<tracey_proto::LspLocation>, roam::RoamError> {
+    ) -> Result<Vec<tracey_proto::LspLocation>, vox::VoxError> {
         self.with_client(|c| async move { c.lsp_implementation(req).await })
             .await
     }
     pub async fn lsp_references(
         &self,
         req: tracey_proto::LspReferencesRequest,
-    ) -> Result<Vec<tracey_proto::LspLocation>, roam::RoamError> {
+    ) -> Result<Vec<tracey_proto::LspLocation>, vox::VoxError> {
         self.with_client(|c| async move { c.lsp_references(req).await })
             .await
     }
     pub async fn lsp_completions(
         &self,
         req: tracey_proto::LspPositionRequest,
-    ) -> Result<Vec<tracey_proto::LspCompletionItem>, roam::RoamError> {
+    ) -> Result<Vec<tracey_proto::LspCompletionItem>, vox::VoxError> {
         self.with_client(|c| async move { c.lsp_completions(req).await })
             .await
     }
     pub async fn lsp_workspace_diagnostics(
         &self,
-    ) -> Result<Vec<tracey_proto::LspFileDiagnostics>, roam::RoamError> {
+    ) -> Result<Vec<tracey_proto::LspFileDiagnostics>, vox::VoxError> {
         self.with_client(|c| async move { c.lsp_workspace_diagnostics().await })
             .await
     }
     pub async fn lsp_document_symbols(
         &self,
         req: tracey_proto::LspDocumentRequest,
-    ) -> Result<Vec<tracey_proto::LspSymbol>, roam::RoamError> {
+    ) -> Result<Vec<tracey_proto::LspSymbol>, vox::VoxError> {
         self.with_client(|c| async move { c.lsp_document_symbols(req).await })
             .await
     }
     pub async fn lsp_workspace_symbols(
         &self,
         query: String,
-    ) -> Result<Vec<tracey_proto::LspSymbol>, roam::RoamError> {
+    ) -> Result<Vec<tracey_proto::LspSymbol>, vox::VoxError> {
         self.with_client(|c| async move { c.lsp_workspace_symbols(query).await })
             .await
     }
     pub async fn lsp_semantic_tokens(
         &self,
         req: tracey_proto::LspDocumentRequest,
-    ) -> Result<Vec<tracey_proto::LspSemanticToken>, roam::RoamError> {
+    ) -> Result<Vec<tracey_proto::LspSemanticToken>, vox::VoxError> {
         self.with_client(|c| async move { c.lsp_semantic_tokens(req).await })
             .await
     }
     pub async fn lsp_code_lens(
         &self,
         req: tracey_proto::LspDocumentRequest,
-    ) -> Result<Vec<tracey_proto::LspCodeLens>, roam::RoamError> {
+    ) -> Result<Vec<tracey_proto::LspCodeLens>, vox::VoxError> {
         self.with_client(|c| async move { c.lsp_code_lens(req).await })
             .await
     }
     pub async fn lsp_inlay_hints(
         &self,
         req: tracey_proto::InlayHintsRequest,
-    ) -> Result<Vec<tracey_proto::LspInlayHint>, roam::RoamError> {
+    ) -> Result<Vec<tracey_proto::LspInlayHint>, vox::VoxError> {
         self.with_client(|c| async move { c.lsp_inlay_hints(req).await })
             .await
     }
     pub async fn lsp_prepare_rename(
         &self,
         req: tracey_proto::LspPositionRequest,
-    ) -> Result<Option<tracey_proto::PrepareRenameResult>, roam::RoamError> {
+    ) -> Result<Option<tracey_proto::PrepareRenameResult>, vox::VoxError> {
         self.with_client(|c| async move { c.lsp_prepare_rename(req).await })
             .await
     }
     pub async fn lsp_rename(
         &self,
         req: tracey_proto::LspRenameRequest,
-    ) -> Result<Vec<tracey_proto::LspTextEdit>, roam::RoamError> {
+    ) -> Result<Vec<tracey_proto::LspTextEdit>, vox::VoxError> {
         self.with_client(|c| async move { c.lsp_rename(req).await })
             .await
     }
     pub async fn lsp_code_actions(
         &self,
         req: tracey_proto::LspPositionRequest,
-    ) -> Result<Vec<tracey_proto::LspCodeAction>, roam::RoamError> {
+    ) -> Result<Vec<tracey_proto::LspCodeAction>, vox::VoxError> {
         self.with_client(|c| async move { c.lsp_code_actions(req).await })
             .await
     }
     pub async fn lsp_document_highlight(
         &self,
         req: tracey_proto::LspPositionRequest,
-    ) -> Result<Vec<tracey_proto::LspLocation>, roam::RoamError> {
+    ) -> Result<Vec<tracey_proto::LspLocation>, vox::VoxError> {
         self.with_client(|c| async move { c.lsp_document_highlight(req).await })
             .await
     }
     pub async fn validate(
         &self,
         req: tracey_proto::ValidateRequest,
-    ) -> Result<tracey_api::ValidationResult, roam::RoamError> {
+    ) -> Result<tracey_api::ValidationResult, vox::VoxError> {
         self.with_client(|c| async move { c.validate(req).await })
             .await
     }
     pub async fn config_add_exclude(
         &self,
         req: tracey_proto::ConfigPatternRequest,
-    ) -> Result<(), roam::RoamError<String>> {
+    ) -> Result<(), vox::VoxError<String>> {
         self.with_client(|c| async move { c.config_add_exclude(req).await })
             .await
     }
     pub async fn config_add_include(
         &self,
         req: tracey_proto::ConfigPatternRequest,
-    ) -> Result<(), roam::RoamError<String>> {
+    ) -> Result<(), vox::VoxError<String>> {
         self.with_client(|c| async move { c.config_add_include(req).await })
             .await
     }
@@ -383,7 +383,7 @@ impl DaemonConnector {
         pid: u32,
         endpoint: &str,
         timeout: Duration,
-    ) -> io::Result<Option<roam_stream::LocalLink>> {
+    ) -> io::Result<Option<vox_stream::LocalLink>> {
         let start = Instant::now();
         let mut last_error: Option<String> = None;
 
@@ -396,7 +396,7 @@ impl DaemonConnector {
                 return Ok(None);
             }
 
-            match roam_stream::LocalLink::connect(&endpoint).await {
+            match vox_stream::LocalLink::connect(&endpoint).await {
                 Ok(stream) => return Ok(Some(stream)),
                 Err(e) => {
                     last_error = Some(e.to_string());
@@ -511,7 +511,7 @@ impl DaemonConnector {
     }
 
     /// Wait for the daemon endpoint to appear and connect.
-    async fn wait_and_connect(&self) -> io::Result<roam_stream::LocalLink> {
+    async fn wait_and_connect(&self) -> io::Result<vox_stream::LocalLink> {
         let endpoint = local_endpoint(&self.project_root);
         let start = Instant::now();
         let timeout = Duration::from_secs(5);
@@ -534,7 +534,7 @@ impl DaemonConnector {
                 ));
             }
 
-            match roam_stream::LocalLink::connect(&endpoint).await {
+            match vox_stream::LocalLink::connect(&endpoint).await {
                 Ok(stream) => return Ok(stream),
                 Err(e) => {
                     last_connect_error = Some(e.to_string());
@@ -580,7 +580,7 @@ fn kill_pid(pid: u32) {
 fn kill_pid(_pid: u32) {}
 
 impl DaemonConnector {
-    pub async fn connect(&self) -> io::Result<roam_stream::LocalLink> {
+    pub async fn connect(&self) -> io::Result<vox_stream::LocalLink> {
         let endpoint = local_endpoint(&self.project_root);
         debug!(
             "DaemonConnector::connect project_root={} endpoint={:?}",
@@ -599,7 +599,7 @@ impl DaemonConnector {
 
                 if alive && version_ok {
                     // Happy path: daemon should be running.
-                    match roam_stream::LocalLink::connect(&endpoint).await {
+                    match vox_stream::LocalLink::connect(&endpoint).await {
                         Ok(stream) => return Ok(stream),
                         Err(e) => {
                             let age = pid_file_age(&self.project_root);
@@ -627,7 +627,7 @@ impl DaemonConnector {
                         }
                     }
                     // Socket connect failed despite live PID — stale socket.
-                    let _ = roam_local::remove_endpoint(&endpoint);
+                    let _ = vox_local::remove_endpoint(&endpoint);
                     let _ = std::fs::remove_file(pid_file_path(&self.project_root));
                 } else {
                     // Kill if alive but wrong version, then clean up.
@@ -639,7 +639,7 @@ impl DaemonConnector {
                         );
                         kill_pid(pid);
                     }
-                    let _ = roam_local::remove_endpoint(&endpoint);
+                    let _ = vox_local::remove_endpoint(&endpoint);
                     let _ = std::fs::remove_file(pid_file_path(&self.project_root));
                 }
             }
@@ -647,12 +647,12 @@ impl DaemonConnector {
                 debug!("No PID file found for {}", self.project_root.display());
                 // No PID file — remove stale socket if present.
                 // r[impl daemon.lifecycle.stale-socket]
-                if roam_local::endpoint_exists(&endpoint) {
+                if vox_local::endpoint_exists(&endpoint) {
                     warn!(
                         "No PID file but endpoint exists at {:?}; removing stale endpoint",
                         endpoint
                     );
-                    let _ = roam_local::remove_endpoint(&endpoint);
+                    let _ = vox_local::remove_endpoint(&endpoint);
                 }
             }
         }
@@ -665,7 +665,7 @@ impl DaemonConnector {
         if let Some((pid, version)) = read_pid_file(&self.project_root)
             && is_pid_alive(pid)
             && version == tracey_proto::PROTOCOL_VERSION
-            && let Ok(stream) = roam_stream::LocalLink::connect(&endpoint).await
+            && let Ok(stream) = vox_stream::LocalLink::connect(&endpoint).await
         {
             debug!(
                 "Daemon became available while waiting for startup lock (pid={})",
