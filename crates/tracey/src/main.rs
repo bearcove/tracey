@@ -10,6 +10,7 @@ use owo_colors::OwoColorize;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command as ProcessCommand, Stdio};
+use std::sync::Arc;
 
 // Use the library crate
 use tracey::{bridge, daemon, find_project_root};
@@ -417,7 +418,7 @@ async fn main() -> Result<()> {
                 log_file: Some(log_path),
                 enable_console: true,
                 console_ansi: true,
-                default_filter: "tracey=info",
+                default_filter: "tracey=info,vox=trace,vox_core=trace",
             })?;
 
             daemon::run(project_root, config_path).await
@@ -794,7 +795,10 @@ async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> (St
 
 #[cfg(test)]
 mod tests {
-    use super::ValidationDeny;
+    use super::{
+        DEFAULT_LOG_ROTATION_BACKUPS, RotatingLogWriter, ValidationDeny, rotated_log_path,
+    };
+    use std::io::Write as _;
 
     #[test]
     fn parse_validation_deny_accepts_warnings_variants() {
@@ -824,6 +828,33 @@ mod tests {
     fn validation_deny_warnings_fails_on_warnings() {
         let deny = ValidationDeny::parse(&["warnings".to_string()]).expect("parse warnings");
         assert!(deny.should_fail(0, 1));
+    }
+
+    #[test]
+    fn rotating_log_writer_rotates_and_keeps_recent_backups() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("daemon.log");
+
+        std::fs::write(&path, b"older log").expect("seed current log");
+        std::fs::write(rotated_log_path(&path, 1), b"oldest backup").expect("seed backup");
+
+        let mut writer =
+            RotatingLogWriter::new(path.clone(), 8, DEFAULT_LOG_ROTATION_BACKUPS).expect("writer");
+        writer.write_all(b"new log").expect("write");
+        writer.flush().expect("flush");
+
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("current log"),
+            "new log"
+        );
+        assert_eq!(
+            std::fs::read_to_string(rotated_log_path(&path, 1)).expect("first backup"),
+            "older log"
+        );
+        assert_eq!(
+            std::fs::read_to_string(rotated_log_path(&path, 2)).expect("second backup"),
+            "oldest backup"
+        );
     }
 }
 
@@ -861,6 +892,153 @@ struct TracingConfig {
     default_filter: &'static str,
 }
 
+const DEFAULT_LOG_ROTATION_MAX_BYTES: u64 = 64 * 1024 * 1024;
+const DEFAULT_LOG_ROTATION_BACKUPS: usize = 4;
+
+#[derive(Clone)]
+struct RotatingLogWriter {
+    state: Arc<std::sync::Mutex<RotatingLogState>>,
+}
+
+struct RotatingLogState {
+    path: PathBuf,
+    file: std::fs::File,
+    size: u64,
+    max_bytes: u64,
+    max_backups: usize,
+}
+
+impl RotatingLogWriter {
+    fn new(path: PathBuf, max_bytes: u64, max_backups: usize) -> Result<Self> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        rotate_log_file_if_needed(&path, max_bytes, max_backups)?;
+        let (file, size) = open_log_file_for_append(&path)?;
+        Ok(Self {
+            state: Arc::new(std::sync::Mutex::new(RotatingLogState {
+                path,
+                file,
+                size,
+                max_bytes,
+                max_backups,
+            })),
+        })
+    }
+}
+
+impl std::io::Write for RotatingLogWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.write_all(buf)?;
+        Ok(buf.len())
+    }
+
+    fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| std::io::Error::other("rotating log writer poisoned"))?;
+        write_with_rotation(&mut state, buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| std::io::Error::other("rotating log writer poisoned"))?;
+        state.file.flush()
+    }
+}
+
+fn open_log_file_for_append(path: &Path) -> std::io::Result<(std::fs::File, u64)> {
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+    let size = file.metadata()?.len();
+    Ok((file, size))
+}
+
+fn rotated_log_path(path: &Path, index: usize) -> PathBuf {
+    let mut os = path.as_os_str().to_os_string();
+    os.push(format!(".{index}"));
+    PathBuf::from(os)
+}
+
+fn rotate_log_files(path: &Path, max_backups: usize) -> std::io::Result<()> {
+    if max_backups == 0 {
+        if let Err(error) = std::fs::remove_file(path)
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            return Err(error);
+        }
+        return Ok(());
+    }
+
+    let oldest = rotated_log_path(path, max_backups);
+    if let Err(error) = std::fs::remove_file(&oldest)
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        return Err(error);
+    }
+
+    for index in (1..max_backups).rev() {
+        let src = rotated_log_path(path, index);
+        let dst = rotated_log_path(path, index + 1);
+        if let Err(error) = std::fs::rename(&src, &dst)
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            return Err(error);
+        }
+    }
+
+    if let Err(error) = std::fs::rename(path, rotated_log_path(path, 1))
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        return Err(error);
+    }
+
+    Ok(())
+}
+
+fn rotate_log_file_if_needed(
+    path: &Path,
+    max_bytes: u64,
+    max_backups: usize,
+) -> std::io::Result<()> {
+    match std::fs::metadata(path) {
+        Ok(metadata) if metadata.len() >= max_bytes => rotate_log_files(path, max_backups),
+        Ok(_) | Err(_) => Ok(()),
+    }
+}
+
+fn write_with_rotation(state: &mut RotatingLogState, buf: &[u8]) -> std::io::Result<()> {
+    if state.size > 0 && state.size.saturating_add(buf.len() as u64) > state.max_bytes {
+        state.file.flush()?;
+        rotate_log_files(&state.path, state.max_backups)?;
+        let (file, size) = open_log_file_for_append(&state.path)?;
+        state.file = file;
+        state.size = size;
+    }
+
+    state.file.write_all(buf)?;
+    state.size = state.size.saturating_add(buf.len() as u64);
+    Ok(())
+}
+
+fn append_to_rotating_log_file(path: &Path, bytes: &[u8]) -> Result<()> {
+    let writer = RotatingLogWriter::new(
+        path.to_path_buf(),
+        DEFAULT_LOG_ROTATION_MAX_BYTES,
+        DEFAULT_LOG_ROTATION_BACKUPS,
+    )?;
+    let mut writer = writer;
+    writer.write_all(bytes)?;
+    writer.flush()?;
+    Ok(())
+}
+
 /// Initialize tracing with optional file logging.
 fn init_tracing(config: TracingConfig) -> Result<()> {
     use tracing_subscriber::layer::SubscriberExt;
@@ -879,20 +1057,17 @@ fn init_tracing(config: TracingConfig) -> Result<()> {
     });
 
     let file_layer = if let Some(log_path) = config.log_file {
-        // Ensure parent directory exists
-        if let Some(parent) = log_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-
-        let log_file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&log_path)?;
+        let log_file = RotatingLogWriter::new(
+            log_path,
+            DEFAULT_LOG_ROTATION_MAX_BYTES,
+            DEFAULT_LOG_ROTATION_BACKUPS,
+        )?;
+        let make_writer = move || log_file.clone();
 
         Some(
             tracing_subscriber::fmt::layer()
                 .with_ansi(false)
-                .with_writer(log_file),
+                .with_writer(make_writer),
         )
     } else {
         None
@@ -919,23 +1094,13 @@ fn write_bridge_start_marker(
     project_root: &std::path::Path,
     config_path: &std::path::Path,
 ) -> Result<()> {
-    use std::io::Write;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    if let Some(parent) = log_path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-
-    let mut log_file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(log_path)?;
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    writeln!(
-        log_file,
+    let line = format!(
         "[ts={} pid={}] starting {} root={} config={} cwd={}",
         now,
         std::process::id(),
@@ -943,7 +1108,9 @@ fn write_bridge_start_marker(
         project_root.display(),
         config_path.display(),
         std::env::current_dir()?.display()
-    )?;
+    );
+    append_to_rotating_log_file(log_path, line.as_bytes())?;
+    append_to_rotating_log_file(log_path, b"\n")?;
 
     Ok(())
 }
@@ -1477,10 +1644,7 @@ async fn kill_daemon(root: Option<PathBuf>) -> Result<()> {
             let _ = vox_local::remove_endpoint(&endpoint);
             println!("{}: Cleaned up", "Success".green());
         } else if shutdown_sent {
-            println!(
-                "{}: Daemon still appears to be running",
-                "Warning".yellow()
-            );
+            println!("{}: Daemon still appears to be running", "Warning".yellow());
         }
     }
 

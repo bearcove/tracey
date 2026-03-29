@@ -498,7 +498,8 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
 
                 tokio::spawn(async move {
                     // Create dispatcher (wraps service with generated dispatch + tracing)
-                    let dispatcher = TraceyDaemonDispatcher::new(service);
+                    let dispatcher = TraceyDaemonDispatcher::new(service)
+                        .with_middleware(vox::ServerLogging::default());
                     let (session_task_tx, session_task_rx) =
                         tokio::sync::oneshot::channel::<tokio::task::JoinHandle<()>>();
 
@@ -512,7 +513,10 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
                         .establish_or_resume::<tracey_proto::TraceyDaemonClient>(dispatcher)
                         .await
                     {
-                        Ok(vox::SessionAcceptOutcome::Established(client_guard, session_handle)) => {
+                        Ok(vox::SessionAcceptOutcome::Established(
+                            client_guard,
+                            session_handle,
+                        )) => {
                             let has_resume_key = session_handle.resume_key().is_some();
                             info!(attachment_id, has_resume_key, "Daemon session established");
                             let _client_guard = client_guard;
