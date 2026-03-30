@@ -9,11 +9,13 @@
 use std::collections::{HashMap, HashSet};
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use eyre::Result;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+use tokio::sync::{Mutex as AsyncMutex, Notify};
 use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
@@ -22,8 +24,8 @@ use crate::daemon::{DaemonClient, new_client};
 use tracey_core::{RefVerb, parse_rule_id};
 use tracey_proto::*;
 
-/// Convert roam RPC result to a simple Result
-fn rpc<T, E: std::fmt::Debug>(res: Result<T, roam::RoamError<E>>) -> Result<T, String> {
+/// Convert vox RPC result to a simple Result
+fn rpc<T, E: std::fmt::Debug>(res: Result<T, vox::VoxError<E>>) -> Result<T, String> {
     res.map_err(|e| format!("RPC error: {:?}", e))
 }
 
@@ -177,6 +179,7 @@ async fn run_lsp_server(cli_project_root: PathBuf) -> Result<()> {
         roots: HashSet::from([project_root.clone()]),
         daemon_clients: HashMap::new(),
         watched_roots: HashSet::new(),
+        vfs_workers: HashMap::new(),
         files_with_diagnostics: HashMap::new(),
     }));
 
@@ -216,8 +219,45 @@ struct LspProjectState {
     daemon_clients: HashMap<PathBuf, DaemonClient>,
     /// Roots with an active rebuild watcher task.
     watched_roots: HashSet<PathBuf>,
+    /// Per-root VFS sync workers that coalesce latest file state.
+    vfs_workers: HashMap<PathBuf, Arc<VfsSyncWorker>>,
     /// Files currently published with non-empty diagnostics, keyed by project root.
     files_with_diagnostics: HashMap<PathBuf, HashSet<String>>,
+}
+
+enum PendingVfsUpdate {
+    Upsert(String),
+    Close,
+}
+
+#[derive(Default)]
+struct VfsSyncWorker {
+    pending: AsyncMutex<HashMap<String, PendingVfsUpdate>>,
+    notify: Notify,
+    shutdown: AtomicBool,
+}
+
+impl VfsSyncWorker {
+    async fn enqueue(&self, path: String, update: PendingVfsUpdate) {
+        let mut pending = self.pending.lock().await;
+        pending.insert(path, update);
+        drop(pending);
+        self.notify.notify_one();
+    }
+
+    async fn take_pending(&self) -> HashMap<String, PendingVfsUpdate> {
+        let mut pending = self.pending.lock().await;
+        std::mem::take(&mut *pending)
+    }
+
+    fn shutdown(&self) {
+        self.shutdown.store(true, Ordering::SeqCst);
+        self.notify.notify_waiters();
+    }
+
+    fn is_shutdown(&self) -> bool {
+        self.shutdown.load(Ordering::SeqCst)
+    }
 }
 
 impl Backend {
@@ -354,36 +394,67 @@ impl Backend {
             .cloned()
     }
 
-    fn ensure_project_root(&self, root_hint: PathBuf) -> (PathBuf, DaemonClient, bool, bool) {
+    async fn ensure_project_root(
+        &self,
+        root_hint: PathBuf,
+    ) -> Option<(PathBuf, DaemonClient, bool, bool)> {
         let root = crate::find_project_root_from(&root_hint);
+        {
+            let mut state = self.project_state.lock().unwrap();
+            let new_root = state.roots.insert(root.clone());
+            if let Some(daemon_client) = state.daemon_clients.get(&root).cloned() {
+                let should_watch = state.watched_roots.insert(root.clone());
+                return Some((root, daemon_client, should_watch, new_root));
+            }
+        }
+
+        let created_client = match new_client(root.clone()).await {
+            Ok(client) => client,
+            Err(error) => {
+                tracing::warn!(
+                    project_root = %root.display(),
+                    error = %error,
+                    "failed to connect daemon client for project root"
+                );
+                return None;
+            }
+        };
+
         let mut state = self.project_state.lock().unwrap();
         let new_root = state.roots.insert(root.clone());
         let daemon_client = state
             .daemon_clients
             .entry(root.clone())
-            .or_insert_with(|| new_client(root.clone()))
+            .or_insert_with(|| created_client)
             .clone();
         let should_watch = state.watched_roots.insert(root.clone());
-        (root, daemon_client, should_watch, new_root)
+        Some((root, daemon_client, should_watch, new_root))
     }
 
-    fn ensure_project_for_path(&self, path: &Path) -> (PathBuf, DaemonClient, bool, bool) {
+    async fn ensure_project_for_path(
+        &self,
+        path: &Path,
+    ) -> Option<(PathBuf, DaemonClient, bool, bool)> {
         let root = {
             let state = self.project_state.lock().unwrap();
             Self::best_root_for_path(path, &state.roots)
         }
         .unwrap_or_else(|| crate::find_project_root_from(path));
 
-        self.ensure_project_root(root)
+        self.ensure_project_root(root).await
     }
 
-    fn ensure_project_for_uri(&self, uri: &Url) -> Option<(PathBuf, DaemonClient, bool, bool)> {
+    async fn ensure_project_for_uri(
+        &self,
+        uri: &Url,
+    ) -> Option<(PathBuf, DaemonClient, bool, bool)> {
         let path = uri.to_file_path().ok()?;
-        Some(self.ensure_project_for_path(&path))
+        self.ensure_project_for_path(&path).await
     }
 
-    fn project_for_doc_uri(&self, uri: &Url) -> Option<(PathBuf, DaemonClient)> {
-        let (project_root, daemon_client, should_watch, _) = self.ensure_project_for_uri(uri)?;
+    async fn project_for_doc_uri(&self, uri: &Url) -> Option<(PathBuf, DaemonClient)> {
+        let (project_root, daemon_client, should_watch, _) =
+            self.ensure_project_for_uri(uri).await?;
         self.spawn_watcher_if_needed(project_root.clone(), daemon_client.clone(), should_watch);
         Some((project_root, daemon_client))
     }
@@ -403,6 +474,75 @@ impl Backend {
             project_root,
             Arc::clone(&self.project_state),
         ));
+    }
+
+    async fn ensure_vfs_worker(
+        &self,
+        project_root: PathBuf,
+        daemon_client: DaemonClient,
+    ) -> Arc<VfsSyncWorker> {
+        let worker = {
+            let mut state = self.project_state.lock().unwrap();
+            if let Some(worker) = state.vfs_workers.get(&project_root).cloned() {
+                return worker;
+            }
+
+            let worker = Arc::new(VfsSyncWorker::default());
+            state
+                .vfs_workers
+                .insert(project_root.clone(), worker.clone());
+            worker
+        };
+
+        tokio::spawn(Self::run_vfs_sync_worker(
+            project_root,
+            daemon_client,
+            worker.clone(),
+        ));
+
+        worker
+    }
+
+    async fn run_vfs_sync_worker(
+        project_root: PathBuf,
+        daemon_client: DaemonClient,
+        worker: Arc<VfsSyncWorker>,
+    ) {
+        loop {
+            let pending = worker.take_pending().await;
+            if pending.is_empty() {
+                if worker.is_shutdown() {
+                    break;
+                }
+                worker.notify.notified().await;
+                continue;
+            }
+
+            for (path, update) in pending {
+                match update {
+                    PendingVfsUpdate::Upsert(content) => {
+                        if let Err(error) = daemon_client.vfs_change(path.clone(), content).await {
+                            tracing::debug!(
+                                project_root = %project_root.display(),
+                                path,
+                                error = ?error,
+                                "failed to sync VFS upsert to daemon"
+                            );
+                        }
+                    }
+                    PendingVfsUpdate::Close => {
+                        if let Err(error) = daemon_client.vfs_close(path.clone()).await {
+                            tracing::debug!(
+                                project_root = %project_root.display(),
+                                path,
+                                error = ?error,
+                                "failed to sync VFS close to daemon"
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 
     async fn apply_unknown_requirement_rename(
@@ -475,55 +615,60 @@ impl Backend {
 
     /// Notify daemon that a file was opened.
     async fn notify_vfs_open(&self, uri: &Url, content: &str) {
-        let Some((project_root, daemon_client, should_watch, _)) = self.ensure_project_for_uri(uri)
+        let Some((project_root, daemon_client, should_watch, _)) =
+            self.ensure_project_for_uri(uri).await
         else {
             return;
         };
         if let Ok(path) = uri.to_file_path() {
-            let path = path.to_string_lossy().into_owned();
-            let content = content.to_string();
-            let bg_client = daemon_client.clone();
-            let bg_path = path.clone();
-            let bg_content = content.clone();
-            tokio::spawn(async move {
-                let _ = bg_client.vfs_open(bg_path, bg_content).await;
-            });
+            let worker = self
+                .ensure_vfs_worker(project_root.clone(), daemon_client.clone())
+                .await;
+            worker
+                .enqueue(
+                    path.to_string_lossy().into_owned(),
+                    PendingVfsUpdate::Upsert(content.to_string()),
+                )
+                .await;
         }
         self.spawn_watcher_if_needed(project_root, daemon_client, should_watch);
     }
 
     /// Notify daemon that a file changed.
     async fn notify_vfs_change(&self, uri: &Url, content: &str) {
-        let Some((project_root, daemon_client, should_watch, _)) = self.ensure_project_for_uri(uri)
+        let Some((project_root, daemon_client, should_watch, _)) =
+            self.ensure_project_for_uri(uri).await
         else {
             return;
         };
         if let Ok(path) = uri.to_file_path() {
-            let path = path.to_string_lossy().into_owned();
-            let content = content.to_string();
-            let bg_client = daemon_client.clone();
-            let bg_path = path.clone();
-            let bg_content = content.clone();
-            tokio::spawn(async move {
-                let _ = bg_client.vfs_change(bg_path, bg_content).await;
-            });
+            let worker = self
+                .ensure_vfs_worker(project_root.clone(), daemon_client.clone())
+                .await;
+            worker
+                .enqueue(
+                    path.to_string_lossy().into_owned(),
+                    PendingVfsUpdate::Upsert(content.to_string()),
+                )
+                .await;
         }
         self.spawn_watcher_if_needed(project_root, daemon_client, should_watch);
     }
 
     /// Notify daemon that a file was closed.
     async fn notify_vfs_close(&self, uri: &Url) {
-        let Some((project_root, daemon_client, should_watch, _)) = self.ensure_project_for_uri(uri)
+        let Some((project_root, daemon_client, should_watch, _)) =
+            self.ensure_project_for_uri(uri).await
         else {
             return;
         };
         if let Ok(path) = uri.to_file_path() {
-            let path = path.to_string_lossy().into_owned();
-            let bg_client = daemon_client.clone();
-            let bg_path = path.clone();
-            tokio::spawn(async move {
-                let _ = bg_client.vfs_close(bg_path).await;
-            });
+            let worker = self
+                .ensure_vfs_worker(project_root.clone(), daemon_client.clone())
+                .await;
+            worker
+                .enqueue(path.to_string_lossy().into_owned(), PendingVfsUpdate::Close)
+                .await;
         }
         self.spawn_watcher_if_needed(project_root, daemon_client, should_watch);
     }
@@ -535,7 +680,8 @@ impl Backend {
     }
 
     async fn refresh_project_diagnostics_for_uri(&self, uri: &Url) {
-        let Some((project_root, daemon_client, should_watch, _)) = self.ensure_project_for_uri(uri)
+        let Some((project_root, daemon_client, should_watch, _)) =
+            self.ensure_project_for_uri(uri).await
         else {
             return;
         };
@@ -663,35 +809,47 @@ impl Backend {
         project_root: PathBuf,
         project_state: Arc<Mutex<LspProjectState>>,
     ) {
-        let mut last_version: Option<u64> = None;
-        let (tx, mut rx) = roam::channel::<DataUpdate>();
-        let subscribe_client = daemon_client.clone();
-        let subscribe_task = tokio::spawn(async move { subscribe_client.subscribe(tx).await });
+        let mut reconnect_backoff = Duration::from_millis(250);
+        let mut updates_rx = None;
+
+        let root_is_active = |state: &Arc<Mutex<LspProjectState>>, root: &PathBuf| {
+            let guard = state.lock().unwrap();
+            guard.roots.contains(root)
+        };
 
         loop {
-            {
-                let state = project_state.lock().unwrap();
-                if !state.roots.contains(&project_root) {
-                    break;
-                }
+            if !root_is_active(&project_state, &project_root) {
+                return;
             }
-            let next_version =
-                match tokio::time::timeout(Duration::from_millis(500), rx.recv()).await {
-                    Ok(Ok(Some(update))) => Some(update.version),
-                    Ok(Ok(None)) => daemon_client.version().await.ok(),
-                    Ok(Err(_)) => daemon_client.version().await.ok(),
-                    Err(_) => daemon_client.version().await.ok(),
-                };
 
-            let Some(next_version) = next_version else {
-                tokio::time::sleep(Duration::from_millis(250)).await;
+            if updates_rx.is_none() {
+                let (tx, rx) = vox::channel::<DataUpdate>();
+                if let Err(error) = daemon_client.subscribe(tx).await {
+                    tracing::debug!(
+                        project_root = %project_root.display(),
+                        error = ?error,
+                        "lsp rebuild subscription failed; will retry"
+                    );
+                    tokio::time::sleep(reconnect_backoff).await;
+                    reconnect_backoff = (reconnect_backoff * 2).min(Duration::from_secs(4));
+                    continue;
+                }
+                updates_rx = Some(rx);
+                reconnect_backoff = Duration::from_millis(250);
+            }
+
+            let recv = updates_rx
+                .as_mut()
+                .expect("receiver is initialized before receive")
+                .recv()
+                .await;
+            let Ok(Some(_update)) = recv else {
+                updates_rx = None;
+                tokio::time::sleep(reconnect_backoff).await;
+                reconnect_backoff = (reconnect_backoff * 2).min(Duration::from_secs(4));
                 continue;
             };
 
-            if last_version == Some(next_version) {
-                continue;
-            }
-            last_version = Some(next_version);
             Self::publish_workspace_diagnostics_with(
                 &client,
                 &daemon_client,
@@ -700,9 +858,6 @@ impl Backend {
             )
             .await;
         }
-
-        subscribe_task.abort();
-        let _ = subscribe_task.await;
     }
 
     /// Clear diagnostics for workspace files on startup so clients don't retain stale diagnostics
@@ -746,7 +901,11 @@ impl Backend {
     }
 
     async fn add_workspace_root(&self, root_hint: PathBuf) {
-        let (project_root, daemon_client, should_watch, _) = self.ensure_project_root(root_hint);
+        let Some((project_root, daemon_client, should_watch, _)) =
+            self.ensure_project_root(root_hint).await
+        else {
+            return;
+        };
         self.clear_workspace_diagnostics_on_startup(&project_root)
             .await;
         self.spawn_watcher_if_needed(project_root, daemon_client, should_watch);
@@ -754,7 +913,7 @@ impl Backend {
 
     async fn remove_workspace_root(&self, root_hint: PathBuf) {
         let project_root = crate::find_project_root_from(&root_hint);
-        let (files_to_clear, should_restore_default) = {
+        let (files_to_clear, should_restore_default, removed_vfs_worker) = {
             let mut state = self.project_state.lock().unwrap();
             state.roots.remove(&project_root);
             state.watched_roots.remove(&project_root);
@@ -766,8 +925,13 @@ impl Backend {
                 .into_iter()
                 .collect::<Vec<_>>();
             let should_restore_default = state.roots.is_empty();
-            (files, should_restore_default)
+            let removed_vfs_worker = state.vfs_workers.remove(&project_root);
+            (files, should_restore_default, removed_vfs_worker)
         };
+
+        if let Some(worker) = removed_vfs_worker {
+            worker.shutdown();
+        }
 
         for path in files_to_clear {
             let Ok(uri) = Url::from_file_path(path) else {
@@ -911,7 +1075,7 @@ impl LanguageServer for Backend {
             self.notify_vfs_change(&uri, &content).await;
         }
 
-        if let Some((project_root, _, _, _)) = self.ensure_project_for_uri(&uri)
+        if let Some((project_root, _, _, _)) = self.ensure_project_for_uri(&uri).await
             && Self::is_project_config_uri(&uri, &project_root)
         {
             self.refresh_project_diagnostics_for_uri(&uri).await;
@@ -938,7 +1102,7 @@ impl LanguageServer for Backend {
         let Some((path, content)) = self.get_path_and_content(uri) else {
             return Ok(None);
         };
-        let Some((_, daemon_client)) = self.project_for_doc_uri(uri) else {
+        let Some((_, daemon_client)) = self.project_for_doc_uri(uri).await else {
             return Ok(None);
         };
 
@@ -993,7 +1157,7 @@ impl LanguageServer for Backend {
             tracing::debug!(uri = %uri, "hover: no path/content for uri");
             return Ok(None);
         };
-        let Some((project_root, daemon_client)) = self.project_for_doc_uri(uri) else {
+        let Some((project_root, daemon_client)) = self.project_for_doc_uri(uri).await else {
             return Ok(None);
         };
 
@@ -1091,7 +1255,7 @@ impl LanguageServer for Backend {
         let Some((path, content)) = self.get_path_and_content(uri) else {
             return Ok(None);
         };
-        let Some((project_root, daemon_client)) = self.project_for_doc_uri(uri) else {
+        let Some((project_root, daemon_client)) = self.project_for_doc_uri(uri).await else {
             return Ok(None);
         };
 
@@ -1140,7 +1304,7 @@ impl LanguageServer for Backend {
         let Some((path, content)) = self.get_path_and_content(uri) else {
             return Ok(None);
         };
-        let Some((project_root, daemon_client)) = self.project_for_doc_uri(uri) else {
+        let Some((project_root, daemon_client)) = self.project_for_doc_uri(uri).await else {
             return Ok(None);
         };
 
@@ -1189,7 +1353,7 @@ impl LanguageServer for Backend {
         let Some((path, content)) = self.get_path_and_content(uri) else {
             return Ok(None);
         };
-        let Some((project_root, daemon_client)) = self.project_for_doc_uri(uri) else {
+        let Some((project_root, daemon_client)) = self.project_for_doc_uri(uri).await else {
             return Ok(None);
         };
 
@@ -1242,7 +1406,7 @@ impl LanguageServer for Backend {
         let Some((path, content)) = self.get_path_and_content(uri) else {
             return Ok(None);
         };
-        let Some((_, daemon_client)) = self.project_for_doc_uri(uri) else {
+        let Some((_, daemon_client)) = self.project_for_doc_uri(uri).await else {
             return Ok(None);
         };
 
@@ -1290,7 +1454,7 @@ impl LanguageServer for Backend {
         let Some((path, content)) = self.get_path_and_content(uri) else {
             return Ok(None);
         };
-        let Some((_, daemon_client)) = self.project_for_doc_uri(uri) else {
+        let Some((_, daemon_client)) = self.project_for_doc_uri(uri).await else {
             return Ok(None);
         };
 
@@ -1340,7 +1504,11 @@ impl LanguageServer for Backend {
     ) -> LspResult<Option<Vec<SymbolInformation>>> {
         let mut lsp_symbols = Vec::new();
         for root in self.active_roots() {
-            let (project_root, daemon_client, should_watch, _) = self.ensure_project_root(root);
+            let Some((project_root, daemon_client, should_watch, _)) =
+                self.ensure_project_root(root).await
+            else {
+                continue;
+            };
             self.spawn_watcher_if_needed(project_root.clone(), daemon_client.clone(), should_watch);
 
             let Ok(symbols) = rpc(daemon_client
@@ -1392,7 +1560,7 @@ impl LanguageServer for Backend {
         let Some((path, content)) = self.get_path_and_content(uri) else {
             return Ok(None);
         };
-        let Some((_, daemon_client)) = self.project_for_doc_uri(uri) else {
+        let Some((_, daemon_client)) = self.project_for_doc_uri(uri).await else {
             return Ok(None);
         };
 
@@ -1448,11 +1616,14 @@ impl LanguageServer for Backend {
             if args.len() >= 2
                 && let (Some(old_rule), Some(new_rule)) = (args[0].as_str(), args[1].as_str())
             {
-                let scope_root = args
+                let scope_uri = args
                     .get(2)
                     .and_then(|v| v.as_str())
-                    .and_then(|s| Url::parse(s).ok())
-                    .and_then(|uri| self.project_for_doc_uri(&uri).map(|(root, _)| root));
+                    .and_then(|s| Url::parse(s).ok());
+                let scope_root = match scope_uri {
+                    Some(uri) => self.project_for_doc_uri(&uri).await.map(|(root, _)| root),
+                    None => None,
+                };
 
                 self.apply_unknown_requirement_rename(old_rule, new_rule, scope_root)
                     .await?;
@@ -1467,7 +1638,7 @@ impl LanguageServer for Backend {
         let Some((path, content)) = self.get_path_and_content(uri) else {
             return Ok(None);
         };
-        let Some((_, daemon_client)) = self.project_for_doc_uri(uri) else {
+        let Some((_, daemon_client)) = self.project_for_doc_uri(uri).await else {
             return Ok(None);
         };
 
@@ -1517,7 +1688,7 @@ impl LanguageServer for Backend {
         let Some((path, content)) = self.get_path_and_content(uri) else {
             return Ok(None);
         };
-        let Some((_, daemon_client)) = self.project_for_doc_uri(uri) else {
+        let Some((_, daemon_client)) = self.project_for_doc_uri(uri).await else {
             return Ok(None);
         };
 
@@ -1566,7 +1737,7 @@ impl LanguageServer for Backend {
         let Some((path, content)) = self.get_path_and_content(uri) else {
             return Ok(None);
         };
-        let Some((_, daemon_client)) = self.project_for_doc_uri(uri) else {
+        let Some((_, daemon_client)) = self.project_for_doc_uri(uri).await else {
             return Ok(None);
         };
 
@@ -1603,7 +1774,7 @@ impl LanguageServer for Backend {
         let Some((path, content)) = self.get_path_and_content(uri) else {
             return Ok(None);
         };
-        let Some((project_root, daemon_client)) = self.project_for_doc_uri(uri) else {
+        let Some((project_root, daemon_client)) = self.project_for_doc_uri(uri).await else {
             return Ok(None);
         };
 
@@ -1661,7 +1832,7 @@ impl LanguageServer for Backend {
         let Some((path, content)) = self.get_path_and_content(uri) else {
             return Ok(None);
         };
-        let Some((_, daemon_client)) = self.project_for_doc_uri(uri) else {
+        let Some((_, daemon_client)) = self.project_for_doc_uri(uri).await else {
             return Ok(None);
         };
 
@@ -1822,5 +1993,36 @@ mod tests {
             extract_root_from_initialize(&bytes),
             Some(PathBuf::from("/preferred/root"))
         );
+    }
+
+    #[tokio::test]
+    async fn vfs_worker_keeps_only_latest_update_per_path() {
+        let worker = VfsSyncWorker::default();
+        worker
+            .enqueue(
+                "/tmp/file.rs".to_string(),
+                PendingVfsUpdate::Upsert("first".to_string()),
+            )
+            .await;
+        worker
+            .enqueue(
+                "/tmp/file.rs".to_string(),
+                PendingVfsUpdate::Upsert("second".to_string()),
+            )
+            .await;
+        worker
+            .enqueue("/tmp/other.rs".to_string(), PendingVfsUpdate::Close)
+            .await;
+
+        let pending = worker.take_pending().await;
+        assert_eq!(pending.len(), 2);
+        match pending.get("/tmp/file.rs") {
+            Some(PendingVfsUpdate::Upsert(content)) => assert_eq!(content, "second"),
+            _ => panic!("expected latest upsert for /tmp/file.rs"),
+        }
+        assert!(matches!(
+            pending.get("/tmp/other.rs"),
+            Some(PendingVfsUpdate::Close)
+        ));
     }
 }

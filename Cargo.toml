@@ -172,11 +172,14 @@ facet-typescript = { version = "0.44" }
 time = { version = "0.3", features = ["formatting"] }
 tempfile = "3.24.0"
 
-# roam RPC framework
-roam = "7.0.0"
-roam-core = "7.0.0"
-roam-stream = "7.0.0"
-roam-local = "7.0.0"
+# vox RPC framework
+vox = { git = "https://github.com/bearcove/vox.git", rev = "b204d069b717e299039b9c32d2860532deb2aa37" }
+vox-core = { git = "https://github.com/bearcove/vox.git", rev = "b204d069b717e299039b9c32d2860532deb2aa37" }
+vox-stream = { git = "https://github.com/bearcove/vox.git", rev = "b204d069b717e299039b9c32d2860532deb2aa37" }
+vox-local = { git = "https://github.com/bearcove/vox.git", rev = "b204d069b717e299039b9c32d2860532deb2aa37" }
+
+[profile.release]
+debug = "line-tables-only"
 
 # The profile that 'dist' will build with
 [profile.dist]
