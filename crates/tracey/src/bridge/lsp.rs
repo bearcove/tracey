@@ -810,27 +810,46 @@ impl Backend {
         project_state: Arc<Mutex<LspProjectState>>,
     ) {
         let mut last_version: Option<u64> = None;
-        let (tx, mut rx) = vox::channel::<DataUpdate>();
-        let subscribe_client = daemon_client.clone();
-        let subscribe_task = tokio::spawn(async move { subscribe_client.subscribe(tx).await });
 
         loop {
             {
                 let state = project_state.lock().unwrap();
                 if !state.roots.contains(&project_root) {
-                    break;
+                    return;
                 }
             }
+
+            let (tx, mut rx) = vox::channel::<DataUpdate>();
+            let subscribe_client = daemon_client.clone();
+            let subscribe_task = tokio::spawn(async move { subscribe_client.subscribe(tx).await });
+
             let next_version =
                 match tokio::time::timeout(Duration::from_millis(500), rx.recv()).await {
                     Ok(Ok(Some(update))) => Some(update.version),
-                    Ok(Ok(None)) => daemon_client.version().await.ok(),
-                    Ok(Err(_)) => daemon_client.version().await.ok(),
-                    Err(_) => daemon_client.version().await.ok(),
+                    Ok(Ok(None)) | Ok(Err(_)) | Err(_) => None,
                 };
 
+            subscribe_task.abort();
+            let _ = subscribe_task.await;
+
             let Some(next_version) = next_version else {
-                tokio::time::sleep(Duration::from_millis(250)).await;
+                let next_version = daemon_client.version().await.ok();
+                let Some(next_version) = next_version else {
+                    tokio::time::sleep(Duration::from_millis(250)).await;
+                    continue;
+                };
+                if last_version == Some(next_version) {
+                    tokio::time::sleep(Duration::from_millis(250)).await;
+                    continue;
+                }
+                last_version = Some(next_version);
+                Self::publish_workspace_diagnostics_with(
+                    &client,
+                    &daemon_client,
+                    &project_root,
+                    &project_state,
+                )
+                .await;
                 continue;
             };
 
@@ -846,9 +865,6 @@ impl Backend {
             )
             .await;
         }
-
-        subscribe_task.abort();
-        let _ = subscribe_task.await;
     }
 
     /// Clear diagnostics for workspace files on startup so clients don't retain stale diagnostics
