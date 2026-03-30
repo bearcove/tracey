@@ -809,54 +809,47 @@ impl Backend {
         project_root: PathBuf,
         project_state: Arc<Mutex<LspProjectState>>,
     ) {
-        let mut last_version: Option<u64> = None;
+        let mut reconnect_backoff = Duration::from_millis(250);
+        let mut updates_rx = None;
+
+        let root_is_active = |state: &Arc<Mutex<LspProjectState>>, root: &PathBuf| {
+            let guard = state.lock().unwrap();
+            guard.roots.contains(root)
+        };
 
         loop {
-            {
-                let state = project_state.lock().unwrap();
-                if !state.roots.contains(&project_root) {
-                    return;
-                }
+            if !root_is_active(&project_state, &project_root) {
+                return;
             }
 
-            let (tx, mut rx) = vox::channel::<DataUpdate>();
-            let subscribe_client = daemon_client.clone();
-            let subscribe_task = tokio::spawn(async move { subscribe_client.subscribe(tx).await });
-
-            let next_version =
-                match tokio::time::timeout(Duration::from_millis(500), rx.recv()).await {
-                    Ok(Ok(Some(update))) => Some(update.version),
-                    Ok(Ok(None)) | Ok(Err(_)) | Err(_) => None,
-                };
-
-            subscribe_task.abort();
-            let _ = subscribe_task.await;
-
-            let Some(next_version) = next_version else {
-                let next_version = daemon_client.version().await.ok();
-                let Some(next_version) = next_version else {
-                    tokio::time::sleep(Duration::from_millis(250)).await;
-                    continue;
-                };
-                if last_version == Some(next_version) {
-                    tokio::time::sleep(Duration::from_millis(250)).await;
+            if updates_rx.is_none() {
+                let (tx, rx) = vox::channel::<DataUpdate>();
+                if let Err(error) = daemon_client.subscribe(tx).await {
+                    tracing::debug!(
+                        project_root = %project_root.display(),
+                        error = ?error,
+                        "lsp rebuild subscription failed; will retry"
+                    );
+                    tokio::time::sleep(reconnect_backoff).await;
+                    reconnect_backoff = (reconnect_backoff * 2).min(Duration::from_secs(4));
                     continue;
                 }
-                last_version = Some(next_version);
-                Self::publish_workspace_diagnostics_with(
-                    &client,
-                    &daemon_client,
-                    &project_root,
-                    &project_state,
-                )
+                updates_rx = Some(rx);
+                reconnect_backoff = Duration::from_millis(250);
+            }
+
+            let recv = updates_rx
+                .as_mut()
+                .expect("receiver is initialized before receive")
+                .recv()
                 .await;
+            let Ok(Some(_update)) = recv else {
+                updates_rx = None;
+                tokio::time::sleep(reconnect_backoff).await;
+                reconnect_backoff = (reconnect_backoff * 2).min(Duration::from_secs(4));
                 continue;
             };
 
-            if last_version == Some(next_version) {
-                continue;
-            }
-            last_version = Some(next_version);
             Self::publish_workspace_diagnostics_with(
                 &client,
                 &daemon_client,
