@@ -178,6 +178,9 @@ vox-core = "0.3.0"
 vox-stream = "0.3.0"
 vox-local = "0.3.0"
 
+[profile.release]
+debug = "line-tables-only"
+
 # The profile that 'dist' will build with
 [profile.dist]
 inherits = "release"
