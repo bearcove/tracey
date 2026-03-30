@@ -173,10 +173,10 @@ time = { version = "0.3", features = ["formatting"] }
 tempfile = "3.24.0"
 
 # vox RPC framework
-vox = "0.3.0"
-vox-core = "0.3.0"
-vox-stream = "0.3.0"
-vox-local = "0.3.0"
+vox = { git = "https://github.com/bearcove/vox.git", rev = "b204d069b717e299039b9c32d2860532deb2aa37" }
+vox-core = { git = "https://github.com/bearcove/vox.git", rev = "b204d069b717e299039b9c32d2860532deb2aa37" }
+vox-stream = { git = "https://github.com/bearcove/vox.git", rev = "b204d069b717e299039b9c32d2860532deb2aa37" }
+vox-local = { git = "https://github.com/bearcove/vox.git", rev = "b204d069b717e299039b9c32d2860532deb2aa37" }
 
 [profile.release]
 debug = "line-tables-only"
