@@ -48,6 +48,14 @@ Client-initiated channels MUST use odd IDs, server-initiated channels MUST use e
 
 The prefix (`r` in this case) can be any lowercase alphanumeric marker. Tracey infers it from the spec files.
 
+Specs can also be written in [Typst](https://typst.app/) — use `#PREFIX("id")[body]` and include `*.typ` files in your config:
+
+```typst
+== Channel Management
+
+#r("channel.id.allocation")[Channel IDs MUST be allocated sequentially starting from 0.]
+```
+
 ### 2. Reference requirements in your code
 
 Add references in source code comments using `PREFIX[VERB REQ]`:
