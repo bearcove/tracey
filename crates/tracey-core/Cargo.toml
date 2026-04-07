@@ -94,3 +94,6 @@ arborium-cmake = { workspace = true, optional = true }
 arborium-ocaml = { workspace = true, optional = true }
 arborium-bash = { workspace = true, optional = true }
 arborium-nix = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }

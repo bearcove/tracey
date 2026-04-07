@@ -10,7 +10,7 @@ mod markdown;
 mod positions;
 mod rule_id;
 mod sources;
-mod spec;
+pub mod spec;
 
 #[cfg(feature = "reverse")]
 pub mod code_units;
@@ -25,7 +25,10 @@ pub use sources::{
     ExtractionResult, MemorySources, PathSources, SUPPORTED_EXTENSIONS, Sources,
     is_supported_extension,
 };
-pub use spec::ReqDefinition;
+pub use spec::{
+    ReqDefinition, SPEC_EXTENSIONS, SpecDoc, SpecFormat, diff_inline, extract_marker_prefix,
+    is_spec_extension, parse_spec, parse_weight, rewrite_marker,
+};
 
 #[cfg(feature = "walk")]
 pub use sources::WalkSources;

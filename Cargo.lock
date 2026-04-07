@@ -4478,6 +4478,7 @@ dependencies = [
  "marq",
  "pulldown-cmark",
  "rayon",
+ "tokio",
 ]
 
 [[package]]
