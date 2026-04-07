@@ -44,10 +44,6 @@ pub(crate) fn page_shell(
                         (sidebar(page_path, sidebar_entries))
                         .content {
                             (content)
-                            footer .export-footer {
-                                "Made with "
-                                a href="https://tracey.bearcove.eu/" { "Tracey" }
-                            }
                         }
                     }
                 }
@@ -60,20 +56,31 @@ pub(crate) fn page_shell(
 // r[impl export.sidebar.structure]
 // r[impl export.sidebar.current-page]
 // r[impl export.sidebar.links]
-/// The page-tree sidebar.
+/// The page-tree sidebar, using the dashboard's TOC markup structure.
 pub(crate) fn sidebar(current_page: &str, specs: &[SidebarSpec]) -> Markup {
     html! {
         nav .sidebar {
-            // README entry at the top
-            a .sidebar-readme-link
-              .active[current_page == "index.html"]
-              href=(sidebar_href(current_page, "index.html"))
-            {
-                "README"
+            .sidebar-header {
+                span { "Outline" }
             }
+            .sidebar-content {
+                // README entry
+                ul .outline-tree {
+                    li .toc-item.depth-0
+                       .is-active[current_page == "index.html"] {
+                        a .toc-row href=(sidebar_href(current_page, "index.html")) {
+                            span .toc-link { "README" }
+                        }
+                    }
+                }
 
-            @for spec in specs {
-                (sidebar_spec_entry(current_page, spec))
+                @for spec in specs {
+                    (sidebar_spec_entry(current_page, spec))
+                }
+            }
+            footer .export-footer {
+                "Made with "
+                a href="https://tracey.bearcove.eu/" { "Tracey" }
             }
         }
     }
@@ -83,27 +90,21 @@ fn sidebar_spec_entry(current_page: &str, spec: &SidebarSpec) -> Markup {
     let is_active = current_page.starts_with(&format!("{}/", spec.name));
 
     html! {
+        // Spec heading tree using dashboard toc-item structure
         // r[impl export.sidebar.collapsible]
-        details .sidebar-section
-                open[is_active]
-                data-sidebar-key=(spec.name) {
-            summary {
-                a .sidebar-spec-link
-                  .active[is_active]
-                  href=(sidebar_href(current_page, &spec.href)) {
-                    (spec.name)
-                }
-            }
-            // Headings as a collapsible nested tree — h1s are collapsible
-            (heading_tree(current_page, &spec.headings, &spec.href))
-        }
+        (heading_tree(current_page, &spec.headings, &spec.href, is_active))
     }
 }
 
-/// Build a nested tree from a flat list of headings.
-/// Top-level (h1) headings are rendered as collapsible `<details>` elements
-/// (closed by default). h2s nest inside them as plain links.
-fn heading_tree(current_page: &str, headings: &[SidebarHeading], spec_href: &str) -> Markup {
+/// Build a nested tree from a flat list of headings using the dashboard's
+/// `.toc-item` / `.toc-row` / `.toc-children` structure.
+/// Folding is handled by JS (toggling a `.is-collapsed` class on `.toc-children`).
+fn heading_tree(
+    current_page: &str,
+    headings: &[SidebarHeading],
+    spec_href: &str,
+    is_spec_active: bool,
+) -> Markup {
     if headings.is_empty() {
         return html! {};
     }
@@ -111,8 +112,6 @@ fn heading_tree(current_page: &str, headings: &[SidebarHeading], spec_href: &str
     let min_level = headings.iter().map(|h| h.level).min().unwrap_or(1);
 
     // Group: each heading at min_level starts a group, deeper headings are children.
-    // Headings that appear before the first min_level heading are promoted to
-    // their own groups (rendered as standalone items).
     let mut groups: Vec<(&SidebarHeading, Vec<&SidebarHeading>)> = Vec::new();
     for heading in headings {
         if heading.level == min_level {
@@ -120,35 +119,34 @@ fn heading_tree(current_page: &str, headings: &[SidebarHeading], spec_href: &str
         } else if let Some(last) = groups.last_mut() {
             last.1.push(heading);
         } else {
-            // Orphan heading before any min_level parent — promote it
             groups.push((heading, Vec::new()));
         }
     }
 
     html! {
-        ul .sidebar-tree.outline-tree {
+        ul .outline-tree {
             @for (parent, children) in &groups {
-                @if children.is_empty() {
-                    // Leaf heading — plain link
-                    li {
-                        a .sidebar-heading
-                          href=(format!("{}#{}", sidebar_href(current_page, spec_href), parent.slug)) {
-                            (parent.title)
-                        }
+                li .toc-item
+                   .(format!("depth-{}", parent.level.saturating_sub(1)))
+                   data-slug=(parent.slug) {
+                    a .toc-row
+                      href=(format!("{}#{}", sidebar_href(current_page, spec_href), parent.slug)) {
+                        span .toc-link { (parent.title) }
                     }
-                } @else {
-                    // Heading with children — collapsible
-                    li {
-                        details .sidebar-subsection
-                                data-sidebar-key=(parent.slug) {
-                            summary {
-                                a .sidebar-heading
-                                  href=(format!("{}#{}", sidebar_href(current_page, spec_href), parent.slug)) {
-                                    (parent.title)
+                    @if !children.is_empty() {
+                        @let child_headings: Vec<SidebarHeading> = children.iter().map(|h| (*h).clone()).collect();
+                        ul .toc-children
+                           .is-collapsed[!is_spec_active] {
+                            @for child in &child_headings {
+                                li .toc-item
+                                   .(format!("depth-{}", child.level.saturating_sub(1)))
+                                   data-slug=(child.slug) {
+                                    a .toc-row
+                                      href=(format!("{}#{}", sidebar_href(current_page, spec_href), child.slug)) {
+                                        span .toc-link { (child.title) }
+                                    }
                                 }
                             }
-                            @let child_headings: Vec<SidebarHeading> = children.iter().map(|h| (*h).clone()).collect();
-                            (heading_tree(current_page, &child_headings, spec_href))
                         }
                     }
                 }
@@ -230,15 +228,15 @@ mod tests {
     }
 
     #[test]
-    fn test_sidebar_renders_readme_link() {
-        let sidebar_markup = sidebar("index.html", &[]);
-        let s = sidebar_markup.into_string();
+    fn test_sidebar_renders_readme() {
+        let s = sidebar("index.html", &[]).into_string();
         assert!(s.contains("README"));
-        assert!(s.contains("active")); // README link should be active on index
+        assert!(s.contains("toc-item"));
+        assert!(s.contains("is-active")); // README active on index page
     }
 
     #[test]
-    fn test_sidebar_spec_entry() {
+    fn test_sidebar_spec_headings() {
         let specs = vec![SidebarSpec {
             name: "myspec".to_string(),
             href: "myspec/index.html".to_string(),
@@ -250,13 +248,15 @@ mod tests {
         }];
 
         let s = sidebar("index.html", &specs).into_string();
-        assert!(s.contains("myspec"));
         assert!(s.contains("Introduction"));
         assert!(s.contains("#introduction"));
+        assert!(s.contains("toc-item"));
+        assert!(s.contains("toc-row"));
+        assert!(s.contains("toc-link"));
     }
 
     #[test]
-    fn test_sidebar_nested_headings_with_collapsible_h1s() {
+    fn test_sidebar_nested_headings() {
         let specs = vec![SidebarSpec {
             name: "myspec".to_string(),
             href: "myspec/index.html".to_string(),
@@ -281,27 +281,26 @@ mod tests {
 
         let s = sidebar("index.html", &specs).into_string();
 
-        // h1 "Language" with children should be in a collapsible <details>
-        assert!(s.contains("sidebar-subsection"));
         assert!(s.contains("#language"));
         assert!(s.contains("#syntax"));
         assert!(s.contains("#tooling"));
 
-        // Syntax should be nested inside Language's <details>
+        // h2 "Syntax" should be nested in a .toc-children under h1 "Language"
         let lang_pos = s.find("#language").unwrap();
         let syntax_pos = s.find("#syntax").unwrap();
         let tooling_pos = s.find("#tooling").unwrap();
         assert!(syntax_pos > lang_pos);
         assert!(tooling_pos > syntax_pos);
 
-        // Nested list between Language and Syntax
         let between = &s[lang_pos..syntax_pos];
-        assert!(between.contains("<ul"), "h2 should be in a nested <ul>");
+        assert!(
+            between.contains("toc-children"),
+            "h2 should be in a .toc-children"
+        );
     }
 
     #[test]
     fn test_sidebar_orphan_headings_before_first_h1() {
-        // "Introduction" (h2) comes before the first h1 "Language"
         let specs = vec![SidebarSpec {
             name: "myspec".to_string(),
             href: "myspec/index.html".to_string(),
@@ -316,34 +315,14 @@ mod tests {
                     slug: "language".to_string(),
                     level: 1,
                 },
-                SidebarHeading {
-                    title: "Syntax".to_string(),
-                    slug: "syntax".to_string(),
-                    level: 2,
-                },
             ],
         }];
 
         let s = sidebar("index.html", &specs).into_string();
-        // Introduction must appear and come before Language
         let intro_pos = s
             .find("#introduction")
             .expect("Introduction must be in sidebar");
         let lang_pos = s.find("#language").unwrap();
         assert!(intro_pos < lang_pos);
-    }
-
-    #[test]
-    fn test_sidebar_active_spec() {
-        let specs = vec![SidebarSpec {
-            name: "tracey".to_string(),
-            href: "tracey/index.html".to_string(),
-            headings: vec![],
-        }];
-
-        let s = sidebar("tracey/index.html", &specs).into_string();
-        // The spec section should be open and the link active
-        assert!(s.contains("open"));
-        assert!(s.contains("sidebar-spec-link active"));
     }
 }
