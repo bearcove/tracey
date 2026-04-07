@@ -2017,7 +2017,7 @@ fn run_git_capture(project_root: &Path, args: &[&str]) -> Option<String> {
     String::from_utf8(output.stdout).ok()
 }
 
-async fn find_rule_text_in_markdown(content: &str, rule_id: &RuleId) -> Option<String> {
+async fn find_rule_text_in_spec(content: &str, rule_id: &RuleId) -> Option<String> {
     let options = marq::RenderOptions::default();
     let doc = marq::render(content, &options).await.ok()?;
     let rule_id = rule_id.to_string();
@@ -2042,7 +2042,7 @@ async fn load_previous_rule_text_from_git(
             continue;
         };
 
-        if let Some(text) = find_rule_text_in_markdown(&content, previous_rule_id).await {
+        if let Some(text) = find_rule_text_in_spec(&content, previous_rule_id).await {
             return Some(HistoricalRuleText { text });
         }
     }

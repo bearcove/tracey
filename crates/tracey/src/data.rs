@@ -94,7 +94,7 @@ pub struct BuildCache {
     source_files: HashMap<PathBuf, CachedSourceFile>,
     impl_scan_paths: HashMap<ImplScanKey, CachedScanPaths>,
     spec_scan_paths: HashMap<SpecScanKey, CachedScanPaths>,
-    markdown_files: HashMap<PathBuf, CachedMarkdownFile>,
+    spec_files: HashMap<PathBuf, CachedSpecFile>,
 }
 
 #[derive(Clone)]
@@ -135,7 +135,7 @@ struct CachedScanPaths {
 }
 
 #[derive(Clone)]
-struct CachedMarkdownFile {
+struct CachedSpecFile {
     content_hash: u64,
     file_len: u64,
     modified_nanos: Option<u128>,
@@ -811,7 +811,7 @@ fn path_matches_excludes(path: &Path, roots: &[ScanRootPattern], exclude: &[Stri
 fn full_walk_for_roots(
     roots: &[ScanRootPattern],
     include_supported_ext_only: bool,
-    include_markdown_only: bool,
+    include_spec_only: bool,
     exclude: &[String],
 ) -> BTreeSet<PathBuf> {
     let mut out = BTreeSet::new();
@@ -830,7 +830,7 @@ fn full_walk_for_roots(
             if !ft.is_file() {
                 continue;
             }
-            if include_markdown_only
+            if include_spec_only
                 && path
                     .extension()
                     .is_none_or(|ext| !tracey_core::is_spec_extension(ext))
@@ -862,12 +862,12 @@ fn update_cached_scan_paths(
     roots: &[ScanRootPattern],
     changed_files: &[PathBuf],
     include_supported_ext_only: bool,
-    include_markdown_only: bool,
+    include_spec_only: bool,
     exclude: &[String],
 ) {
     for changed in changed_files {
         let exists = changed.exists();
-        let ext_ok = if include_markdown_only {
+        let ext_ok = if include_spec_only {
             changed
                 .extension()
                 .is_some_and(tracey_core::is_spec_extension)
@@ -945,7 +945,7 @@ fn get_cached_spec_scan_paths(
     (entry.files.clone(), warnings, did_full_walk)
 }
 
-async fn extract_markdown_rules_cached(
+async fn extract_spec_rules_cached(
     project_root: &Path,
     path: &Path,
     overlay: &FileOverlay,
@@ -977,7 +977,7 @@ async fn extract_markdown_rules_cached(
     };
 
     let content_hash = compute_content_hash(&content);
-    if let Some(entry) = cache.markdown_files.get(&canonical) {
+    if let Some(entry) = cache.spec_files.get(&canonical) {
         if !overlay_is_present
             && entry.file_len == file_len
             && entry.modified_nanos == modified_nanos
@@ -986,13 +986,13 @@ async fn extract_markdown_rules_cached(
             return Ok(entry.extracted_rules.clone());
         }
         if entry.content_hash == content_hash {
-            let updated = CachedMarkdownFile {
+            let updated = CachedSpecFile {
                 content_hash,
                 file_len,
                 modified_nanos,
                 extracted_rules: entry.extracted_rules.clone(),
             };
-            cache.markdown_files.insert(canonical, updated.clone());
+            cache.spec_files.insert(canonical, updated.clone());
             stats.hash_hits += 1;
             return Ok(updated.extracted_rules);
         }
@@ -1059,9 +1059,9 @@ async fn extract_markdown_rules_cached(
         }
     }
 
-    cache.markdown_files.insert(
+    cache.spec_files.insert(
         canonical,
-        CachedMarkdownFile {
+        CachedSpecFile {
             content_hash,
             file_len,
             modified_nanos,
@@ -1192,7 +1192,7 @@ async fn load_rules_from_includes_cached(
         {
             extract_sdoc_rules_cached(project_root, path, overlay, cache, quiet, stats).await?
         } else {
-            extract_markdown_rules_cached(project_root, path, overlay, cache, quiet, stats).await?
+            extract_spec_rules_cached(project_root, path, overlay, cache, quiet, stats).await?
         };
         for rule in extracted {
             let id = rule.def.id.to_string();
