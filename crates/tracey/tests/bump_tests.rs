@@ -68,6 +68,19 @@ fn simple_config() -> Config {
     }
 }
 
+/// Build a minimal `Config` that treats `spec.typ` as the sole spec file.
+fn simple_typst_config() -> Config {
+    Config {
+        specs: vec![SpecConfig {
+            name: "test".to_string(),
+            prefix: None,
+            source_url: None,
+            include: vec!["spec.typ".to_string()],
+            impls: vec![],
+        }],
+    }
+}
+
 const INITIAL_SPEC: &str = "\
 # Spec
 
@@ -188,6 +201,48 @@ async fn test_bump_increments_version_in_file() {
     );
     assert!(
         !content.contains("r[auth.login]"),
+        "old unversioned marker should be gone"
+    );
+}
+
+/// `bump` works on Typst spec files: `#req("id")[body]` → `#req("id+2")[body]`.
+#[tokio::test]
+async fn test_bump_typst_spec_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+
+    git_init(root);
+
+    let initial = "= Spec\n\n#req(\"test.rule\")[The system MUST validate input.]\n";
+    fs::write(root.join("spec.typ"), initial).unwrap();
+    git_commit_all(root, "initial");
+
+    // Modify rule body without bumping the version.
+    let modified = initial.replace(
+        "The system MUST validate input.",
+        "The system MUST validate and sanitise input.",
+    );
+    fs::write(root.join("spec.typ"), &modified).unwrap();
+    git_add(root, "spec.typ");
+
+    let config = simple_typst_config();
+    let changes = detect_changed_rules(root, &config).await.unwrap();
+    assert_eq!(changes.len(), 1, "expected exactly one changed rule");
+    assert_eq!(changes[0].rule_id.base, "test.rule");
+
+    let bumped = bump(root, &config).await.unwrap();
+    assert_eq!(bumped.len(), 1);
+    assert_eq!(bumped[0].base, "test.rule");
+    assert_eq!(bumped[0].version, 2);
+
+    // The file on disk should now contain the bumped marker.
+    let content = fs::read_to_string(root.join("spec.typ")).unwrap();
+    assert!(
+        content.contains("#req(\"test.rule+2\")"),
+        "expected bumped marker in file, got:\n{content}"
+    );
+    assert!(
+        !content.contains("#req(\"test.rule\")["),
         "old unversioned marker should be gone"
     );
 }

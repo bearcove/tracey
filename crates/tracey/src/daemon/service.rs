@@ -752,14 +752,24 @@ impl TraceyDaemon for TraceyService {
                 ResultKind::Source => "source",
             };
 
-            // For rules, render the markdown snippet to HTML
-            // FORMAT-NOTE: snippets are stored prose; rendering as Markdown is
-            // acceptable for Typst sources (degrades gracefully).
+            // For rules, render the snippet to HTML according to its source format.
             let highlighted = if r.kind == ResultKind::Rule {
-                let opts = marq::RenderOptions::default();
-                match marq::render(&r.highlighted, &opts).await {
-                    Ok(doc) => doc.html,
-                    Err(_) => r.highlighted.clone(),
+                match r.format {
+                    Some(SpecFormat::Typst) => {
+                        // Escape Typst body text for safe HTML embedding, but
+                        // preserve the <mark> tags inserted by the search index.
+                        html_escape(&r.highlighted)
+                            .replace("&lt;mark&gt;", "<mark>")
+                            .replace("&lt;/mark&gt;", "</mark>")
+                    }
+                    // Markdown (or unknown → assume markdown for legacy entries)
+                    _ => {
+                        let opts = marq::RenderOptions::default();
+                        match marq::render(&r.highlighted, &opts).await {
+                            Ok(doc) => doc.html,
+                            Err(_) => r.highlighted.clone(),
+                        }
+                    }
                 }
             } else {
                 r.highlighted.clone()
@@ -2053,6 +2063,12 @@ async fn load_previous_rule_text_from_git(
     previous_rule_id: &RuleId,
 ) -> Option<HistoricalRuleText> {
     // r[impl validation.stale.diff]
+    //
+    // Known limitation: format is derived from the *current* path. If a spec
+    // file was renamed across formats (e.g. `spec.md` → `spec.typ`) the
+    // historical blob will be parsed with the wrong dialect and the lookup
+    // will silently miss. Cross-format renames are rare; a full fix needs git
+    // rename detection (`--follow` + per-commit path mapping).
     let fmt = SpecFormat::from_path(Path::new(source_file)).unwrap_or(SpecFormat::Markdown);
     let commits = run_git_capture(project_root, &["log", "--format=%H", "--", source_file])?;
 
