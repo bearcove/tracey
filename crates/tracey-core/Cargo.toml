@@ -19,6 +19,7 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 default = ["walk", "parallel"]
 walk = ["dep:ignore", "dep:globset"]
 parallel = ["dep:rayon"]
+typst-spec = ["dep:typst", "dep:typst-html", "dep:typst-kit", "dep:comemo"]
 reverse = [
   "dep:arborium",
   "dep:arborium-rust",
@@ -66,6 +67,10 @@ html-escape = { workspace = true }
 ignore = { workspace = true, optional = true }
 globset = { workspace = true, optional = true }
 rayon = { workspace = true, optional = true }
+typst = { workspace = true, optional = true }
+typst-html = { workspace = true, optional = true }
+typst-kit = { workspace = true, optional = true }
+comemo = { workspace = true, optional = true }
 arborium = { workspace = true, optional = true }
 arborium-rust = { workspace = true, optional = true }
 arborium-swift = { workspace = true, optional = true }

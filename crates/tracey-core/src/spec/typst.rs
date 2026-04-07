@@ -21,6 +21,47 @@ use marq::{
 
 use super::SpecDoc;
 
+/// Context for [`render_display`]: callbacks that the typst→HTML pipeline cannot
+/// resolve on its own (coverage data lives in the `tracey` crate).
+pub struct RenderCtx<'a> {
+    /// Given a requirement definition, return `(open_html, close_html)` — the
+    /// fully-rendered badge container that wraps the requirement body. The
+    /// `ReqDefinition` carries `id`, `line`, `span`, and `anchor_id` so badge
+    /// rendering has everything it needs without a second parse.
+    ///
+    /// `Sync` because [`render_display`] is async and the ctx is held across
+    /// awaits inside `Send` futures.
+    pub badge_for: &'a (dyn Fn(&ReqDefinition) -> (String, String) + Sync),
+}
+
+/// Compile `content` with the typst HTML backend and splice coverage badges in.
+///
+/// The pipeline:
+/// 1. [`parse`] the raw content (tree-sitter) for `reqs` / `headings` / spans.
+/// 2. Prepend a prelude that maps `#req(id)[body]` → a sentinel `<div>` and
+///    headings → sentinel `<hN>`; compile with `typst::compile<HtmlDocument>`.
+/// 3. Post-process the HTML string: replace each sentinel `<div>` with the
+///    badge markup from [`RenderCtx::badge_for`], and inject `id="slug"` into
+///    each sentinel heading using slugs from step 1.
+/// 4. Lift `<style>` / `<link>` from the compiler's `<head>` into
+///    `head_injections`; return only the `<body>` interior as `html`.
+///
+/// Behind the `typst-spec` feature. Without it, returns an error and callers
+/// should fall back to [`parse`] (placeholder `<pre>` html).
+#[cfg_attr(not(feature = "typst-spec"), allow(unused_variables))]
+pub async fn render_display(content: &str, ctx: &RenderCtx<'_>) -> eyre::Result<SpecDoc> {
+    #[cfg(not(feature = "typst-spec"))]
+    {
+        Err(eyre::eyre!(
+            "typst HTML rendering not compiled in (enable 'typst-spec' feature)"
+        ))
+    }
+    #[cfg(feature = "typst-spec")]
+    {
+        compiler::render(content, ctx).await
+    }
+}
+
 pub(super) async fn parse(content: &str) -> eyre::Result<SpecDoc> {
     let mut parser = Parser::new();
     parser
@@ -238,6 +279,325 @@ fn strip_delims<'a>(bytes: &'a [u8], node: Node<'_>) -> Option<&'a str> {
         return Some("");
     }
     std::str::from_utf8(&bytes[start + 1..end - 1]).ok()
+}
+
+// ---- typst compiler bridge (feature-gated) --------------------------------
+
+#[cfg(feature = "typst-spec")]
+mod compiler {
+    use super::{RenderCtx, SpecDoc, parse};
+    use std::fmt::Write as _;
+    use typst::diag::{FileError, FileResult};
+    use typst::foundations::{Bytes, Datetime};
+    use typst::syntax::{FileId, Source, VirtualPath};
+    use typst::text::{Font, FontBook};
+    use typst::utils::LazyHash;
+    use typst::{Feature, Features, Library, LibraryExt as _, World};
+    use typst_html::HtmlDocument;
+    use typst_kit::fonts::{FontSlot, Fonts};
+
+    /// Sentinel CSS classes the prelude emits so post-processing can find
+    /// requirement containers and headings without a full HTML parser.
+    const REQ_SENTINEL: &str = "tracey-req";
+    const HEADING_SENTINEL: &str = "tracey-h";
+
+    /// Prelude prepended to every spec before compilation. Defines `#req` /
+    /// `#r` to emit sentinel `<div>`s and rewrites headings to sentinel
+    /// `<hN>` tags. Slugs are *not* computed here (`it.body.text` fails on
+    /// rich content); they're injected during post-processing from the
+    /// tree-sitter parse output.
+    const PRELUDE: &str = concat!(
+        "#let req(id, ..meta, body) = html.elem(\n",
+        "  \"div\", attrs: (class: \"tracey-req\", \"data-req-id\": id),\n",
+        ")[#body]\n",
+        "#let r = req\n",
+        "#show heading: it => html.elem(\n",
+        "  \"h\" + str(calc.min(it.level, 6)),\n",
+        "  attrs: (class: \"tracey-h\"),\n",
+        ")[#it.body]\n",
+    );
+
+    pub(super) async fn render(content: &str, ctx: &RenderCtx<'_>) -> eyre::Result<SpecDoc> {
+        // Structural extraction runs on the raw user content so spans / line
+        // numbers point at the actual source file, not the prelude-shifted text.
+        let mut doc = parse(content).await?;
+
+        let mut full = String::with_capacity(PRELUDE.len() + content.len());
+        full.push_str(PRELUDE);
+        full.push_str(content);
+
+        let world = SpecWorld::new(full);
+        let compiled = typst::compile::<HtmlDocument>(&world);
+        comemo::evict(0);
+        let output = compiled.output.map_err(|errs| {
+            let mut msg = String::from("typst compile failed:");
+            for e in errs.iter() {
+                let _ = write!(msg, "\n  {}", e.message);
+            }
+            eyre::eyre!(msg)
+        })?;
+        let html = typst_html::html(&output)
+            .map_err(|e| eyre::eyre!("typst html serialize failed: {:?}", e))?;
+
+        let (head, body) = split_head_body(&html);
+        doc.head_injections = extract_head_injections(head);
+
+        let slugs: Vec<&str> = doc.headings.iter().map(|h| h.id.as_str()).collect();
+        let body = inject_heading_ids(body, &slugs);
+        let by_id: std::collections::HashMap<String, &marq::ReqDefinition> =
+            doc.reqs.iter().map(|r| (r.id.to_string(), r)).collect();
+        doc.html = splice_req_badges(&body, &by_id, ctx);
+
+        Ok(doc)
+    }
+
+    /// Minimal in-memory [`World`]: single source file, embedded fonts, no
+    /// package manager. `#import` is unsupported by design (Q5).
+    struct SpecWorld {
+        library: LazyHash<Library>,
+        book: LazyHash<FontBook>,
+        fonts: Vec<FontSlot>,
+        main: Source,
+    }
+
+    impl SpecWorld {
+        fn new(text: String) -> Self {
+            let features: Features = [Feature::Html].into_iter().collect();
+            let library = Library::builder().with_features(features).build();
+            let fonts = Fonts::searcher()
+                .include_system_fonts(false)
+                .include_embedded_fonts(true)
+                .search();
+            let id = FileId::new(None, VirtualPath::new("spec.typ"));
+            Self {
+                library: LazyHash::new(library),
+                book: LazyHash::new(fonts.book),
+                fonts: fonts.fonts,
+                main: Source::new(id, text),
+            }
+        }
+    }
+
+    impl World for SpecWorld {
+        fn library(&self) -> &LazyHash<Library> {
+            &self.library
+        }
+        fn book(&self) -> &LazyHash<FontBook> {
+            &self.book
+        }
+        fn main(&self) -> FileId {
+            self.main.id()
+        }
+        fn source(&self, id: FileId) -> FileResult<Source> {
+            if id == self.main.id() {
+                Ok(self.main.clone())
+            } else {
+                Err(FileError::NotFound(id.vpath().as_rootless_path().into()))
+            }
+        }
+        fn file(&self, id: FileId) -> FileResult<Bytes> {
+            Err(FileError::NotFound(id.vpath().as_rootless_path().into()))
+        }
+        fn font(&self, index: usize) -> Option<Font> {
+            self.fonts.get(index)?.get()
+        }
+        fn today(&self, _offset: Option<i64>) -> Option<Datetime> {
+            None
+        }
+    }
+
+    // ---- HTML post-processing --------------------------------------------
+
+    /// Extract `(head_inner, body_inner)` from a full HTML document. Falls back
+    /// to `("", input)` if the markers aren't found (defensive: the typst
+    /// serializer always emits them today).
+    fn split_head_body(html: &str) -> (&str, &str) {
+        let head = html
+            .find("<head>")
+            .and_then(|hs| html[hs + 6..].find("</head>").map(|he| &html[hs + 6..hs + 6 + he]))
+            .unwrap_or("");
+        let body = html
+            .find("<body>")
+            .and_then(|bs| html[bs + 6..].rfind("</body>").map(|be| &html[bs + 6..bs + 6 + be]))
+            .unwrap_or(html);
+        (head, body)
+    }
+
+    /// Lift `<style>` and `<link>` elements out of the compiler's `<head>`.
+    fn extract_head_injections(head: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut rest = head;
+        while let Some(start) = rest.find("<style") {
+            if let Some(end_rel) = rest[start..].find("</style>") {
+                out.push(rest[start..start + end_rel + 8].to_string());
+                rest = &rest[start + end_rel + 8..];
+            } else {
+                break;
+            }
+        }
+        let mut rest = head;
+        while let Some(start) = rest.find("<link") {
+            if let Some(end_rel) = rest[start..].find('>') {
+                out.push(rest[start..start + end_rel + 1].to_string());
+                rest = &rest[start + end_rel + 1..];
+            } else {
+                break;
+            }
+        }
+        out
+    }
+
+    /// Replace each `<hN class="tracey-h">` with `<hN id="slug">`, consuming
+    /// `slugs` in document order. Headings beyond `slugs.len()` keep the tag
+    /// but drop the sentinel class.
+    fn inject_heading_ids(body: &str, slugs: &[&str]) -> String {
+        let needle = format!(" class=\"{HEADING_SENTINEL}\"");
+        let mut out = String::with_capacity(body.len());
+        let mut rest = body;
+        let mut idx = 0;
+        while let Some(pos) = rest.find(&needle) {
+            out.push_str(&rest[..pos]);
+            if let Some(slug) = slugs.get(idx) {
+                let _ = write!(out, " id=\"{slug}\"");
+            }
+            idx += 1;
+            rest = &rest[pos + needle.len()..];
+        }
+        out.push_str(rest);
+        out
+    }
+
+    /// Replace each sentinel `<div class="tracey-req" data-req-id="X">…</div>`
+    /// with `open_html …inner… close_html` from `ctx.badge_for`. The `X` is
+    /// looked up in `by_id` (from the tree-sitter parse); if not found the
+    /// sentinel wrapper is dropped and the inner body emitted verbatim. Nested
+    /// `<div>`s inside the body are handled by depth-counting.
+    fn splice_req_badges(
+        body: &str,
+        by_id: &std::collections::HashMap<String, &marq::ReqDefinition>,
+        ctx: &RenderCtx<'_>,
+    ) -> String {
+        let open_prefix = format!("<div class=\"{REQ_SENTINEL}\" data-req-id=\"");
+        let mut out = String::with_capacity(body.len());
+        let mut rest = body;
+        while let Some(start) = rest.find(&open_prefix) {
+            out.push_str(&rest[..start]);
+            let after_prefix = &rest[start + open_prefix.len()..];
+            // ID runs to the next quote; typst html-escapes attribute values so
+            // a literal `"` cannot appear inside.
+            let Some(id_end) = after_prefix.find('"') else {
+                // Malformed — emit the rest verbatim and stop.
+                out.push_str(&rest[start..]);
+                return out;
+            };
+            let id = &after_prefix[..id_end];
+            let Some(tag_end_rel) = after_prefix[id_end..].find('>') else {
+                out.push_str(&rest[start..]);
+                return out;
+            };
+            let inner_start = start + open_prefix.len() + id_end + tag_end_rel + 1;
+            let Some(inner_len) = matching_div_end(&rest[inner_start..]) else {
+                out.push_str(&rest[start..]);
+                return out;
+            };
+            let inner = &rest[inner_start..inner_start + inner_len];
+
+            match by_id.get(id) {
+                Some(def) => {
+                    let (open_html, close_html) = (ctx.badge_for)(def);
+                    out.push_str(&open_html);
+                    out.push_str(inner);
+                    out.push_str(&close_html);
+                }
+                None => {
+                    // tree-sitter and the compiler disagree (e.g. user redefined
+                    // `#req`); pass the body through unwrapped.
+                    out.push_str(inner);
+                }
+            }
+
+            rest = &rest[inner_start + inner_len + "</div>".len()..];
+        }
+        out.push_str(rest);
+        out
+    }
+
+    /// Given the text immediately after a `<div …>` open tag, return the byte
+    /// length of the inner content up to (not including) the matching `</div>`.
+    fn matching_div_end(s: &str) -> Option<usize> {
+        let bytes = s.as_bytes();
+        let mut depth: i32 = 1;
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'<' {
+                if s[i..].starts_with("</div>") {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(i);
+                    }
+                    i += 6;
+                    continue;
+                } else if s[i..].starts_with("<div") {
+                    // Only count as a div open if followed by whitespace or `>`.
+                    match bytes.get(i + 4) {
+                        Some(b' ' | b'>' | b'\t' | b'\n' | b'/') => depth += 1,
+                        _ => {}
+                    }
+                }
+            }
+            i += 1;
+        }
+        None
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn matching_div_handles_nesting() {
+            let s = "a<div>b</div>c</div>tail";
+            assert_eq!(matching_div_end(s), Some("a<div>b</div>c".len()));
+        }
+
+        #[test]
+        fn split_head_body_extracts_inner() {
+            let html =
+                "<!DOCTYPE html><html><head><style>x</style></head><body><p>hi</p></body></html>";
+            let (h, b) = split_head_body(html);
+            assert_eq!(h, "<style>x</style>");
+            assert_eq!(b, "<p>hi</p>");
+        }
+
+        #[test]
+        fn heading_ids_injected_in_order() {
+            let body = r#"<h1 class="tracey-h">A</h1><h2 class="tracey-h">B</h2>"#;
+            let out = inject_heading_ids(body, &["a", "b"]);
+            assert_eq!(out, r#"<h1 id="a">A</h1><h2 id="b">B</h2>"#);
+        }
+
+        #[test]
+        fn splice_replaces_sentinel_div() {
+            let def = marq::ReqDefinition {
+                id: marq::parse_rule_id("a.b").unwrap(),
+                anchor_id: "req-a.b".into(),
+                marker_span: marq::SourceSpan { offset: 0, length: 0 },
+                span: marq::SourceSpan { offset: 0, length: 0 },
+                line: 1,
+                metadata: Default::default(),
+                raw: String::new(),
+                html: String::new(),
+            };
+            let by_id: std::collections::HashMap<_, _> =
+                [("a.b".to_string(), &def)].into_iter().collect();
+            let ctx = RenderCtx {
+                badge_for: &|d| (format!("<OPEN {}>", d.id), "</CLOSE>".into()),
+            };
+            let body = r#"<p>x</p><div class="tracey-req" data-req-id="a.b">body<div>n</div></div><p>y</p>"#;
+            let out = splice_req_badges(body, &by_id, &ctx);
+            assert_eq!(out, "<p>x</p><OPEN a.b>body<div>n</div></CLOSE><p>y</p>");
+        }
+    }
 }
 
 // ---- dispatch arms --------------------------------------------------------
