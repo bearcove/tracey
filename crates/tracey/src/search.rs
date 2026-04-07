@@ -10,6 +10,7 @@ use facet::Facet;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tracey_core::SpecFormat;
 
 /// Result type for unified search
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Facet)]
@@ -23,7 +24,7 @@ pub enum ResultKind {
 }
 
 /// A unified search result
-#[derive(Debug, Clone, Facet)]
+#[derive(Debug, Clone)]
 pub struct SearchResult {
     /// Type of result
     pub kind: ResultKind,
@@ -35,6 +36,8 @@ pub struct SearchResult {
     pub content: String,
     /// HTML snippet with highlighted matches (uses `<mark>` tags)
     pub highlighted: String,
+    /// For Rule: spec dialect of the rule's source. None for Source results.
+    pub format: Option<SpecFormat>,
     /// Relevance score
     pub score: f32,
 }
@@ -43,8 +46,10 @@ pub struct SearchResult {
 #[derive(Debug, Clone)]
 pub struct RuleEntry {
     pub id: String,
-    /// Raw markdown source (without r[...] marker)
+    /// Raw rule body source (without the marker)
     pub raw: String,
+    /// Spec dialect the rule's source file is written in.
+    pub format: SpecFormat,
 }
 
 /// Search index abstraction
@@ -130,6 +135,8 @@ mod tantivy_impl {
             let content_field = schema_builder.add_text_field("content", text_options);
             // "rule_id" field: searchable rule ID with dot-separated parts (not stored)
             let rule_id_field = schema_builder.add_text_field("rule_id", rule_id_options);
+            // "format" field: spec dialect for rules ("markdown" / "typst"), empty for source
+            let format_field = schema_builder.add_text_field("format", STRING | STORED);
             let schema = schema_builder.build();
 
             // Create index in RAM (small enough for most projects)
@@ -177,12 +184,17 @@ mod tantivy_impl {
             // Index rules - use raw markdown directly (rule_id_field handles ID search)
             // r[impl dashboard.search.render-requirements]
             for rule in rules {
+                let format_str = match rule.format {
+                    SpecFormat::Markdown => "markdown",
+                    SpecFormat::Typst => "typst",
+                };
                 index_writer.add_document(doc!(
                     kind_field => "rule",
                     id_field => rule.id.clone(),
                     line_field => 0u64,
                     content_field => rule.raw.clone(),
                     rule_id_field => rule.id.clone(),
+                    format_field => format_str,
                 ))?;
             }
 
@@ -243,6 +255,7 @@ mod tantivy_impl {
             let id_field = self.schema.get_field("id").unwrap();
             let line_field = self.schema.get_field("line").unwrap();
             let content_field = self.schema.get_field("content").unwrap();
+            let format_field = self.schema.get_field("format").unwrap();
 
             let mut results: Vec<SearchResult> = top_docs
                 .into_iter()
@@ -258,6 +271,14 @@ mod tantivy_impl {
                     let id = doc.get_first(id_field)?.as_str()?.to_string();
                     let line = doc.get_first(line_field)?.as_u64()? as usize;
                     let content = doc.get_first(content_field)?.as_str()?.to_string();
+                    let format = doc
+                        .get_first(format_field)
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| match s {
+                            "markdown" => Some(SpecFormat::Markdown),
+                            "typst" => Some(SpecFormat::Typst),
+                            _ => None,
+                        });
 
                     // r[impl dashboard.search.render-requirements]
                     // r[impl dashboard.search.requirement-styling]
@@ -279,6 +300,7 @@ mod tantivy_impl {
                         line,
                         content,
                         highlighted,
+                        format,
                         score,
                     })
                 })
@@ -351,6 +373,7 @@ struct SimpleEntry {
     id: String,
     line: usize,
     content: String,
+    format: Option<SpecFormat>,
 }
 
 /// Simple substring search fallback when tantivy is not available
@@ -392,6 +415,7 @@ impl SimpleIndex {
                         id: relative.clone(),
                         line: line_num,
                         content: content_with_context,
+                        format: None,
                     });
                 }
             }
@@ -404,6 +428,7 @@ impl SimpleIndex {
                 id: rule.id.clone(),
                 line: 0,
                 content: rule.raw.clone(),
+                format: Some(rule.format),
             });
         }
 
@@ -433,6 +458,7 @@ impl SearchIndex for SimpleIndex {
                     line: e.line,
                     content: e.content.clone(),
                     highlighted,
+                    format: e.format,
                     score: 1.0,
                 }
             })

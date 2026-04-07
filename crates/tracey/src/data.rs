@@ -2267,11 +2267,15 @@ fn compute_impl_output(
         });
     }
     api_rules.sort_by(|a, b| a.id.cmp(&b.id));
-    let all_search_rules = api_rules
+    let all_search_rules = extracted_rules
         .iter()
-        .map(|r| search::RuleEntry {
-            id: r.id.to_string(),
-            raw: r.raw.clone(),
+        .filter_map(|extracted| {
+            let rule_id = parse_rule_id(&extracted.def.id.to_string())?;
+            Some(search::RuleEntry {
+                id: rule_id.to_string(),
+                raw: extracted.def.raw.clone(),
+                format: extracted.format,
+            })
         })
         .collect::<Vec<_>>();
     let forward_elapsed_ms = forward_start.elapsed().as_millis();
