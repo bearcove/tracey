@@ -79,11 +79,23 @@ pub async fn run(
         }
     }
 
+    // Derive project name from the root directory
+    let project_name = project_root
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("project")
+        .to_string();
+
     // Read README
     let readme_html = read_readme(&project_root).await;
 
     // Write landing page
-    let landing = pages::landing_page(&readme_html, &all_spec_data, &sidebar_entries);
+    let landing = pages::landing_page(
+        &project_name,
+        &readme_html,
+        &all_spec_data,
+        &sidebar_entries,
+    );
     let landing_path = output.join("index.html");
     std::fs::write(&landing_path, landing.into_string()).wrap_err("writing index.html")?;
     eprintln!("  wrote {}", landing_path.display());

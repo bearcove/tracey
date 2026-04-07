@@ -29,23 +29,25 @@ pub(crate) fn page_shell(
                 link rel="stylesheet" href=(format!("{root}/assets/style.css"));
             }
             body {
-                // Static header bar
-                .header.export-header {
-                    .header-inner {
-                        // r[impl export.sidebar.mobile]
-                        button #sidebar-toggle .sidebar-toggle { "☰" }
-                        a .export-header-title href=(format!("{root}/index.html")) {
-                            (title)
+                .layout {
+                    // Static header bar
+                    .header.export-header {
+                        .header-inner {
+                            // r[impl export.sidebar.mobile]
+                            button #sidebar-toggle .sidebar-toggle { "☰" }
+                            a .export-header-title href=(format!("{root}/index.html")) {
+                                (title)
+                            }
                         }
                     }
-                }
-                .main {
-                    (sidebar(page_path, sidebar_entries))
-                    .export-main {
-                        (content)
-                        footer .export-footer {
-                            "Made with "
-                            a href="https://tracey.bearcove.eu/" { "Tracey" }
+                    .main {
+                        (sidebar(page_path, sidebar_entries))
+                        .content {
+                            (content)
+                            footer .export-footer {
+                                "Made with "
+                                a href="https://tracey.bearcove.eu/" { "Tracey" }
+                            }
                         }
                     }
                 }
@@ -61,7 +63,7 @@ pub(crate) fn page_shell(
 /// The page-tree sidebar.
 pub(crate) fn sidebar(current_page: &str, specs: &[SidebarSpec]) -> Markup {
     html! {
-        nav #export-sidebar .export-sidebar {
+        nav .sidebar {
             // README entry at the top
             a .sidebar-readme-link
               .active[current_page == "index.html"]
@@ -210,7 +212,6 @@ mod tests {
         assert!(s.contains("./assets/style.css"));
         assert!(s.contains("hello"));
         // Header
-        assert!(s.contains("export-header"));
         assert!(s.contains("sidebar-toggle"));
         // Footer
         assert!(s.contains("Made with"));
