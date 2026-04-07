@@ -864,8 +864,8 @@ async fn test_lsp_semantic_tokens_typst_spec() {
 
     let spec_path = dir.join("spec.typ");
     let content = std::fs::read_to_string(&spec_path).expect("read spec.typ");
-    let req_count = content.matches("#req(").count();
-    assert!(req_count > 0, "fixture spec.typ should contain #req markers");
+    let req_count = content.matches("#r(").count();
+    assert!(req_count > 0, "fixture spec.typ should contain #r markers");
 
     let req = LspDocumentRequest {
         path: spec_path.display().to_string(),

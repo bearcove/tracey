@@ -1898,8 +1898,6 @@ async fn find_rule_at_position(
             return Some(rule);
         }
 
-        // FORMAT-NOTE: inline_code_spans is populated by the Markdown backend
-        // only; Typst returns an empty vec, so this find_map is a no-op there.
         doc.inline_code_spans.iter().find_map(|code_span| {
             let (prefix, req_id) = crate::data::parse_inline_rule_reference(&code_span.content)?;
             let start = code_span.span.offset;
