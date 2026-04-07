@@ -328,6 +328,132 @@ fn devicon_class(path: &str) -> Option<&'static str> {
 // r[impl markdown.html.div] - rule wrapped in <div class="rule-container">
 // r[impl markdown.html.anchor] - div has id="r-{rule.id}"
 // r[impl markdown.html.link] - rule-badge links to the rule
+//
+/// Render the opening and closing HTML for a requirement container with its
+/// coverage badges. Shared between the markdown `ReqHandler` path and the
+/// typst HTML pipeline (Phase 8).
+///
+/// `source_file` must be an absolute path so editor-open links resolve.
+fn rule_coverage_badge_html(
+    rule: &ReqDefinition,
+    coverage: Option<&RuleCoverage>,
+    source_file: &str,
+    spec_name: &str,
+    impl_name: &str,
+) -> (String, String) {
+    let rule_id = rule.id.to_string();
+    let status = coverage.map(|c| c.status).unwrap_or("uncovered");
+
+    // Insert <wbr> after dots for better line breaking
+    let display_id = rule_id.replace('.', ".<wbr>");
+
+    // Build the badges that pierce the top border
+    let mut badges_html = String::new();
+
+    // r[impl dashboard.editing.copy.button]
+    // r[impl dashboard.links.req-links]
+    // Segmented badge group: copy button + requirement ID
+    badges_html.push_str(&format!(
+        r#"<div class="req-badge-group"><button class="req-badge req-copy req-segment-left" data-req-id="{}" title="Copy requirement ID"><svg class="req-copy-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button><a class="req-badge req-id req-segment-right" href="/{}/{}/spec#r--{}" data-rule="{}" data-source-file="{}" data-source-line="{}" title="{}">{}</a></div>"#,
+        &rule_id,
+        spec_name, impl_name, &rule_id, &rule_id, source_file, rule.line, &rule_id, display_id
+    ));
+
+    // Implementation badge
+    if let Some(cov) = coverage {
+        if !cov.impl_refs.is_empty() {
+            let r = &cov.impl_refs[0];
+            let filename = r.file.rsplit('/').next().unwrap_or(&r.file);
+            let icon = devicon_class(&r.file)
+                .map(|c| format!(r#"<i class="{c}"></i> "#))
+                .unwrap_or_default();
+            let count_suffix = if cov.impl_refs.len() > 1 {
+                format!(" +{}", cov.impl_refs.len() - 1)
+            } else {
+                String::new()
+            };
+            // Serialize all refs as JSON for popup (manual, no serde)
+            let all_refs_json = cov
+                .impl_refs
+                .iter()
+                .map(|r| {
+                    format!(
+                        r#"{{"file":"{}","line":{}}}"#,
+                        r.file.replace('\\', "\\\\").replace('"', "\\\""),
+                        r.line
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+            let all_refs_json = format!("[{}]", all_refs_json).replace('"', "&quot;");
+            // r[impl dashboard.links.impl-refs]
+            badges_html.push_str(&format!(
+                r#"<a class="req-badge req-impl" href="/{}/{}/sources/{}:{}" data-file="{}" data-line="{}" data-all-refs="{}" title="Implementation: {}:{}">{icon}{}:{}{}</a>"#,
+                spec_name, impl_name, r.file, r.line, r.file, r.line, all_refs_json, r.file, r.line, filename, r.line, count_suffix
+            ));
+        }
+
+        // r[impl dashboard.links.verify-refs]
+        if !cov.verify_refs.is_empty() {
+            let r = &cov.verify_refs[0];
+            let filename = r.file.rsplit('/').next().unwrap_or(&r.file);
+            let icon = devicon_class(&r.file)
+                .map(|c| format!(r#"<i class="{c}"></i> "#))
+                .unwrap_or_default();
+            let count_suffix = if cov.verify_refs.len() > 1 {
+                format!(" +{}", cov.verify_refs.len() - 1)
+            } else {
+                String::new()
+            };
+            // Serialize all refs as JSON for popup (manual, no serde)
+            let all_refs_json = cov
+                .verify_refs
+                .iter()
+                .map(|r| {
+                    format!(
+                        r#"{{"file":"{}","line":{}}}"#,
+                        r.file.replace('\\', "\\\\").replace('"', "\\\""),
+                        r.line
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+            let all_refs_json = format!("[{}]", all_refs_json).replace('"', "&quot;");
+            badges_html.push_str(&format!(
+                r#"<a class="req-badge req-test" href="/{}/{}/sources/{}:{}" data-file="{}" data-line="{}" data-all-refs="{}" title="Test: {}:{}">{icon}{}:{}{}</a>"#,
+                spec_name, impl_name, r.file, r.line, r.file, r.line, all_refs_json, r.file, r.line, filename, r.line, count_suffix
+            ));
+        }
+    }
+
+    // r[impl dashboard.editing.byte-range.attribute]
+    // r[impl dashboard.editing.badge.display]
+    // r[impl dashboard.editing.badge.appearance]
+    // Edit badge - separate group on the right
+    let edit_badge_html = format!(
+        r#"<button class="req-badge req-edit" data-br="{}-{}" data-source-file="{}" title="Edit this requirement"><svg class="req-edit-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg> Edit</button>"#,
+        rule.span.offset,
+        rule.span.offset + rule.span.length,
+        source_file
+    );
+
+    // Render the opening of the req container
+    let open = format!(
+        r#"<div class="req-container req-{status}" id="{anchor}" data-br="{br_start}-{br_end}">
+<div class="req-badges-left">{badges}</div>
+<div class="req-badges-right">{edit_badge}</div>
+<div class="req-content">"#,
+        status = status,
+        anchor = rule.anchor_id,
+        br_start = rule.span.offset,
+        br_end = rule.span.offset + rule.span.length,
+        badges = badges_html,
+        edit_badge = edit_badge_html,
+    );
+
+    (open, "</div>\n</div>".to_string())
+}
+
 impl ReqHandler for TraceyRuleHandler {
     fn start<'a>(
         &'a self,
@@ -336,119 +462,20 @@ impl ReqHandler for TraceyRuleHandler {
         Box::pin(async move {
             let rule_id = rule.id.to_string();
             let coverage = self.coverage.get(&rule_id);
-            let status = coverage.map(|c| c.status).unwrap_or("uncovered");
-
-            // Insert <wbr> after dots for better line breaking
-            let display_id = rule_id.replace('.', ".<wbr>");
 
             // Get current source file for this rule (make it absolute)
             let relative_source = self.current_source_file.lock().unwrap().clone();
             let absolute_source = self.project_root.join(&relative_source);
             let source_file = absolute_source.display().to_string();
 
-            // Build the badges that pierce the top border
-            let mut badges_html = String::new();
-
-            // r[impl dashboard.editing.copy.button]
-            // r[impl dashboard.links.req-links]
-            // Segmented badge group: copy button + requirement ID
-            badges_html.push_str(&format!(
-                r#"<div class="req-badge-group"><button class="req-badge req-copy req-segment-left" data-req-id="{}" title="Copy requirement ID"><svg class="req-copy-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button><a class="req-badge req-id req-segment-right" href="/{}/{}/spec#r--{}" data-rule="{}" data-source-file="{}" data-source-line="{}" title="{}">{}</a></div>"#,
-                &rule_id,
-                self.spec_name, self.impl_name, &rule_id, &rule_id, source_file, rule.line, &rule_id, display_id
-            ));
-
-            // Implementation badge
-            if let Some(cov) = coverage {
-                if !cov.impl_refs.is_empty() {
-                    let r = &cov.impl_refs[0];
-                    let filename = r.file.rsplit('/').next().unwrap_or(&r.file);
-                    let icon = devicon_class(&r.file)
-                        .map(|c| format!(r#"<i class="{c}"></i> "#))
-                        .unwrap_or_default();
-                    let count_suffix = if cov.impl_refs.len() > 1 {
-                        format!(" +{}", cov.impl_refs.len() - 1)
-                    } else {
-                        String::new()
-                    };
-                    // Serialize all refs as JSON for popup (manual, no serde)
-                    let all_refs_json = cov
-                        .impl_refs
-                        .iter()
-                        .map(|r| {
-                            format!(
-                                r#"{{"file":"{}","line":{}}}"#,
-                                r.file.replace('\\', "\\\\").replace('"', "\\\""),
-                                r.line
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                        .join(",");
-                    let all_refs_json = format!("[{}]", all_refs_json).replace('"', "&quot;");
-                    // r[impl dashboard.links.impl-refs]
-                    badges_html.push_str(&format!(
-                        r#"<a class="req-badge req-impl" href="/{}/{}/sources/{}:{}" data-file="{}" data-line="{}" data-all-refs="{}" title="Implementation: {}:{}">{icon}{}:{}{}</a>"#,
-                        self.spec_name, self.impl_name, r.file, r.line, r.file, r.line, all_refs_json, r.file, r.line, filename, r.line, count_suffix
-                    ));
-                }
-
-                // r[impl dashboard.links.verify-refs]
-                if !cov.verify_refs.is_empty() {
-                    let r = &cov.verify_refs[0];
-                    let filename = r.file.rsplit('/').next().unwrap_or(&r.file);
-                    let icon = devicon_class(&r.file)
-                        .map(|c| format!(r#"<i class="{c}"></i> "#))
-                        .unwrap_or_default();
-                    let count_suffix = if cov.verify_refs.len() > 1 {
-                        format!(" +{}", cov.verify_refs.len() - 1)
-                    } else {
-                        String::new()
-                    };
-                    // Serialize all refs as JSON for popup (manual, no serde)
-                    let all_refs_json = cov
-                        .verify_refs
-                        .iter()
-                        .map(|r| {
-                            format!(
-                                r#"{{"file":"{}","line":{}}}"#,
-                                r.file.replace('\\', "\\\\").replace('"', "\\\""),
-                                r.line
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                        .join(",");
-                    let all_refs_json = format!("[{}]", all_refs_json).replace('"', "&quot;");
-                    badges_html.push_str(&format!(
-                        r#"<a class="req-badge req-test" href="/{}/{}/sources/{}:{}" data-file="{}" data-line="{}" data-all-refs="{}" title="Test: {}:{}">{icon}{}:{}{}</a>"#,
-                        self.spec_name, self.impl_name, r.file, r.line, r.file, r.line, all_refs_json, r.file, r.line, filename, r.line, count_suffix
-                    ));
-                }
-            }
-
-            // r[impl dashboard.editing.byte-range.attribute]
-            // r[impl dashboard.editing.badge.display]
-            // r[impl dashboard.editing.badge.appearance]
-            // Edit badge - separate group on the right
-            let edit_badge_html = format!(
-                r#"<button class="req-badge req-edit" data-br="{}-{}" data-source-file="{}" title="Edit this requirement"><svg class="req-edit-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg> Edit</button>"#,
-                rule.span.offset,
-                rule.span.offset + rule.span.length,
-                source_file
+            let (open, _close) = rule_coverage_badge_html(
+                rule,
+                coverage,
+                &source_file,
+                &self.spec_name,
+                &self.impl_name,
             );
-
-            // Render the opening of the req container
-            Ok(format!(
-                r#"<div class="req-container req-{status}" id="{anchor}" data-br="{br_start}-{br_end}">
-<div class="req-badges-left">{badges}</div>
-<div class="req-badges-right">{edit_badge}</div>
-<div class="req-content">"#,
-                status = status,
-                anchor = rule.anchor_id,
-                br_start = rule.span.offset,
-                br_end = rule.span.offset + rule.span.length,
-                badges = badges_html,
-                edit_badge = edit_badge_html,
-            ))
+            Ok(open)
         })
     }
 
@@ -2866,7 +2893,7 @@ async fn load_spec_content(
     );
     let inline_code_handler =
         TraceyInlineCodeHandler::new(spec_name.to_string(), impl_name.to_string());
-    let opts = RenderOptions::new()
+    let mut opts = RenderOptions::new()
         .with_default_handler(ArboriumHandler::new().with_language_header(true))
         .with_handler(&["aasvg"], AasvgHandler::new())
         .with_handler(&["pikchr"], PikruHandler::new())
@@ -2875,8 +2902,8 @@ async fn load_spec_content(
         .with_req_handler(rule_handler)
         .with_inline_code_handler(inline_code_handler);
 
-    // Collect all matching files with their content and weight
-    let mut files: Vec<(String, String, i32)> = Vec::new(); // (relative_path, content, weight)
+    // Collect all matching files with their content, weight, and format
+    let mut files: Vec<(String, String, i32, SpecFormat)> = Vec::new();
 
     let walker = WalkBuilder::new(root)
         .follow_links(true)
@@ -2906,49 +2933,87 @@ async fn load_spec_content(
         if let Ok(content) = read_file_with_overlay(path, overlay).await {
             // Parse frontmatter / metadata to get weight
             let weight = parse_weight(fmt, &content);
-            files.push((relative.to_string_lossy().to_string(), content, weight));
+            files.push((relative.to_string_lossy().to_string(), content, weight, fmt));
         }
     }
 
     // Sort by weight first, then lexicographically by path for deterministic order.
-    files.sort_by(|(path_a, _, weight_a), (path_b, _, weight_b)| {
+    files.sort_by(|(path_a, _, weight_a, _), (path_b, _, weight_b, _)| {
         weight_a.cmp(weight_b).then_with(|| path_a.cmp(path_b))
     });
 
-    // Concatenate all markdown files to render as one document
-    // This ensures heading IDs are hierarchical across all files
-    let mut combined_markdown = String::new();
-    let mut first_source_file = String::new();
+    // Partition the sorted file list into runs of consecutive same-format files
+    // and render each run with the appropriate backend.
+    //
+    // Markdown runs are concatenated and rendered once via marq so that the
+    // heading-slug stack and hierarchical IDs span the whole run (matching the
+    // pre-multi-format behaviour). Typst files are rendered individually.
+    let mut sections: Vec<SpecSection> = Vec::new();
+    let mut all_elements: Vec<marq::DocElement> = Vec::new();
+    let mut head_injections: Vec<String> = Vec::new();
 
-    for (i, (source_file, content, _weight)) in files.iter().enumerate() {
-        if i == 0 {
-            first_source_file = source_file.clone();
+    let mut i = 0;
+    while i < files.len() {
+        let run_fmt = files[i].3;
+        let run_start = i;
+        while i < files.len() && files[i].3 == run_fmt {
+            i += 1;
         }
-        combined_markdown.push_str(content);
-        combined_markdown.push_str("\n\n"); // Ensure separation between files
+        let run = &files[run_start..i];
+
+        match run_fmt {
+            SpecFormat::Markdown => {
+                // Concatenate all markdown in this run and render as one document
+                // so heading IDs are hierarchical across the run.
+                let mut combined = String::new();
+                for (_, content, _, _) in run {
+                    combined.push_str(content);
+                    combined.push_str("\n\n"); // Ensure separation between files
+                }
+                let first_file = run[0].0.clone();
+                // Set source_path so paragraphs get data-source-file attributes for
+                // click-to-edit. Must be absolute for editor navigation.
+                *current_source_file.lock().unwrap() = first_file.clone();
+                opts.source_path = Some(root.join(&first_file).display().to_string());
+                let doc = render(&combined, &opts).await?;
+
+                sections.push(SpecSection {
+                    source_file: first_file,
+                    html: doc.html,
+                    weight: run[0].2,
+                });
+                all_elements.extend(doc.elements);
+                head_injections.extend(doc.head_injections);
+            }
+            SpecFormat::Typst => {
+                // Typst files render one section each. Phase 8 replaces the
+                // placeholder html from `parse_spec` with the real compiler output.
+                for (source_file, content, weight, _) in run {
+                    let doc = parse_spec(SpecFormat::Typst, content).await?;
+                    sections.push(SpecSection {
+                        source_file: source_file.clone(),
+                        html: doc.html,
+                        weight: *weight,
+                    });
+                    all_elements.extend(doc.elements);
+                    head_injections.extend(doc.head_injections);
+                }
+            }
+        }
     }
 
-    // Render the combined document once (so heading_stack works across files)
-    // Set source_path so paragraphs get data-source-file attributes for click-to-edit
-    // Must use absolute path for editor navigation to work correctly
-    *current_source_file.lock().unwrap() = first_source_file.clone();
-    let absolute_source_path = root.join(&first_source_file).display().to_string();
-    let opts = opts.with_source_path(&absolute_source_path);
-    let doc = render(&combined_markdown, &opts).await?;
+    // Heading slugs are unique within a single marq render, but separate runs
+    // (md/typ/md) can collide. Dedup post-hoc so outline anchors stay unique.
+    dedup_heading_slugs(&mut all_elements);
 
-    // Create a single section with all content
-    // (Frontend concatenates sections anyway, this just simplifies tracking)
-    let mut sections = Vec::new();
-    if !files.is_empty() {
-        sections.push(SpecSection {
-            source_file: first_source_file,
-            html: doc.html,
-            weight: files[0].2,
-        });
+    // head_injections from multiple runs may repeat (e.g. mermaid loader); the
+    // frontend already keys by content hash but dedup here too to keep payload
+    // small. Order-preserving so a single-run markdown spec is byte-identical
+    // to the pre-refactor output.
+    {
+        let mut seen = std::collections::HashSet::new();
+        head_injections.retain(|h| seen.insert(h.clone()));
     }
-
-    let all_elements = doc.elements;
-    let head_injections = doc.head_injections;
 
     // Build outline from elements
     let outline = build_outline(&all_elements, coverage);
@@ -2966,6 +3031,23 @@ async fn load_spec_content(
     }
 
     Ok(())
+}
+
+/// Ensure heading `id`s are unique across `elements`, appending `-2`, `-3`, …
+/// to repeats. Within a single marq render slugs are already unique; this only
+/// fires when multiple format runs (or multiple marq renders) are concatenated.
+fn dedup_heading_slugs(elements: &mut [marq::DocElement]) {
+    use marq::DocElement;
+    let mut seen: HashMap<String, usize> = HashMap::new();
+    for el in elements.iter_mut() {
+        if let DocElement::Heading(h) = el {
+            let n = seen.entry(h.id.clone()).or_insert(0);
+            *n += 1;
+            if *n > 1 {
+                h.id = format!("{}-{}", h.id, *n);
+            }
+        }
+    }
 }
 
 pub async fn render_spec_content_for_impl(
