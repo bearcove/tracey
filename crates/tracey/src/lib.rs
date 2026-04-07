@@ -24,6 +24,8 @@ use tracey_core::{SpecFormat, extract_marker_prefix, parse_spec};
 pub struct ExtractedRule {
     pub def: ReqDefinition,
     pub source_file: String,
+    /// Spec dialect the source file is written in.
+    pub format: SpecFormat,
     /// Marker prefix used by this requirement definition (e.g., "r" in `r[foo.bar]`)
     pub prefix: String,
     /// 1-indexed column where the rule marker starts
@@ -207,6 +209,7 @@ pub async fn load_rules_from_glob(
                 rules.push(ExtractedRule {
                     def: req,
                     source_file: display_path.clone(),
+                    format: fmt,
                     prefix,
                     column,
                     section,

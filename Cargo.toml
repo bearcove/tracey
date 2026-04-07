@@ -125,6 +125,11 @@ arborium-cmake = "2.16.0"
 arborium-ocaml = "2.16.0"
 arborium-bash = "2.16.0"
 arborium-nix = "2.16.0"
+arborium-typst = "2.16.0"
+arborium-tree-sitter = "2.16.0"
+
+# HTML escaping
+html-escape = "0.2"
 
 # HTTP server for serve command
 axum = { version = "0.8", features = ["ws"] }

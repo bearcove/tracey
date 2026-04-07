@@ -1036,6 +1036,7 @@ async fn extract_spec_rules_cached(
             extracted.push(crate::ExtractedRule {
                 def: req,
                 source_file: relative_display.clone(),
+                format: fmt,
                 prefix,
                 column,
                 section,
