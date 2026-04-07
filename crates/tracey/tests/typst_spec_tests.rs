@@ -33,7 +33,7 @@ async fn extracts_rules() {
 
     for r in &rules {
         assert_eq!(r.format, SpecFormat::Typst);
-        assert_eq!(r.prefix, "req");
+        assert_eq!(r.prefix, "r");
         assert!(r.section.is_some(), "every req sits under a heading");
     }
 
@@ -135,7 +135,7 @@ async fn renders_html_with_badges() {
 
     // Badge container spliced in (one per req; spot-check auth.login).
     assert!(html.contains("class=\"req-container req-uncovered\""));
-    assert!(html.contains("id=\"req-auth.login\""));
+    assert!(html.contains("id=\"r-auth.login\""));
     assert!(html.contains("data-req-id=\"auth.login\""));
     // Body content survives the splice.
     assert!(html.contains("Users MUST provide valid credentials"));

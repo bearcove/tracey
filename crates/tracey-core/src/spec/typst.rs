@@ -539,9 +539,8 @@ mod compiler {
                     continue;
                 } else if s[i..].starts_with("<div") {
                     // Only count as a div open if followed by whitespace or `>`.
-                    match bytes.get(i + 4) {
-                        Some(b' ' | b'>' | b'\t' | b'\n' | b'/') => depth += 1,
-                        _ => {}
+                    if let Some(b' ' | b'>' | b'\t' | b'\n' | b'/') = bytes.get(i + 4) {
+                        depth += 1;
                     }
                 }
             }
