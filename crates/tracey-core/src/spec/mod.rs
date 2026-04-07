@@ -183,11 +183,29 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn typst_parse_is_stubbed() {
-        let err = parse_spec(SpecFormat::Typst, "= Title").await.unwrap_err();
-        assert!(
-            err.to_string().contains("typst"),
-            "expected stub error, got: {err}"
+    async fn typst_parse_roundtrips_single_req() {
+        let typ = "= Title\n\n#req(\"auth.login\")[Users must log in.]\n";
+        let doc = parse_spec(SpecFormat::Typst, typ).await.unwrap();
+        assert_eq!(doc.reqs.len(), 1);
+        assert_eq!(doc.reqs[0].id.base, "auth.login");
+    }
+
+    #[test]
+    fn typst_extract_marker_prefix_finds_paren() {
+        let content = "#req(\"auth.login\")[body]";
+        let span = SourceSpan {
+            offset: 0,
+            length: "#req(\"auth.login\")".len(),
+        };
+        assert_eq!(
+            extract_marker_prefix(SpecFormat::Typst, content, span),
+            Some("req".to_string())
         );
+    }
+
+    #[test]
+    fn typst_rewrite_marker_bumps_version() {
+        let out = rewrite_marker(SpecFormat::Typst, "#req(\"auth.login\")", "auth.login", 2).unwrap();
+        assert_eq!(out, "#req(\"auth.login+2\")");
     }
 }
