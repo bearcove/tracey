@@ -2,7 +2,7 @@
   // r[impl export.sidebar.mobile]
   // Mobile sidebar toggle
   var toggle = document.getElementById("sidebar-toggle");
-  var sidebar = document.getElementById("export-sidebar");
+  var sidebar = document.querySelector(".sidebar");
   if (toggle && sidebar) {
     var backdrop = document.createElement("div");
     backdrop.className = "sidebar-backdrop";
@@ -54,13 +54,15 @@
   // Scroll spy: highlight the current section in the sidebar and
   // auto-expand its parent <details> as you scroll.
   function setupScrollSpy() {
-    // Collect all headings that have matching sidebar links
-    var sidebarLinks = sidebar
-      ? Array.from(sidebar.querySelectorAll("a[href*='#']"))
-      : [];
-    if (sidebarLinks.length === 0) return;
+    // The content panel is the scroll container (app-style layout),
+    // aligned with the dashboard's approach in spec.tsx.
+    var contentPanel = document.querySelector(".content");
+    if (!contentPanel || !sidebar) return;
 
     // Build a map from slug -> sidebar link
+    var sidebarLinks = Array.from(sidebar.querySelectorAll("a[href*='#']"));
+    if (sidebarLinks.length === 0) return;
+
     var linkBySlug = {};
     sidebarLinks.forEach(function (a) {
       var hash = a.getAttribute("href");
@@ -71,42 +73,56 @@
       }
     });
 
-    // Find matching headings in the content
-    var headings = [];
-    Object.keys(linkBySlug).forEach(function (slug) {
-      var el = document.getElementById(slug);
-      if (el) headings.push({ el: el, slug: slug });
-    });
-
-    if (headings.length === 0) return;
-
     var currentSlug = null;
 
     function updateScrollSpy() {
-      // Find the heading closest to the top of the viewport
-      var scrollY = window.scrollY + 80; // offset for header
+      // Query headings directly from the content (same as dashboard)
+      var headingEls = contentPanel.querySelectorAll("h1[id], h2[id], h3[id], h4[id]");
+      if (headingEls.length === 0) return;
+
+      var scrollTop = contentPanel.scrollTop;
+      var viewportTop = 100; // offset, same as dashboard
+
       var best = null;
-      for (var i = 0; i < headings.length; i++) {
-        if (headings[i].el.offsetTop <= scrollY) {
-          best = headings[i].slug;
+      for (var i = 0; i < headingEls.length; i++) {
+        var el = headingEls[i];
+        // offsetTop relative to offsetParent; we need position relative
+        // to the scroll container. Use getBoundingClientRect for accuracy.
+        var rect = el.getBoundingClientRect();
+        var containerRect = contentPanel.getBoundingClientRect();
+        var relativeTop = rect.top - containerRect.top + scrollTop;
+
+        if (relativeTop <= scrollTop + viewportTop) {
+          best = el.id;
+        } else {
+          break;
         }
       }
-      // If scrolled to the very top, use the first heading
-      if (!best && headings.length > 0) best = headings[0].slug;
+
+      if (!best && headingEls.length > 0) best = headingEls[0].id;
 
       if (best === currentSlug) return;
       currentSlug = best;
 
-      // Remove active from all sidebar links
-      sidebarLinks.forEach(function (a) {
+      // Remove active from all sidebar links (including spec/readme links)
+      sidebar.querySelectorAll("a.active").forEach(function (a) {
         a.classList.remove("active");
       });
 
-      if (best && linkBySlug[best]) {
-        var activeLink = linkBySlug[best];
+      // If the best heading doesn't have a sidebar link (e.g. h3),
+      // walk up the slug hierarchy to find the nearest parent that does.
+      // Slugs use "--" nesting: "tooling--dashboard--url-scheme" → "tooling--dashboard" → "tooling"
+      var resolved = best;
+      while (resolved && !linkBySlug[resolved]) {
+        var lastSep = resolved.lastIndexOf("--");
+        resolved = lastSep > 0 ? resolved.substring(0, lastSep) : null;
+      }
+
+      if (resolved && linkBySlug[resolved]) {
+        var activeLink = linkBySlug[resolved];
         activeLink.classList.add("active");
 
-        // Auto-expand parent <details> elements so the active link is visible
+        // Auto-expand parent <details> elements
         var parent = activeLink.closest("details");
         while (parent) {
           if (!parent.open) parent.open = true;
@@ -116,7 +132,7 @@
         }
 
         // Scroll the sidebar to keep the active link visible
-        if (sidebar && activeLink.offsetParent) {
+        if (activeLink.offsetParent) {
           var linkTop = activeLink.offsetTop;
           var sidebarScroll = sidebar.scrollTop;
           var sidebarHeight = sidebar.clientHeight;
@@ -133,9 +149,9 @@
       }
     }
 
-    // Throttle scroll events
+    // Listen on the content panel, not the window
     var ticking = false;
-    window.addEventListener("scroll", function () {
+    contentPanel.addEventListener("scroll", function () {
       if (!ticking) {
         requestAnimationFrame(function () {
           updateScrollSpy();
@@ -145,7 +161,6 @@
       }
     });
 
-    // Initial update
     updateScrollSpy();
   }
 

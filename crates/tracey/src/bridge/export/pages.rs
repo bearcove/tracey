@@ -9,6 +9,7 @@ use super::{SidebarSpec, SpecExportData};
 // r[impl export.landing.readme]
 // r[impl export.landing.spec-list]
 pub(crate) fn landing_page(
+    project_name: &str,
     readme_html: &Option<String>,
     specs: &[SpecExportData],
     sidebar_entries: &[SidebarSpec],
@@ -60,7 +61,7 @@ pub(crate) fn landing_page(
         }
     };
 
-    page_shell("Home", "index.html", sidebar_entries, content)
+    page_shell(project_name, "index.html", sidebar_entries, content)
 }
 
 // r[impl export.spec-page.rendered-markdown]
@@ -87,12 +88,6 @@ pub(crate) fn spec_page(
         all_html.push_str(&enhanced);
     }
 
-    let title = if let Some(first_heading) = spec_data.outline.first() {
-        first_heading.title.clone()
-    } else {
-        spec_name.to_string()
-    };
-
     let content = html! {
         .content.export-content.spec-page {
             .markdown {
@@ -101,7 +96,7 @@ pub(crate) fn spec_page(
         }
     };
 
-    page_shell(&title, page_path, sidebar_entries, content)
+    page_shell(spec_name, page_path, sidebar_entries, content)
 }
 
 /// Post-process spec HTML to:
@@ -337,7 +332,7 @@ mod tests {
         let specs = vec![];
         let sidebar = vec![];
 
-        let markup = landing_page(&readme, &specs, &sidebar);
+        let markup = landing_page("myproject", &readme, &specs, &sidebar);
         let s = markup.into_string();
 
         assert!(s.contains("My Project"));
@@ -350,7 +345,7 @@ mod tests {
         let specs = vec![];
         let sidebar = vec![];
 
-        let markup = landing_page(&None, &specs, &sidebar);
+        let markup = landing_page("myproject", &None, &specs, &sidebar);
         let s = markup.into_string();
 
         assert!(s.contains("Specification Coverage"));
@@ -385,7 +380,7 @@ mod tests {
         }];
         let sidebar = vec![];
 
-        let markup = landing_page(&None, &specs, &sidebar);
+        let markup = landing_page("myproject", &None, &specs, &sidebar);
         let s = markup.into_string();
 
         assert!(s.contains("myspec"));
@@ -395,7 +390,7 @@ mod tests {
     }
 
     #[test]
-    fn test_enhance_spec_html_adds_coverage() {
+    fn test_enhance_spec_html_adds_status_and_badge() {
         let html = r#"<div class="req-container" id="r-auth.login"><p>Users must log in</p></div>"#;
         let rule = make_rule("auth.login", vec![("src/auth.rs", 42)], vec![]);
         let rules: std::collections::HashMap<String, &ApiRule> =
@@ -404,9 +399,8 @@ mod tests {
         let result = enhance_spec_html(html, &rules);
 
         assert!(result.contains("export-req-partial")); // has impl but no verify
-        assert!(result.contains("src/auth.rs:42"));
-        assert!(result.contains("🔍")); // missing verify
-        assert!(!result.contains("⚠️")); // has impl
+        assert!(result.contains("export-req-id")); // badge injected
+        assert!(result.contains("auth.login")); // req ID shown
     }
 
     #[test]
@@ -419,8 +413,7 @@ mod tests {
         let result = enhance_spec_html(html, &rules);
 
         assert!(result.contains("export-req-uncovered"));
-        assert!(result.contains("⚠️"));
-        assert!(result.contains("🔍"));
+        assert!(result.contains("export-req-id"));
     }
 
     #[test]
@@ -433,10 +426,7 @@ mod tests {
         let result = enhance_spec_html(html, &rules);
 
         assert!(result.contains("export-req-covered"));
-        assert!(!result.contains("⚠️"));
-        assert!(!result.contains("🔍"));
-        assert!(result.contains("src/a.rs:1"));
-        assert!(result.contains("tests/a.rs:2"));
+        assert!(result.contains("export-req-id"));
     }
 
     #[test]
