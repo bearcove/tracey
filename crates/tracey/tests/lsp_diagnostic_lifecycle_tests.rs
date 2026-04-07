@@ -850,3 +850,38 @@ fn now_working() {}"#;
         "Fixed file should no longer be tracked"
     );
 }
+
+// ============================================================================
+// Typst Spec LSP Tests
+// ============================================================================
+
+/// Opening a `.typ` spec file and requesting semantic tokens yields one token
+/// per `#req(...)` marker.
+#[tokio::test]
+async fn test_lsp_semantic_tokens_typst_spec() {
+    let service = create_test_service_named("typst").await;
+    let dir = fixtures_named("typst");
+
+    let spec_path = dir.join("spec.typ");
+    let content = std::fs::read_to_string(&spec_path).expect("read spec.typ");
+    let req_count = content.matches("#req(").count();
+    assert!(req_count > 0, "fixture spec.typ should contain #req markers");
+
+    let req = LspDocumentRequest {
+        path: spec_path.display().to_string(),
+        content,
+    };
+
+    let tokens = rpc(service.client.lsp_semantic_tokens(req).await);
+
+    assert_eq!(
+        tokens.len(),
+        req_count,
+        "expected one semantic token per #req marker"
+    );
+    // All spec-file definition tokens should carry the DEFINITION modifier.
+    assert!(
+        tokens.iter().all(|t| t.modifiers == 1),
+        "expected every typst marker token to have the DEFINITION modifier"
+    );
+}
