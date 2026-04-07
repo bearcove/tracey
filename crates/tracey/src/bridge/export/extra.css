@@ -41,6 +41,10 @@
     overflow-y: auto;
 }
 
+.outline-tree {
+    padding-bottom: var(--space-2);
+}
+
 /* ── Footer ─────────────────────────────────────────────────── */
 
 .export-footer {
@@ -59,138 +63,24 @@
     text-decoration: underline;
 }
 
-/* ── Sidebar tree ───────────────────────────────────────────── */
+/* ── Sidebar folding (export-only addition to dashboard TOC) ── */
 /* r[impl export.sidebar.structure] */
+/* r[impl export.sidebar.collapsible] */
 
-.sidebar-section {
-    margin-bottom: var(--space-2);
-}
-
-.sidebar-section summary {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    padding: var(--space-1-5) var(--space-4);
-    cursor: pointer;
-    font-size: var(--text-sm);
-    font-weight: 600;
-    color: var(--fg);
-    user-select: none;
-    list-style: none;
-}
-
-.sidebar-section summary::-webkit-details-marker {
+/* JS toggles .is-collapsed on .toc-children to fold/unfold */
+.toc-children.is-collapsed {
     display: none;
 }
 
-.sidebar-section summary::before {
-    content: "▶";
-    font-size: var(--text-2xs);
-    transition: transform var(--duration-fast) var(--ease-out);
-    display: inline-block;
-    width: 1em;
-    flex-shrink: 0;
-}
-
-.sidebar-section[open] > summary::before {
-    transform: rotate(90deg);
-}
-
-.sidebar-tree {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-}
-
-.sidebar-tree a {
-    display: block;
-    padding: var(--space-1) var(--space-4) var(--space-1) var(--space-6);
-    color: var(--fg-muted);
-    text-decoration: none;
-    font-size: var(--text-sm);
-    border-left: 2px solid transparent;
-    transition: all var(--duration-fast) var(--ease-out);
-}
-
-.sidebar-tree a:hover {
-    color: var(--fg);
-    background: var(--hover-subtle);
-}
-
-.sidebar-tree a.active {
-    color: var(--accent);
-    border-left-color: var(--accent);
-    background: var(--hover-subtle);
-    font-weight: 500;
-}
-
-/* Nested heading trees get progressive indentation from nesting */
-.sidebar-tree .sidebar-tree {
-    padding-left: var(--space-3);
-}
-
-/* Spec name link in sidebar summary */
-.sidebar-spec-link {
-    color: inherit;
-    text-decoration: none;
-}
-
-.sidebar-spec-link:hover {
-    color: var(--accent);
-}
-
-.sidebar-spec-link.active {
-    color: var(--accent);
-}
-
-/* Collapsible heading subsections in sidebar */
-.sidebar-subsection {
-    margin: 0;
-}
-
-.sidebar-subsection summary {
-    list-style: none;
+/* Make toc-items with children show a clickable fold indicator */
+.toc-item:has(> .toc-children) > .toc-row {
     cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: var(--space-1);
 }
 
-.sidebar-subsection summary::-webkit-details-marker {
-    display: none;
-}
-
-.sidebar-subsection summary::before {
-    content: "▸";
-    font-size: var(--text-2xs);
-    color: var(--fg-dim);
-    transition: transform var(--duration-fast) var(--ease-out);
-    display: inline-block;
-    width: 0.8em;
-    flex-shrink: 0;
-}
-
-.sidebar-subsection[open] > summary::before {
-    transform: rotate(90deg);
-}
-
-.sidebar-readme-link {
-    display: block;
-    padding: var(--space-2) var(--space-4);
-    color: var(--fg);
-    text-decoration: none;
-    font-weight: 600;
-    font-size: var(--text-sm);
-    border-left: 2px solid transparent;
-}
-
-.sidebar-readme-link:hover {
-    background: var(--hover-subtle);
-}
-
-.sidebar-readme-link.active {
-    color: var(--accent);
-    border-left-color: var(--accent);
+/* Sidebar scrollable content area */
+.sidebar-content {
+    flex: 1;
+    overflow-y: auto;
 }
 
 /* ── Mobile sidebar ─────────────────────────────────────────── */

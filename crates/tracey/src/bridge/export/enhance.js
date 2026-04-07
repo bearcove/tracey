@@ -24,70 +24,83 @@
   }
 
   // r[impl export.sidebar.collapsible]
-  // Persist collapsed state in localStorage
+  // Click on a toc-row that has toc-children toggles fold.
+  // Persist state in localStorage.
   var STORAGE_KEY = "tracey-export-sidebar-state";
-  var allCollapsible = ".sidebar-section, .sidebar-subsection";
 
-  function saveSidebarState() {
+  function saveFoldState() {
+    if (!sidebar) return;
     var state = {};
-    document.querySelectorAll(allCollapsible).forEach(function (el) {
-      var key = el.dataset.sidebarKey;
-      if (key) state[key] = el.open;
+    sidebar.querySelectorAll(".toc-children").forEach(function (ul) {
+      var item = ul.parentElement;
+      var slug = item ? item.getAttribute("data-slug") : null;
+      if (slug) state[slug] = ul.classList.contains("is-collapsed");
     });
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch (e) {}
   }
 
-  function restoreSidebarState() {
+  function restoreFoldState() {
+    if (!sidebar) return;
     try {
       var state = JSON.parse(localStorage.getItem(STORAGE_KEY));
       if (!state) return;
-      document.querySelectorAll(allCollapsible).forEach(function (el) {
-        var key = el.dataset.sidebarKey;
-        if (key && key in state) el.open = state[key];
+      sidebar.querySelectorAll(".toc-children").forEach(function (ul) {
+        var item = ul.parentElement;
+        var slug = item ? item.getAttribute("data-slug") : null;
+        if (slug && slug in state) {
+          ul.classList.toggle("is-collapsed", state[slug]);
+        }
       });
     } catch (e) {}
   }
 
+  function setupFolding() {
+    if (!sidebar) return;
+    // Click on a toc-row toggles its sibling toc-children
+    sidebar.querySelectorAll(".toc-item").forEach(function (item) {
+      var children = item.querySelector(":scope > .toc-children");
+      if (!children) return;
+      var row = item.querySelector(":scope > .toc-row");
+      if (!row) return;
+
+      row.addEventListener("click", function (e) {
+        // Don't interfere with ctrl/cmd-click (open in new tab)
+        if (e.ctrlKey || e.metaKey) return;
+        e.preventDefault();
+        children.classList.toggle("is-collapsed");
+        saveFoldState();
+      });
+    });
+  }
+
   // r[impl export.sidebar.current-page]
-  // Scroll spy: highlight the current section in the sidebar and
-  // auto-expand its parent <details> as you scroll.
+  // Scroll spy: highlight the current heading in the sidebar.
   function setupScrollSpy() {
-    // The content panel is the scroll container (app-style layout),
-    // aligned with the dashboard's approach in spec.tsx.
     var contentPanel = document.querySelector(".content");
     if (!contentPanel || !sidebar) return;
 
-    // Build a map from slug -> sidebar link
-    var sidebarLinks = Array.from(sidebar.querySelectorAll("a[href*='#']"));
-    if (sidebarLinks.length === 0) return;
-
-    var linkBySlug = {};
-    sidebarLinks.forEach(function (a) {
-      var hash = a.getAttribute("href");
-      var idx = hash.indexOf("#");
-      if (idx >= 0) {
-        var slug = hash.slice(idx + 1);
-        if (slug) linkBySlug[slug] = a;
-      }
+    // Build slug -> toc-item map
+    var tocItems = {};
+    sidebar.querySelectorAll(".toc-item[data-slug]").forEach(function (item) {
+      tocItems[item.getAttribute("data-slug")] = item;
     });
 
     var currentSlug = null;
 
     function updateScrollSpy() {
-      // Query headings directly from the content (same as dashboard)
-      var headingEls = contentPanel.querySelectorAll("h1[id], h2[id], h3[id], h4[id]");
+      var headingEls = contentPanel.querySelectorAll(
+        "h1[id], h2[id], h3[id], h4[id]",
+      );
       if (headingEls.length === 0) return;
 
       var scrollTop = contentPanel.scrollTop;
-      var viewportTop = 100; // offset, same as dashboard
+      var viewportTop = 100;
 
       var best = null;
       for (var i = 0; i < headingEls.length; i++) {
         var el = headingEls[i];
-        // offsetTop relative to offsetParent; we need position relative
-        // to the scroll container. Use getBoundingClientRect for accuracy.
         var rect = el.getBoundingClientRect();
         var containerRect = contentPanel.getBoundingClientRect();
         var relativeTop = rect.top - containerRect.top + scrollTop;
@@ -104,52 +117,53 @@
       if (best === currentSlug) return;
       currentSlug = best;
 
-      // Remove active from all sidebar links (including spec/readme links)
-      sidebar.querySelectorAll("a.active").forEach(function (a) {
-        a.classList.remove("active");
+      // Remove is-active from all toc-items
+      sidebar.querySelectorAll(".toc-item.is-active").forEach(function (item) {
+        item.classList.remove("is-active");
       });
 
-      // If the best heading doesn't have a sidebar link (e.g. h3),
-      // walk up the slug hierarchy to find the nearest parent that does.
-      // Slugs use "--" nesting: "tooling--dashboard--url-scheme" → "tooling--dashboard" → "tooling"
+      // Walk up slug hierarchy to find a toc-item
       var resolved = best;
-      while (resolved && !linkBySlug[resolved]) {
+      while (resolved && !tocItems[resolved]) {
         var lastSep = resolved.lastIndexOf("--");
         resolved = lastSep > 0 ? resolved.substring(0, lastSep) : null;
       }
 
-      if (resolved && linkBySlug[resolved]) {
-        var activeLink = linkBySlug[resolved];
-        activeLink.classList.add("active");
+      if (resolved && tocItems[resolved]) {
+        var activeItem = tocItems[resolved];
+        activeItem.classList.add("is-active");
 
-        // Auto-expand parent <details> elements
-        var parent = activeLink.closest("details");
+        // Mark parent toc-children as has-active and unfold them
+        var parent = activeItem.closest(".toc-children");
+        // First, clear all has-active
+        sidebar.querySelectorAll(".toc-children.has-active").forEach(function (ul) {
+          ul.classList.remove("has-active");
+        });
         while (parent) {
-          if (!parent.open) parent.open = true;
+          parent.classList.add("has-active");
+          parent.classList.remove("is-collapsed");
           parent = parent.parentElement
-            ? parent.parentElement.closest("details")
+            ? parent.parentElement.closest(".toc-children")
             : null;
         }
 
-        // Scroll the sidebar to keep the active link visible
-        if (activeLink.offsetParent) {
-          var linkTop = activeLink.offsetTop;
-          var sidebarScroll = sidebar.scrollTop;
-          var sidebarHeight = sidebar.clientHeight;
+        // Scroll the sidebar to keep the active item visible
+        var row = activeItem.querySelector(".toc-row");
+        if (row) {
+          var sidebarContent =
+            sidebar.querySelector(".sidebar-content") || sidebar;
+          var rowRect = row.getBoundingClientRect();
+          var sidebarRect = sidebarContent.getBoundingClientRect();
           if (
-            linkTop < sidebarScroll + 40 ||
-            linkTop > sidebarScroll + sidebarHeight - 40
+            rowRect.top < sidebarRect.top + 40 ||
+            rowRect.bottom > sidebarRect.bottom - 40
           ) {
-            sidebar.scrollTo({
-              top: linkTop - sidebarHeight / 3,
-              behavior: "smooth",
-            });
+            row.scrollIntoView({ block: "center", behavior: "smooth" });
           }
         }
       }
     }
 
-    // Listen on the content panel, not the window
     var ticking = false;
     contentPanel.addEventListener("scroll", function () {
       if (!ticking) {
@@ -165,10 +179,8 @@
   }
 
   document.addEventListener("DOMContentLoaded", function () {
-    restoreSidebarState();
-    document.querySelectorAll(allCollapsible).forEach(function (el) {
-      el.addEventListener("toggle", saveSidebarState);
-    });
+    restoreFoldState();
+    setupFolding();
     setupScrollSpy();
   });
 })();
