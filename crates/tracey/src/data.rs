@@ -23,12 +23,16 @@ use tracey_core::{
     classify_reference_for_rule, parse_rule_id,
 };
 use tracey_core::{SUPPORTED_EXTENSIONS, is_supported_extension};
+use tracey_core::{
+    SpecFormat, extract_marker_prefix as spec_extract_prefix, is_spec_extension, parse_spec,
+    parse_weight,
+};
 use tracing::info;
 
 // Markdown rendering
 use marq::{
     AasvgHandler, ArboriumHandler, CompareHandler, InlineCodeHandler, MermaidHandler, PikruHandler,
-    RenderOptions, ReqHandler, parse_frontmatter, render,
+    RenderOptions, ReqHandler, render,
 };
 
 use crate::config::Config;
@@ -316,6 +320,7 @@ fn devicon_class(path: &str) -> Option<&'static str> {
         "scss" | "sass" => Some("devicon-sass-original"),
         // Docs
         "md" | "markdown" => Some("devicon-markdown-original"),
+        "typ" => Some("devicon-latex-original"),
         _ => None,
     }
 }
@@ -580,21 +585,6 @@ fn compute_column_for_content(content: &str, byte_offset: usize) -> usize {
     before[line_start..].chars().count() + 1
 }
 
-fn extract_marker_prefix_from_content(
-    content: &str,
-    marker_span: marq::SourceSpan,
-) -> Option<String> {
-    let start = marker_span.offset;
-    let end = start.checked_add(marker_span.length)?;
-    let marker = content.get(start..end)?;
-    let bracket = marker.find('[')?;
-    let prefix = marker[..bracket].trim();
-    if prefix.is_empty() {
-        return None;
-    }
-    Some(prefix.to_string())
-}
-
 async fn get_cached_source_file(
     path: &Path,
     overlay: &FileOverlay,
@@ -830,7 +820,7 @@ fn full_walk_for_roots(
             if !ft.is_file() {
                 continue;
             }
-            if include_spec_only && path.extension().is_none_or(|ext| ext != "md") {
+            if include_spec_only && path.extension().is_none_or(|ext| !is_spec_extension(ext)) {
                 continue;
             }
             if include_supported_ext_only
@@ -864,7 +854,7 @@ fn update_cached_scan_paths(
     for changed in changed_files {
         let exists = changed.exists();
         let ext_ok = if include_spec_only {
-            changed.extension().is_some_and(|ext| ext == "md")
+            changed.extension().is_some_and(is_spec_extension)
         } else if include_supported_ext_only {
             changed.extension().is_some_and(is_supported_extension)
         } else {
@@ -998,7 +988,8 @@ async fn extract_spec_rules_cached(
         compute_relative_path(project_root, &canonical)
     };
 
-    let doc = render(&content, &RenderOptions::default())
+    let fmt = SpecFormat::from_path(&canonical).unwrap_or(SpecFormat::Markdown);
+    let doc = parse_spec(fmt, &content)
         .await
         .map_err(|e| eyre::eyre!("Failed to process {}: {}", canonical.display(), e))?;
 
@@ -1032,7 +1023,7 @@ async fn extract_spec_rules_cached(
         for req in doc.reqs {
             let column = Some(compute_column_for_content(&content, req.span.offset));
             let prefix =
-                extract_marker_prefix_from_content(&content, req.marker_span).ok_or_else(|| {
+                spec_extract_prefix(fmt, &content, req.marker_span).ok_or_else(|| {
                     eyre::eyre!(
                         "Failed to determine requirement marker prefix in {} at line {}",
                         relative_display,
@@ -1080,7 +1071,7 @@ async fn load_rules_from_includes_cached(
         get_cached_spec_scan_paths(project_root, include_patterns, changed_files, cache);
     let (spec_roots, _) = build_scan_roots(project_root, include_patterns);
     for overlay_path in overlay.keys() {
-        if overlay_path.extension().is_none_or(|ext| ext != "md") {
+        if overlay_path.extension().is_none_or(|ext| !is_spec_extension(ext)) {
             continue;
         }
         if path_matches_any_root(overlay_path, &spec_roots) {
@@ -1971,9 +1962,9 @@ async fn compute_spec_file_diagnostics(
     for (path, content) in spec_file_contents {
         let mut diagnostics = Vec::new();
 
-        // Coverage diagnostics: parse the markdown to get requirement definitions
-        let options = RenderOptions::default();
-        if let Ok(doc) = render(content, &options).await {
+        // Coverage diagnostics: parse the spec doc to get requirement definitions
+        let fmt = SpecFormat::from_path(path).unwrap_or(SpecFormat::Markdown);
+        if let Ok(doc) = parse_spec(fmt, content).await {
             for def in &doc.reqs {
                 let (start_line, start_char, end_line, end_char) =
                     span_to_range(content, def.marker_span.offset, def.marker_span.length);
@@ -2470,7 +2461,7 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
                 Add at least one impl block to your config:\n\n\
                 spec {{\n    \
                     name \"{}\"\n    \
-                    include \"docs/spec/**/*.md\"\n\n    \
+                    include \"docs/spec/**/*.{{md,typ}}\"\n\n    \
                     impl {{\n        \
                         name \"main\"\n        \
                         include \"src/**/*.rs\"\n    \
@@ -2895,9 +2886,9 @@ async fn load_spec_content(
     for entry in walker.flatten() {
         let path = entry.path();
 
-        if path.extension().is_none_or(|ext| ext != "md") {
+        let Some(fmt) = SpecFormat::from_path(path) else {
             continue;
-        }
+        };
 
         let relative = path.strip_prefix(root).unwrap_or(path);
 
@@ -2912,11 +2903,8 @@ async fn load_spec_content(
         }
 
         if let Ok(content) = read_file_with_overlay(path, overlay).await {
-            // Parse frontmatter to get weight
-            let weight = match parse_frontmatter(&content) {
-                Ok((fm, _)) => fm.weight,
-                Err(_) => 0, // Default weight if no frontmatter
-            };
+            // Parse frontmatter / metadata to get weight
+            let weight = parse_weight(fmt, &content);
             files.push((relative.to_string_lossy().to_string(), content, weight));
         }
     }
