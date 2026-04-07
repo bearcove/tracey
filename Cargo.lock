@@ -4517,6 +4517,7 @@ dependencies = [
  "pulldown-cmark",
  "rayon",
  "strictdoc-parser",
+ "tokio",
 ]
 
 [[package]]
