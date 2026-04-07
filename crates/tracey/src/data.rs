@@ -2986,10 +2986,24 @@ async fn load_spec_content(
                 head_injections.extend(doc.head_injections);
             }
             SpecFormat::Typst => {
-                // Typst files render one section each. Phase 8 replaces the
-                // placeholder html from `parse_spec` with the real compiler output.
+                // Typst files render one section each via the typst→HTML
+                // compiler (feature `typst-spec`). Without the feature, fall
+                // back to `parse_spec` which yields a `<pre>` placeholder.
                 for (source_file, content, weight, _) in run {
-                    let doc = parse_spec(SpecFormat::Typst, content).await?;
+                    let abs_source = root.join(source_file).display().to_string();
+                    let ctx = tracey_core::spec::typst::RenderCtx {
+                        badge_for: &|def| {
+                            let cov = coverage.get(&def.id.to_string());
+                            rule_coverage_badge_html(def, cov, &abs_source, spec_name, impl_name)
+                        },
+                    };
+                    #[cfg(feature = "typst-spec")]
+                    let doc = tracey_core::spec::typst::render_display(content, &ctx).await?;
+                    #[cfg(not(feature = "typst-spec"))]
+                    let doc = {
+                        let _ = &ctx;
+                        parse_spec(SpecFormat::Typst, content).await?
+                    };
                     sections.push(SpecSection {
                         source_file: source_file.clone(),
                         html: doc.html,

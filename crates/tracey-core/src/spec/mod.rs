@@ -13,7 +13,9 @@ use std::ffi::OsStr;
 use std::path::Path;
 
 mod markdown;
-mod typst;
+pub mod typst;
+
+pub use typst::{RenderCtx as TypstRenderCtx, render_display as render_typst_display};
 
 // Re-export the marq types that callers interact with regardless of format.
 // `SpecDoc` is a type alias for `marq::Document` — see Spike C in NOTES: all
