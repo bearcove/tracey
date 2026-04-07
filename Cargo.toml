@@ -148,6 +148,9 @@ notify = "8"
 # Full-text search
 tantivy = "0.22"
 
+# HTML templating (compile-time, component-style)
+maud = "0.26"
+
 # Markdown processing (with syntax highlighting and diagram handlers)
 marq = { version = "2.2.0", features = ["all-handlers", "lang-vixen"] }
 pulldown-cmark = "0.13"

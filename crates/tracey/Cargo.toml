@@ -55,6 +55,9 @@ indoc = { workspace = true }
 ignore = { workspace = true }
 globset = { workspace = true }
 
+# HTML templating (compile-time)
+maud = { workspace = true }
+
 # Markdown rendering with syntax highlighting and diagrams
 marq = { workspace = true }
 

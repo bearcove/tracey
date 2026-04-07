@@ -786,45 +786,104 @@ The `tracey export <output>` command MUST generate a fully self-contained static
 
 ### Static HTML Export
 
-The export command produces a directory of HTML files that can be served by any static file host (GitHub Pages, S3, Netlify, etc.) without requiring the daemon at runtime.
+The `tracey export` command generates a static HTML site from spec coverage data. The exported site is self-contained, works when deployed to any static host (including GitHub Pages in a subfolder), and is usable on mobile devices.
 
-r[export.output-structure]
-The export MUST produce an output directory containing:
-- An `index.html` landing page at the root
-- An `assets/` directory with CSS and JavaScript
-- A subdirectory `{spec}/{impl}/` for each spec/implementation pair
+#### Output Structure
 
-r[export.self-contained]
-The exported site MUST NOT require the tracey daemon or any server-side processing to view. All content MUST be pre-rendered as static HTML.
+> r[export.output.directory]
+> Running `tracey export <target-dir>` MUST produce a directory of static HTML files at the given path. The target directory MUST be created if it does not exist.
 
-r[export.spec-page]
-For each spec/implementation pair, the export MUST generate a `spec.html` page rendering the full specification with an outline sidebar.
+> r[export.output.overwrite]
+> Files in the target directory MUST be overwritten on subsequent runs without requiring a clean step.
 
-r[export.coverage-page]
-For each spec/implementation pair, the export MUST generate a `coverage.html` page showing implementation and test coverage statistics and a table of all rules with their references.
+> r[export.output.per-spec-page]
+> Each spec MUST be rendered as a single HTML page at `{spec_name}/index.html`, with all spec files concatenated into one document. Multi-file specs are merged; there is no per-file navigation.
 
-r[export.sources]
-When the `--sources` flag is passed, the export MUST additionally generate:
-- A `sources.html` index page listing all source files with coverage bars
-- Individual `sources/{file}.html` pages with syntax-highlighted source code
+> r[export.output.relative-links]
+> All links between pages MUST be relative so that the exported site works when served from any subdirectory (e.g. GitHub Pages under `/project/`).
 
-r[export.navigation]
-Each exported page MUST include a header with spec/implementation selector tabs and navigation tabs (Specification, Coverage, and optionally Sources).
+> r[export.output.assets]
+> Shared assets (CSS, JS) MUST be written to an `assets/` subdirectory and referenced via relative paths from all pages.
 
-r[export.landing-page]
-The root `index.html` MUST serve as a landing page rather than a redirect.
+#### Page Tree Sidebar
 
-> r[export.landing-page.default-content]
-> When no `README.md` is present in the project root, the landing page MUST render a sensible default describing the export and linking to the specs.
+> r[export.sidebar.structure]
+> Every page MUST include a sidebar that shows the full page tree. The tree MUST have the following hierarchy:
+>
+> 1. **README** — the project README as the root entry point, always shown first
+> 2. **Specs** — one entry per spec (collapsible), each expandable to reveal:
+>    - **Headings** — h1 headings shown at top level, each collapsible to reveal nested h2 headings
 
-> r[export.landing-page.readme]
-> When a `README.md` file exists in the project root, its rendered markdown content MUST be included on the landing page above the spec grid.
+> r[export.sidebar.collapsible]
+> Each level of the sidebar tree MUST be independently collapsible. Collapsed state SHOULD be preserved during navigation (e.g. via `localStorage`).
 
-> r[export.landing-page.spec-grid]
-> The landing page MUST display a grid of all spec/implementation pairs in the export, each linking to its spec page. Each card MUST show the spec name, implementation name, and coverage summary (implemented/tested counts).
+> r[export.sidebar.current-page]
+> The sidebar MUST highlight the currently active page and auto-expand the tree path leading to it.
 
-r[export.mobile-sidebar]
-On viewports narrower than a desktop breakpoint, the outline sidebar MUST be hidden by default and togglable via a button, so the export is usable on mobile devices.
+> r[export.sidebar.mobile]
+> On mobile viewports (narrow screens), the sidebar MUST be hidden by default and accessible via a toggle button. When open, it MUST overlay the content and include a backdrop that dismisses it on tap.
+
+> r[export.sidebar.links]
+> Clicking a sidebar entry MUST navigate to the corresponding page or heading anchor. All sidebar links MUST be relative.
+
+#### Styling
+
+> r[export.style.dashboard-css]
+> The exported site MUST reuse the CSS token system (colors, typography, spacing) from the tracey web dashboard so that both look visually consistent.
+
+> r[export.style.mobile-first]
+> All pages MUST be designed mobile-first: readable and functional on small screens, with enhancements for larger viewports via media queries.
+
+> r[export.style.max-width]
+> The content column MUST be full-width by default with a `max-width` constraint so that line lengths remain readable on wide screens.
+
+> r[export.style.light-dark]
+> The exported site MUST support both light and dark color schemes, following the dashboard's `light-dark()` token approach and respecting `prefers-color-scheme`.
+
+#### Landing Page
+
+> r[export.landing.readme]
+> The landing page MUST render the project's `README.md` as the main content. If no README is found, a sensible fallback MUST be shown.
+
+> r[export.landing.spec-list]
+> The landing page MUST list all specs with summary coverage statistics (total requirements, implemented count, tested count) so users can navigate into any spec.
+
+#### Spec Pages
+
+> r[export.spec-page.rendered-markdown]
+> Each spec file MUST be rendered as HTML from its markdown source, preserving headings, blockquotes, code blocks, tables, and other standard markdown elements.
+
+> r[export.spec-page.req-ids]
+> Requirement IDs MUST be displayed as visible badges on each requirement block, making them easy to identify and reference.
+
+> r[export.spec-page.req-solid]
+> Requirement blocks MUST be styled with solid backgrounds (not transparent/faded), ensuring they are easy to read in both light and dark modes.
+
+> r[export.spec-page.coverage-inline]
+> Each requirement block MUST show its coverage status inline: the file names and line numbers of implementing and verifying code. Full source code MUST NOT be included — only file paths and line numbers.
+
+> r[export.spec-page.uncovered-icons]
+> Requirements that lack implementations or verifications MUST display annotation icons (visual indicators) so that coverage gaps are immediately visible when scanning the page.
+
+> r[export.spec-page.cross-links]
+> Requirement IDs referenced in other requirements (via `depends` or `related` verbs) MUST be rendered as clickable links that navigate to the referenced requirement's definition, including across spec files.
+
+> r[export.spec-page.anchors]
+> Each requirement block and each heading MUST have a stable anchor (HTML `id`) so that direct links and sidebar heading links work correctly.
+
+#### CLI Behavior
+
+> r[export.cli.invocation]
+> The export command MUST be invoked as `tracey export <target-dir>` where `<target-dir>` is a positional argument specifying the output directory.
+
+> r[export.cli.create-dir]
+> If the target directory does not exist, the CLI MUST create it (including intermediate directories).
+
+> r[export.cli.logging]
+> The CLI MUST print an info-level log line for each file written to the output directory, so the user can see progress.
+
+> r[export.cli.errors]
+> Errors MUST be reported with full context: what operation failed, which file or spec was involved, and the underlying cause. Errors MUST NOT be silently swallowed.
 
 ## Server Architecture
 
