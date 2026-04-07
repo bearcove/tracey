@@ -17,9 +17,7 @@ use config::Config;
 use eyre::{Result, WrapErr};
 use std::path::PathBuf;
 use tracey_core::ReqDefinition;
-
-// Re-export from marq for rule extraction
-use marq::{RenderOptions, render};
+use tracey_core::{SpecFormat, extract_marker_prefix, parse_spec};
 
 /// Extracted rule with source location info
 #[derive(Clone)]
@@ -45,21 +43,9 @@ fn compute_column(content: &str, byte_offset: usize) -> usize {
     before[line_start..].chars().count() + 1
 }
 
-fn extract_marker_prefix(content: &str, marker_span: marq::SourceSpan) -> Option<String> {
-    let start = marker_span.offset;
-    let end = start.checked_add(marker_span.length)?;
-    let marker = content.get(start..end)?;
-    let bracket = marker.find('[')?;
-    let prefix = marker[..bracket].trim();
-    if prefix.is_empty() {
-        return None;
-    }
-    Some(prefix.to_string())
-}
-
-/// Load rules from markdown files matching a glob pattern.
+/// Load rules from spec files matching a glob pattern.
 ///
-/// marq implements markdown rule extraction:
+/// Rule extraction is dispatched per [`SpecFormat`]:
 /// r[impl markdown.syntax.marker+2]
 /// r[impl markdown.syntax.inline-ignored]
 pub async fn load_rules_from_glob(
@@ -125,10 +111,10 @@ pub async fn load_rules_from_glob(
         let entry = entry?;
         let path = entry.path();
 
-        // Only process .md files
-        if path.extension().is_none_or(|ext| ext != "md") {
+        // Only process spec files
+        let Some(fmt) = SpecFormat::from_path(path) else {
             continue;
-        }
+        };
 
         // Check if the path matches the glob pattern
         let relative = path.strip_prefix(&walk_root).unwrap_or(path);
@@ -148,11 +134,11 @@ pub async fn load_rules_from_glob(
             continue;
         }
 
-        // Read and render markdown to extract rules with HTML
+        // Read and parse spec to extract rules
         let content = std::fs::read_to_string(path)
             .wrap_err_with(|| format!("Failed to read {}", path.display()))?;
 
-        let doc = render(&content, &RenderOptions::default())
+        let doc = parse_spec(fmt, &content)
             .await
             .map_err(|e| eyre::eyre!("Failed to process {}: {}", path.display(), e))?;
 
@@ -208,7 +194,7 @@ pub async fn load_rules_from_glob(
             // Add requirements with their source file, computed column, and section
             for req in doc.reqs {
                 let column = Some(compute_column(&content, req.span.offset));
-                let prefix = extract_marker_prefix(&content, req.marker_span).ok_or_else(|| {
+                let prefix = extract_marker_prefix(fmt, &content, req.marker_span).ok_or_else(|| {
                     eyre::eyre!(
                         "Failed to determine requirement marker prefix in {} at line {}",
                         display_path,
