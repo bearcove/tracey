@@ -56,23 +56,34 @@
     } catch (e) {}
   }
 
+  function updateFoldButtons() {
+    if (!sidebar) return;
+    sidebar.querySelectorAll(".toc-fold-btn").forEach(function (btn) {
+      var item = btn.closest(".toc-item");
+      var children = item ? item.querySelector(":scope > .toc-children") : null;
+      if (children) {
+        btn.textContent = children.classList.contains("is-collapsed") ? "+" : "−";
+      }
+    });
+  }
+
   function setupFolding() {
     if (!sidebar) return;
-    // Click on a toc-row toggles its sibling toc-children
-    sidebar.querySelectorAll(".toc-item").forEach(function (item) {
-      var children = item.querySelector(":scope > .toc-children");
+    // The +/- button toggles fold; clicking the toc-link navigates
+    sidebar.querySelectorAll(".toc-fold-btn").forEach(function (btn) {
+      var item = btn.closest(".toc-item");
+      var children = item ? item.querySelector(":scope > .toc-children") : null;
       if (!children) return;
-      var row = item.querySelector(":scope > .toc-row");
-      if (!row) return;
 
-      row.addEventListener("click", function (e) {
-        // Don't interfere with ctrl/cmd-click (open in new tab)
-        if (e.ctrlKey || e.metaKey) return;
-        e.preventDefault();
+      btn.addEventListener("click", function (e) {
+        e.stopPropagation();
         children.classList.toggle("is-collapsed");
+        updateFoldButtons();
         saveFoldState();
       });
     });
+
+    updateFoldButtons();
   }
 
   // r[impl export.sidebar.current-page]
@@ -146,6 +157,14 @@
             ? parent.parentElement.closest(".toc-children")
             : null;
         }
+
+        // Also expand children of the active item itself if it has any
+        var ownChildren = activeItem.querySelector(":scope > .toc-children");
+        if (ownChildren) {
+          ownChildren.classList.remove("is-collapsed");
+        }
+
+        updateFoldButtons();
 
         // Scroll the sidebar to keep the active item visible
         var row = activeItem.querySelector(".toc-row");

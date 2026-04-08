@@ -42,7 +42,7 @@ pub async fn run(
     // r[impl export.cli.logging]
     write_assets(&output)?;
 
-    // Build the sidebar tree from all specs
+    // Build the sidebar tree and collect spec data
     let mut sidebar_entries: Vec<SidebarSpec> = Vec::new();
     let mut all_spec_data: Vec<SpecExportData> = Vec::new();
 
@@ -100,24 +100,48 @@ pub async fn run(
     std::fs::write(&landing_path, landing.into_string()).wrap_err("writing index.html")?;
     eprintln!("  wrote {}", landing_path.display());
 
-    // Write one page per spec (all sections concatenated)
+    // r[impl export.output.per-file]
+    // Write one HTML file per spec source file
     for data in &all_spec_data {
         let spec_dir = output.join(&data.spec_name);
         std::fs::create_dir_all(&spec_dir)
             .wrap_err_with(|| format!("creating directory {}", spec_dir.display()))?;
 
-        let page = pages::spec_page(
-            &data.spec_name,
-            &data.impl_name,
-            &data.forward,
-            &data.spec_content,
-            &sidebar_entries,
-            &format!("{}/index.html", data.spec_name),
-        );
-        let page_path = spec_dir.join("index.html");
-        std::fs::write(&page_path, page.into_string())
-            .wrap_err_with(|| format!("writing {}", page_path.display()))?;
-        eprintln!("  wrote {}", page_path.display());
+        let is_single_file = data.spec_content.sections.len() == 1;
+
+        for (i, section) in data.spec_content.sections.iter().enumerate() {
+            let stem = section_stem(&section.source_file);
+            let filename = if is_single_file {
+                "index.html".to_string()
+            } else {
+                format!("{stem}.html")
+            };
+            let page_path = format!("{}/{filename}", data.spec_name);
+
+            let page = pages::spec_page(
+                &data.spec_name,
+                &data.impl_name,
+                section,
+                &data.forward,
+                &data.spec_content,
+                &sidebar_entries,
+                &page_path,
+            );
+
+            let out_path = spec_dir.join(&filename);
+            std::fs::write(&out_path, page.into_string())
+                .wrap_err_with(|| format!("writing {}", out_path.display()))?;
+            eprintln!("  wrote {}", out_path.display());
+
+            // For multi-file specs, also write index.html pointing to the first file
+            if !is_single_file && i == 0 {
+                let index_path = spec_dir.join("index.html");
+                let redirect = pages::redirect_page(&format!("{stem}.html"));
+                std::fs::write(&index_path, redirect)
+                    .wrap_err_with(|| format!("writing {}", index_path.display()))?;
+                eprintln!("  wrote {}", index_path.display());
+            }
+        }
     }
 
     eprintln!("\nDone! Static site written to: {}", output.display());
@@ -137,6 +161,15 @@ pub(crate) struct SpecExportData {
 pub(crate) struct SidebarSpec {
     pub name: String,
     pub href: String,
+    /// Files within this spec (only shown if more than one)
+    pub files: Vec<SidebarFile>,
+}
+
+/// A file within a spec in the sidebar
+#[derive(Debug, Clone)]
+pub(crate) struct SidebarFile {
+    pub display_name: String,
+    pub href: String,
     pub headings: Vec<SidebarHeading>,
 }
 
@@ -149,22 +182,64 @@ pub(crate) struct SidebarHeading {
 }
 
 fn build_sidebar_spec(spec_name: &str, spec_content: &ApiSpecData) -> SidebarSpec {
-    let headings: Vec<SidebarHeading> = spec_content
-        .outline
+    let is_single_file = spec_content.sections.len() == 1;
+
+    let files: Vec<SidebarFile> = spec_content
+        .sections
         .iter()
-        .filter(|e| e.level <= 2)
-        .map(|e| SidebarHeading {
-            title: e.title.clone(),
-            slug: e.slug.clone(),
-            level: e.level,
+        .map(|section| {
+            let stem = section_stem(&section.source_file);
+            let href = if is_single_file {
+                format!("{spec_name}/index.html")
+            } else {
+                format!("{spec_name}/{stem}.html")
+            };
+
+            // Filter outline to headings that belong to this section's file
+            // For now, include all h1-h3 (the outline is shared across all sections,
+            // but for single-file specs this is fine; for multi-file specs we'd need
+            // per-section outline data from the daemon)
+            let headings: Vec<SidebarHeading> = spec_content
+                .outline
+                .iter()
+                .filter(|e| e.level <= 3)
+                .map(|e| SidebarHeading {
+                    title: e.title.clone(),
+                    slug: e.slug.clone(),
+                    level: e.level,
+                })
+                .collect();
+
+            SidebarFile {
+                display_name: stem,
+                href,
+                headings,
+            }
         })
         .collect();
 
+    let href = if is_single_file {
+        format!("{spec_name}/index.html")
+    } else if let Some(first) = files.first() {
+        first.href.clone()
+    } else {
+        format!("{spec_name}/index.html")
+    };
+
     SidebarSpec {
         name: spec_name.to_string(),
-        href: format!("{spec_name}/index.html"),
-        headings,
+        href,
+        files,
     }
+}
+
+/// Turn a source file path into its stem (filename without extension).
+fn section_stem(source_file: &str) -> String {
+    Path::new(source_file)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("index")
+        .to_string()
 }
 
 fn write_assets(output: &Path) -> Result<()> {
@@ -193,8 +268,6 @@ async fn read_readme(project_root: &Path) -> Option<String> {
 }
 
 /// Compute the relative path from a page to the site root.
-/// e.g. "spec_name/index.html" -> ".."
-/// e.g. "index.html" -> "."
 pub(crate) fn relative_root(page_path: &str) -> String {
     let depth = page_path.matches('/').count();
     if depth == 0 {

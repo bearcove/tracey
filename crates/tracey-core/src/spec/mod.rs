@@ -213,8 +213,8 @@ pub struct RenderInput<'a> {
 
 /// One logical section produced by [`SpecBackend::render_html`].
 ///
-/// Markdown emits one per run (the concatenated render); typst emits one per
-/// source file. `source_idx` indexes [`RenderInput::sources`].
+/// Every backend emits one per source file. `source_idx` indexes
+/// [`RenderInput::sources`].
 #[derive(Debug)]
 pub struct RenderedSection {
     pub source_idx: usize,

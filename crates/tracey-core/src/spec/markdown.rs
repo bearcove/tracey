@@ -5,13 +5,17 @@ use std::pin::Pin;
 
 use marq::SourceSpan;
 
-use super::{NoConfig, RenderInput, RenderOutput, RenderedSection, SpecBackend, SpecDoc, SpecFormat};
+use super::{
+    NoConfig, RenderInput, RenderOutput, RenderedSection, SpecBackend, SpecDoc, SpecFormat,
+};
 
 /// Markdown backend.
 ///
-/// Parsing and inline-diff are direct `marq` calls. `render_html` concatenates
-/// the run, renders once via `marq::render`, then re-threads heading slugs
-/// through the shared [`SlugAllocator`](super::SlugAllocator).
+/// Parsing and inline-diff are direct `marq` calls. `render_html` renders
+/// each source file individually via `marq::render` (one [`RenderedSection`]
+/// per file, like the typst/sdoc backends), re-threading heading slugs
+/// through the shared [`SlugAllocator`](super::SlugAllocator) so IDs stay
+/// unique across the whole run.
 #[derive(Default)]
 pub struct Markdown;
 
@@ -60,48 +64,44 @@ impl SpecBackend for Markdown {
             deps: _,
         } = input;
 
-        if sources.is_empty() {
-            return Ok(RenderOutput { sections: vec![] });
-        }
+        // One section per source file (matches the typst/sdoc backends) so
+        // sidebar navigation, cross-links and per-file `data-source-file`
+        // attribution all resolve to the right file. Heading slugs are
+        // deduplicated across files via the shared `SlugAllocator`, same as
+        // the other backends; each file's heading stack still starts fresh
+        // (marq has no cross-file nesting concept to carry over).
+        let mut sections = Vec::with_capacity(sources.len());
+        for (idx, src) in sources.iter().enumerate() {
+            let abs_source = root.join(src.path).display().to_string();
 
-        // Concatenate the run so heading IDs are hierarchical across files
-        // (matches the pre-multi-format behaviour in `data.rs`).
-        let mut combined = String::new();
-        for src in sources {
-            combined.push_str(src.content);
-            combined.push_str("\n\n");
-        }
+            // Diagram / code-block handlers are constant; only the
+            // inline-code handler is caller-supplied (it embeds spec/impl
+            // names into links).
+            let mut opts = marq::RenderOptions::new()
+                .with_default_handler(marq::ArboriumHandler::new().with_language_header(true))
+                .with_handler(&["aasvg"], marq::AasvgHandler::new())
+                .with_handler(&["pikchr"], marq::PikruHandler::new())
+                .with_handler(&["compare"], marq::CompareHandler::new())
+                .with_handler(&["mermaid"], marq::MermaidHandler::new());
+            opts.inline_code_handler = inline_code.clone();
+            opts.source_path = Some(abs_source.clone());
+            opts.req_handler = Some(std::sync::Arc::new(BadgeReqHandler {
+                badge_for: badge_for.clone(),
+                source_path: abs_source,
+            }));
 
-        // The whole run is attributed to the first file for `data-source-file`
-        // attributes and badge edit-links (existing behaviour).
-        let abs_source = root.join(sources[0].path).display().to_string();
+            let mut doc = marq::render(src.content, &opts).await?;
+            reslug_marq_html(&mut doc, slugs);
 
-        // Diagram / code-block handlers are constant; only the inline-code
-        // handler is caller-supplied (it embeds spec/impl names into links).
-        let mut opts = marq::RenderOptions::new()
-            .with_default_handler(marq::ArboriumHandler::new().with_language_header(true))
-            .with_handler(&["aasvg"], marq::AasvgHandler::new())
-            .with_handler(&["pikchr"], marq::PikruHandler::new())
-            .with_handler(&["compare"], marq::CompareHandler::new())
-            .with_handler(&["mermaid"], marq::MermaidHandler::new());
-        opts.inline_code_handler = inline_code;
-        opts.source_path = Some(abs_source.clone());
-        opts.req_handler = Some(std::sync::Arc::new(BadgeReqHandler {
-            badge_for: badge_for.clone(),
-            source_path: abs_source,
-        }));
-
-        let mut doc = marq::render(&combined, &opts).await?;
-        reslug_marq_html(&mut doc, slugs);
-
-        Ok(RenderOutput {
-            sections: vec![RenderedSection {
-                source_idx: 0,
+            sections.push(RenderedSection {
+                source_idx: idx,
                 html: doc.html,
                 elements: doc.elements,
                 head_injections: doc.head_injections,
-            }],
-        })
+            });
+        }
+
+        Ok(RenderOutput { sections })
     }
 
     async fn render_inline(&self, text: &str) -> String {
