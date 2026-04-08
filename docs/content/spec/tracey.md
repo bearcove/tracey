@@ -781,6 +781,108 @@ The `tracey web` command MUST start the HTTP dashboard server.
 r[cli.mcp]
 The `tracey mcp` command MUST start an MCP (Model Context Protocol) server over stdio.
 
+r[cli.export]
+The `tracey export <output>` command MUST generate a fully self-contained static HTML site in the given output directory.
+
+### Static HTML Export
+
+The `tracey export` command generates a static HTML site from spec coverage data. The exported site is self-contained, works when deployed to any static host (including GitHub Pages in a subfolder), and is usable on mobile devices.
+
+#### Output Structure
+
+> r[export.output.directory]
+> Running `tracey export <target-dir>` MUST produce a directory of static HTML files at the given path. The target directory MUST be created if it does not exist.
+
+> r[export.output.overwrite]
+> Files in the target directory MUST be overwritten on subsequent runs without requiring a clean step.
+
+> r[export.output.per-file]
+> Each spec source file MUST be rendered as its own HTML page. For single-file specs, the output is `{spec_name}/index.html`. For multi-file specs, each file produces `{spec_name}/{stem}.html` (where `stem` is the filename without extension), and the first file is also linked as `{spec_name}/index.html`.
+
+> r[export.output.relative-links]
+> All links between pages MUST be relative so that the exported site works when served from any subdirectory (e.g. GitHub Pages under `/project/`).
+
+> r[export.output.assets]
+> Shared assets (CSS, JS) MUST be written to an `assets/` subdirectory and referenced via relative paths from all pages.
+
+> r[export.output.link-rewrite]
+> Internal links between spec files MUST be rewritten for the static export:
+>
+> 1. **Relative `.md` links** (e.g. `[text](./other-file.md)`) MUST have their `.md` extension replaced with `.html`. Fragment identifiers (e.g. `#section`) MUST be preserved.
+> 2. **Absolute spec links** produced by the markdown renderer (e.g. `/project/docs/spec/filename/`) MUST be converted back to relative `.html` links (e.g. `./filename.html`).
+> 3. **Dashboard requirement cross-links** (e.g. `/{spec}/{impl}/spec#r--req.id`) MUST be rewritten to point to the HTML file containing that requirement's anchor (e.g. `./file.html#r-req.id`).
+> 4. Links to files outside the spec and external URLs MUST be left unchanged.
+
+#### Page Tree Sidebar
+
+> r[export.sidebar.structure]
+> Every page MUST include a sidebar that shows the heading outline of the spec. The sidebar uses the dashboard's TOC markup (`.toc-item`, `.toc-row`, `.toc-link`, `.toc-children`) for visual consistency. The hierarchy is:
+>
+> 1. **README** — the project README as the root entry point, always shown first
+> 2. **Spec headings** — nested h1/h2/h3/h4 headings from all spec files, with each heading linking to the correct HTML page and anchor. For multi-file specs, headings are grouped by file (determined by matching heading IDs in each section's rendered HTML).
+
+> r[export.sidebar.scroll-spy]
+> As the user scrolls the content, the sidebar MUST highlight the heading nearest to the current scroll position. The scroll spy MUST use the content panel's scroll position (not the window) since the layout uses an app-style fixed viewport. When a heading is not directly represented in the sidebar (e.g. h4 below the max depth), the nearest ancestor heading that has a sidebar entry MUST be highlighted instead.
+
+> r[export.sidebar.mobile]
+> On mobile viewports (narrow screens), the sidebar MUST be hidden by default and accessible via a toggle button. When open, it MUST overlay the content and include a backdrop that dismisses it on tap.
+
+> r[export.sidebar.links]
+> Clicking a sidebar entry MUST navigate to the corresponding page or heading anchor. All sidebar links MUST be relative.
+
+#### Styling
+
+> r[export.style.dashboard-css]
+> The exported site MUST reuse the CSS and layout structure from the tracey web dashboard (`.layout`, `.header`, `.main`, `.sidebar`, `.content` classes and the token system for colors, typography, spacing) so that both look visually consistent. Export-specific overrides (e.g. `overflow-y: auto` on `.content` and `.sidebar` for native scrolling) are layered on top.
+
+> r[export.style.mobile-first]
+> All pages MUST be designed mobile-first: readable and functional on small screens, with enhancements for larger viewports via media queries.
+
+> r[export.style.max-width]
+> The content column MUST be full-width by default with a `max-width` constraint so that line lengths remain readable on wide screens.
+
+> r[export.style.light-dark]
+> The exported site MUST support both light and dark color schemes, following the dashboard's `light-dark()` token approach and respecting `prefers-color-scheme`.
+
+#### Landing Page
+
+> r[export.landing.readme]
+> The landing page MUST render the project's `README.md` as the main content. If no README is found, a sensible fallback MUST be shown.
+
+> r[export.landing.spec-list]
+> The landing page MUST list all specs with summary coverage statistics (total requirements, implemented count, tested count) so users can navigate into any spec.
+
+#### Spec Pages
+
+> r[export.spec-page.rendered-markdown]
+> Each spec file MUST be rendered as HTML from its markdown source, preserving headings, blockquotes, code blocks, tables, and other standard markdown elements.
+
+> r[export.spec-page.req-ids]
+> Requirement IDs MUST be displayed as visible badges on each requirement block, making them easy to identify and reference.
+
+> r[export.spec-page.req-solid]
+> Requirement blocks MUST be styled with solid backgrounds (not transparent/faded), ensuring they are easy to read in both light and dark modes.
+
+> r[export.spec-page.cross-links]
+> Requirement cross-references (inline `r[req.id]` links rendered by the dashboard as `/{spec}/{impl}/spec#r--req.id`) MUST be rewritten to point to the correct HTML file and anchor in the export. This enables navigating between requirements across spec files.
+
+> r[export.spec-page.anchors]
+> Each requirement block and each heading MUST have a stable anchor (HTML `id`) so that direct links and sidebar heading links work correctly.
+
+#### CLI Behavior
+
+> r[export.cli.invocation]
+> The export command MUST be invoked as `tracey export <target-dir>` where `<target-dir>` is a positional argument specifying the output directory.
+
+> r[export.cli.create-dir]
+> If the target directory does not exist, the CLI MUST create it (including intermediate directories).
+
+> r[export.cli.logging]
+> The CLI MUST print an info-level log line for each file written to the output directory, so the user can see progress.
+
+> r[export.cli.errors]
+> Errors MUST be reported with full context: what operation failed, which file or spec was involved, and the underlying cause. Errors MUST NOT be silently swallowed.
+
 ## Server Architecture
 
 Both `tracey serve` (HTTP) and `tracey mcp` (MCP) share a common headless server core.
