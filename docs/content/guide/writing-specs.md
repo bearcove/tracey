@@ -171,7 +171,7 @@ Tracey injects the definition of `#r` / `#req` when it renders a spec, so the im
 
 Tracey strips this import before rendering, so it never conflicts with the dashboard output.
 
-**Limitations:** Typst support is single-file — `#import` is not resolved. Spec edits trigger a full reparse rather than an incremental diff. Prefix detection uses a heuristic that only recognizes function names of five characters or fewer (e.g. `r`, `req`, `rule`, `spec`).
+**Limitations:** Relative `#import` / `#include` paths are resolved against the spec file's directory, but package imports beyond `@preview/tracey` are not resolved. Spec edits trigger a full reparse rather than an incremental diff. Prefix detection uses a heuristic that only recognizes function names of five characters or fewer (e.g. `r`, `req`, `rule`, `spec`).
 
 ## Avoiding duplicates
 
