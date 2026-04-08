@@ -733,7 +733,9 @@ impl Backend {
                 continue;
             }
             let should_clear = path.extension().is_some_and(|ext| {
-                ext == "md" || ext == "styx" || tracey_core::is_supported_extension(ext)
+                tracey_core::is_spec_extension(ext)
+                    || ext == "styx"
+                    || tracey_core::is_supported_extension(ext)
             });
             if !should_clear {
                 continue;

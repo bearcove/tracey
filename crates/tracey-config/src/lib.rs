@@ -33,11 +33,19 @@ pub struct SpecConfig {
     #[facet(default)]
     pub source_url: Option<String>,
 
-    /// Glob patterns for markdown spec files containing requirement definitions
-    /// e.g., "docs/spec/**/*.md"
+    /// Glob patterns for spec files containing requirement definitions
+    /// e.g., "docs/spec/**/*.md" or "docs/spec/**/*.typ"
     /// r[impl config.spec.include]
     #[facet(default)]
     pub include: Vec<String>,
+
+    /// Directory containing vendored Typst packages, laid out as
+    /// `<path>/<namespace>/<name>/<version>/` (e.g.
+    /// `vendor/typst-packages/preview/cetz/0.2.0/`). Relative paths resolve
+    /// against the project root. When set, package imports look here before
+    /// falling back to the system typst cache. Tracey never downloads packages.
+    #[facet(default)]
+    pub typst_package_path: Option<String>,
 
     /// Implementations of this spec (by language)
     /// Each impl block specifies which source files to scan
