@@ -1,6 +1,6 @@
 //! TraceyDaemon service implementation.
 //!
-//! Implements the roam RPC service by delegating to the Engine.
+//! Implements the vox RPC service by delegating to the Engine.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -12,7 +12,7 @@ use super::engine::Engine;
 use super::watcher::WatcherState;
 use crate::rule_suggestions::suggest_similar_rule_ids;
 use crate::server::QueryEngine;
-use roam::Tx;
+use vox::Tx;
 
 // Re-export the generated dispatcher from tracey-proto
 pub use tracey_proto::TraceyDaemonDispatcher;
@@ -227,6 +227,7 @@ impl TraceyDaemon for TraceyService {
         let stats = query.status();
 
         StatusResponse {
+            api_schema_version: 1,
             impls: stats
                 .into_iter()
                 .map(|(spec, impl_name, s)| ImplStatus {

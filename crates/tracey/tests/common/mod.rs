@@ -5,10 +5,10 @@
 use std::path::PathBuf;
 use std::sync::Once;
 
-use roam_core::memory_link_pair as memory_transport_pair;
 use tracey_proto::{TraceyDaemonClient, TraceyDaemonDispatcher};
 use tracing::debug;
 use tracing_subscriber::EnvFilter;
+use vox_core::memory_link_pair as memory_transport_pair;
 
 static TEST_TRACING: Once = Once::new();
 
@@ -41,10 +41,11 @@ pub async fn create_test_rpc_service(service: tracey::daemon::TraceyService) -> 
     let (client_transport, server_transport) = memory_transport_pair(256);
     let dispatcher = TraceyDaemonDispatcher::new(service);
 
-    let server_fut = roam::acceptor(server_transport).establish::<TraceyDaemonClient>(dispatcher);
-    let client_fut = roam::initiator(client_transport).establish::<TraceyDaemonClient>(());
+    let server_fut = vox::acceptor_on(server_transport).establish::<TraceyDaemonClient>(dispatcher);
+    let client_fut = vox::initiator_on(client_transport, vox::TransportMode::Bare)
+        .establish::<TraceyDaemonClient>(());
     let (server_result, client_result) = tokio::try_join!(server_fut, client_fut)
-        .expect("failed to establish in-memory roam transport");
+        .expect("failed to establish in-memory vox transport");
     let (server_client, _server_session_handle) = server_result;
     let (client, _client_session_handle) = client_result;
     debug!("create_test_rpc_service: server+client established");

@@ -50,13 +50,21 @@ fn install() {
     std::fs::copy(src, &dst).expect("Failed to copy binary");
     println!("Copied tracey to {}", dst);
 
-    // On macOS, codesign the installed binary to avoid AMFI issues
-    // (signing must happen AFTER copy, not before)
+    // On macOS, codesign the installed binary with get-task-allow entitlement
+    // so that debuggers/profilers can attach (signing must happen AFTER copy)
     #[cfg(target_os = "macos")]
     {
         println!("Signing installed binary...");
+        let ent = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("ent.plist");
         let status = Command::new("codesign")
-            .args(["--sign", "-", "--force", &dst])
+            .args([
+                "--sign",
+                "-",
+                "--force",
+                "--entitlements",
+                ent.to_str().unwrap(),
+                &dst,
+            ])
             .status()
             .expect("Failed to run codesign");
 

@@ -32,17 +32,17 @@ pub mod service;
 pub mod watcher;
 
 use eyre::{Result, WrapErr};
-use roam_stream::LocalLinkAcceptor;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
+use vox_stream::LocalLinkAcceptor;
 
 use service::TraceyDaemonDispatcher;
 use watcher::{WatcherEvent, WatcherManager, WatcherState};
 
-pub use client::{DaemonClient, DaemonConnector, new_client};
+pub use client::{DaemonClient, DaemonConnector, TraceyDaemonClient, new_client};
 pub use engine::Engine;
 pub use service::TraceyService;
 pub use watcher::WatcherState as DaemonWatcherState;
@@ -227,12 +227,12 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
 
     // r[impl daemon.lifecycle.stale-socket]
     // Remove stale endpoint if it exists; if it's alive, fail fast instead.
-    if roam_local::endpoint_exists(&endpoint) {
-        if roam_local::connect(&endpoint).await.is_ok() {
+    if vox_local::endpoint_exists(&endpoint) {
+        if vox_local::connect(&endpoint).await.is_ok() {
             eyre::bail!("Daemon already running at {}", endpoint);
         } else {
             info!("Removing stale socket at {}", endpoint);
-            let _ = roam_local::remove_endpoint(&endpoint);
+            let _ = vox_local::remove_endpoint(&endpoint);
         }
     }
 
@@ -467,15 +467,17 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
         Instant::now().elapsed().as_secs(), // Will be updated on each connection
     ));
     let start_time = Instant::now();
+    let session_registry = vox::SessionRegistry::default();
+    let next_attachment_id = Arc::new(AtomicU64::new(1));
 
-    // Accept connections and handle roam RPC
+    // Accept connections and handle vox RPC
     loop {
         // Check for shutdown signal or accept with timeout
         let accept_result = tokio::select! {
             _ = shutdown_rx.changed() => {
                 if *shutdown_rx.borrow() {
                     info!("Shutdown signal received");
-                    let _ = roam_local::remove_endpoint(&endpoint);
+                    let _ = vox_local::remove_endpoint(&endpoint);
                     return Ok(());
                 }
                 continue;
@@ -487,40 +489,67 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
             Ok(Ok(stream)) => {
                 // Update last activity
                 last_activity.store(start_time.elapsed().as_secs(), Ordering::Relaxed);
-                info!("New connection accepted");
+                let attachment_id = next_attachment_id.fetch_add(1, Ordering::Relaxed);
+                info!(attachment_id, "Inbound daemon link accepted");
 
                 let service = service.clone();
                 let last_activity = Arc::clone(&last_activity);
+                let session_registry = session_registry.clone();
 
                 tokio::spawn(async move {
                     // Create dispatcher (wraps service with generated dispatch + tracing)
-                    let dispatcher = TraceyDaemonDispatcher::new(service);
+                    let dispatcher = TraceyDaemonDispatcher::new(service)
+                        .with_middleware(vox::ServerLogging::default());
                     let (session_task_tx, session_task_rx) =
                         tokio::sync::oneshot::channel::<tokio::task::JoinHandle<()>>();
 
-                    match roam::acceptor(stream)
+                    match vox::acceptor_on(stream)
                         .spawn_fn(move |fut| {
                             let handle = tokio::spawn(fut);
                             let _ = session_task_tx.send(handle);
                         })
-                        .establish::<tracey_proto::TraceyDaemonClient>(dispatcher)
+                        .session_registry(session_registry)
+                        .resumable()
+                        .establish_or_resume::<tracey_proto::TraceyDaemonClient>(dispatcher)
                         .await
                     {
-                        Ok((client_guard, session_handle)) => {
-                            info!("Connection established");
+                        Ok(vox::SessionAcceptOutcome::Established(
+                            client_guard,
+                            session_handle,
+                        )) => {
+                            let has_resume_key = session_handle.resume_key().is_some();
+                            info!(attachment_id, has_resume_key, "Daemon session established");
                             let _client_guard = client_guard;
                             let _session_handle = session_handle;
-                            if let Ok(session_task) = session_task_rx.await {
-                                let _ = session_task.await;
+                            match session_task_rx.await {
+                                Ok(session_task) => {
+                                    if let Err(error) = session_task.await {
+                                        warn!(
+                                            attachment_id,
+                                            error = %error,
+                                            "Daemon session task ended with join error"
+                                        );
+                                    }
+                                }
+                                Err(_) => {
+                                    warn!(
+                                        attachment_id,
+                                        "Daemon session task channel closed before spawn"
+                                    );
+                                }
                             }
+                            info!(attachment_id, "Daemon session ended");
+                        }
+                        Ok(vox::SessionAcceptOutcome::Resumed) => {
+                            info!(attachment_id, "Daemon session resumed on replacement link");
                         }
                         Err(e) => {
-                            error!("Connection setup failed: {}", e);
+                            error!(attachment_id, error = %e, "Connection setup failed");
                         }
                     }
 
                     last_activity.store(start_time.elapsed().as_secs(), Ordering::Relaxed);
-                    info!("Connection closed");
+                    info!(attachment_id, "Link attachment closed");
                 });
             }
             Ok(Err(e)) => {
@@ -535,7 +564,7 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
                 if idle_secs >= DEFAULT_IDLE_TIMEOUT_SECS {
                     info!("No connections for {} seconds, shutting down", idle_secs);
                     // Clean up endpoint
-                    let _ = roam_local::remove_endpoint(&endpoint);
+                    let _ = vox_local::remove_endpoint(&endpoint);
                     return Ok(());
                 }
             }
@@ -714,12 +743,12 @@ async fn run_smart_watcher(
 #[allow(dead_code)]
 pub async fn is_running(project_root: &Path) -> bool {
     let endpoint = local_endpoint(project_root);
-    if !roam_local::endpoint_exists(&endpoint) {
+    if !vox_local::endpoint_exists(&endpoint) {
         return false;
     }
 
     // Try to connect
-    match roam_local::connect(&endpoint).await {
+    match vox_local::connect(&endpoint).await {
         Ok(_) => true,
         Err(_) => {
             // Endpoint exists but can't connect - stale
@@ -731,9 +760,9 @@ pub async fn is_running(project_root: &Path) -> bool {
 /// Connect to a running daemon, or return an error.
 #[allow(dead_code)]
 #[cfg(unix)]
-pub async fn connect(project_root: &Path) -> Result<roam_local::LocalStream> {
+pub async fn connect(project_root: &Path) -> Result<vox_local::LocalStream> {
     let endpoint = local_endpoint(project_root);
-    roam_local::connect(&endpoint)
+    vox_local::connect(&endpoint)
         .await
         .wrap_err_with(|| format!("Failed to connect to daemon at {}", endpoint))
 }
@@ -741,9 +770,9 @@ pub async fn connect(project_root: &Path) -> Result<roam_local::LocalStream> {
 /// Connect to a running daemon, or return an error.
 #[allow(dead_code)]
 #[cfg(windows)]
-pub async fn connect(project_root: &Path) -> Result<roam_local::LocalStream> {
+pub async fn connect(project_root: &Path) -> Result<vox_local::LocalStream> {
     let endpoint = local_endpoint(project_root);
-    roam_local::connect(&endpoint)
+    vox_local::connect(&endpoint)
         .await
         .wrap_err_with(|| format!("Failed to connect to daemon at {}", endpoint))
 }
