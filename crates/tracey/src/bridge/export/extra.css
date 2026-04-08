@@ -63,36 +63,8 @@
     text-decoration: underline;
 }
 
-/* ── Sidebar folding (export-only addition to dashboard TOC) ── */
+/* ── Sidebar (export-only additions to dashboard TOC) ── */
 /* r[impl export.sidebar.structure] */
-/* r[impl export.sidebar.collapsible] */
-
-/* JS toggles .is-collapsed on .toc-children to fold/unfold */
-.toc-children.is-collapsed {
-    display: none;
-}
-
-/* +/- fold button on the right of parent toc-rows */
-.toc-fold-btn {
-    flex: 0 0 auto;
-    background: none;
-    border: none;
-    cursor: pointer;
-    color: var(--fg-dim);
-    font-size: var(--text-xs);
-    font-family: var(--font-mono);
-    font-variation-settings: "MONO" 1;
-    padding: 0 var(--space-1);
-    line-height: 1;
-    border-radius: 3px;
-    width: 20px;
-    text-align: center;
-}
-
-.toc-fold-btn:hover {
-    color: var(--fg);
-    background: var(--hover);
-}
 
 /* Sidebar scrollable content area */
 .sidebar-content {

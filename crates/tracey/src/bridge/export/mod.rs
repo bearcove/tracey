@@ -109,6 +109,13 @@ pub async fn run(
 
         let is_single_file = data.spec_content.sections.len() == 1;
 
+        // r[impl export.spec-page.cross-links]
+        // Build a map from requirement anchor ID (e.g. "r-auth.login") to
+        // the HTML filename that contains it, so dashboard cross-reference
+        // links can be rewritten.
+        let req_to_file =
+            build_req_file_map(&data.spec_content.sections, &data.spec_name, is_single_file);
+
         for (i, section) in data.spec_content.sections.iter().enumerate() {
             let stem = section_stem(&section.source_file);
             let filename = if is_single_file {
@@ -126,6 +133,8 @@ pub async fn run(
                 &data.spec_content,
                 &sidebar_entries,
                 &page_path,
+                &project_root.display().to_string(),
+                &req_to_file,
             );
 
             let out_path = spec_dir.join(&filename);
@@ -195,14 +204,14 @@ fn build_sidebar_spec(spec_name: &str, spec_content: &ApiSpecData) -> SidebarSpe
                 format!("{spec_name}/{stem}.html")
             };
 
-            // Filter outline to headings that belong to this section's file
-            // For now, include all h1-h3 (the outline is shared across all sections,
-            // but for single-file specs this is fine; for multi-file specs we'd need
-            // per-section outline data from the daemon)
+            // Extract heading IDs from this section's rendered HTML to determine
+            // which outline entries belong to this file.
+            let section_heading_ids = extract_heading_ids(&section.html);
+
             let headings: Vec<SidebarHeading> = spec_content
                 .outline
                 .iter()
-                .filter(|e| e.level <= 3)
+                .filter(|e| e.level <= 4 && section_heading_ids.contains(&e.slug))
                 .map(|e| SidebarHeading {
                     title: e.title.clone(),
                     slug: e.slug.clone(),
@@ -231,6 +240,64 @@ fn build_sidebar_spec(spec_name: &str, spec_content: &ApiSpecData) -> SidebarSpe
         href,
         files,
     }
+}
+
+/// Build a map from requirement anchor IDs to their HTML filenames.
+/// Scans each section's HTML for `id="r-..."` attributes on req-containers.
+fn build_req_file_map(
+    sections: &[tracey_api::SpecSection],
+    spec_name: &str,
+    is_single_file: bool,
+) -> std::collections::HashMap<String, String> {
+    let mut map = std::collections::HashMap::new();
+    for section in sections {
+        let stem = section_stem(&section.source_file);
+        let filename = if is_single_file {
+            "index.html".to_string()
+        } else {
+            format!("{stem}.html")
+        };
+
+        // Find all id="r-..." in req-containers
+        let mut remaining = section.html.as_str();
+        while let Some(pos) = remaining.find("id=\"r-") {
+            let id_start = pos + 4; // after id="
+            remaining = &remaining[id_start..];
+            if let Some(end) = remaining.find('"') {
+                let anchor_id = &remaining[..end]; // e.g. "r-auth.login"
+                // The req ID is the anchor without the "r-" prefix
+                let req_id = anchor_id.strip_prefix("r-").unwrap_or(anchor_id);
+                map.insert(req_id.to_string(), format!("{spec_name}/{filename}"));
+                remaining = &remaining[end..];
+            }
+        }
+    }
+    map
+}
+
+/// Extract all heading IDs from rendered HTML.
+fn extract_heading_ids(html: &str) -> std::collections::HashSet<String> {
+    let mut ids = std::collections::HashSet::new();
+    let mut remaining = html;
+    while let Some(pos) = remaining.find("id=\"") {
+        let start = pos + 4;
+        remaining = &remaining[start..];
+        if let Some(end) = remaining.find('"') {
+            // Only include IDs from heading tags (check if preceded by <h1-h6)
+            let before = &html[..html.len() - remaining.len()];
+            let tag_start = before.rfind('<').unwrap_or(0);
+            let tag = &before[tag_start..];
+            if tag.starts_with("<h1")
+                || tag.starts_with("<h2")
+                || tag.starts_with("<h3")
+                || tag.starts_with("<h4")
+            {
+                ids.insert(remaining[..end].to_string());
+            }
+            remaining = &remaining[end..];
+        }
+    }
+    ids
 }
 
 /// Turn a source file path into its stem (filename without extension).

@@ -806,23 +806,23 @@ The `tracey export` command generates a static HTML site from spec coverage data
 > Shared assets (CSS, JS) MUST be written to an `assets/` subdirectory and referenced via relative paths from all pages.
 
 > r[export.output.link-rewrite]
-> Internal markdown links between spec files (e.g. `[text](./other-file.md)`) MUST be rewritten to point to the corresponding HTML page by replacing the `.md` extension with `.html`. Fragment identifiers (e.g. `#section`) MUST be preserved. Links to files outside the spec MUST be left unchanged.
+> Internal links between spec files MUST be rewritten for the static export:
+>
+> 1. **Relative `.md` links** (e.g. `[text](./other-file.md)`) MUST have their `.md` extension replaced with `.html`. Fragment identifiers (e.g. `#section`) MUST be preserved.
+> 2. **Absolute spec links** produced by the markdown renderer (e.g. `/project/docs/spec/filename/`) MUST be converted back to relative `.html` links (e.g. `./filename.html`).
+> 3. **Dashboard requirement cross-links** (e.g. `/{spec}/{impl}/spec#r--req.id`) MUST be rewritten to point to the HTML file containing that requirement's anchor (e.g. `./file.html#r-req.id`).
+> 4. Links to files outside the spec and external URLs MUST be left unchanged.
 
 #### Page Tree Sidebar
 
 > r[export.sidebar.structure]
-> Every page MUST include a sidebar that shows the full page tree. The tree MUST have the following hierarchy:
+> Every page MUST include a sidebar that shows the heading outline of the spec. The sidebar uses the dashboard's TOC markup (`.toc-item`, `.toc-row`, `.toc-link`, `.toc-children`) for visual consistency. The hierarchy is:
 >
 > 1. **README** — the project README as the root entry point, always shown first
-> 2. **Specs** — one entry per spec, each expandable to reveal:
->    - **Files** — one entry per spec file (only shown for multi-file specs)
->      - **Headings** — h1/h2/h3 headings, collapsible with a fold button when they have children
+> 2. **Spec headings** — nested h1/h2/h3/h4 headings from all spec files, with each heading linking to the correct HTML page and anchor. For multi-file specs, headings are grouped by file (determined by matching heading IDs in each section's rendered HTML).
 
-> r[export.sidebar.collapsible]
-> Each level of the sidebar tree MUST be independently collapsible. Collapsed state SHOULD be preserved during navigation (e.g. via `localStorage`).
-
-> r[export.sidebar.current-page]
-> The sidebar MUST highlight the currently active page and auto-expand the tree path leading to it.
+> r[export.sidebar.scroll-spy]
+> As the user scrolls the content, the sidebar MUST highlight the heading nearest to the current scroll position. The scroll spy MUST use the content panel's scroll position (not the window) since the layout uses an app-style fixed viewport. When a heading is not directly represented in the sidebar (e.g. h4 below the max depth), the nearest ancestor heading that has a sidebar entry MUST be highlighted instead.
 
 > r[export.sidebar.mobile]
 > On mobile viewports (narrow screens), the sidebar MUST be hidden by default and accessible via a toggle button. When open, it MUST overlay the content and include a backdrop that dismisses it on tap.
@@ -833,7 +833,7 @@ The `tracey export` command generates a static HTML site from spec coverage data
 #### Styling
 
 > r[export.style.dashboard-css]
-> The exported site MUST reuse the CSS token system (colors, typography, spacing) from the tracey web dashboard so that both look visually consistent.
+> The exported site MUST reuse the CSS and layout structure from the tracey web dashboard (`.layout`, `.header`, `.main`, `.sidebar`, `.content` classes and the token system for colors, typography, spacing) so that both look visually consistent. Export-specific overrides (e.g. `overflow-y: auto` on `.content` and `.sidebar` for native scrolling) are layered on top.
 
 > r[export.style.mobile-first]
 > All pages MUST be designed mobile-first: readable and functional on small screens, with enhancements for larger viewports via media queries.
@@ -863,14 +863,8 @@ The `tracey export` command generates a static HTML site from spec coverage data
 > r[export.spec-page.req-solid]
 > Requirement blocks MUST be styled with solid backgrounds (not transparent/faded), ensuring they are easy to read in both light and dark modes.
 
-> r[export.spec-page.coverage-inline]
-> Each requirement block MUST show its coverage status inline: the file names and line numbers of implementing and verifying code. Full source code MUST NOT be included — only file paths and line numbers.
-
-> r[export.spec-page.uncovered-icons]
-> Requirements that lack implementations or verifications MUST display annotation icons (visual indicators) so that coverage gaps are immediately visible when scanning the page.
-
 > r[export.spec-page.cross-links]
-> Requirement IDs referenced in other requirements (via `depends` or `related` verbs) MUST be rendered as clickable links that navigate to the referenced requirement's definition, including across spec files.
+> Requirement cross-references (inline `r[req.id]` links rendered by the dashboard as `/{spec}/{impl}/spec#r--req.id`) MUST be rewritten to point to the correct HTML file and anchor in the export. This enables navigating between requirements across spec files.
 
 > r[export.spec-page.anchors]
 > Each requirement block and each heading MUST have a stable anchor (HTML `id`) so that direct links and sidebar heading links work correctly.

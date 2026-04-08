@@ -70,12 +70,14 @@ pub(crate) fn landing_page(
 // r[impl export.spec-page.anchors]
 pub(crate) fn spec_page(
     spec_name: &str,
-    _impl_name: &str,
+    impl_name: &str,
     section: &tracey_api::SpecSection,
     forward: &ApiSpecForward,
     _spec_data: &ApiSpecData,
     sidebar_entries: &[SidebarSpec],
     page_path: &str,
+    project_root: &str,
+    req_to_file: &HashMap<String, String>,
 ) -> Markup {
     let rules_by_id: HashMap<String, &tracey_api::ApiRule> = forward
         .rules
@@ -86,8 +88,27 @@ pub(crate) fn spec_page(
     let mut html_content = enhance_spec_html(&section.html, &rules_by_id);
 
     // r[impl export.output.link-rewrite]
-    // Rewrite .md links to .html (simple extension swap)
+    // Rewrite internal spec links: marq resolves relative .md links to absolute
+    // paths like /project/docs/spec/filename/. We convert these back to relative
+    // .html links for the static export.
+    let spec_dir = std::path::Path::new(&section.source_file)
+        .parent()
+        .and_then(|p| p.to_str())
+        .unwrap_or("");
+    let abs_spec_dir = if spec_dir.is_empty() {
+        project_root.to_string()
+    } else {
+        format!("{project_root}/{spec_dir}")
+    };
+    html_content = rewrite_spec_links(&html_content, &abs_spec_dir);
     html_content = rewrite_md_links(&html_content);
+
+    // r[impl export.spec-page.cross-links]
+    // Rewrite dashboard requirement cross-links like /spec/impl/spec#r-req.id
+    // to relative paths pointing to the correct HTML file.
+    let dashboard_prefix = format!("/{spec_name}/{impl_name}/spec#r-");
+    html_content =
+        rewrite_req_cross_links(&html_content, &dashboard_prefix, req_to_file, page_path);
 
     let content = html! {
         .content.export-content.spec-page {
@@ -105,6 +126,112 @@ pub(crate) fn redirect_page(target: &str) -> String {
     format!(
         r#"<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0; url={target}"></head><body><a href="{target}">Redirect</a></body></html>"#
     )
+}
+
+/// Rewrite dashboard requirement cross-links to relative export links.
+/// Dashboard links look like `href="/spec_name/impl_name/spec#r-req.id"` (with `--`
+/// replacing dots in the anchor: `#r--req.id`).
+/// We look up which file contains the requirement and produce a relative link.
+fn rewrite_req_cross_links(
+    html: &str,
+    dashboard_prefix: &str,
+    req_to_file: &HashMap<String, String>,
+    current_page: &str,
+) -> String {
+    let mut result = String::with_capacity(html.len());
+    let needle = "href=\"";
+    let mut pos = 0;
+
+    while let Some(rel) = html[pos..].find(needle) {
+        let abs_start = pos + rel + needle.len();
+        result.push_str(&html[pos..abs_start]);
+
+        if let Some(end) = html[abs_start..].find('"') {
+            let href = &html[abs_start..abs_start + end];
+
+            // Check for dashboard prefix: /spec/impl/spec#r- or /spec/impl/spec#r--
+            if let Some(rest) = href.strip_prefix(dashboard_prefix) {
+                // The anchor uses -- to separate segments: r--req.id or r-req.id
+                // Normalize: strip leading - (the dashboard uses #r--id format)
+                let req_id_dashed = rest.trim_start_matches('-');
+                // Convert dashes back to dots for lookup: req.id
+                // Actually the dashboard keeps dots: #r--bam.record.flag_first
+                let req_id = req_id_dashed;
+
+                if let Some(target_file) = req_to_file.get(req_id) {
+                    // Build relative link from current page to target file
+                    let root = super::relative_root(current_page);
+                    result.push_str(&format!("{root}/{target_file}#r-{req_id}"));
+                    pos = abs_start + end;
+                    continue;
+                }
+            }
+
+            result.push_str(href);
+            pos = abs_start + end;
+        } else {
+            pos = abs_start;
+        }
+    }
+
+    result.push_str(&html[pos..]);
+    result
+}
+
+/// Rewrite absolute spec links back to relative HTML links.
+/// marq resolves `[text](references.md)` to `href="/project/docs/spec/references/"`.
+/// We detect links starting with the spec directory and convert to `./stem.html`.
+fn rewrite_spec_links(html: &str, abs_spec_dir: &str) -> String {
+    let mut result = String::with_capacity(html.len());
+    let needle = "href=\"";
+    let mut pos = 0;
+
+    // Normalize: ensure the prefix ends with /
+    let prefix = if abs_spec_dir.ends_with('/') {
+        abs_spec_dir.to_string()
+    } else {
+        format!("{abs_spec_dir}/")
+    };
+
+    while let Some(rel) = html[pos..].find(needle) {
+        let abs_start = pos + rel + needle.len();
+        result.push_str(&html[pos..abs_start]);
+
+        if let Some(end) = html[abs_start..].find('"') {
+            let href = &html[abs_start..abs_start + end];
+
+            if let Some(rest) = href.strip_prefix(&prefix) {
+                // Extract the stem — it's the path after the spec dir
+                // Could be "references/" or "99-references/" or "references/#section"
+                let (file_part, fragment) = if let Some(hash) = rest.find('#') {
+                    (&rest[..hash], Some(&rest[hash..]))
+                } else {
+                    (rest, None)
+                };
+
+                // Strip trailing slash
+                let stem = file_part.trim_end_matches('/');
+
+                if !stem.is_empty() {
+                    result.push_str(&format!("./{stem}.html"));
+                    if let Some(frag) = fragment {
+                        result.push_str(frag);
+                    }
+                    pos = abs_start + end;
+                    continue;
+                }
+            }
+
+            // Not a spec link, keep as-is
+            result.push_str(href);
+            pos = abs_start + end;
+        } else {
+            pos = abs_start;
+        }
+    }
+
+    result.push_str(&html[pos..]);
+    result
 }
 
 /// Rewrite `.md` links to `.html` in rendered HTML.
@@ -500,6 +627,90 @@ mod tests {
         assert!(result.contains("intro.html#section"));
         assert!(result.contains("https://example.com")); // external unchanged
         assert!(!result.contains(".md"));
+    }
+
+    #[test]
+    fn test_rewrite_spec_links() {
+        let abs_dir = "/home/user/project/docs/spec";
+
+        // marq turns [text](references.md) into href="/home/user/project/docs/spec/references/"
+        let html = concat!(
+            r#"<a href="/home/user/project/docs/spec/references/">References</a> "#,
+            r#"<a href="/home/user/project/docs/spec/99-references/">See refs</a> "#,
+            r#"<a href="/home/user/project/docs/spec/intro/#section">Intro</a> "#,
+            r#"<a href="https://example.com">External</a> "#,
+            r#"<a href="/other/path/">Other</a>"#,
+        );
+
+        let result = rewrite_spec_links(html, abs_dir);
+
+        assert!(
+            result.contains("./references.html"),
+            "should rewrite to relative .html: {result}"
+        );
+        assert!(result.contains("./99-references.html"));
+        assert!(result.contains("./intro.html#section"));
+        assert!(result.contains("https://example.com")); // external unchanged
+        assert!(result.contains("/other/path/")); // non-spec path unchanged
+    }
+
+    #[test]
+    fn test_rewrite_spec_links_with_trailing_slash() {
+        let abs_dir = "/project/docs/spec/";
+        let html = r#"<a href="/project/docs/spec/chapter/">Chapter</a>"#;
+        let result = rewrite_spec_links(html, abs_dir);
+        assert!(result.contains("./chapter.html"));
+    }
+
+    #[test]
+    fn test_rewrite_req_cross_links() {
+        let mut req_map = HashMap::new();
+        req_map.insert(
+            "bam.record.flag_first".to_string(),
+            "seqair/2-bam-3-2-record.html".to_string(),
+        );
+        req_map.insert("auth.login".to_string(), "myspec/index.html".to_string());
+
+        // Dashboard-style link: /spec/impl/spec#r--req.id
+        let html = concat!(
+            r#"<a href="/seqair/rust/spec#r--bam.record.flag_first">flag</a> "#,
+            r#"<a href="/myspec/main/spec#r--auth.login">login</a> "#,
+            r#"<a href="https://example.com">ext</a>"#,
+        );
+
+        let result = rewrite_req_cross_links(
+            html,
+            "/seqair/rust/spec#r-",
+            &req_map,
+            "seqair/0-general.html",
+        );
+
+        assert!(
+            result.contains("2-bam-3-2-record.html#r-bam.record.flag_first"),
+            "should rewrite cross-link: {result}"
+        );
+        // The myspec link has a different prefix, so it's not rewritten by this call
+        assert!(result.contains("/myspec/main/spec#r--auth.login"));
+        assert!(result.contains("https://example.com"));
+    }
+
+    #[test]
+    fn test_rewrite_req_cross_links_same_file() {
+        let mut req_map = HashMap::new();
+        req_map.insert(
+            "intro.overview".to_string(),
+            "myspec/index.html".to_string(),
+        );
+
+        let html = r#"<a href="/myspec/main/spec#r--intro.overview">overview</a>"#;
+        let result =
+            rewrite_req_cross_links(html, "/myspec/main/spec#r-", &req_map, "myspec/index.html");
+
+        // Should link to same file with anchor
+        assert!(
+            result.contains("myspec/index.html#r-intro.overview"),
+            "should resolve: {result}"
+        );
     }
 
     #[test]

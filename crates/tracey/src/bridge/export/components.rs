@@ -84,37 +84,28 @@ pub(crate) fn sidebar(current_page: &str, specs: &[SidebarSpec]) -> Markup {
 }
 
 fn sidebar_spec_entry(current_page: &str, spec: &SidebarSpec) -> Markup {
-    let show_files = spec.files.len() > 1;
-
+    // Show headings from all files in a single tree.
+    // Each file's headings link to the correct HTML page via the file's href.
     html! {
-        @if show_files {
-            // Multi-file spec: show file entries, each with their own headings
-            @for file in &spec.files {
-                @let is_file_active = current_page == file.href;
-                ul .outline-tree {
-                    li .toc-item.depth-0
-                       .is-active[is_file_active]
-                       data-slug=(file.display_name) {
-                        a .toc-row href=(sidebar_href(current_page, &file.href)) {
-                            span .toc-link { (file.display_name) }
-                        }
-                    }
-                }
-                @if is_file_active {
-                    (heading_tree(current_page, &file.headings, &file.href))
-                }
-            }
-        } @else if let Some(file) = spec.files.first() {
-            // Single-file spec: show headings directly
+        @for file in &spec.files {
             (heading_tree(current_page, &file.headings, &file.href))
         }
     }
 }
 
-/// Build a nested tree from a flat list of headings using the dashboard's
-/// `.toc-item` / `.toc-row` / `.toc-children` structure.
-/// Folding is handled by JS (toggling a `.is-collapsed` class on `.toc-children`).
+/// Build a nested tree from a flat list of headings, matching the dashboard's
+/// `toc-item` / `toc-row` / `toc-children` structure exactly.
+/// Top level uses `<ul class="outline-tree">`, nested levels use `<ul class="toc-children">`.
 fn heading_tree(current_page: &str, headings: &[SidebarHeading], spec_href: &str) -> Markup {
+    heading_tree_inner(current_page, headings, spec_href, true)
+}
+
+fn heading_tree_inner(
+    current_page: &str,
+    headings: &[SidebarHeading],
+    spec_href: &str,
+    is_root: bool,
+) -> Markup {
     if headings.is_empty() {
         return html! {};
     }
@@ -133,42 +124,27 @@ fn heading_tree(current_page: &str, headings: &[SidebarHeading], spec_href: &str
         }
     }
 
-    html! {
-        ul .outline-tree {
-            @for (parent, children) in &groups {
-                li .toc-item
-                   .(format!("depth-{}", parent.level.saturating_sub(1)))
-                   data-slug=(parent.slug) {
-                    @if children.is_empty() {
-                        a .toc-row
-                          href=(format!("{}#{}", sidebar_href(current_page, spec_href), parent.slug)) {
-                            span .toc-link { (parent.title) }
-                        }
-                    } @else {
-                        .toc-row {
-                            a .toc-link
-                              href=(format!("{}#{}", sidebar_href(current_page, spec_href), parent.slug)) {
-                                (parent.title)
-                            }
-                            button .toc-fold-btn title="Toggle section" { "+" }
-                        }
-                        @let child_headings: Vec<SidebarHeading> = children.iter().map(|h| (*h).clone()).collect();
-                        ul .toc-children.is-collapsed {
-                            @for child in &child_headings {
-                                li .toc-item
-                                   .(format!("depth-{}", child.level.saturating_sub(1)))
-                                   data-slug=(child.slug) {
-                                    a .toc-row
-                                      href=(format!("{}#{}", sidebar_href(current_page, spec_href), child.slug)) {
-                                        span .toc-link { (child.title) }
-                                    }
-                                }
-                            }
-                        }
-                    }
+    let items = html! {
+        @for (parent, children) in &groups {
+            li .toc-item
+               .(format!("depth-{}", parent.level.saturating_sub(1)))
+               data-slug=(parent.slug) {
+                a .toc-row
+                  href=(format!("{}#{}", sidebar_href(current_page, spec_href), parent.slug)) {
+                    span .toc-link { " " (parent.title) " " }
+                }
+                @if !children.is_empty() {
+                    @let child_headings: Vec<SidebarHeading> = children.iter().map(|h| (*h).clone()).collect();
+                    (heading_tree_inner(current_page, &child_headings, spec_href, false))
                 }
             }
         }
+    };
+
+    if is_root {
+        html! { ul .outline-tree { (items) } }
+    } else {
+        html! { ul .toc-children { (items) } }
     }
 }
 
@@ -360,21 +336,30 @@ mod tests {
                 SidebarFile {
                     display_name: "intro".to_string(),
                     href: "big/intro.html".to_string(),
-                    headings: vec![],
+                    headings: vec![SidebarHeading {
+                        title: "Introduction".to_string(),
+                        slug: "introduction".to_string(),
+                        level: 1,
+                    }],
                 },
                 SidebarFile {
                     display_name: "details".to_string(),
                     href: "big/details.html".to_string(),
-                    headings: vec![],
+                    headings: vec![SidebarHeading {
+                        title: "Details".to_string(),
+                        slug: "details".to_string(),
+                        level: 1,
+                    }],
                 },
             ],
         }];
 
-        // When on the intro page, both files should appear
         let s = sidebar("big/intro.html", &specs).into_string();
-        assert!(s.contains("intro"));
-        assert!(s.contains("details"));
-        // intro should be active
-        assert!(s.contains("is-active"));
+        // Both files' headings should appear
+        assert!(s.contains("Introduction"));
+        assert!(s.contains("Details"));
+        // Introduction links to intro.html, Details links to details.html
+        assert!(s.contains("big/intro.html#introduction"));
+        assert!(s.contains("big/details.html#details"));
     }
 }

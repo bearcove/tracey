@@ -23,69 +23,6 @@
     backdrop.addEventListener("click", closeSidebar);
   }
 
-  // r[impl export.sidebar.collapsible]
-  // Click on a toc-row that has toc-children toggles fold.
-  // Persist state in localStorage.
-  var STORAGE_KEY = "tracey-export-sidebar-state";
-
-  function saveFoldState() {
-    if (!sidebar) return;
-    var state = {};
-    sidebar.querySelectorAll(".toc-children").forEach(function (ul) {
-      var item = ul.parentElement;
-      var slug = item ? item.getAttribute("data-slug") : null;
-      if (slug) state[slug] = ul.classList.contains("is-collapsed");
-    });
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch (e) {}
-  }
-
-  function restoreFoldState() {
-    if (!sidebar) return;
-    try {
-      var state = JSON.parse(localStorage.getItem(STORAGE_KEY));
-      if (!state) return;
-      sidebar.querySelectorAll(".toc-children").forEach(function (ul) {
-        var item = ul.parentElement;
-        var slug = item ? item.getAttribute("data-slug") : null;
-        if (slug && slug in state) {
-          ul.classList.toggle("is-collapsed", state[slug]);
-        }
-      });
-    } catch (e) {}
-  }
-
-  function updateFoldButtons() {
-    if (!sidebar) return;
-    sidebar.querySelectorAll(".toc-fold-btn").forEach(function (btn) {
-      var item = btn.closest(".toc-item");
-      var children = item ? item.querySelector(":scope > .toc-children") : null;
-      if (children) {
-        btn.textContent = children.classList.contains("is-collapsed") ? "+" : "−";
-      }
-    });
-  }
-
-  function setupFolding() {
-    if (!sidebar) return;
-    // The +/- button toggles fold; clicking the toc-link navigates
-    sidebar.querySelectorAll(".toc-fold-btn").forEach(function (btn) {
-      var item = btn.closest(".toc-item");
-      var children = item ? item.querySelector(":scope > .toc-children") : null;
-      if (!children) return;
-
-      btn.addEventListener("click", function (e) {
-        e.stopPropagation();
-        children.classList.toggle("is-collapsed");
-        updateFoldButtons();
-        saveFoldState();
-      });
-    });
-
-    updateFoldButtons();
-  }
-
   // r[impl export.sidebar.current-page]
   // Scroll spy: highlight the current heading in the sidebar.
   function setupScrollSpy() {
@@ -144,27 +81,19 @@
         var activeItem = tocItems[resolved];
         activeItem.classList.add("is-active");
 
-        // Mark parent toc-children as has-active and unfold them
+        // Mark parent toc-children as has-active
         var parent = activeItem.closest(".toc-children");
-        // First, clear all has-active
-        sidebar.querySelectorAll(".toc-children.has-active").forEach(function (ul) {
-          ul.classList.remove("has-active");
-        });
+        sidebar
+          .querySelectorAll(".toc-children.has-active")
+          .forEach(function (ul) {
+            ul.classList.remove("has-active");
+          });
         while (parent) {
           parent.classList.add("has-active");
-          parent.classList.remove("is-collapsed");
           parent = parent.parentElement
             ? parent.parentElement.closest(".toc-children")
             : null;
         }
-
-        // Also expand children of the active item itself if it has any
-        var ownChildren = activeItem.querySelector(":scope > .toc-children");
-        if (ownChildren) {
-          ownChildren.classList.remove("is-collapsed");
-        }
-
-        updateFoldButtons();
 
         // Scroll the sidebar to keep the active item visible
         var row = activeItem.querySelector(".toc-row");
@@ -198,8 +127,6 @@
   }
 
   document.addEventListener("DOMContentLoaded", function () {
-    restoreFoldState();
-    setupFolding();
     setupScrollSpy();
   });
 })();
