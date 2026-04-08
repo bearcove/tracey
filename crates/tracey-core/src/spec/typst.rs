@@ -46,10 +46,18 @@ pub struct RenderCtx<'a> {
 /// 4. Lift `<style>` / `<link>` from the compiler's `<head>` into
 ///    `head_injections`; return only the `<body>` interior as `html`.
 ///
+/// `base_dir` is the directory containing the spec file; relative `#import` /
+/// `#include` paths resolve against it. Package imports (`@preview/...`) other
+/// than the tracey shim are not resolved and will fail compilation.
+///
 /// Behind the `typst-spec` feature. Without it, returns an error and callers
 /// should fall back to [`parse`] (placeholder `<pre>` html).
 #[cfg_attr(not(feature = "typst-spec"), allow(unused_variables))]
-pub async fn render_display(content: &str, ctx: &RenderCtx<'_>) -> eyre::Result<SpecDoc> {
+pub async fn render_display(
+    content: &str,
+    base_dir: &std::path::Path,
+    ctx: &RenderCtx<'_>,
+) -> eyre::Result<SpecDoc> {
     #[cfg(not(feature = "typst-spec"))]
     {
         Err(eyre::eyre!(
@@ -58,7 +66,7 @@ pub async fn render_display(content: &str, ctx: &RenderCtx<'_>) -> eyre::Result<
     }
     #[cfg(feature = "typst-spec")]
     {
-        compiler::render(content, ctx).await
+        compiler::render(content, base_dir, ctx).await
     }
 }
 
@@ -286,7 +294,10 @@ fn strip_delims<'a>(bytes: &'a [u8], node: Node<'_>) -> Option<&'a str> {
 #[cfg(feature = "typst-spec")]
 mod compiler {
     use super::{RenderCtx, SpecDoc, parse};
+    use std::collections::HashMap;
     use std::fmt::Write as _;
+    use std::path::{Path, PathBuf};
+    use std::sync::Mutex;
     use typst::diag::{FileError, FileResult};
     use typst::foundations::{Bytes, Datetime};
     use typst::syntax::{FileId, Source, VirtualPath};
@@ -317,7 +328,11 @@ mod compiler {
         ")[#it.body]\n",
     );
 
-    pub(super) async fn render(content: &str, ctx: &RenderCtx<'_>) -> eyre::Result<SpecDoc> {
+    pub(super) async fn render(
+        content: &str,
+        base_dir: &Path,
+        ctx: &RenderCtx<'_>,
+    ) -> eyre::Result<SpecDoc> {
         // Structural extraction runs on the raw user content so spans / line
         // numbers point at the actual source file, not the prelude-shifted text.
         let mut doc = parse(content).await?;
@@ -327,7 +342,7 @@ mod compiler {
         full.push_str(PRELUDE);
         full.push_str(&stripped);
 
-        let world = SpecWorld::new(full);
+        let world = SpecWorld::new(full, base_dir.to_path_buf());
         let compiled = typst::compile::<HtmlDocument>(&world);
         // Clear typst's global memoization cache so repeated compilations in a
         // long-running daemon don't accumulate unbounded memory.
@@ -354,17 +369,25 @@ mod compiler {
         Ok(doc)
     }
 
-    /// Minimal in-memory [`World`]: single source file, embedded fonts, no
-    /// package manager. `#import` is unsupported by design (Q5).
+    /// Minimal [`World`]: in-memory main source, embedded fonts, no package
+    /// manager. Relative `#import` / `#include` resolve against `base_dir`;
+    /// package imports (`@preview/...`) are rejected.
     struct SpecWorld {
         library: LazyHash<Library>,
         book: LazyHash<FontBook>,
         fonts: Vec<FontSlot>,
         main: Source,
+        /// Directory the main spec file lives in; root for relative imports.
+        base_dir: PathBuf,
+        /// Disk reads cached per [`FileId`] — typst may request the same file
+        /// repeatedly during a compile. Errors are cached too so a missing
+        /// import is reported once, not re-stat'd.
+        sources: Mutex<HashMap<FileId, FileResult<Source>>>,
+        files: Mutex<HashMap<FileId, FileResult<Bytes>>>,
     }
 
     impl SpecWorld {
-        fn new(text: String) -> Self {
+        fn new(text: String, base_dir: PathBuf) -> Self {
             let features: Features = [Feature::Html].into_iter().collect();
             let library = Library::builder().with_features(features).build();
             let fonts = Fonts::searcher()
@@ -377,7 +400,25 @@ mod compiler {
                 book: LazyHash::new(fonts.book),
                 fonts: fonts.fonts,
                 main: Source::new(id, text),
+                base_dir,
+                sources: Mutex::new(HashMap::new()),
+                files: Mutex::new(HashMap::new()),
             }
+        }
+
+        /// Resolve `id` to an on-disk path under `base_dir`, reading it as raw
+        /// bytes. Package ids and paths that escape `base_dir` are rejected.
+        fn read(&self, id: FileId) -> FileResult<Vec<u8>> {
+            if id.package().is_some() {
+                // No package manager; tracey's own package import is stripped
+                // before compilation, anything else is unsupported.
+                return Err(FileError::NotFound(id.vpath().as_rootless_path().into()));
+            }
+            let path = id
+                .vpath()
+                .resolve(&self.base_dir)
+                .ok_or(FileError::AccessDenied)?;
+            std::fs::read(&path).map_err(|e| FileError::from_io(e, &path))
         }
     }
 
@@ -393,13 +434,25 @@ mod compiler {
         }
         fn source(&self, id: FileId) -> FileResult<Source> {
             if id == self.main.id() {
-                Ok(self.main.clone())
-            } else {
-                Err(FileError::NotFound(id.vpath().as_rootless_path().into()))
+                return Ok(self.main.clone());
             }
+            let mut cache = self.sources.lock().unwrap();
+            cache
+                .entry(id)
+                .or_insert_with(|| {
+                    let bytes = self.read(id)?;
+                    let text = String::from_utf8(bytes)
+                        .map_err(|_| FileError::InvalidUtf8)?;
+                    Ok(Source::new(id, text))
+                })
+                .clone()
         }
         fn file(&self, id: FileId) -> FileResult<Bytes> {
-            Err(FileError::NotFound(id.vpath().as_rootless_path().into()))
+            let mut cache = self.files.lock().unwrap();
+            cache
+                .entry(id)
+                .or_insert_with(|| self.read(id).map(Bytes::new))
+                .clone()
         }
         fn font(&self, index: usize) -> Option<Font> {
             self.fonts.get(index)?.get()
@@ -625,10 +678,47 @@ mod compiler {
             let ctx = RenderCtx {
                 badge_for: &|d| (format!("<OPEN {}>", d.id), "</CLOSE>".into()),
             };
-            let doc = render(src, &ctx).await.expect("render with import");
+            let doc = render(src, Path::new("."), &ctx)
+                .await
+                .expect("render with import");
             assert_eq!(doc.reqs.len(), 1);
             assert!(doc.html.contains("<OPEN a.b>"), "sentinel div spliced");
             assert!(doc.html.contains("Body."));
+        }
+
+        /// Relative `#import` resolves against `base_dir`: a helper file on disk
+        /// is loaded and its definitions are usable from the in-memory main.
+        #[tokio::test]
+        async fn render_resolves_relative_import() {
+            let dir = tempfile::tempdir().expect("tempdir");
+            std::fs::write(dir.path().join("helper.typ"), "#let foo = [helper text]\n")
+                .expect("write helper");
+            let src = "#import \"helper.typ\": foo\n\n#req(\"a.b\")[Uses #foo here.]\n";
+            let ctx = RenderCtx {
+                badge_for: &|d| (format!("<OPEN {}>", d.id), "</CLOSE>".into()),
+            };
+            let doc = render(src, dir.path(), &ctx)
+                .await
+                .expect("render with relative import");
+            assert!(doc.html.contains("<OPEN a.b>"));
+            assert!(
+                doc.html.contains("helper text"),
+                "imported binding should expand into output: {}",
+                doc.html
+            );
+        }
+
+        /// Non-tracey package imports still fail (no package manager).
+        #[tokio::test]
+        async fn render_rejects_unknown_package_import() {
+            let src = "#import \"@preview/other:1.0.0\": x\n";
+            let ctx = RenderCtx {
+                badge_for: &|_| (String::new(), String::new()),
+            };
+            let err = render(src, Path::new("."), &ctx)
+                .await
+                .expect_err("unknown package should not resolve");
+            assert!(err.to_string().contains("typst compile failed"));
         }
 
         #[test]

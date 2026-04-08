@@ -5752,6 +5752,7 @@ dependencies = [
  "pulldown-cmark",
  "rayon",
  "strictdoc-parser",
+ "tempfile",
  "tokio",
  "typst",
  "typst-html",

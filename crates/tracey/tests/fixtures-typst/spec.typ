@@ -1,8 +1,9 @@
 #import "@preview/tracey:0.1.0": r
+#import "helper.typ": helper-thing
 
 = Test Specification
 
-This is a test specification for integration testing.
+This is a test specification for integration testing. #helper-thing
 
 == Authentication
 

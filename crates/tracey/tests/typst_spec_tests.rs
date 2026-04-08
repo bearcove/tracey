@@ -146,6 +146,12 @@ async fn renders_html_with_badges() {
     // → h1, `== Authentication` → h2).
     assert!(html.contains("<h1 id=\"test-specification\">"));
     assert!(html.contains("<h2 id=\"authentication\">"));
+
+    // Relative `#import "helper.typ"` resolved against the spec's directory.
+    assert!(
+        html.contains("helper content"),
+        "binding from helper.typ should expand into output"
+    );
 }
 
 /// Low-level `render_display` smoke test: confirms the tracey-core entry point
@@ -162,7 +168,7 @@ async fn render_display_direct() {
             )
         },
     };
-    let doc = tracey_core::spec::typst::render_display(src, &ctx)
+    let doc = tracey_core::spec::typst::render_display(src, std::path::Path::new("."), &ctx)
         .await
         .expect("render_display failed");
     assert_eq!(doc.reqs.len(), 1);
@@ -179,7 +185,7 @@ async fn render_display_errors_without_feature() {
     let ctx = tracey_core::spec::typst::RenderCtx {
         badge_for: &|_| (String::new(), String::new()),
     };
-    let err = tracey_core::spec::typst::render_display("= Title\n", &ctx)
+    let err = tracey_core::spec::typst::render_display("= Title\n", std::path::Path::new("."), &ctx)
         .await
         .expect_err("should error without typst-spec");
     assert!(err.to_string().contains("typst-spec"));
