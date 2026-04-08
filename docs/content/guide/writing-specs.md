@@ -171,7 +171,7 @@ Tracey injects the definition of `#r` / `#req` when it renders a spec, so the im
 
 Tracey strips this import before rendering, so it never conflicts with the dashboard output.
 
-**Limitations:** Relative `#import` / `#include` paths are resolved against the spec file's directory, but package imports beyond `@preview/tracey` are not resolved. Spec edits trigger a full reparse rather than an incremental diff. Any function call of the shape `#prefix("id")[body]` is treated as a requirement marker unless `prefix` is a typst standard-library function (`image`, `link`, `figure`, …), so avoid choosing a prefix that shadows a built-in.
+**Limitations:** Relative `#import` / `#include` paths are resolved against the spec file's directory, but package imports beyond `@preview/tracey` are not resolved. Any function call of the shape `#prefix("id")[body]` is treated as a requirement marker unless `prefix` is a typst standard-library function (`image`, `link`, `figure`, …), so avoid choosing a prefix that shadows a built-in.
 
 ## Avoiding duplicates
 
