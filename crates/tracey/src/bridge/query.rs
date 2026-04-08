@@ -729,8 +729,8 @@ impl QueryClient {
                     }
                 }
                 output.push_str(&self.hint(
-                    "tracey query validate <spec>/<impl>",
-                    "tracey_validate with a spec_impl parameter to validate a specific one (e.g., \"my-spec/rust\")",
+                    "tracey query validate --spec-impl <spec>/<impl>",
+                    "tracey_validate with a spec-impl parameter to validate a specific one (e.g., \"my-spec/rust\")",
                 ));
                 (output, has_errors)
             }
