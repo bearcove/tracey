@@ -322,12 +322,15 @@ mod compiler {
         // numbers point at the actual source file, not the prelude-shifted text.
         let mut doc = parse(content).await?;
 
-        let mut full = String::with_capacity(PRELUDE.len() + content.len());
+        let stripped = strip_tracey_imports(content);
+        let mut full = String::with_capacity(PRELUDE.len() + stripped.len());
         full.push_str(PRELUDE);
-        full.push_str(content);
+        full.push_str(&stripped);
 
         let world = SpecWorld::new(full);
         let compiled = typst::compile::<HtmlDocument>(&world);
+        // Clear typst's global memoization cache so repeated compilations in a
+        // long-running daemon don't accumulate unbounded memory.
         comemo::evict(0);
         let output = compiled.output.map_err(|errs| {
             let mut msg = String::from("typst compile failed:");
@@ -404,6 +407,46 @@ mod compiler {
         fn today(&self, _offset: Option<i64>) -> Option<Datetime> {
             None
         }
+    }
+
+    /// Remove `#import "@preview/tracey:..."` / `#import "@local/tracey:..."`
+    /// lines so the prelude's `#let r = ...` is the only definition in scope.
+    /// Users add this import to make specs compile standalone; our [`World`]
+    /// has no package manager, so leaving it in would fail compilation. Lines
+    /// are blanked (not removed) so typst diagnostics keep their line numbers.
+    fn strip_tracey_imports(content: &str) -> std::borrow::Cow<'_, str> {
+        if !content.contains("/tracey:") {
+            return std::borrow::Cow::Borrowed(content);
+        }
+        let mut out = String::with_capacity(content.len());
+        let mut lines = content.split_inclusive('\n');
+        while let Some(line) = lines.next() {
+            let t = line.trim_start();
+            let is_tracey_import = t.starts_with("#import ")
+                && (t.contains("\"@preview/tracey:") || t.contains("\"@local/tracey:"));
+            if !is_tracey_import {
+                out.push_str(line);
+                continue;
+            }
+            // Blank the import line, preserving the trailing newline.
+            if line.ends_with('\n') {
+                out.push('\n');
+            }
+            // Multi-line import list: `#import "...": (` … `)`. Consume and
+            // blank continuation lines until the closing paren so we don't
+            // leave orphaned `r, req,` tokens behind.
+            if line.trim_end().ends_with('(') {
+                for cont in lines.by_ref() {
+                    if cont.ends_with('\n') {
+                        out.push('\n');
+                    }
+                    if cont.trim_end().ends_with(')') {
+                        break;
+                    }
+                }
+            }
+        }
+        std::borrow::Cow::Owned(out)
     }
 
     // ---- HTML post-processing --------------------------------------------
@@ -552,6 +595,41 @@ mod compiler {
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        #[test]
+        fn strips_tracey_package_imports() {
+            let src = "#import \"@preview/tracey:0.1.0\": r\n\
+                       #import \"@local/tracey:0.1.0\": req\n\
+                       #import \"@preview/other:1.0.0\": x\n\
+                       = Title\n";
+            let out = strip_tracey_imports(src);
+            assert_eq!(out, "\n\n#import \"@preview/other:1.0.0\": x\n= Title\n");
+            // No-op fast path returns borrowed.
+            assert!(matches!(
+                strip_tracey_imports("= Title\n"),
+                std::borrow::Cow::Borrowed(_)
+            ));
+        }
+
+        #[test]
+        fn strips_multiline_tracey_import() {
+            let src = "#import \"@preview/tracey:0.1.0\": (\n  r, req,\n)\n= Title\n";
+            let out = strip_tracey_imports(src);
+            // All three import lines blanked, line count preserved.
+            assert_eq!(out, "\n\n\n= Title\n");
+        }
+
+        #[tokio::test]
+        async fn render_with_package_import() {
+            let src = "#import \"@preview/tracey:0.1.0\": r\n\n#r(\"a.b\")[Body.]\n";
+            let ctx = RenderCtx {
+                badge_for: &|d| (format!("<OPEN {}>", d.id), "</CLOSE>".into()),
+            };
+            let doc = render(src, &ctx).await.expect("render with import");
+            assert_eq!(doc.reqs.len(), 1);
+            assert!(doc.html.contains("<OPEN a.b>"), "sentinel div spliced");
+            assert!(doc.html.contains("Body."));
+        }
 
         #[test]
         fn matching_div_handles_nesting() {

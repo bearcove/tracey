@@ -723,7 +723,7 @@ impl TraceyDaemon for TraceyService {
             .forward_by_impl
             .get(&(spec.clone(), impl_name.clone()))?;
         let include_patterns = data.spec_includes_by_name.get(&spec)?;
-        crate::data::render_spec_content_for_impl(
+        match crate::data::render_spec_content_for_impl(
             self.inner.engine.project_root(),
             include_patterns,
             &spec,
@@ -731,7 +731,13 @@ impl TraceyDaemon for TraceyService {
             forward,
         )
         .await
-        .ok()
+        {
+            Ok(v) => Some(v),
+            Err(e) => {
+                tracing::warn!("spec render failed for {spec}/{impl_name}: {e:#}");
+                None
+            }
+        }
     }
 
     /// Search rules and files
