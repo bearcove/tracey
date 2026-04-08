@@ -187,6 +187,7 @@ mod tantivy_impl {
                 let format_str = match rule.format {
                     SpecFormat::Markdown => "markdown",
                     SpecFormat::Typst => "typst",
+                    _ => "markdown", // future formats: index as markdown until handled
                 };
                 index_writer.add_document(doc!(
                     kind_field => "rule",

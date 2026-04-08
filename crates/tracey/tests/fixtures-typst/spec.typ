@@ -1,3 +1,5 @@
+#import "@preview/tracey:0.1.0": r
+
 = Test Specification
 
 This is a test specification for integration testing.
