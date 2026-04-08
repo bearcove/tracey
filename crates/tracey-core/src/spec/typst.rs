@@ -879,9 +879,101 @@ mod compiler {
 
 // ---- dispatch arms --------------------------------------------------------
 
-pub(super) fn diff_inline(_old: &str, _new: &str) -> Option<String> {
-    // No inline diff for typst in v1; callers fall back to plain text.
-    None
+/// Word-level inline diff of two typst rule bodies.
+///
+/// Produces markdown markup matching `marq::diff_markdown_inline`: removed
+/// runs wrapped in `~~strikethrough~~`, added runs in `**bold**`. The output
+/// is embedded into markdown LSP hovers / CLI output, so it intentionally
+/// emits markdown rather than typst.
+///
+/// Typst rule bodies are predominantly prose, so we diff on whitespace-split
+/// words rather than parsing the typst AST. This loses formatting nuance
+/// (e.g. `*emph*` is treated as a word) but matches the granularity the
+/// markdown backend offers and is good enough for "what changed in this
+/// rule" hovers.
+pub(super) fn diff_inline(old: &str, new: &str) -> Option<String> {
+    let old_words: Vec<&str> = old.split_whitespace().collect();
+    let new_words: Vec<&str> = new.split_whitespace().collect();
+
+    // LCS table.
+    let m = old_words.len();
+    let n = new_words.len();
+    let mut table = vec![0u32; (m + 1) * (n + 1)];
+    let idx = |i: usize, j: usize| i * (n + 1) + j;
+    for i in 1..=m {
+        for j in 1..=n {
+            table[idx(i, j)] = if old_words[i - 1] == new_words[j - 1] {
+                table[idx(i - 1, j - 1)] + 1
+            } else {
+                table[idx(i - 1, j)].max(table[idx(i, j - 1)])
+            };
+        }
+    }
+
+    // Backtrack into (equal | removed | added) ops.
+    #[derive(Clone, Copy)]
+    enum Op<'a> {
+        Eq(&'a str),
+        Rm(&'a str),
+        Add(&'a str),
+    }
+    let mut ops = Vec::with_capacity(m.max(n));
+    let (mut i, mut j) = (m, n);
+    while i > 0 || j > 0 {
+        if i > 0 && j > 0 && old_words[i - 1] == new_words[j - 1] {
+            ops.push(Op::Eq(old_words[i - 1]));
+            i -= 1;
+            j -= 1;
+        } else if j > 0 && (i == 0 || table[idx(i, j - 1)] >= table[idx(i - 1, j)]) {
+            ops.push(Op::Add(new_words[j - 1]));
+            j -= 1;
+        } else {
+            ops.push(Op::Rm(old_words[i - 1]));
+            i -= 1;
+        }
+    }
+    ops.reverse();
+
+    // Render, coalescing consecutive removed/added runs so the markup reads
+    // `~~old words~~ **new words**` rather than per-word noise.
+    let mut out = String::new();
+    let mut removed: Vec<&str> = Vec::new();
+    let mut added: Vec<&str> = Vec::new();
+    let push_sep = |out: &mut String| {
+        if !out.is_empty() {
+            out.push(' ');
+        }
+    };
+    let flush = |out: &mut String, removed: &mut Vec<&str>, added: &mut Vec<&str>| {
+        if !removed.is_empty() {
+            push_sep(out);
+            out.push_str("~~");
+            out.push_str(&removed.join(" "));
+            out.push_str("~~");
+            removed.clear();
+        }
+        if !added.is_empty() {
+            push_sep(out);
+            out.push_str("**");
+            out.push_str(&added.join(" "));
+            out.push_str("**");
+            added.clear();
+        }
+    };
+    for op in ops {
+        match op {
+            Op::Eq(w) => {
+                flush(&mut out, &mut removed, &mut added);
+                push_sep(&mut out);
+                out.push_str(w);
+            }
+            Op::Rm(w) => removed.push(w),
+            Op::Add(w) => added.push(w),
+        }
+    }
+    flush(&mut out, &mut removed, &mut added);
+
+    Some(out)
 }
 
 pub(super) fn parse_weight(_content: &str) -> i32 {
@@ -1069,6 +1161,45 @@ mod tests {
         let doc = parse(src).await.unwrap();
         assert_eq!(doc.reqs.len(), 1);
         assert_eq!(doc.reqs[0].id.base, "real.one");
+    }
+
+    #[test]
+    fn diff_inline_word_change() {
+        let out = diff_inline("old text here", "new text here").unwrap();
+        assert!(out.contains("~~old~~"), "strikes removed word: {out}");
+        assert!(out.contains("**new**"), "bolds added word: {out}");
+        assert!(out.contains("text here"), "keeps unchanged words: {out}");
+    }
+
+    #[test]
+    fn diff_inline_identical() {
+        let out = diff_inline("same text", "same text").unwrap();
+        assert_eq!(out, "same text");
+        assert!(!out.contains("~~"));
+        assert!(!out.contains("**"));
+    }
+
+    #[test]
+    fn diff_inline_coalesces_runs() {
+        let out = diff_inline(
+            "Sessions expire after one hour.",
+            "Sessions expire after twenty four hours.",
+        )
+        .unwrap();
+        assert!(
+            out.contains("~~one hour.~~"),
+            "coalesces removed run: {out}"
+        );
+        assert!(
+            out.contains("**twenty four hours.**"),
+            "coalesces added run: {out}"
+        );
+    }
+
+    #[test]
+    fn diff_inline_full_replace() {
+        let out = diff_inline("alpha", "beta gamma").unwrap();
+        assert_eq!(out, "~~alpha~~ **beta gamma**");
     }
 
     #[tokio::test]
