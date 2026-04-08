@@ -71,6 +71,8 @@ pub struct DashboardData {
     pub specs_content_by_impl: BTreeMap<ImplKey, ApiSpecData>,
     /// Spec include patterns by spec name
     pub spec_includes_by_name: BTreeMap<String, Vec<String>>,
+    /// Vendored typst package directory by spec name (absolute), if configured.
+    pub typst_package_path_by_spec: BTreeMap<String, PathBuf>,
     /// Source files for full-text index construction
     pub search_files: BTreeMap<PathBuf, String>,
     /// Parsed requirement references and warnings by source file, captured during rebuild.
@@ -2404,6 +2406,7 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
         BTreeMap::new();
     let specs_content_by_impl: BTreeMap<ImplKey, ApiSpecData> = BTreeMap::new();
     let mut spec_includes_by_name: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut typst_package_path_by_spec: BTreeMap<String, PathBuf> = BTreeMap::new();
     let mut all_file_contents: BTreeMap<PathBuf, String> = BTreeMap::new();
     let mut all_spec_file_contents: BTreeMap<PathBuf, String> = BTreeMap::new();
     let mut all_source_reqs_by_file: BTreeMap<PathBuf, Reqs> = BTreeMap::new();
@@ -2572,6 +2575,9 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
             implementations: spec_config.impls.iter().map(|i| i.name.clone()).collect(),
         });
         spec_includes_by_name.insert(spec_name.clone(), include_patterns.clone());
+        if let Some(p) = &spec_config.typst_package_path {
+            typst_package_path_by_spec.insert(spec_name.clone(), project_root.join(p));
+        }
 
         // Build data for each implementation
         struct ImplComputeTaskMeta {
@@ -2847,6 +2853,7 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
         code_units_by_impl,
         specs_content_by_impl,
         spec_includes_by_name,
+        typst_package_path_by_spec,
         search_files: all_file_contents,
         source_reqs_by_file: all_source_reqs_by_file,
         search_rules: all_search_rules,
@@ -2869,11 +2876,13 @@ fn simple_hash(s: &str) -> u64 {
     hash
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn load_spec_content(
     root: &Path,
     patterns: &[&str],
     spec_name: &str,
     impl_name: &str,
+    typst_package_path: Option<&Path>,
     coverage: &BTreeMap<String, RuleCoverage>,
     specs_content: &mut BTreeMap<String, ApiSpecData>,
     overlay: &FileOverlay,
@@ -3007,11 +3016,16 @@ async fn load_spec_content(
                         },
                     };
                     #[cfg(feature = "typst-spec")]
-                    let doc =
-                        tracey_core::spec::typst::render_display(content, &base_dir, &ctx).await?;
+                    let doc = tracey_core::spec::typst::render_display(
+                        content,
+                        &base_dir,
+                        typst_package_path,
+                        &ctx,
+                    )
+                    .await?;
                     #[cfg(not(feature = "typst-spec"))]
                     let doc = {
-                        let _ = (&ctx, &base_dir);
+                        let _ = (&ctx, &base_dir, typst_package_path);
                         parse_spec(SpecFormat::Typst, content).await?
                     };
                     sections.push(SpecSection {
@@ -3082,6 +3096,7 @@ pub async fn render_spec_content_for_impl(
     include_patterns: &[String],
     spec_name: &str,
     impl_name: &str,
+    typst_package_path: Option<&Path>,
     forward: &ApiSpecForward,
 ) -> Result<ApiSpecData> {
     let mut coverage: BTreeMap<String, RuleCoverage> = BTreeMap::new();
@@ -3116,6 +3131,7 @@ pub async fn render_spec_content_for_impl(
         &include_pattern_refs,
         spec_name,
         impl_name,
+        typst_package_path,
         &coverage,
         &mut map,
         &FileOverlay::new(),

@@ -48,7 +48,9 @@ pub struct RenderCtx<'a> {
 ///
 /// `base_dir` is the directory containing the spec file; relative `#import` /
 /// `#include` paths resolve against it. Package imports (`@preview/...`) other
-/// than the tracey shim are not resolved and will fail compilation.
+/// than the tracey shim resolve from `package_path` (vendored directory laid
+/// out as `<namespace>/<name>/<version>/`) and then from the system typst
+/// cache. Tracey never downloads packages.
 ///
 /// Behind the `typst-spec` feature. Without it, returns an error and callers
 /// should fall back to [`parse`] (placeholder `<pre>` html).
@@ -56,6 +58,7 @@ pub struct RenderCtx<'a> {
 pub async fn render_display(
     content: &str,
     base_dir: &std::path::Path,
+    package_path: Option<&std::path::Path>,
     ctx: &RenderCtx<'_>,
 ) -> eyre::Result<SpecDoc> {
     #[cfg(not(feature = "typst-spec"))]
@@ -66,7 +69,7 @@ pub async fn render_display(
     }
     #[cfg(feature = "typst-spec")]
     {
-        compiler::render(content, base_dir, ctx).await
+        compiler::render(content, base_dir, package_path, ctx).await
     }
 }
 
@@ -408,14 +411,21 @@ mod compiler {
     use std::fmt::Write as _;
     use std::path::{Path, PathBuf};
     use std::sync::Mutex;
-    use typst::diag::{FileError, FileResult};
+    use typst::diag::{FileError, FileResult, PackageError};
     use typst::foundations::{Bytes, Datetime};
+    use typst::syntax::package::PackageSpec;
     use typst::syntax::{FileId, Source, VirtualPath};
     use typst::text::{Font, FontBook};
     use typst::utils::LazyHash;
     use typst::{Feature, Features, Library, LibraryExt as _, World};
     use typst_html::HtmlDocument;
     use typst_kit::fonts::{FontSlot, Fonts};
+
+    /// Subdirectory under the OS cache/data dir where typst stores packages
+    /// (matches `typst_kit::package::DEFAULT_PACKAGES_SUBDIR`; reproduced here
+    /// to avoid pulling typst-kit's `packages` feature, which drags in a
+    /// network downloader).
+    const TYPST_PACKAGES_SUBDIR: &str = "typst/packages";
 
     /// Sentinel CSS classes the prelude emits so post-processing can find
     /// requirement containers and headings without a full HTML parser.
@@ -441,6 +451,7 @@ mod compiler {
     pub(super) async fn render(
         content: &str,
         base_dir: &Path,
+        package_path: Option<&Path>,
         ctx: &RenderCtx<'_>,
     ) -> eyre::Result<SpecDoc> {
         // Structural extraction runs on the raw user content so spans / line
@@ -452,7 +463,7 @@ mod compiler {
         full.push_str(PRELUDE);
         full.push_str(&stripped);
 
-        let world = SpecWorld::new(full, base_dir.to_path_buf());
+        let world = SpecWorld::new(full, base_dir.to_path_buf(), package_path.map(Path::to_path_buf));
         let compiled = typst::compile::<HtmlDocument>(&world);
         // Clear typst's global memoization cache so repeated compilations in a
         // long-running daemon don't accumulate unbounded memory.
@@ -461,6 +472,16 @@ mod compiler {
             let mut msg = String::from("typst compile failed:");
             for e in errs.iter() {
                 let _ = write!(msg, "\n  {}", e.message);
+                // Typst's `PackageError::NotFound` display is terse; add the
+                // actionable hint here so it surfaces in the dashboard error.
+                if e.message.contains("package not found") {
+                    msg.push_str(
+                        "\n  hint: tracey resolves typst packages offline only. \
+                         Run `typst compile` once to populate the system cache, \
+                         or set `typst_package_path` in the spec config to a \
+                         vendored package directory.",
+                    );
+                }
             }
             eyre::eyre!(msg)
         })?;
@@ -479,9 +500,10 @@ mod compiler {
         Ok(doc)
     }
 
-    /// Minimal [`World`]: in-memory main source, embedded fonts, no package
-    /// manager. Relative `#import` / `#include` resolve against `base_dir`;
-    /// package imports (`@preview/...`) are rejected.
+    /// Minimal [`World`]: in-memory main source, embedded fonts, offline-only
+    /// package resolution. Relative `#import` / `#include` resolve against
+    /// `base_dir`; package imports (`@preview/...`) resolve against
+    /// `package_path` (vendored) then `package_cache_path` (system cache).
     struct SpecWorld {
         library: LazyHash<Library>,
         book: LazyHash<FontBook>,
@@ -489,6 +511,10 @@ mod compiler {
         main: Source,
         /// Directory the main spec file lives in; root for relative imports.
         base_dir: PathBuf,
+        /// Vendored package root from config (`<ns>/<name>/<ver>/` layout).
+        package_path: Option<PathBuf>,
+        /// System typst package cache (e.g. `~/.cache/typst/packages`).
+        package_cache_path: Option<PathBuf>,
         /// Disk reads cached per [`FileId`] — typst may request the same file
         /// repeatedly during a compile. Errors are cached too so a missing
         /// import is reported once, not re-stat'd.
@@ -497,7 +523,7 @@ mod compiler {
     }
 
     impl SpecWorld {
-        fn new(text: String, base_dir: PathBuf) -> Self {
+        fn new(text: String, base_dir: PathBuf, package_path: Option<PathBuf>) -> Self {
             let features: Features = [Feature::Html].into_iter().collect();
             let library = Library::builder().with_features(features).build();
             let fonts = Fonts::searcher()
@@ -511,23 +537,38 @@ mod compiler {
                 fonts: fonts.fonts,
                 main: Source::new(id, text),
                 base_dir,
+                package_path,
+                package_cache_path: dirs::cache_dir().map(|d| d.join(TYPST_PACKAGES_SUBDIR)),
                 sources: Mutex::new(HashMap::new()),
                 files: Mutex::new(HashMap::new()),
             }
         }
 
-        /// Resolve `id` to an on-disk path under `base_dir`, reading it as raw
-        /// bytes. Package ids and paths that escape `base_dir` are rejected.
-        fn read(&self, id: FileId) -> FileResult<Vec<u8>> {
-            if id.package().is_some() {
-                // No package manager; tracey's own package import is stripped
-                // before compilation, anything else is unsupported.
-                return Err(FileError::NotFound(id.vpath().as_rootless_path().into()));
+        /// Locate `spec`'s on-disk root by probing the vendored path and then
+        /// the system cache. No network. The directory must already exist.
+        fn package_root(&self, spec: &PackageSpec) -> FileResult<PathBuf> {
+            let subdir: PathBuf =
+                [spec.namespace.as_str(), spec.name.as_str(), &spec.version.to_string()]
+                    .iter()
+                    .collect();
+            for base in [&self.package_path, &self.package_cache_path].into_iter().flatten() {
+                let dir = base.join(&subdir);
+                if dir.exists() {
+                    return Ok(dir);
+                }
             }
-            let path = id
-                .vpath()
-                .resolve(&self.base_dir)
-                .ok_or(FileError::AccessDenied)?;
+            Err(FileError::Package(PackageError::NotFound(spec.clone())))
+        }
+
+        /// Resolve `id` to an on-disk path and read it as raw bytes. Package ids
+        /// resolve via [`package_root`]; non-package paths resolve under
+        /// `base_dir` and may not escape it.
+        fn read(&self, id: FileId) -> FileResult<Vec<u8>> {
+            let root = match id.package() {
+                Some(spec) => self.package_root(spec)?,
+                None => self.base_dir.clone(),
+            };
+            let path = id.vpath().resolve(&root).ok_or(FileError::AccessDenied)?;
             std::fs::read(&path).map_err(|e| FileError::from_io(e, &path))
         }
     }
@@ -788,7 +829,7 @@ mod compiler {
             let ctx = RenderCtx {
                 badge_for: &|d| (format!("<OPEN {}>", d.id), "</CLOSE>".into()),
             };
-            let doc = render(src, Path::new("."), &ctx)
+            let doc = render(src, Path::new("."), None, &ctx)
                 .await
                 .expect("render with import");
             assert_eq!(doc.reqs.len(), 1);
@@ -807,7 +848,7 @@ mod compiler {
             let ctx = RenderCtx {
                 badge_for: &|d| (format!("<OPEN {}>", d.id), "</CLOSE>".into()),
             };
-            let doc = render(src, dir.path(), &ctx)
+            let doc = render(src, dir.path(), None, &ctx)
                 .await
                 .expect("render with relative import");
             assert!(doc.html.contains("<OPEN a.b>"));
@@ -818,17 +859,52 @@ mod compiler {
             );
         }
 
-        /// Non-tracey package imports still fail (no package manager).
+        /// Package import resolves from a vendored `<ns>/<name>/<ver>/` tree
+        /// passed via `package_path`.
+        #[tokio::test]
+        async fn render_resolves_vendored_package() {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let pkg = dir.path().join("preview/testpkg/0.1.0");
+            std::fs::create_dir_all(&pkg).expect("mkdir");
+            std::fs::write(
+                pkg.join("typst.toml"),
+                "[package]\nname = \"testpkg\"\nversion = \"0.1.0\"\nentrypoint = \"lib.typ\"\n",
+            )
+            .expect("write manifest");
+            std::fs::write(pkg.join("lib.typ"), "#let hello = [world]\n").expect("write lib");
+
+            let src =
+                "#import \"@preview/testpkg:0.1.0\": hello\n= Test\n#r(\"a.b\")[#hello]\n";
+            let ctx = RenderCtx {
+                badge_for: &|d| (format!("<OPEN {}>", d.id), "</CLOSE>".into()),
+            };
+            let doc = render(src, Path::new("."), Some(dir.path()), &ctx)
+                .await
+                .expect("render with vendored package");
+            assert!(
+                doc.html.contains("world"),
+                "vendored binding should expand into output: {}",
+                doc.html
+            );
+            assert!(doc.html.contains("<OPEN a.b>"));
+        }
+
+        /// A package not present in the vendored path or system cache yields a
+        /// helpful error naming the package and the offline-only resolution.
         #[tokio::test]
         async fn render_rejects_unknown_package_import() {
-            let src = "#import \"@preview/other:1.0.0\": x\n";
+            let dir = tempfile::tempdir().expect("tempdir");
+            let src = "#import \"@preview/tracey-nosuch:1.0.0\": x\n";
             let ctx = RenderCtx {
                 badge_for: &|_| (String::new(), String::new()),
             };
-            let err = render(src, Path::new("."), &ctx)
+            let err = render(src, Path::new("."), Some(dir.path()), &ctx)
                 .await
                 .expect_err("unknown package should not resolve");
-            assert!(err.to_string().contains("typst compile failed"));
+            let msg = err.to_string();
+            assert!(msg.contains("typst compile failed"));
+            assert!(msg.contains("@preview/tracey-nosuch:1.0.0"), "names the package: {msg}");
+            assert!(msg.contains("typst_package_path"), "actionable hint: {msg}");
         }
 
         #[test]
