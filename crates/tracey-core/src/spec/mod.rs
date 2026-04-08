@@ -68,9 +68,10 @@ pub async fn parse_spec(fmt: SpecFormat, content: &str) -> eyre::Result<SpecDoc>
     }
 }
 
-/// Render an inline diff of two spec snippets, if the format supports it.
+/// Render an inline diff of two spec snippets as markdown.
 ///
-/// Markdown returns `Some(html)`; Typst returns `None` in v1.
+/// Removed runs are wrapped in `~~strikethrough~~`, added runs in `**bold**`.
+/// Returns `None` only when a backend cannot diff at all (none currently).
 pub fn diff_inline(fmt: SpecFormat, old: &str, new: &str) -> Option<String> {
     match fmt {
         SpecFormat::Markdown => Some(markdown::diff_inline(old, new)),
