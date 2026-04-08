@@ -1,5 +1,7 @@
 //! Page-level templates for the static export.
 
+use std::collections::HashMap;
+
 use maud::{Markup, PreEscaped, html};
 use tracey_api::{ApiSpecData, ApiSpecForward};
 
@@ -69,34 +71,50 @@ pub(crate) fn landing_page(
 pub(crate) fn spec_page(
     spec_name: &str,
     _impl_name: &str,
+    section: &tracey_api::SpecSection,
     forward: &ApiSpecForward,
-    spec_data: &ApiSpecData,
+    _spec_data: &ApiSpecData,
     sidebar_entries: &[SidebarSpec],
     page_path: &str,
 ) -> Markup {
-    // Build a lookup from rule ID to its forward data
-    let rules_by_id: std::collections::HashMap<String, &tracey_api::ApiRule> = forward
+    let rules_by_id: HashMap<String, &tracey_api::ApiRule> = forward
         .rules
         .iter()
         .map(|r| (r.id.to_string(), r))
         .collect();
 
-    // Concatenate all sections into one page
-    let mut all_html = String::new();
-    for section in &spec_data.sections {
-        let enhanced = enhance_spec_html(&section.html, &rules_by_id);
-        all_html.push_str(&enhanced);
-    }
+    let mut html_content = enhance_spec_html(&section.html, &rules_by_id);
+
+    // r[impl export.output.link-rewrite]
+    // Rewrite .md links to .html (simple extension swap)
+    html_content = rewrite_md_links(&html_content);
 
     let content = html! {
         .content.export-content.spec-page {
             .markdown {
-                (PreEscaped(&all_html))
+                (PreEscaped(&html_content))
             }
         }
     };
 
     page_shell(spec_name, page_path, sidebar_entries, content)
+}
+
+/// Simple HTML redirect page for multi-file spec index.
+pub(crate) fn redirect_page(target: &str) -> String {
+    format!(
+        r#"<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0; url={target}"></head><body><a href="{target}">Redirect</a></body></html>"#
+    )
+}
+
+/// Rewrite `.md` links to `.html` in rendered HTML.
+/// `href="./other-file.md"` → `href="./other-file.html"`
+/// `href="./other-file.md#section"` → `href="./other-file.html#section"`
+/// External links and non-`.md` links are left unchanged.
+// r[impl export.output.link-rewrite]
+fn rewrite_md_links(html: &str) -> String {
+    // Replace .md" and .md# patterns in href attributes
+    html.replace(".md\"", ".html\"").replace(".md#", ".html#")
 }
 
 /// Post-process spec HTML to:
@@ -467,6 +485,21 @@ mod tests {
         let html = r#"<div class="foo" data-br="100-200" id="bar">text</div>"#;
         let result = remove_attribute(html, "data-br");
         assert_eq!(result, r#"<div class="foo" id="bar">text</div>"#);
+    }
+
+    #[test]
+    fn test_rewrite_md_links() {
+        let html = concat!(
+            r#"<a href="./99-references.md">References</a> "#,
+            r#"<a href="./intro.md#section">Intro</a> "#,
+            r#"<a href="https://example.com">External</a>"#,
+        );
+        let result = rewrite_md_links(html);
+
+        assert!(result.contains("99-references.html"));
+        assert!(result.contains("intro.html#section"));
+        assert!(result.contains("https://example.com")); // external unchanged
+        assert!(!result.contains(".md"));
     }
 
     #[test]

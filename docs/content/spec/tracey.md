@@ -796,8 +796,8 @@ The `tracey export` command generates a static HTML site from spec coverage data
 > r[export.output.overwrite]
 > Files in the target directory MUST be overwritten on subsequent runs without requiring a clean step.
 
-> r[export.output.per-spec-page]
-> Each spec MUST be rendered as a single HTML page at `{spec_name}/index.html`, with all spec files concatenated into one document. Multi-file specs are merged; there is no per-file navigation.
+> r[export.output.per-file]
+> Each spec source file MUST be rendered as its own HTML page. For single-file specs, the output is `{spec_name}/index.html`. For multi-file specs, each file produces `{spec_name}/{stem}.html` (where `stem` is the filename without extension), and the first file is also linked as `{spec_name}/index.html`.
 
 > r[export.output.relative-links]
 > All links between pages MUST be relative so that the exported site works when served from any subdirectory (e.g. GitHub Pages under `/project/`).
@@ -805,14 +805,18 @@ The `tracey export` command generates a static HTML site from spec coverage data
 > r[export.output.assets]
 > Shared assets (CSS, JS) MUST be written to an `assets/` subdirectory and referenced via relative paths from all pages.
 
+> r[export.output.link-rewrite]
+> Internal markdown links between spec files (e.g. `[text](./other-file.md)`) MUST be rewritten to point to the corresponding HTML page by replacing the `.md` extension with `.html`. Fragment identifiers (e.g. `#section`) MUST be preserved. Links to files outside the spec MUST be left unchanged.
+
 #### Page Tree Sidebar
 
 > r[export.sidebar.structure]
 > Every page MUST include a sidebar that shows the full page tree. The tree MUST have the following hierarchy:
 >
 > 1. **README** — the project README as the root entry point, always shown first
-> 2. **Specs** — one entry per spec (collapsible), each expandable to reveal:
->    - **Headings** — h1 headings shown at top level, each collapsible to reveal nested h2 headings
+> 2. **Specs** — one entry per spec, each expandable to reveal:
+>    - **Files** — one entry per spec file (only shown for multi-file specs)
+>      - **Headings** — h1/h2/h3 headings, collapsible with a fold button when they have children
 
 > r[export.sidebar.collapsible]
 > Each level of the sidebar tree MUST be independently collapsible. Collapsed state SHOULD be preserved during navigation (e.g. via `localStorage`).

@@ -425,6 +425,36 @@ specs (
         vec!["Weighted", "Alpha", "Beta"],
         "Expected order by weight, then lexicographically by path for equal weights"
     );
+
+    // Each source file should produce its own section
+    assert_eq!(
+        spec_content.sections.len(),
+        3,
+        "Multi-file spec should produce one section per file"
+    );
+    let section_files: Vec<&str> = spec_content
+        .sections
+        .iter()
+        .map(|s| s.source_file.as_str())
+        .collect();
+    assert_eq!(
+        section_files,
+        vec![
+            "spec-order/00-weighted.md",
+            "spec-order/01-alpha.md",
+            "spec-order/02-beta.md"
+        ],
+        "Sections should be ordered by weight then path"
+    );
+
+    // Each section should have its own HTML content
+    for section in &spec_content.sections {
+        assert!(
+            !section.html.is_empty(),
+            "Section {} should have non-empty HTML",
+            section.source_file
+        );
+    }
 }
 
 // ============================================================================

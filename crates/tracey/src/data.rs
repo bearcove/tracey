@@ -2926,40 +2926,58 @@ async fn load_spec_content(
         weight_a.cmp(weight_b).then_with(|| path_a.cmp(path_b))
     });
 
-    // Concatenate all markdown files to render as one document
-    // This ensures heading IDs are hierarchical across all files
+    // Build the combined markdown for the outline (hierarchical heading IDs).
     let mut combined_markdown = String::new();
-    let mut first_source_file = String::new();
+    let first_source_file = files.first().map(|f| f.0.clone()).unwrap_or_default();
 
-    for (i, (source_file, content, _weight)) in files.iter().enumerate() {
-        if i == 0 {
-            first_source_file = source_file.clone();
-        }
+    for (_, content, _) in &files {
         combined_markdown.push_str(content);
-        combined_markdown.push_str("\n\n"); // Ensure separation between files
+        combined_markdown.push_str("\n\n");
     }
 
-    // Render the combined document once (so heading_stack works across files)
-    // Set source_path so paragraphs get data-source-file attributes for click-to-edit
-    // Must use absolute path for editor navigation to work correctly
+    // Render combined document for outline + head_injections
     *current_source_file.lock().unwrap() = first_source_file.clone();
     let absolute_source_path = root.join(&first_source_file).display().to_string();
     let opts = opts.with_source_path(&absolute_source_path);
-    let doc = render(&combined_markdown, &opts).await?;
+    let combined_doc = render(&combined_markdown, &opts).await?;
 
-    // Create a single section with all content
-    // (Frontend concatenates sections anyway, this just simplifies tracking)
+    let all_elements = combined_doc.elements;
+    let head_injections = combined_doc.head_injections;
+
+    // Now render each file individually for per-file sections.
+    // Each gets its own render pass so the HTML is self-contained per file.
     let mut sections = Vec::new();
-    if !files.is_empty() {
+    for (source_file, content, weight) in &files {
+        *current_source_file.lock().unwrap() = source_file.clone();
+        let absolute_path = root.join(source_file).display().to_string();
+        // Rebuild render options for each file (RenderOptions is not Clone)
+        let file_rule_handler = TraceyRuleHandler::new(
+            coverage.clone(),
+            Arc::clone(&current_source_file),
+            spec_name.to_string(),
+            impl_name.to_string(),
+            root.to_path_buf(),
+            get_git_status(root),
+        );
+        let file_inline_handler =
+            TraceyInlineCodeHandler::new(spec_name.to_string(), impl_name.to_string());
+        let file_opts = RenderOptions::new()
+            .with_default_handler(ArboriumHandler::new().with_language_header(true))
+            .with_handler(&["aasvg"], AasvgHandler::new())
+            .with_handler(&["pikchr"], PikruHandler::new())
+            .with_handler(&["compare"], CompareHandler::new())
+            .with_handler(&["mermaid"], MermaidHandler::new())
+            .with_req_handler(file_rule_handler)
+            .with_inline_code_handler(file_inline_handler)
+            .with_source_path(&absolute_path);
+        let doc = render(content, &file_opts).await?;
+
         sections.push(SpecSection {
-            source_file: first_source_file,
+            source_file: source_file.clone(),
             html: doc.html,
-            weight: files[0].2,
+            weight: *weight,
         });
     }
-
-    let all_elements = doc.elements;
-    let head_injections = doc.head_injections;
 
     // Build outline from elements
     let outline = build_outline(&all_elements, coverage);

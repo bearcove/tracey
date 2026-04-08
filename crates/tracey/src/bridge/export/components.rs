@@ -2,7 +2,7 @@
 
 use maud::{Markup, PreEscaped, html};
 
-use super::{SidebarHeading, SidebarSpec, relative_root};
+use super::{SidebarFile, SidebarHeading, SidebarSpec, relative_root};
 
 // r[impl export.style.light-dark]
 // r[impl export.output.relative-links]
@@ -60,9 +60,6 @@ pub(crate) fn page_shell(
 pub(crate) fn sidebar(current_page: &str, specs: &[SidebarSpec]) -> Markup {
     html! {
         nav .sidebar {
-            .sidebar-header {
-                span { "Outline" }
-            }
             .sidebar-content {
                 // README entry
                 ul .outline-tree {
@@ -87,24 +84,37 @@ pub(crate) fn sidebar(current_page: &str, specs: &[SidebarSpec]) -> Markup {
 }
 
 fn sidebar_spec_entry(current_page: &str, spec: &SidebarSpec) -> Markup {
-    let is_active = current_page.starts_with(&format!("{}/", spec.name));
+    let show_files = spec.files.len() > 1;
 
     html! {
-        // Spec heading tree using dashboard toc-item structure
-        // r[impl export.sidebar.collapsible]
-        (heading_tree(current_page, &spec.headings, &spec.href, is_active))
+        @if show_files {
+            // Multi-file spec: show file entries, each with their own headings
+            @for file in &spec.files {
+                @let is_file_active = current_page == file.href;
+                ul .outline-tree {
+                    li .toc-item.depth-0
+                       .is-active[is_file_active]
+                       data-slug=(file.display_name) {
+                        a .toc-row href=(sidebar_href(current_page, &file.href)) {
+                            span .toc-link { (file.display_name) }
+                        }
+                    }
+                }
+                @if is_file_active {
+                    (heading_tree(current_page, &file.headings, &file.href))
+                }
+            }
+        } @else if let Some(file) = spec.files.first() {
+            // Single-file spec: show headings directly
+            (heading_tree(current_page, &file.headings, &file.href))
+        }
     }
 }
 
 /// Build a nested tree from a flat list of headings using the dashboard's
 /// `.toc-item` / `.toc-row` / `.toc-children` structure.
 /// Folding is handled by JS (toggling a `.is-collapsed` class on `.toc-children`).
-fn heading_tree(
-    current_page: &str,
-    headings: &[SidebarHeading],
-    spec_href: &str,
-    is_spec_active: bool,
-) -> Markup {
+fn heading_tree(current_page: &str, headings: &[SidebarHeading], spec_href: &str) -> Markup {
     if headings.is_empty() {
         return html! {};
     }
@@ -129,14 +139,21 @@ fn heading_tree(
                 li .toc-item
                    .(format!("depth-{}", parent.level.saturating_sub(1)))
                    data-slug=(parent.slug) {
-                    a .toc-row
-                      href=(format!("{}#{}", sidebar_href(current_page, spec_href), parent.slug)) {
-                        span .toc-link { (parent.title) }
-                    }
-                    @if !children.is_empty() {
+                    @if children.is_empty() {
+                        a .toc-row
+                          href=(format!("{}#{}", sidebar_href(current_page, spec_href), parent.slug)) {
+                            span .toc-link { (parent.title) }
+                        }
+                    } @else {
+                        .toc-row {
+                            a .toc-link
+                              href=(format!("{}#{}", sidebar_href(current_page, spec_href), parent.slug)) {
+                                (parent.title)
+                            }
+                            button .toc-fold-btn title="Toggle section" { "+" }
+                        }
                         @let child_headings: Vec<SidebarHeading> = children.iter().map(|h| (*h).clone()).collect();
-                        ul .toc-children
-                           .is-collapsed[!is_spec_active] {
+                        ul .toc-children.is-collapsed {
                             @for child in &child_headings {
                                 li .toc-item
                                    .(format!("depth-{}", child.level.saturating_sub(1)))
@@ -235,17 +252,28 @@ mod tests {
         assert!(s.contains("is-active")); // README active on index page
     }
 
+    fn make_single_file_spec(name: &str, headings: Vec<SidebarHeading>) -> SidebarSpec {
+        SidebarSpec {
+            name: name.to_string(),
+            href: format!("{name}/index.html"),
+            files: vec![SidebarFile {
+                display_name: "spec".to_string(),
+                href: format!("{name}/index.html"),
+                headings,
+            }],
+        }
+    }
+
     #[test]
     fn test_sidebar_spec_headings() {
-        let specs = vec![SidebarSpec {
-            name: "myspec".to_string(),
-            href: "myspec/index.html".to_string(),
-            headings: vec![SidebarHeading {
+        let specs = vec![make_single_file_spec(
+            "myspec",
+            vec![SidebarHeading {
                 title: "Introduction".to_string(),
                 slug: "introduction".to_string(),
                 level: 2,
             }],
-        }];
+        )];
 
         let s = sidebar("index.html", &specs).into_string();
         assert!(s.contains("Introduction"));
@@ -257,10 +285,9 @@ mod tests {
 
     #[test]
     fn test_sidebar_nested_headings() {
-        let specs = vec![SidebarSpec {
-            name: "myspec".to_string(),
-            href: "myspec/index.html".to_string(),
-            headings: vec![
+        let specs = vec![make_single_file_spec(
+            "myspec",
+            vec![
                 SidebarHeading {
                     title: "Language".to_string(),
                     slug: "language".to_string(),
@@ -277,7 +304,7 @@ mod tests {
                     level: 1,
                 },
             ],
-        }];
+        )];
 
         let s = sidebar("index.html", &specs).into_string();
 
@@ -285,7 +312,6 @@ mod tests {
         assert!(s.contains("#syntax"));
         assert!(s.contains("#tooling"));
 
-        // h2 "Syntax" should be nested in a .toc-children under h1 "Language"
         let lang_pos = s.find("#language").unwrap();
         let syntax_pos = s.find("#syntax").unwrap();
         let tooling_pos = s.find("#tooling").unwrap();
@@ -301,10 +327,9 @@ mod tests {
 
     #[test]
     fn test_sidebar_orphan_headings_before_first_h1() {
-        let specs = vec![SidebarSpec {
-            name: "myspec".to_string(),
-            href: "myspec/index.html".to_string(),
-            headings: vec![
+        let specs = vec![make_single_file_spec(
+            "myspec",
+            vec![
                 SidebarHeading {
                     title: "Introduction".to_string(),
                     slug: "introduction".to_string(),
@@ -316,7 +341,7 @@ mod tests {
                     level: 1,
                 },
             ],
-        }];
+        )];
 
         let s = sidebar("index.html", &specs).into_string();
         let intro_pos = s
@@ -324,5 +349,32 @@ mod tests {
             .expect("Introduction must be in sidebar");
         let lang_pos = s.find("#language").unwrap();
         assert!(intro_pos < lang_pos);
+    }
+
+    #[test]
+    fn test_sidebar_multi_file_spec() {
+        let specs = vec![SidebarSpec {
+            name: "big".to_string(),
+            href: "big/intro.html".to_string(),
+            files: vec![
+                SidebarFile {
+                    display_name: "intro".to_string(),
+                    href: "big/intro.html".to_string(),
+                    headings: vec![],
+                },
+                SidebarFile {
+                    display_name: "details".to_string(),
+                    href: "big/details.html".to_string(),
+                    headings: vec![],
+                },
+            ],
+        }];
+
+        // When on the intro page, both files should appear
+        let s = sidebar("big/intro.html", &specs).into_string();
+        assert!(s.contains("intro"));
+        assert!(s.contains("details"));
+        // intro should be active
+        assert!(s.contains("is-active"));
     }
 }
