@@ -723,11 +723,13 @@ impl TraceyDaemon for TraceyService {
             .forward_by_impl
             .get(&(spec.clone(), impl_name.clone()))?;
         let include_patterns = data.spec_includes_by_name.get(&spec)?;
+        let typst_package_path = data.typst_package_path_by_spec.get(&spec).map(|p| p.as_path());
         match crate::data::render_spec_content_for_impl(
             self.inner.engine.project_root(),
             include_patterns,
             &spec,
             &impl_name,
+            typst_package_path,
             forward,
         )
         .await

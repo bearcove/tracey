@@ -78,7 +78,7 @@ async fn markdown_only_outline_slugs_unchanged() {
         name: "test".to_string(),
         rules: vec![],
     };
-    let spec = render_spec_content_for_impl(&root, &["spec.md".to_string()], "test", "rust", &forward)
+    let spec = render_spec_content_for_impl(&root, &["spec.md".to_string()], "test", "rust", None, &forward)
         .await
         .expect("render failed");
 
@@ -112,7 +112,7 @@ async fn renders_html_with_badges() {
         rules: vec![],
     };
     let spec =
-        render_spec_content_for_impl(&root, &["spec.typ".to_string()], "test", "rust", &forward)
+        render_spec_content_for_impl(&root, &["spec.typ".to_string()], "test", "rust", None, &forward)
             .await
             .expect("typst render failed");
 
@@ -168,7 +168,7 @@ async fn render_display_direct() {
             )
         },
     };
-    let doc = tracey_core::spec::typst::render_display(src, std::path::Path::new("."), &ctx)
+    let doc = tracey_core::spec::typst::render_display(src, std::path::Path::new("."), None, &ctx)
         .await
         .expect("render_display failed");
     assert_eq!(doc.reqs.len(), 1);
@@ -185,7 +185,7 @@ async fn render_display_errors_without_feature() {
     let ctx = tracey_core::spec::typst::RenderCtx {
         badge_for: &|_| (String::new(), String::new()),
     };
-    let err = tracey_core::spec::typst::render_display("= Title\n", std::path::Path::new("."), &ctx)
+    let err = tracey_core::spec::typst::render_display("= Title\n", std::path::Path::new("."), None, &ctx)
         .await
         .expect_err("should error without typst-spec");
     assert!(err.to_string().contains("typst-spec"));
@@ -217,6 +217,7 @@ async fn mixed_format_spec() {
         &["*.md".to_string(), "*.typ".to_string()],
         "mix",
         "rust",
+        None,
         &forward,
     )
     .await
@@ -264,6 +265,7 @@ async fn mixed_format_outline_dedups_heading_slugs() {
         &["*.md".to_string(), "*.typ".to_string()],
         "mix",
         "rust",
+        None,
         &forward,
     )
     .await

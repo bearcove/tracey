@@ -5735,6 +5735,7 @@ dependencies = [
  "arborium-typst",
  "arborium-vb",
  "comemo",
+ "dirs",
  "eyre",
  "facet",
  "globset",
