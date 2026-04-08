@@ -3108,6 +3108,9 @@ async fn load_spec_content(
                     head_injections.extend(doc.head_injections);
                 }
             }
+            // SpecFormat is #[non_exhaustive]; future formats need explicit
+            // handling here before they can render in the dashboard.
+            _ => eyre::bail!("rendering not implemented for spec format {run_fmt:?}"),
         }
     }
 

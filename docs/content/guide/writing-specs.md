@@ -161,6 +161,16 @@ Session tokens should expire after 24 hours.
 
 Source-side annotations (`r[impl auth.login]` etc.) are identical regardless of which spec format you use.
 
+### Standalone compilation
+
+Tracey injects the definition of `#r` / `#req` when it renders a spec, so the import below is **optional** — but adding it lets the file compile on its own with `typst compile` (PDF preview, CI) and gives the Typst language server something to type-check:
+
+```typst
+#import "@preview/tracey:0.1.0": r
+```
+
+Tracey strips this import before rendering, so it never conflicts with the dashboard output.
+
 **Limitations:** Typst support is single-file — `#import` is not resolved. Spec edits trigger a full reparse rather than an incremental diff. Prefix detection uses a heuristic that only recognizes function names of five characters or fewer (e.g. `r`, `req`, `rule`, `spec`).
 
 ## Avoiding duplicates

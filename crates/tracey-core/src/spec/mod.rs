@@ -15,8 +15,6 @@ use std::path::Path;
 mod markdown;
 pub mod typst;
 
-pub use typst::{RenderCtx as TypstRenderCtx, render_display as render_typst_display};
-
 // Re-export the marq types that callers interact with regardless of format.
 // `SpecDoc` is a type alias for `marq::Document` — see Spike C in NOTES: all
 // fields are public, so non-markdown backends can construct one directly.
@@ -30,6 +28,7 @@ pub const SPEC_EXTENSIONS: &[&str] = &["md", "markdown", "typ"];
 
 /// Which spec dialect a file is written in.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum SpecFormat {
     /// CommonMark + tracey marker syntax, parsed via `marq`.
     Markdown,
