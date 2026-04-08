@@ -171,7 +171,9 @@ Tracey injects the definition of `#r` / `#req` when it renders a spec, so the im
 
 Tracey strips this import before rendering, so it never conflicts with the dashboard output.
 
-**Limitations:** Relative `#import` / `#include` paths are resolved against the spec file's directory, but package imports beyond `@preview/tracey` are not resolved. Any function call of the shape `#prefix("id")[body]` is treated as a requirement marker unless `prefix` is a typst standard-library function (`image`, `link`, `figure`, …), so avoid choosing a prefix that shadows a built-in.
+**Imports and packages:** Relative `#import` / `#include` paths are resolved against the spec file's directory. Package imports (`@preview/...`) are resolved offline only — first from a vendored directory (set `typst_package_path` in the spec config to a tree laid out as `<namespace>/<name>/<version>/`), then from the system typst package cache. Tracey never downloads packages itself; if a package isn't already on disk, run `typst compile` once to populate the cache or vendor it into your repository.
+
+**Limitations:** Any function call of the shape `#prefix("id")[body]` is treated as a requirement marker unless `prefix` is a typst standard-library function (`image`, `link`, `figure`, …), so avoid choosing a prefix that shadows a built-in.
 
 ## Avoiding duplicates
 
