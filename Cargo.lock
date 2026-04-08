@@ -5743,6 +5743,7 @@ dependencies = [
  "marq",
  "pulldown-cmark",
  "rayon",
+ "tempfile",
  "tokio",
  "typst",
  "typst-html",
