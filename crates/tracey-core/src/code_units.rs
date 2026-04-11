@@ -179,6 +179,7 @@ pub fn extract(path: &Path, source: &str) -> CodeUnits {
         "ml" | "mli" => extract_ocaml(path, source),
         "sh" | "bash" | "zsh" => extract_bash(path, source),
         "nix" => extract_nix(path, source),
+        "lean" => extract_lean(path, source),
         _ => CodeUnits::new(),
     }
 }
@@ -1086,6 +1087,35 @@ fn nix_node_kind(kind: &str) -> Option<CodeUnitKind> {
     match kind {
         "function_expression" => Some(CodeUnitKind::Function),
         "binding" => Some(CodeUnitKind::Const),
+        _ => None,
+    }
+}
+
+/// Extract code units from Lean source code
+pub fn extract_lean(path: &Path, source: &str) -> CodeUnits {
+    let mut parser = Parser::new();
+    parser
+        .set_language(&arborium_lean::language().into())
+        .expect("Failed to load Lean grammar");
+
+    let Some(tree) = parser.parse(source, None) else {
+        return CodeUnits::new();
+    };
+
+    let mut units = CodeUnits::new();
+    let root = tree.root_node();
+    extract_units_recursive(path, source, root, &mut units, lean_node_kind);
+    units
+}
+
+fn lean_node_kind(kind: &str) -> Option<CodeUnitKind> {
+    match kind {
+        "def" | "theorem" | "abbrev" => Some(CodeUnitKind::Function),
+        "structure" => Some(CodeUnitKind::Struct),
+        "inductive" | "class_inductive" => Some(CodeUnitKind::Enum),
+        "instance" => Some(CodeUnitKind::Impl),
+        "namespace" | "section" => Some(CodeUnitKind::Module),
+        "constant" | "axiom" => Some(CodeUnitKind::Const),
         _ => None,
     }
 }
