@@ -39,10 +39,34 @@ pub struct SpecConfig {
     #[facet(default)]
     pub include: Vec<String>,
 
+    /// Spec-specific validation settings
+    /// r[impl config.spec.validation]
+    #[facet(default)]
+    pub validation: Option<SpecValidation>,
+
     /// Implementations of this spec (by language)
     /// Each impl block specifies which source files to scan
     #[facet(default)]
     pub impls: Vec<Impl>,
+}
+
+/// Spec-specific validation settings
+#[derive(Debug, Clone, Facet)]
+pub struct SpecValidation {
+    /// Whether `verify` references require a corresponding `impl`
+    /// r[impl config.spec.validation.verify-needs-impl]
+    #[facet(default)]
+    pub verify_needs_impl: Option<bool>,
+}
+
+impl SpecConfig {
+    // r[impl config.spec.validation.verify-needs-impl]
+    pub fn verify_needs_impl_enabled(&self) -> bool {
+        self.validation
+            .as_ref()
+            .and_then(|validation| validation.verify_needs_impl)
+            .unwrap_or(true)
+    }
 }
 
 /// Configuration for a single implementation of a spec

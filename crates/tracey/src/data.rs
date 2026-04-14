@@ -1592,11 +1592,25 @@ fn source_issue_to_lsp(issue: SourceDiagnosticIssue) -> LspDiagnostic {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct SpecValidationSettings {
+    verify_needs_impl: bool,
+}
+
+impl Default for SpecValidationSettings {
+    fn default() -> Self {
+        Self {
+            verify_needs_impl: true,
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn compute_validation_by_impl(
     abs_root: &Path,
     config_path: &Path,
     config: &ApiConfig,
+    validation_by_spec: &BTreeMap<String, SpecValidationSettings>,
     forward_by_impl: &BTreeMap<ImplKey, ApiSpecForward>,
     reverse_by_impl: &BTreeMap<ImplKey, ApiReverseData>,
     source_reqs_by_file: &BTreeMap<PathBuf, Reqs>,
@@ -1610,6 +1624,7 @@ fn compute_validation_by_impl(
     for (impl_key, forward_data) in forward_by_impl {
         let (spec, impl_name) = impl_key;
         let mut errors = Vec::new();
+        let validation_settings = validation_by_spec.get(spec).copied().unwrap_or_default();
 
         let mut seen_ids: HashMap<RuleId, (&Option<String>, Option<usize>)> = HashMap::new();
         let mut seen_bases: HashMap<String, (&RuleId, &Option<String>, Option<usize>)> =
@@ -1679,6 +1694,29 @@ fn compute_validation_by_impl(
                     reference_rule_id: None,
                     reference_text: None,
                 });
+            }
+        }
+
+        if validation_settings.verify_needs_impl {
+            // r[impl validation.verify-needs-impl]
+            for rule in &forward_data.rules {
+                if rule.impl_refs.is_empty() {
+                    for verify_ref in &rule.verify_refs {
+                        errors.push(ValidationError {
+                            code: ValidationErrorCode::VerifyWithoutImpl,
+                            message: format!(
+                                "Verification reference for '{}' has no corresponding implementation reference",
+                                rule.id
+                            ),
+                            file: Some(verify_ref.file.clone()),
+                            line: Some(verify_ref.line),
+                            column: None,
+                            related_rules: Vec::new(),
+                            reference_rule_id: Some(rule.id.clone()),
+                            reference_text: None,
+                        });
+                    }
+                }
             }
         }
 
@@ -2392,6 +2430,19 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
     let mut include_parse_failures: BTreeMap<PathBuf, String> = BTreeMap::new();
     let mut include_parse_failures_by_impl: BTreeMap<ImplKey, BTreeMap<PathBuf, String>> =
         BTreeMap::new();
+    let validation_by_spec: BTreeMap<String, SpecValidationSettings> = config
+        .specs
+        .iter()
+        .map(|spec_config| {
+            (
+                spec_config.name.clone(),
+                SpecValidationSettings {
+                    // r[impl config.spec.validation.verify-needs-impl]
+                    verify_needs_impl: spec_config.verify_needs_impl_enabled(),
+                },
+            )
+        })
+        .collect();
     let total_impls: usize = config.specs.iter().map(|s| s.impls.len()).sum();
 
     info!(
@@ -2779,6 +2830,7 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
         &abs_root,
         config_path,
         &api_config,
+        &validation_by_spec,
         &forward_by_impl,
         &reverse_by_impl,
         &all_source_reqs_by_file,

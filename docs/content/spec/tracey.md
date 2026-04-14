@@ -497,6 +497,12 @@ Each spec configuration MUST have an `include` field with one or more glob patte
 r[config.spec.source-url]
 Each spec configuration MAY have a `source_url` field providing the canonical URL for the specification (e.g., a GitHub repository). This URL is used for attribution in the dashboard and documentation.
 
+r[config.spec.validation]
+Each spec configuration MAY have a `validation` field with spec-specific validation settings.
+
+r[config.spec.validation.verify-needs-impl]
+The `validation` field MAY set `verify_needs_impl false` to disable the validation that requires `verify` references to have corresponding `impl` references. If omitted, this validation MUST remain enabled.
+
 r[config.impl.name]
 Each impl configuration MUST have a `name` field identifying the implementation (e.g., "main", "core").
 
@@ -939,6 +945,9 @@ Tracey validates the integrity and quality of requirement definitions and refere
 
 r[validation.broken-refs]
 The system MUST detect and report references to non-existent requirement IDs in implementation and verification comments.
+
+r[validation.verify-needs-impl]
+Unless disabled in the validated spec's configuration, the system MUST detect and report `verify` references for requirements that have no corresponding `impl` references in the validated implementation.
 
 r[validation.naming]
 The system MUST validate that requirement IDs follow the configured naming convention (e.g., section.subsection.name format).

@@ -874,6 +874,120 @@ run:
     );
 }
 
+// r[verify validation.verify-needs-impl]
+#[tokio::test]
+async fn test_validate_reports_verify_without_impl() {
+    let (temp, service) = create_isolated_test_service().await;
+
+    let spec_path = temp.path().join("spec.md");
+    let spec = std::fs::read_to_string(&spec_path).expect("Failed to read spec");
+    std::fs::write(
+        &spec_path,
+        format!(
+            "{spec}\n\n## Verify Without Impl\n\nr[auth.verify-only]\nVerification references must have an implementation.\n"
+        ),
+    )
+    .expect("Failed to update spec");
+
+    let source_path = temp.path().join("src/verify_only.rs");
+    std::fs::write(
+        &source_path,
+        "/// r[verify auth.verify-only]\npub fn verify_without_impl() {}\n",
+    )
+    .expect("Failed to write verify-only source file");
+
+    rpc(service.client.reload().await);
+
+    let result = rpc(service
+        .client
+        .validate(ValidateRequest {
+            spec: Some("test".to_string()),
+            impl_name: Some("rust".to_string()),
+        })
+        .await);
+
+    assert_eq!(
+        result.error_count, 1,
+        "Expected exactly one validation error"
+    );
+
+    let verify_without_impl = result
+        .errors
+        .iter()
+        .find(|e| e.code == ValidationErrorCode::VerifyWithoutImpl)
+        .expect("Expected VerifyWithoutImpl validation error");
+
+    assert!(
+        verify_without_impl.message.contains("auth.verify-only"),
+        "Expected VerifyWithoutImpl message to mention rule ID, got: {}",
+        verify_without_impl.message
+    );
+    assert_eq!(
+        verify_without_impl.reference_rule_id,
+        Some(rid("auth.verify-only"))
+    );
+    assert!(
+        verify_without_impl
+            .file
+            .as_deref()
+            .is_some_and(|file| file.ends_with("src/verify_only.rs")),
+        "Expected VerifyWithoutImpl error to point at src/verify_only.rs, got: {:?}",
+        verify_without_impl.file
+    );
+}
+
+// r[verify config.spec.validation.verify-needs-impl]
+#[tokio::test]
+async fn test_validate_can_disable_verify_without_impl_per_spec() {
+    let (temp, service) = create_isolated_test_service().await;
+
+    let spec_path = temp.path().join("spec.md");
+    let spec = std::fs::read_to_string(&spec_path).expect("Failed to read spec");
+    std::fs::write(
+        &spec_path,
+        format!(
+            "{spec}\n\n## Verify Without Impl\n\nr[auth.verify-only]\nVerification references must have an implementation.\n"
+        ),
+    )
+    .expect("Failed to update spec");
+
+    let config_path = temp.path().join("config.styx");
+    let config = std::fs::read_to_string(&config_path).expect("Failed to read config");
+    let updated_config = config.replacen(
+        "    include (spec.md)\n    impls (",
+        "    include (spec.md)\n    validation {\n      verify_needs_impl false\n    }\n    impls (",
+        1,
+    );
+    assert_ne!(config, updated_config, "Expected test config to be updated");
+    std::fs::write(&config_path, updated_config).expect("Failed to update config");
+
+    let source_path = temp.path().join("src/verify_only.rs");
+    std::fs::write(
+        &source_path,
+        "/// r[verify auth.verify-only]\npub fn verify_without_impl() {}\n",
+    )
+    .expect("Failed to write verify-only source file");
+
+    rpc(service.client.reload().await);
+
+    let result = rpc(service
+        .client
+        .validate(ValidateRequest {
+            spec: Some("test".to_string()),
+            impl_name: Some("rust".to_string()),
+        })
+        .await);
+
+    assert!(
+        result
+            .errors
+            .iter()
+            .all(|e| e.code != ValidationErrorCode::VerifyWithoutImpl),
+        "Expected verify-without-impl validation to be disabled for test spec, got: {:?}",
+        result.errors
+    );
+}
+
 #[tokio::test]
 async fn test_validate_ignores_short_form_prose_unknown_prefix() {
     let (temp, service) = create_isolated_test_service().await;

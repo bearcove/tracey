@@ -43,6 +43,7 @@ Each entry in `specs (...)` defines a specification:
 | `name` | Yes | Display name for this spec |
 | `include` | Yes | Glob patterns matching your spec's markdown files |
 | `source_url` | No | Canonical URL (e.g., GitHub repo) — shown in dashboard for attribution |
+| `validation` | No | Spec-level validation settings |
 | `impls` | Yes | List of implementation configurations |
 
 The prefix (e.g., `r` in `r[auth.login]`) is inferred from the requirement markers in your markdown files. You don't configure it.
@@ -52,7 +53,34 @@ The prefix (e.g., `r` in `r[auth.login]`) is inferred from the requirement marke
     name my-api
     source_url https://github.com/example/my-api
     include (docs/spec/**/*.md)
+    validation {
+        verify_needs_impl false
+    }
     impls ( ... )
+}
+```
+
+### Validation settings
+
+Use the optional `validation` block to opt out of specific spec-level validation rules.
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `verify_needs_impl` | `true` | When `false`, Tracey stops reporting `verify` references without matching `impl` references for that spec |
+
+```styx
+{
+    name my-api
+    include (docs/spec/**/*.md)
+    validation {
+        verify_needs_impl false
+    }
+    impls (
+        {
+            name rust
+            include (src/**/*.rs)
+        }
+    )
 }
 ```
 
