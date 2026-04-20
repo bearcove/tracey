@@ -2,7 +2,7 @@
 
 use maud::{Markup, PreEscaped, html};
 
-use super::{SidebarFile, SidebarHeading, SidebarSpec, relative_root};
+use super::{SidebarHeading, SidebarSpec, relative_root};
 
 // r[impl export.style.light-dark]
 // r[impl export.output.relative-links]
@@ -54,7 +54,6 @@ pub(crate) fn page_shell(
 }
 
 // r[impl export.sidebar.structure]
-// r[impl export.sidebar.current-page]
 // r[impl export.sidebar.links]
 /// The page-tree sidebar, using the dashboard's TOC markup structure.
 pub(crate) fn sidebar(current_page: &str, specs: &[SidebarSpec]) -> Markup {
@@ -162,6 +161,7 @@ pub(crate) fn sidebar_href(from: &str, to: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bridge::export::SidebarFile;
 
     #[test]
     fn test_relative_root() {

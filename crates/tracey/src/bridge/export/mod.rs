@@ -167,6 +167,7 @@ pub(crate) struct SpecExportData {
 
 /// A spec in the sidebar tree
 #[derive(Debug, Clone)]
+#[allow(unused, reason = "have name and href for future use")]
 pub(crate) struct SidebarSpec {
     pub name: String,
     pub href: String,
@@ -176,6 +177,7 @@ pub(crate) struct SidebarSpec {
 
 /// A file within a spec in the sidebar
 #[derive(Debug, Clone)]
+#[allow(unused, reason = "have name for future use")]
 pub(crate) struct SidebarFile {
     pub display_name: String,
     pub href: String,
