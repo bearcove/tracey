@@ -8,7 +8,7 @@ use eyre::{Result, WrapErr, bail};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use tracey_core::{SpecFormat, parse_spec, rewrite_marker};
+use tracey_core::{SpecFormat, id_range_in_marker, parse_spec, rewrite_marker};
 
 use crate::config::Config;
 
@@ -251,8 +251,9 @@ pub async fn bump(project_root: &Path, config: &Config) -> Result<Vec<marq::Rule
                 std::str::from_utf8(marker_bytes).wrap_err("marker is not valid UTF-8")?;
 
             // Build the new marker, e.g. `r[auth.login+2]`.
+            let id_range = id_range_in_marker(fmt, marker_str)?;
             let new_marker =
-                rewrite_marker(fmt, marker_str, &change.rule_id.base, new_version)?;
+                rewrite_marker(marker_str, id_range, &change.rule_id.base, new_version)?;
 
             let start = span.offset;
             let end = start + span.length;
