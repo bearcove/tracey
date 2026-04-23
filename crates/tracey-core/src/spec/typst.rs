@@ -61,6 +61,11 @@ pub struct RenderCtx<'a> {
 /// in the compiled HTML claims a slug from it so anchors stay unique across a
 /// multi-file spec.
 ///
+/// `deps` receives the absolute on-disk path of every non-package file the
+/// typst compiler read while resolving `#import` / `#include`. It is populated
+/// even when compilation fails (e.g. a helper with a syntax error) so the
+/// caller can register the helper for file watching and pick up the fix.
+///
 /// Behind the `typst-spec` feature. Without it, returns an error and callers
 /// should fall back to [`parse`] (placeholder `<pre>` html).
 #[cfg_attr(not(feature = "typst-spec"), allow(unused_variables))]
@@ -70,6 +75,7 @@ pub async fn render_display(
     package_path: Option<&std::path::Path>,
     ctx: &RenderCtx<'_>,
     alloc: &mut SlugAllocator,
+    deps: &mut std::collections::HashSet<std::path::PathBuf>,
 ) -> eyre::Result<SpecDoc> {
     #[cfg(not(feature = "typst-spec"))]
     {
@@ -79,7 +85,7 @@ pub async fn render_display(
     }
     #[cfg(feature = "typst-spec")]
     {
-        compiler::render(content, source_path, package_path, ctx, alloc).await
+        compiler::render(content, source_path, package_path, ctx, alloc, deps).await
     }
 }
 
@@ -438,7 +444,7 @@ pub(super) fn html_unescape(s: &str) -> std::borrow::Cow<'_, str> {
 #[cfg(feature = "typst-spec")]
 mod compiler {
     use super::{RenderCtx, SlugAllocator, SpecDoc, extract_marker_prefix, parse};
-    use std::collections::{BTreeSet, HashMap};
+    use std::collections::{BTreeSet, HashMap, HashSet};
     use std::fmt::Write as _;
     use std::path::{Path, PathBuf};
     use std::sync::Mutex;
@@ -526,6 +532,7 @@ mod compiler {
         package_path: Option<&Path>,
         ctx: &RenderCtx<'_>,
         alloc: &mut SlugAllocator,
+        deps: &mut HashSet<PathBuf>,
     ) -> eyre::Result<SpecDoc> {
         // Structural extraction runs on the raw user content so spans / line
         // numbers point at the actual source file, not the prelude-shifted text.
@@ -552,6 +559,10 @@ mod compiler {
         // Clear typst's global memoization cache so repeated compilations in a
         // long-running daemon don't accumulate unbounded memory.
         comemo::evict(0);
+        // Drain transitively-read paths BEFORE inspecting `compiled.output`: a
+        // helper that fails to parse must still register as a dependency so
+        // fixing it on disk triggers a rebuild.
+        deps.extend(std::mem::take(&mut *world.read_paths.lock().unwrap()));
         let output = compiled.output.map_err(|errs| {
             let mut msg = String::from("typst compile failed:");
             for e in errs.iter() {
@@ -637,6 +648,12 @@ mod compiler {
         /// import is reported once, not re-stat'd.
         sources: Mutex<HashMap<FileId, FileResult<Source>>>,
         files: Mutex<HashMap<FileId, FileResult<Bytes>>>,
+        /// Absolute on-disk paths of every non-package file the compiler asked
+        /// for via [`Self::read`] — i.e. transitive `#import` / `#include`
+        /// targets. Package files (`@preview`, `@local`) are excluded: they
+        /// live under the system cache, not the project, so watching them is
+        /// pointless.
+        read_paths: Mutex<HashSet<PathBuf>>,
     }
 
     impl SpecWorld {
@@ -671,6 +688,7 @@ mod compiler {
                 package_cache_path: dirs::cache_dir().map(|d| d.join(TYPST_PACKAGES_SUBDIR)),
                 sources: Mutex::new(HashMap::new()),
                 files: Mutex::new(HashMap::new()),
+                read_paths: Mutex::new(HashSet::new()),
             }
         }
 
@@ -703,6 +721,15 @@ mod compiler {
                 None => self.base_dir.clone(),
             };
             let path = id.vpath().resolve(&root).ok_or(FileError::AccessDenied)?;
+            // Record project-local dependencies BEFORE the read so a helper
+            // that is missing or unreadable still registers — creating it
+            // later then triggers a rebuild. Package paths are skipped: they
+            // resolve into `~/.cache` / `~/.local/share` and are not part of
+            // the watched project tree.
+            if id.package().is_none() {
+                let canon = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+                self.read_paths.lock().unwrap().insert(canon);
+            }
             std::fs::read(&path).map_err(|e| FileError::from_io(e, &path))
         }
     }
@@ -1009,6 +1036,11 @@ mod compiler {
     mod tests {
         use super::*;
 
+        /// Throwaway deps sink for tests that don't inspect transitive reads.
+        fn nodeps() -> HashSet<PathBuf> {
+            HashSet::new()
+        }
+
         fn alloc() -> SlugAllocator {
             SlugAllocator::default()
         }
@@ -1042,7 +1074,7 @@ mod compiler {
             let ctx = RenderCtx {
                 badge_for: &|d| (format!("<OPEN {}>", d.id), "</CLOSE>".into()),
             };
-            let doc = render(src, Path::new("test.typ"), None, &ctx, &mut alloc())
+            let doc = render(src, Path::new("test.typ"), None, &ctx, &mut alloc(), &mut nodeps())
                 .await
                 .expect("body-less req should compile");
             assert_eq!(doc.reqs.len(), 1);
@@ -1058,7 +1090,7 @@ mod compiler {
             let ctx = RenderCtx {
                 badge_for: &|d| (format!("<OPEN {}>", d.id), "</CLOSE>".into()),
             };
-            let doc = render(src, Path::new("test.typ"), None, &ctx, &mut alloc())
+            let doc = render(src, Path::new("test.typ"), None, &ctx, &mut alloc(), &mut nodeps())
                 .await
                 .expect("custom prefix should compile");
             assert_eq!(doc.reqs.len(), 1);
@@ -1076,7 +1108,7 @@ mod compiler {
             let ctx = RenderCtx {
                 badge_for: &|d| (format!("<OPEN {}>", d.id), "</CLOSE>".into()),
             };
-            let doc = render(src, Path::new("test.typ"), None, &ctx, &mut alloc())
+            let doc = render(src, Path::new("test.typ"), None, &ctx, &mut alloc(), &mut nodeps())
                 .await
                 .expect("render with inner heading");
             // Top-level headings get allocator slugs.
@@ -1123,7 +1155,7 @@ mod compiler {
             let ctx = RenderCtx {
                 badge_for: &|d| (format!("<OPEN {}>", d.id), "</CLOSE>".into()),
             };
-            let doc = render(src, &dir.path().join("main.typ"), None, &ctx, &mut alloc())
+            let doc = render(src, &dir.path().join("main.typ"), None, &ctx, &mut alloc(), &mut nodeps())
                 .await
                 .expect("render with compiler-only headings");
 
@@ -1166,7 +1198,7 @@ mod compiler {
             let ctx = RenderCtx {
                 badge_for: &|d| (format!("<OPEN {}>", d.id), "</CLOSE>".into()),
             };
-            let doc = render(src, Path::new("test.typ"), None, &ctx, &mut alloc())
+            let doc = render(src, Path::new("test.typ"), None, &ctx, &mut alloc(), &mut nodeps())
                 .await
                 .expect("render with import");
             assert_eq!(doc.reqs.len(), 1);
@@ -1176,17 +1208,19 @@ mod compiler {
 
         /// Relative `#import` resolves against the source file's directory: a
         /// helper file on disk is loaded and its definitions are usable from the
-        /// in-memory main.
+        /// in-memory main. The helper's absolute path is reported via `deps` so
+        /// callers can register it with the file watcher.
         #[tokio::test]
         async fn render_resolves_relative_import() {
             let dir = tempfile::tempdir().expect("tempdir");
-            std::fs::write(dir.path().join("helper.typ"), "#let foo = [helper text]\n")
-                .expect("write helper");
+            let helper = dir.path().join("helper.typ");
+            std::fs::write(&helper, "#let foo = [helper text]\n").expect("write helper");
             let src = "#import \"helper.typ\": foo\n\n#req(\"a.b\")[Uses #foo here.]\n";
             let ctx = RenderCtx {
                 badge_for: &|d| (format!("<OPEN {}>", d.id), "</CLOSE>".into()),
             };
-            let doc = render(src, &dir.path().join("main.typ"), None, &ctx, &mut alloc())
+            let mut deps = nodeps();
+            let doc = render(src, &dir.path().join("main.typ"), None, &ctx, &mut alloc(), &mut deps)
                 .await
                 .expect("render with relative import");
             assert!(doc.html.contains("<OPEN a.b>"));
@@ -1194,6 +1228,35 @@ mod compiler {
                 doc.html.contains("helper text"),
                 "imported binding should expand into output: {}",
                 doc.html
+            );
+            let helper_canon = std::fs::canonicalize(&helper).unwrap();
+            assert!(
+                deps.contains(&helper_canon),
+                "deps should include the imported helper: {deps:?}"
+            );
+        }
+
+        /// A helper that fails to compile (syntax error) still registers in
+        /// `deps` even though `render` returns Err — so saving a fix to the
+        /// helper triggers a rebuild instead of leaving the watcher blind.
+        #[tokio::test]
+        async fn render_reports_dep_for_broken_helper() {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let helper = dir.path().join("broken.typ");
+            std::fs::write(&helper, "#let foo = (\n").expect("write broken helper");
+            let src = "#import \"broken.typ\": foo\n#req(\"a.b\")[body]\n";
+            let ctx = RenderCtx {
+                badge_for: &|_| (String::new(), String::new()),
+            };
+            let mut deps = nodeps();
+            let err = render(src, &dir.path().join("main.typ"), None, &ctx, &mut alloc(), &mut deps)
+                .await
+                .expect_err("syntax error in helper should fail compile");
+            assert!(err.to_string().contains("typst compile failed"));
+            let helper_canon = std::fs::canonicalize(&helper).unwrap();
+            assert!(
+                deps.contains(&helper_canon),
+                "broken helper must still be reported as a dep: {deps:?}"
             );
         }
 
@@ -1209,7 +1272,7 @@ mod compiler {
             let ctx = RenderCtx {
                 badge_for: &|d| (format!("<OPEN {}>", d.id), "</CLOSE>".into()),
             };
-            let doc = render(src, &dir.path().join("api.typ"), None, &ctx, &mut alloc())
+            let doc = render(src, &dir.path().join("api.typ"), None, &ctx, &mut alloc(), &mut nodeps())
                 .await
                 .expect("sibling spec.typ should resolve from disk");
             assert!(
@@ -1239,7 +1302,8 @@ mod compiler {
             let ctx = RenderCtx {
                 badge_for: &|d| (format!("<OPEN {}>", d.id), "</CLOSE>".into()),
             };
-            let doc = render(src, Path::new("test.typ"), Some(dir.path()), &ctx, &mut alloc())
+            let mut deps = nodeps();
+            let doc = render(src, Path::new("test.typ"), Some(dir.path()), &ctx, &mut alloc(), &mut deps)
                 .await
                 .expect("render with vendored package");
             assert!(
@@ -1248,6 +1312,9 @@ mod compiler {
                 doc.html
             );
             assert!(doc.html.contains("<OPEN a.b>"));
+            // Package files (`@preview`/`@local`) live outside the project tree
+            // and must NOT be reported as watcher deps.
+            assert!(deps.is_empty(), "package reads must not leak into deps: {deps:?}");
         }
 
         // `@local` package resolution probes `dirs::data_dir()`. Exercising that
@@ -1274,6 +1341,7 @@ mod compiler {
                 Some(dir.path()),
                 &ctx,
                 &mut alloc(),
+                &mut nodeps(),
             )
             .await
             .expect_err("unknown @preview package should not resolve");
@@ -1289,6 +1357,7 @@ mod compiler {
                 Some(dir.path()),
                 &ctx,
                 &mut alloc(),
+                &mut nodeps(),
             )
             .await
             .expect_err("unknown @local package should not resolve");
@@ -1305,6 +1374,7 @@ mod compiler {
                 Some(dir.path()),
                 &ctx,
                 &mut alloc(),
+                &mut nodeps(),
             )
             .await
             .expect_err("unknown @custom package should not resolve");
@@ -1445,7 +1515,7 @@ mod compiler {
                     (format!("<div id=\"{}\">", d.anchor_id), "</div>".into())
                 },
             };
-            let doc = render(src, Path::new("test.typ"), None, &ctx, &mut alloc())
+            let doc = render(src, Path::new("test.typ"), None, &ctx, &mut alloc(), &mut nodeps())
                 .await
                 .expect("render with +1 suffix");
             assert_eq!(doc.reqs.len(), 1);

@@ -78,7 +78,7 @@ async fn markdown_only_outline_slugs_unchanged() {
         name: "test".to_string(),
         rules: vec![],
     };
-    let spec = render_spec_content_for_impl(&root, &["spec.md".to_string()], "test", "rust", None, &forward)
+    let (spec, _) = render_spec_content_for_impl(&root, &["spec.md".to_string()], "test", "rust", None, &forward)
         .await
         .expect("render failed");
 
@@ -118,7 +118,7 @@ async fn markdown_heading_under_r_avoids_req_anchor_namespace() {
         name: "test".to_string(),
         rules: vec![],
     };
-    let spec = render_spec_content_for_impl(
+    let (spec, _) = render_spec_content_for_impl(
         tmp.path(),
         &["spec.md".to_string()],
         "test",
@@ -175,7 +175,7 @@ async fn renders_html_with_badges() {
         name: "test".to_string(),
         rules: vec![],
     };
-    let spec =
+    let (spec, deps) =
         render_spec_content_for_impl(&root, &["spec.typ".to_string()], "test", "rust", None, &forward)
             .await
             .expect("typst render failed");
@@ -216,6 +216,14 @@ async fn renders_html_with_badges() {
         html.contains("helper content"),
         "binding from helper.typ should expand into output"
     );
+
+    // The helper is reported as a project-relative dependency so the watcher
+    // can rebuild when it changes even though it isn't a spec `include` glob
+    // match itself.
+    assert!(
+        deps.contains(std::path::Path::new("helper.typ")),
+        "deps should include project-relative helper.typ: {deps:?}"
+    );
 }
 
 /// Low-level `render_display` smoke test: confirms the tracey-core entry point
@@ -233,12 +241,14 @@ async fn render_display_direct() {
         },
     };
     let mut alloc = tracey_core::SlugAllocator::default();
+    let mut deps = std::collections::HashSet::new();
     let doc = tracey_core::spec::typst::render_display(
         src,
         std::path::Path::new("test.typ"),
         None,
         &ctx,
         &mut alloc,
+        &mut deps,
     )
     .await
     .expect("render_display failed");
@@ -257,12 +267,14 @@ async fn render_display_errors_without_feature() {
         badge_for: &|_| (String::new(), String::new()),
     };
     let mut alloc = tracey_core::SlugAllocator::default();
+    let mut deps = std::collections::HashSet::<std::path::PathBuf>::new();
     let err = tracey_core::spec::typst::render_display(
         "= Title\n",
         std::path::Path::new("test.typ"),
         None,
         &ctx,
         &mut alloc,
+        &mut deps,
     )
     .await
     .expect_err("should error without typst-spec");
@@ -290,7 +302,7 @@ async fn mixed_format_spec() {
         name: "mix".to_string(),
         rules: vec![],
     };
-    let spec = render_spec_content_for_impl(
+    let (spec, _) = render_spec_content_for_impl(
         tmp.path(),
         &["*.md".to_string(), "*.typ".to_string()],
         "mix",
@@ -338,7 +350,7 @@ async fn mixed_format_outline_dedups_heading_slugs() {
         name: "mix".to_string(),
         rules: vec![],
     };
-    let spec = render_spec_content_for_impl(
+    let (spec, _) = render_spec_content_for_impl(
         tmp.path(),
         &["*.md".to_string(), "*.typ".to_string()],
         "mix",

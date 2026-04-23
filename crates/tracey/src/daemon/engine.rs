@@ -9,7 +9,7 @@
 //! It provides blocking rebuild semantics - all requests wait during rebuild.
 
 use eyre::Result;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -55,6 +55,11 @@ pub struct Engine {
     search_reindex_tx: mpsc::UnboundedSender<Arc<DashboardData>>,
     /// Whether search has ever been requested in this daemon lifecycle
     search_activated: Arc<AtomicBool>,
+    /// Project-relative paths the typst compiler read while rendering specs
+    /// (transitive `#import` / `#include` targets). Populated lazily when a
+    /// spec is rendered; consulted by the watcher filter so editing a helper
+    /// that no `include` glob matches still triggers a rebuild.
+    spec_file_deps: Arc<RwLock<HashSet<PathBuf>>>,
     /// Rebuild coalescing state (single-flight + pending changed files)
     rebuild_state: Arc<Mutex<RebuildCoalesceState>>,
     /// Notifies waiters when a coalesced rebuild pass completes
@@ -203,6 +208,7 @@ impl Engine {
             search_index,
             search_reindex_tx,
             search_activated,
+            spec_file_deps: Arc::new(RwLock::new(HashSet::new())),
             rebuild_state: Arc::new(Mutex::new(RebuildCoalesceState::default())),
             rebuild_notify: Arc::new(Notify::new()),
         };
@@ -483,6 +489,23 @@ impl Engine {
         );
 
         Ok((new_version, elapsed))
+    }
+
+    /// Snapshot the set of project-relative typst `#import` / `#include`
+    /// dependencies discovered by the most recent spec render(s).
+    pub async fn spec_file_deps(&self) -> HashSet<PathBuf> {
+        self.spec_file_deps.read().await.clone()
+    }
+
+    /// Merge `deps` (project-relative) into the watched typst-dependency set.
+    /// Called after each lazy spec render so subsequent edits to those files
+    /// pass the watcher filter. The set accumulates across renders; a stale
+    /// entry only costs an unnecessary rebuild, never a missed one.
+    pub async fn record_spec_file_deps(&self, deps: HashSet<PathBuf>) {
+        if deps.is_empty() {
+            return;
+        }
+        self.spec_file_deps.write().await.extend(deps);
     }
 
     /// Get the project root path.
