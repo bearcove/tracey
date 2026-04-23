@@ -37,12 +37,15 @@ pub struct RenderCtx<'a> {
 /// Compile `content` with the typst HTML backend and splice coverage badges in.
 ///
 /// The pipeline:
-/// 1. [`parse`] the raw content (tree-sitter) for `reqs` / `headings` / spans.
+/// 1. [`parse`] the raw content (tree-sitter) for `reqs` / spans.
 /// 2. Prepend a prelude that maps `#req(id)[body]` → a sentinel `<div>` and
-///    headings → sentinel `<hN>`; compile with `typst::compile<HtmlDocument>`.
+///    headings → sentinel `<hN data-base-slug="…">`; compile with
+///    `typst::compile<HtmlDocument>`.
 /// 3. Post-process the HTML string: replace each sentinel `<div>` with the
-///    badge markup from [`RenderCtx::badge_for`], and inject `id="slug"` into
-///    each sentinel heading using slugs from step 1.
+///    badge markup from [`RenderCtx::badge_for`], and rewrite each heading
+///    sentinel to `<hN id="slug">` using the slugified `data-base-slug`.
+///    `headings` and `elements` are rebuilt from sentinel order so headings
+///    from `#heading(..)` calls or `#include`d files appear in the outline.
 /// 4. Lift `<style>` / `<link>` from the compiler's `<head>` into
 ///    `head_injections`; return only the `<body>` interior as `html`.
 ///
@@ -463,9 +466,14 @@ mod compiler {
     /// Build the prelude prepended to every spec before compilation.
     ///
     /// Defines `#req` / `#r` to emit sentinel `<div>`s and rewrites top-level
-    /// headings to sentinel `<hN class="tracey-h">` tags. Slugs are *not*
-    /// computed here (`it.body.text` fails on rich content); they're injected
-    /// during post-processing from the tree-sitter parse output.
+    /// headings to sentinel `<hN data-base-slug="…" class="tracey-h">` tags.
+    /// Typst attribute values must be strings, so the recursive `_ts` helper
+    /// flattens the heading body to plain text (walking `.text` / `.children`
+    /// / `.body` / `.child`, falling back to `repr` so even math headings
+    /// yield a deterministic seed). Post-processing reads `data-base-slug`
+    /// directly — no positional correlation with the tree-sitter parse — so
+    /// headings emitted by `#heading(..)` calls or `#include`d files can't
+    /// shift later slugs.
     ///
     /// `extra_prefixes` are additional aliases for `req` discovered by the
     /// tree-sitter parse (e.g. a spec that uses `#spec(...)` instead of
@@ -474,13 +482,23 @@ mod compiler {
     /// The `req` body sets a *nested* `#show heading:` rule that emits plain
     /// `<hN>` (no `tracey-h` class), so a heading written inside a requirement
     /// body never produces a sentinel and never claims a slug from
-    /// [`inject_heading_ids`].
+    /// [`assign_heading_ids`].
     fn build_prelude(extra_prefixes: &[&str]) -> String {
         // Body is the optional trailing content block. Typst has no
         // positional-with-default, so the sink collects it (and any tagged
         // metadata, which the HTML emitter ignores) and `args.pos().join()`
         // yields `none` when absent.
         let mut p = String::from(concat!(
+            "#let _ts(it) = {\n",
+            "  if type(it) == str { it }\n",
+            "  else if type(it) != content { repr(it) }\n",
+            "  else if it == [ ] { \" \" }\n",
+            "  else if it.has(\"text\") { it.text }\n",
+            "  else if it.has(\"children\") { it.children.map(_ts).join() }\n",
+            "  else if it.has(\"body\") { _ts(it.body) }\n",
+            "  else if it.has(\"child\") { _ts(it.child) }\n",
+            "  else { repr(it) }\n",
+            "}\n",
             "#let req(id, ..args) = html.elem(\n",
             "  \"div\", attrs: (class: \"tracey-req\", \"data-req-id\": id),\n",
             ")[\n",
@@ -491,7 +509,7 @@ mod compiler {
             "#let r = req\n",
             "#show heading: it => html.elem(\n",
             "  \"h\" + str(calc.min(it.level, 6)),\n",
-            "  attrs: (class: \"tracey-h\"),\n",
+            "  attrs: (\"data-base-slug\": _ts(it.body), class: \"tracey-h\"),\n",
             ")[#it.body]\n",
         ));
         for prefix in extra_prefixes {
@@ -553,21 +571,16 @@ mod compiler {
         let (head, body) = split_head_body(&html);
         doc.head_injections = extract_head_injections(head);
 
-        let body = inject_heading_ids(body, &mut doc.headings, alloc);
-        // `doc.elements` holds independent clones of the headings (the outline
-        // is built from elements, not `doc.headings`); mirror the freshly-
-        // allocated slugs across so anchors and outline agree.
-        let mut hi = doc.headings.iter();
-        for el in doc.elements.iter_mut() {
-            if let marq::DocElement::Heading(h) = el
-                && let Some(updated) = hi.next()
-            {
-                h.id.clone_from(&updated.id);
-            }
-        }
+        // Headings and document-order elements are rebuilt from the compiled
+        // HTML's sentinels, replacing the tree-sitter-derived ones (which miss
+        // `#heading(..)` calls and `#include`d files). Reqs are still looked
+        // up from the tree-sitter parse so spans/line numbers stay accurate.
         let by_id: HashMap<marq::RuleId, &marq::ReqDefinition> =
             doc.reqs.iter().map(|r| (r.id.clone(), r)).collect();
+        let (body, headings, elements) = assign_heading_ids(body, alloc, &by_id);
         doc.html = splice_req_badges(&body, &by_id, ctx);
+        doc.headings = headings;
+        doc.elements = elements;
 
         Ok(doc)
     }
@@ -815,41 +828,97 @@ mod compiler {
         out
     }
 
-    /// Replace each `<hN class="tracey-h">` with `<hN id="slug">`, claiming
-    /// the slug from `alloc` and writing it back into the corresponding entry
-    /// of `headings` (so the outline and the HTML anchor always agree).
+    /// Replace each `<hN data-base-slug="…" class="tracey-h">` with
+    /// `<hN id="slug">`, building the heading list and the interleaved
+    /// document-order element list directly from the compiled HTML.
     ///
-    /// Sentinels and `headings` are walked in lockstep — the prelude's nested
-    /// show rule guarantees headings inside `#req` bodies don't emit sentinels,
-    /// so for markup headings the two stay aligned. A `#heading(...)` *call*
-    /// (which tree-sitter does not recognise as a heading) can still produce
-    /// an extra sentinel; those get a `section`/`section-2`/… slug so the
-    /// anchor is valid even without an outline entry.
-    fn inject_heading_ids(
+    /// Heading slugs are derived from the `data-base-slug` attribute the
+    /// prelude emits (HTML-unescaped, then [`marq::slugify`]d, then run
+    /// through `alloc`), so every heading the typst compiler produced —
+    /// markup `= Title`, `#heading(..)` calls, `#include`d files — gets a
+    /// stable anchor regardless of what tree-sitter could see.
+    ///
+    /// Req sentinels (`tracey-req`) are *not* rewritten here (that's
+    /// [`splice_req_badges`]'s job) but their positions are recorded so the
+    /// returned `elements` interleaves headings and reqs in HTML order, which
+    /// is what `build_outline` needs to attribute coverage to the right
+    /// section. Reqs with no matching definition in `by_id` (e.g. defined in
+    /// an `#include`d file tree-sitter didn't parse) are skipped.
+    fn assign_heading_ids(
         body: &str,
-        headings: &mut [marq::Heading],
         alloc: &mut SlugAllocator,
-    ) -> String {
-        let needle = format!(" class=\"{HEADING_SENTINEL}\"");
+        by_id: &HashMap<marq::RuleId, &marq::ReqDefinition>,
+    ) -> (String, Vec<marq::Heading>, Vec<marq::DocElement>) {
+        const SLUG_ATTR: &str = "data-base-slug=\"";
+        const ID_ATTR: &str = "data-req-id=\"";
+        let h_needle = format!("class=\"{HEADING_SENTINEL}\"");
+        let r_needle = format!("class=\"{REQ_SENTINEL}\"");
+
         let mut out = String::with_capacity(body.len());
-        let mut rest = body;
-        let mut idx = 0;
-        while let Some(pos) = rest.find(&needle) {
-            out.push_str(&rest[..pos]);
-            let slug = match headings.get_mut(idx) {
-                Some(h) => {
-                    let s = alloc.alloc(&h.id);
-                    h.id = s.clone();
-                    s
+        let mut headings = Vec::new();
+        let mut elements = Vec::new();
+        let mut cursor = 0;
+
+        loop {
+            let next_h = body[cursor..].find(&h_needle).map(|p| cursor + p);
+            let next_r = body[cursor..].find(&r_needle).map(|p| cursor + p);
+            // Req sentinel before the next heading sentinel: record it for
+            // `elements` ordering and copy through unchanged.
+            if let Some(r) = next_r
+                && next_h.is_none_or(|h| r < h)
+            {
+                let tag_end = r + body[r..].find('>').unwrap_or(0);
+                if let Some(def) = body[r..tag_end]
+                    .find(ID_ATTR)
+                    .and_then(|s| {
+                        let v = &body[r + s + ID_ATTR.len()..tag_end];
+                        v.find('"').map(|e| super::html_unescape(&v[..e]))
+                    })
+                    .and_then(|id| marq::parse_rule_id(&id))
+                    .and_then(|rid| by_id.get(&rid))
+                {
+                    elements.push(marq::DocElement::Req((*def).clone()));
                 }
-                None => alloc.alloc("section"),
+                out.push_str(&body[cursor..r + r_needle.len()]);
+                cursor = r + r_needle.len();
+                continue;
+            }
+            let Some(pos) = next_h else { break };
+
+            // `class="tracey-h"` sits inside a `<hN …>` tag; the most recent
+            // `<` is the tag start (typst escapes `<` in attribute values).
+            let tag_start = body[..pos].rfind('<').unwrap_or(pos);
+            let tag_end = tag_start + body[tag_start..].find('>').unwrap_or(0);
+            let tag = &body[tag_start..tag_end];
+            let level = tag
+                .strip_prefix("<h")
+                .and_then(|s| s.bytes().next())
+                .filter(u8::is_ascii_digit)
+                .map_or(1, |b| b - b'0');
+
+            let title = tag
+                .find(SLUG_ATTR)
+                .and_then(|s| {
+                    let v = &tag[s + SLUG_ATTR.len()..];
+                    v.find('"').map(|e| super::html_unescape(&v[..e]).into_owned())
+                })
+                .unwrap_or_default();
+            let base = {
+                let s = marq::slugify(&title);
+                if s.is_empty() { "section".into() } else { s }
             };
-            let _ = write!(out, " id=\"{slug}\"");
-            idx += 1;
-            rest = &rest[pos + needle.len()..];
+            let slug = alloc.alloc(&base);
+
+            out.push_str(&body[cursor..tag_start]);
+            let _ = write!(out, "<h{level} id=\"{slug}\"");
+            cursor = tag_end;
+
+            let h = marq::Heading { id: slug, title, level, line: 0 };
+            elements.push(marq::DocElement::Heading(h.clone()));
+            headings.push(h);
         }
-        out.push_str(rest);
-        out
+        out.push_str(&body[cursor..]);
+        (out, headings, elements)
     }
 
     /// Replace each sentinel `<div class="tracey-req" data-req-id="X">…</div>`
@@ -1033,6 +1102,64 @@ mod compiler {
             assert_eq!(doc.headings[1].id, "b");
         }
 
+        /// Regression: headings the tree-sitter pre-parse cannot see —
+        /// `#heading(..)` calls and headings from `#include`d files — must not
+        /// shift later markup-heading slugs. Each sentinel self-describes via
+        /// `data-base-slug`, so `== Second` always gets `id="second"` regardless
+        /// of how many compiler-only headings precede it. The outline picks up
+        /// every emitted heading in HTML order.
+        #[tokio::test]
+        async fn render_heading_slugs_from_sentinels() {
+            let dir = tempfile::tempdir().expect("tempdir");
+            std::fs::write(dir.path().join("front.typ"), "= Preface\n").expect("write front");
+            let src = concat!(
+                "#include \"front.typ\"\n",
+                "= *Bold* title\n",
+                "= Q&A\n",
+                "#heading(level: 2)[From Call]\n",
+                "== Second\n",
+                "#req(\"a.b\")[body]\n",
+            );
+            let ctx = RenderCtx {
+                badge_for: &|d| (format!("<OPEN {}>", d.id), "</CLOSE>".into()),
+            };
+            let doc = render(src, &dir.path().join("main.typ"), None, &ctx, &mut alloc())
+                .await
+                .expect("render with compiler-only headings");
+
+            // Every heading gets the slug derived from *its own* text.
+            assert!(doc.html.contains(r#"<h1 id="preface">"#), "html: {}", doc.html);
+            assert!(doc.html.contains(r#"<h1 id="bold-title">"#), "html: {}", doc.html);
+            assert!(doc.html.contains(r#"<h1 id="q-a">"#), "html: {}", doc.html);
+            assert!(doc.html.contains(r#"<h2 id="from-call">"#), "html: {}", doc.html);
+            // The bug this guards against: previously `== Second` would receive
+            // a slug shifted by the preceding `#include` + `#heading` sentinels.
+            assert!(
+                doc.html.contains(r#"<h2 id="second">"#),
+                "markup heading slug must not be shifted: {}",
+                doc.html
+            );
+            assert!(!doc.html.contains("tracey-h"));
+            assert!(!doc.html.contains("data-base-slug"));
+
+            // Outline (from `doc.elements`) lists every heading in HTML order,
+            // including the ones tree-sitter couldn't see, and ends with the req.
+            let ids: Vec<_> = doc.headings.iter().map(|h| h.id.as_str()).collect();
+            assert_eq!(ids, ["preface", "bold-title", "q-a", "from-call", "second"]);
+            // `_ts` flattens rich content to readable plain text for the
+            // outline title (space between words preserved, entities decoded).
+            assert_eq!(doc.headings[1].title, "Bold title");
+            assert_eq!(doc.headings[2].title, "Q&A");
+            assert_eq!(doc.elements.len(), 6);
+            assert!(matches!(doc.elements[5], marq::DocElement::Req(_)));
+            // All anchors unique and non-empty.
+            let mut seen = std::collections::HashSet::new();
+            for h in &doc.headings {
+                assert!(!h.id.is_empty());
+                assert!(seen.insert(h.id.clone()), "duplicate slug: {}", h.id);
+            }
+        }
+
         #[tokio::test]
         async fn render_with_package_import() {
             let src = "#import \"@preview/tracey:0.1.0\": r\n\n#r(\"a.b\")[Body.]\n";
@@ -1204,34 +1331,59 @@ mod compiler {
         }
 
         #[test]
-        fn heading_ids_injected_in_order() {
-            let body = r#"<h1 class="tracey-h">A</h1><h2 class="tracey-h">B</h2>"#;
-            let mut hs = vec![
-                marq::Heading { id: "a".into(), title: "A".into(), level: 1, line: 1 },
-                marq::Heading { id: "b".into(), title: "B".into(), level: 2, line: 2 },
-            ];
-            let out = inject_heading_ids(body, &mut hs, &mut alloc());
-            assert_eq!(out, r#"<h1 id="a">A</h1><h2 id="b">B</h2>"#);
+        fn heading_ids_from_base_slug_attr() {
+            let body = r#"<h1 data-base-slug="A" class="tracey-h">A</h1><h2 data-base-slug="Q&amp;A" class="tracey-h">Q&amp;A</h2>"#;
+            let (out, hs, els) = assign_heading_ids(body, &mut alloc(), &HashMap::new());
+            assert_eq!(out, r#"<h1 id="a">A</h1><h2 id="q-a">Q&amp;A</h2>"#);
+            assert_eq!(hs.len(), 2);
             assert_eq!(hs[0].id, "a");
-            assert_eq!(hs[1].id, "b");
+            assert_eq!(hs[0].title, "A");
+            assert_eq!(hs[0].level, 1);
+            // HTML-unescaped before slugifying.
+            assert_eq!(hs[1].id, "q-a");
+            assert_eq!(hs[1].title, "Q&A");
+            assert_eq!(els.len(), 2);
         }
 
         #[test]
-        fn heading_ids_extra_sentinel_gets_placeholder() {
-            // Three sentinels but only one tree-sitter heading (e.g. user wrote
-            // `#heading[..]` calls). Surplus sentinels still get valid anchors.
-            let body = r#"<h1 class="tracey-h">A</h1><h2 class="tracey-h">X</h2><h2 class="tracey-h">Y</h2>"#;
-            let mut hs = vec![marq::Heading {
-                id: "a".into(),
-                title: "A".into(),
-                level: 1,
+        fn heading_ids_missing_slug_gets_placeholder() {
+            // Sentinel with no `data-base-slug` (or one that slugifies empty)
+            // still gets a valid, unique anchor.
+            let body = r#"<h1 class="tracey-h">.</h1><h2 data-base-slug="" class="tracey-h">x</h2>"#;
+            let (out, hs, _) = assign_heading_ids(body, &mut alloc(), &HashMap::new());
+            assert_eq!(out, r#"<h1 id="section">.</h1><h2 id="section-2">x</h2>"#);
+            assert_eq!(hs[0].id, "section");
+            assert_eq!(hs[1].id, "section-2");
+        }
+
+        #[test]
+        fn heading_ids_interleave_with_req_sentinels() {
+            // Elements must reflect HTML order: H, R, H — so the outline
+            // attributes the req to the first heading, not the second.
+            let def = marq::ReqDefinition {
+                id: marq::parse_rule_id("a.b").unwrap(),
+                anchor_id: "r--a.b".into(),
+                marker_span: marq::SourceSpan { offset: 0, length: 0 },
+                span: marq::SourceSpan { offset: 0, length: 0 },
                 line: 1,
-            }];
-            let out = inject_heading_ids(body, &mut hs, &mut alloc());
-            assert_eq!(
-                out,
-                r#"<h1 id="a">A</h1><h2 id="section">X</h2><h2 id="section-2">Y</h2>"#
+                metadata: Default::default(),
+                raw: String::new(),
+                html: String::new(),
+            };
+            let by_id: HashMap<_, _> = [(def.id.clone(), &def)].into_iter().collect();
+            let body = concat!(
+                r#"<h1 data-base-slug="One" class="tracey-h">One</h1>"#,
+                r#"<div class="tracey-req" data-req-id="a.b">body</div>"#,
+                r#"<h1 data-base-slug="Two" class="tracey-h">Two</h1>"#,
             );
+            let (out, hs, els) = assign_heading_ids(body, &mut alloc(), &by_id);
+            // Req sentinel passes through unchanged for splice_req_badges.
+            assert!(out.contains(r#"<div class="tracey-req" data-req-id="a.b">"#));
+            assert_eq!(hs.len(), 2);
+            assert_eq!(els.len(), 3);
+            assert!(matches!(els[0], marq::DocElement::Heading(_)));
+            assert!(matches!(els[1], marq::DocElement::Req(_)));
+            assert!(matches!(els[2], marq::DocElement::Heading(_)));
         }
 
         #[test]
