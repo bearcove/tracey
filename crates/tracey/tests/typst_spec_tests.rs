@@ -168,7 +168,7 @@ async fn render_display_direct() {
             )
         },
     };
-    let doc = tracey_core::spec::typst::render_display(src, std::path::Path::new("."), None, &ctx)
+    let doc = tracey_core::spec::typst::render_display(src, std::path::Path::new("test.typ"), None, &ctx)
         .await
         .expect("render_display failed");
     assert_eq!(doc.reqs.len(), 1);
@@ -185,7 +185,7 @@ async fn render_display_errors_without_feature() {
     let ctx = tracey_core::spec::typst::RenderCtx {
         badge_for: &|_| (String::new(), String::new()),
     };
-    let err = tracey_core::spec::typst::render_display("= Title\n", std::path::Path::new("."), None, &ctx)
+    let err = tracey_core::spec::typst::render_display("= Title\n", std::path::Path::new("test.typ"), None, &ctx)
         .await
         .expect_err("should error without typst-spec");
     assert!(err.to_string().contains("typst-spec"));
