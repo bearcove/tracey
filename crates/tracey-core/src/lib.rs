@@ -5,6 +5,7 @@
 //! - Computing coverage statistics
 
 mod coverage;
+mod languages;
 mod lexer;
 mod markdown;
 mod positions;
