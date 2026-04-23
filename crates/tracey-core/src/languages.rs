@@ -124,17 +124,17 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "reverse")]
     #[test]
     fn no_duplicate_extensions() {
+        // Iterates the full SUPPORTED_EXTENSIONS list (full rows + @lexer_only),
+        // so promoting a lexer-only extension without removing it from the
+        // @lexer_only block is caught here.
         let mut seen = std::collections::HashSet::new();
-        for lang in LANGUAGES {
-            for ext in lang.extensions {
-                assert!(
-                    seen.insert(*ext),
-                    "extension {ext:?} is claimed by more than one language"
-                );
-            }
+        for ext in SUPPORTED_EXTENSIONS {
+            assert!(
+                seen.insert(*ext),
+                "extension {ext:?} appears more than once in the registry"
+            );
         }
     }
 }

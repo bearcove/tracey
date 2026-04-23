@@ -56,7 +56,16 @@ pub struct SlugAllocator {
 
 impl SlugAllocator {
     /// Returns `base` if unseen, else `base-2`, `base-3`, ...
+    ///
+    /// `base` must be a `marq::slugify`-produced slug (or a literal known not
+    /// to contain `--`). The slugifier collapses consecutive separators, so
+    /// heading slugs cannot enter the [`REQ_ANCHOR_PREFIX`] namespace and the
+    /// dashboard router can safely distinguish the two by prefix.
     pub fn alloc(&mut self, base: &str) -> String {
+        debug_assert!(
+            !base.starts_with(REQ_ANCHOR_PREFIX),
+            "heading slug {base:?} entered the req-anchor namespace; slugifier invariant broken"
+        );
         let n = self
             .seen
             .entry(base.to_string())
@@ -170,6 +179,22 @@ mod tests {
         assert_eq!(alloc.alloc("a"), "a-2");
         assert_eq!(alloc.alloc("b"), "b");
         assert_eq!(alloc.alloc("a"), "a-3");
+    }
+
+    #[test]
+    fn slugifier_cannot_enter_req_anchor_namespace() {
+        // SlugAllocator inputs are always `marq::slugify`-produced. The
+        // slugifier collapses consecutive separators, so no heading title can
+        // produce a slug starting with `r--`. This test locks that invariant
+        // so the debug_assert in `alloc()` stays unreachable.
+        assert_eq!(marq::slugify("r--design"), "r-design");
+        assert_eq!(marq::slugify("# R-- Design Review"), "r-design-review");
+        for title in ["r--x", "r--", "--r--foo", "r - - bar"] {
+            assert!(
+                !marq::slugify(title).starts_with(REQ_ANCHOR_PREFIX),
+                "marq::slugify({title:?}) produced a req-anchor-prefixed slug"
+            );
+        }
     }
 
     #[test]
