@@ -149,38 +149,9 @@ impl CodeUnits {
 /// Extract code units from source code, auto-detecting language from file extension
 pub fn extract(path: &Path, source: &str) -> CodeUnits {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    match ext {
-        "rs" => extract_rust(path, source),
-        "swift" => extract_swift(path, source),
-        "go" => extract_go(path, source),
-        "java" => extract_java(path, source),
-        "py" => extract_python(path, source),
-        "ts" | "tsx" | "js" | "jsx" | "mts" | "cts" => extract_typescript(path, source),
-        "php" => extract_php(path, source),
-        "c" | "h" => extract_c(path, source),
-        "cpp" | "cc" | "cxx" | "hpp" => extract_cpp(path, source),
-        "rb" => extract_ruby(path, source),
-        "r" | "R" => extract_r(path, source),
-        "dart" => extract_dart(path, source),
-        "lua" => extract_lua(path, source),
-        "asm" | "s" | "S" => extract_asm(path, source),
-        "pl" | "pm" => extract_perl(path, source),
-        "hs" | "lhs" => extract_haskell(path, source),
-        "ex" | "exs" => extract_elixir(path, source),
-        "erl" | "hrl" => extract_erlang(path, source),
-        "clj" | "cljs" | "cljc" | "edn" => extract_clojure(path, source),
-        "fs" | "fsi" | "fsx" => extract_fsharp(path, source),
-        "vb" | "vbs" => extract_vb(path, source),
-        "cob" | "cbl" | "cpy" => extract_cobol(path, source),
-        "jl" => extract_julia(path, source),
-        "d" => extract_d(path, source),
-        "ps1" | "psm1" | "psd1" => extract_powershell(path, source),
-        "cmake" => extract_cmake(path, source),
-        "ml" | "mli" => extract_ocaml(path, source),
-        "sh" | "bash" | "zsh" => extract_bash(path, source),
-        "nix" => extract_nix(path, source),
-        "lean" => extract_lean(path, source),
-        _ => CodeUnits::new(),
+    match crate::languages::for_ext(ext) {
+        Some(lang) => (lang.extract)(path, source),
+        None => CodeUnits::new(),
     }
 }
 
@@ -1492,38 +1463,10 @@ pub fn extract_refs(path: &Path, source: &str) -> Vec<FullReqRef> {
 pub fn extract_refs_with_warnings(path: &Path, source: &str) -> ExtractedRefs {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
-    let language = match ext {
-        "rs" => arborium_rust::language(),
-        "swift" => arborium_swift::language(),
-        "go" => arborium_go::language(),
-        "java" => arborium_java::language(),
-        "py" => arborium_python::language(),
-        "ts" | "tsx" | "js" | "jsx" | "mts" | "cts" => arborium_typescript::language(),
-        "php" => arborium_php::language(),
-        "c" | "h" => arborium_c::language(),
-        "cpp" | "cc" | "cxx" | "hpp" => arborium_cpp::language(),
-        "rb" => arborium_ruby::language(),
-        "r" | "R" => arborium_r::language(),
-        "dart" => arborium_dart::language(),
-        "lua" => arborium_lua::language(),
-        "asm" | "s" | "S" => arborium_asm::language(),
-        "pl" | "pm" => arborium_perl::language(),
-        "hs" | "lhs" => arborium_haskell::language(),
-        "ex" | "exs" => arborium_elixir::language(),
-        "erl" | "hrl" => arborium_erlang::language(),
-        "clj" | "cljs" | "cljc" | "edn" => arborium_clojure::language(),
-        "fs" | "fsi" | "fsx" => arborium_fsharp::language(),
-        "vb" | "vbs" => arborium_vb::language(),
-        "cob" | "cbl" | "cpy" => arborium_cobol::language(),
-        "jl" => arborium_julia::language(),
-        "d" => arborium_d::language(),
-        "ps1" | "psm1" | "psd1" => arborium_powershell::language(),
-        "cmake" => arborium_cmake::language(),
-        "ml" | "mli" => arborium_ocaml::language(),
-        "sh" | "bash" | "zsh" => arborium_bash::language(),
-        "nix" => arborium_nix::language(),
-        _ => return ExtractedRefs::default(),
+    let Some(lang) = crate::languages::for_ext(ext) else {
+        return ExtractedRefs::default();
     };
+    let language = (lang.grammar)();
 
     let mut parser = Parser::new();
     parser
