@@ -28,8 +28,8 @@ pub use sources::{
 };
 pub use spec::{
     REQ_ANCHOR_PREFIX, ReqDefinition, SPEC_EXTENSIONS, SlugAllocator, SpecDoc, SpecFormat,
-    diff_inline, extract_marker_prefix, is_spec_extension, parse_spec, parse_weight, req_anchor_id,
-    req_anchor_to_id, rewrite_marker,
+    diff_inline, extract_marker_prefix, id_range_in_marker, is_spec_extension, parse_spec,
+    parse_weight, req_anchor_id, req_anchor_to_id, rewrite_marker,
 };
 
 #[cfg(feature = "walk")]

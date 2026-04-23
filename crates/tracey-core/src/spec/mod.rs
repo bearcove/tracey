@@ -10,6 +10,7 @@
 //! generalise cleanly to a trait.
 
 use std::ffi::OsStr;
+use std::ops::Range;
 use std::path::Path;
 
 mod markdown;
@@ -167,19 +168,42 @@ pub fn extract_marker_prefix(fmt: SpecFormat, content: &str, span: SourceSpan) -
     }
 }
 
+/// Locate the requirement-id literal within a marker string.
+///
+/// Returns the byte range of the id *contents* (between the brackets/quotes,
+/// delimiters excluded) so [`rewrite_marker`] can splice a new id in without
+/// any string searching. Format-specific because typst markers may carry named
+/// arguments before the positional id (`#req(level: "shall", "a.b")`), which
+/// only the parser can disambiguate.
+pub fn id_range_in_marker(fmt: SpecFormat, marker_str: &str) -> eyre::Result<Range<usize>> {
+    match fmt {
+        SpecFormat::Markdown => markdown::id_range_in_marker(marker_str),
+        SpecFormat::Typst => typst::id_range_in_marker(marker_str),
+    }
+}
+
 /// Rewrite a marker string to point at `base+new_ver`.
 ///
-/// Used by `tracey bump` to increment requirement versions in-place.
+/// `id_range` is the byte range of the id contents within `marker_str` (from
+/// [`id_range_in_marker`]); everything outside it — prefix, delimiters, named
+/// arguments — is preserved byte-for-byte. Used by `tracey bump` to increment
+/// requirement versions in-place.
 pub fn rewrite_marker(
-    fmt: SpecFormat,
     marker_str: &str,
+    id_range: Range<usize>,
     base: &str,
     new_ver: u32,
 ) -> eyre::Result<String> {
-    match fmt {
-        SpecFormat::Markdown => markdown::rewrite_marker(marker_str, base, new_ver),
-        SpecFormat::Typst => typst::rewrite_marker(marker_str, base, new_ver),
+    if id_range.start > id_range.end || id_range.end > marker_str.len() {
+        eyre::bail!("id range {id_range:?} out of bounds for marker {marker_str:?}");
     }
+    Ok(format!(
+        "{}{}+{}{}",
+        &marker_str[..id_range.start],
+        base,
+        new_ver,
+        &marker_str[id_range.end..]
+    ))
 }
 
 #[cfg(test)]
@@ -284,7 +308,10 @@ mod tests {
 
     #[test]
     fn markdown_rewrite_marker_bumps_version() {
-        let out = rewrite_marker(SpecFormat::Markdown, "r[auth.login]", "auth.login", 2).unwrap();
+        let m = "r[auth.login]";
+        let r = id_range_in_marker(SpecFormat::Markdown, m).unwrap();
+        assert_eq!(&m[r.clone()], "auth.login");
+        let out = rewrite_marker(m, r, "auth.login", 2).unwrap();
         assert_eq!(out, "r[auth.login+2]");
     }
 
@@ -319,7 +346,10 @@ mod tests {
 
     #[test]
     fn typst_rewrite_marker_bumps_version() {
-        let out = rewrite_marker(SpecFormat::Typst, "#req(\"auth.login\")", "auth.login", 2).unwrap();
+        let m = "#req(\"auth.login\")";
+        let r = id_range_in_marker(SpecFormat::Typst, m).unwrap();
+        assert_eq!(&m[r.clone()], "auth.login");
+        let out = rewrite_marker(m, r, "auth.login", 2).unwrap();
         assert_eq!(out, "#req(\"auth.login+2\")");
     }
 }

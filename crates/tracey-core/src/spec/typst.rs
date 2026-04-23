@@ -410,6 +410,26 @@ fn strip_delims<'a>(bytes: &'a [u8], node: Node<'_>) -> Option<&'a str> {
     std::str::from_utf8(&bytes[start + 1..end - 1]).ok()
 }
 
+/// Reverse the five standard HTML character-reference escapes.
+///
+/// Typst's HTML serializer escapes attribute values; this recovers the original
+/// text so it can be re-parsed (e.g. as a [`marq::RuleId`] from
+/// `data-req-id="…"`). `&amp;` is decoded last so an escaped ampersand
+/// (`&amp;lt;`) round-trips to `&lt;`, not `<`.
+#[cfg_attr(not(feature = "typst-spec"), allow(dead_code))]
+pub(super) fn html_unescape(s: &str) -> std::borrow::Cow<'_, str> {
+    if !s.contains('&') {
+        return std::borrow::Cow::Borrowed(s);
+    }
+    std::borrow::Cow::Owned(
+        s.replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&#39;", "'")
+            .replace("&amp;", "&"),
+    )
+}
+
 // ---- typst compiler bridge (feature-gated) --------------------------------
 
 #[cfg(feature = "typst-spec")]
@@ -545,8 +565,8 @@ mod compiler {
                 h.id.clone_from(&updated.id);
             }
         }
-        let by_id: std::collections::HashMap<String, &marq::ReqDefinition> =
-            doc.reqs.iter().map(|r| (r.id.to_string(), r)).collect();
+        let by_id: HashMap<marq::RuleId, &marq::ReqDefinition> =
+            doc.reqs.iter().map(|r| (r.id.clone(), r)).collect();
         doc.html = splice_req_badges(&body, &by_id, ctx);
 
         Ok(doc)
@@ -833,13 +853,15 @@ mod compiler {
     }
 
     /// Replace each sentinel `<div class="tracey-req" data-req-id="X">…</div>`
-    /// with `open_html …inner… close_html` from `ctx.badge_for`. The `X` is
-    /// looked up in `by_id` (from the tree-sitter parse); if not found the
-    /// sentinel wrapper is dropped and the inner body emitted verbatim. Nested
-    /// `<div>`s inside the body are handled by depth-counting.
+    /// with `open_html …inner… close_html` from `ctx.badge_for`. The literal
+    /// `X` is HTML-unescaped, parsed into a [`marq::RuleId`], and looked up in
+    /// `by_id` (from the tree-sitter parse) so `data-req-id="a.b+1"` matches
+    /// the version-1 definition keyed as `a.b`. If not found the sentinel
+    /// wrapper is dropped and the inner body emitted verbatim. Nested `<div>`s
+    /// inside the body are handled by depth-counting.
     fn splice_req_badges(
         body: &str,
-        by_id: &std::collections::HashMap<String, &marq::ReqDefinition>,
+        by_id: &HashMap<marq::RuleId, &marq::ReqDefinition>,
         ctx: &RenderCtx<'_>,
     ) -> String {
         let open_prefix = format!("<div class=\"{REQ_SENTINEL}\" data-req-id=\"");
@@ -855,7 +877,7 @@ mod compiler {
                 out.push_str(&rest[start..]);
                 return out;
             };
-            let id = &after_prefix[..id_end];
+            let id = super::html_unescape(&after_prefix[..id_end]);
             let Some(tag_end_rel) = after_prefix[id_end..].find('>') else {
                 out.push_str(&rest[start..]);
                 return out;
@@ -867,7 +889,7 @@ mod compiler {
             };
             let inner = &rest[inner_start..inner_start + inner_len];
 
-            match by_id.get(id) {
+            match marq::parse_rule_id(&id).and_then(|rid| by_id.get(&rid)) {
                 Some(def) => {
                     let (open_html, close_html) = (ctx.badge_for)(def);
                     out.push_str(&open_html);
@@ -1224,14 +1246,64 @@ mod compiler {
                 raw: String::new(),
                 html: String::new(),
             };
-            let by_id: std::collections::HashMap<_, _> =
-                [("a.b".to_string(), &def)].into_iter().collect();
+            let by_id: HashMap<_, _> = [(def.id.clone(), &def)].into_iter().collect();
             let ctx = RenderCtx {
                 badge_for: &|d| (format!("<OPEN {}>", d.id), "</CLOSE>".into()),
             };
             let body = r#"<p>x</p><div class="tracey-req" data-req-id="a.b">body<div>n</div></div><p>y</p>"#;
             let out = splice_req_badges(body, &by_id, &ctx);
             assert_eq!(out, "<p>x</p><OPEN a.b>body<div>n</div></CLOSE><p>y</p>");
+        }
+
+        /// Regression: `data-req-id="a.b+1"` (literal `+1` suffix) must match
+        /// the version-1 definition keyed as `RuleId{base:"a.b",version:1}`.
+        /// Previously `by_id` was keyed on `id.to_string()` (= `"a.b"`), so the
+        /// literal `"a.b+1"` missed and the badge was silently dropped.
+        #[test]
+        fn splice_normalises_versioned_id() {
+            let def = marq::ReqDefinition {
+                id: marq::parse_rule_id("a.b+1").unwrap(),
+                anchor_id: "r--a.b".into(),
+                marker_span: marq::SourceSpan { offset: 0, length: 0 },
+                span: marq::SourceSpan { offset: 0, length: 0 },
+                line: 1,
+                metadata: Default::default(),
+                raw: String::new(),
+                html: String::new(),
+            };
+            let by_id: HashMap<_, _> = [(def.id.clone(), &def)].into_iter().collect();
+            let ctx = RenderCtx {
+                badge_for: &|d| (format!("<OPEN {}>", d.anchor_id), "</CLOSE>".into()),
+            };
+            // Literal `+1` plus an HTML-escaped `&` in the base.
+            let body = r#"<div class="tracey-req" data-req-id="a.b+1">body</div>"#;
+            assert_eq!(
+                splice_req_badges(body, &by_id, &ctx),
+                "<OPEN r--a.b>body</CLOSE>"
+            );
+        }
+
+        /// End-to-end: a `+1` suffix in source survives the typst→HTML→splice
+        /// round trip and the badge wraps the body.
+        #[tokio::test]
+        async fn render_req_with_explicit_version_suffix() {
+            let src = "#req(\"a.b+1\")[body text]\n";
+            let ctx = RenderCtx {
+                badge_for: &|d| {
+                    (format!("<div id=\"{}\">", d.anchor_id), "</div>".into())
+                },
+            };
+            let doc = render(src, Path::new("test.typ"), None, &ctx, &mut alloc())
+                .await
+                .expect("render with +1 suffix");
+            assert_eq!(doc.reqs.len(), 1);
+            assert_eq!(doc.reqs[0].anchor_id, "r--a.b");
+            assert!(
+                doc.html.contains("id=\"r--a.b\""),
+                "badge container with normalised anchor must appear: {}",
+                doc.html
+            );
+            assert!(doc.html.contains("body text"));
         }
     }
 }
@@ -1355,26 +1427,42 @@ pub(super) fn extract_marker_prefix(content: &str, span: SourceSpan) -> Option<S
     Some(prefix.to_string())
 }
 
-/// Rebuild a `#prefix("base+ver", ..)` marker from its current text and a new
-/// version number, preserving any trailing tagged arguments verbatim.
-pub(super) fn rewrite_marker(marker_str: &str, base: &str, new_ver: u32) -> eyre::Result<String> {
-    // Replace only the contents of the first string literal; everything else
-    // (prefix, tagged metadata, closing paren) is kept byte-for-byte so
-    // `tracey bump` doesn't silently delete `level:`/`status:` annotations.
-    let open = marker_str
-        .find('"')
-        .ok_or_else(|| eyre::eyre!("malformed typst marker: {}", marker_str))?;
-    let close_rel = marker_str[open + 1..]
-        .find('"')
-        .ok_or_else(|| eyre::eyre!("malformed typst marker: {}", marker_str))?;
-    let close = open + 1 + close_rel;
-    Ok(format!(
-        "{}{}+{}{}",
-        &marker_str[..=open],
-        base,
-        new_ver,
-        &marker_str[close..]
-    ))
+/// Locate the positional id string inside a `#prefix("id", ..)` marker.
+///
+/// Re-parses `marker_str` with tree-sitter and returns the byte range of the
+/// id *contents* (between the quotes). Named arguments are `tagged` nodes in
+/// the parse tree, so a leading `level: "shall"` or `supersedes: "old.id"` is
+/// skipped — the first *direct* `string` child of the argument `group` is the
+/// positional id, regardless of where it sits in the argument list.
+///
+/// `marker_str` is the exact `marker_span` slice (e.g. `#req("a.b", level:
+/// "shall")`, no `[body]`); it is small, so the throwaway parse is cheap.
+pub(super) fn id_range_in_marker(marker_str: &str) -> eyre::Result<std::ops::Range<usize>> {
+    let mut parser = Parser::new();
+    parser
+        .set_language(&arborium_typst::language().into())
+        .map_err(|e| eyre::eyre!("failed to load typst grammar: {e}"))?;
+    let tree = parser
+        .parse(marker_str, None)
+        .ok_or_else(|| eyre::eyre!("typst parser returned no tree"))?;
+
+    let mut range = None;
+    walk(tree.root_node(), &mut |node| {
+        if range.is_some() {
+            return false;
+        }
+        if node.kind() == "group" {
+            if let Some(id) = find_child(node, "string") {
+                // `string` node span includes the surrounding quotes.
+                range = Some(id.start_byte() + 1..id.end_byte() - 1);
+            }
+            return false;
+        }
+        true
+    });
+    range.ok_or_else(|| {
+        eyre::eyre!("malformed typst marker (no positional id string): {marker_str}")
+    })
 }
 
 #[cfg(test)]
@@ -1467,32 +1555,89 @@ mod tests {
         assert_eq!(extract_marker_prefix(content, span), Some("r".to_string()));
     }
 
+    /// Locate the id in a marker and splice via [`super::rewrite_marker`].
+    fn rewrite(m: &str, base: &str, ver: u32) -> String {
+        let r = id_range_in_marker(m).unwrap();
+        super::super::rewrite_marker(m, r, base, ver).unwrap()
+    }
+
     #[test]
     fn rewrites_marker() {
-        let out = rewrite_marker("#req(\"auth.login\")", "auth.login", 2).unwrap();
-        assert_eq!(out, "#req(\"auth.login+2\")");
-
-        let out = rewrite_marker("#r(\"auth.login+3\")", "auth.login", 4).unwrap();
-        assert_eq!(out, "#r(\"auth.login+4\")");
+        assert_eq!(
+            rewrite("#req(\"auth.login\")", "auth.login", 2),
+            "#req(\"auth.login+2\")"
+        );
+        assert_eq!(
+            rewrite("#r(\"auth.login+3\")", "auth.login", 4),
+            "#r(\"auth.login+4\")"
+        );
     }
 
     #[test]
     fn rewrites_marker_preserves_metadata() {
-        let out = rewrite_marker(
-            "#req(\"auth.login+1\", level: \"shall\")",
-            "auth.login",
-            2,
-        )
-        .unwrap();
-        assert_eq!(out, "#req(\"auth.login+2\", level: \"shall\")");
+        assert_eq!(
+            rewrite("#req(\"auth.login+1\", level: \"shall\")", "auth.login", 2),
+            "#req(\"auth.login+2\", level: \"shall\")"
+        );
+        assert_eq!(
+            rewrite("#r(\"a.b\", level: \"may\", status: \"draft\")", "a.b", 3),
+            "#r(\"a.b+3\", level: \"may\", status: \"draft\")"
+        );
+    }
 
-        let out = rewrite_marker(
-            "#r(\"a.b\", level: \"may\", status: \"draft\")",
-            "a.b",
-            3,
-        )
-        .unwrap();
-        assert_eq!(out, "#r(\"a.b+3\", level: \"may\", status: \"draft\")");
+    /// Regression: a named string argument *before* the positional id must not
+    /// be mistaken for the id. Previously `find('"')` grabbed the first quote,
+    /// rewriting `level:` instead of the id.
+    #[test]
+    fn rewrites_marker_with_leading_named_string_arg() {
+        assert_eq!(
+            rewrite("#req(level: \"shall\", \"a.b\")", "a.b", 2),
+            "#req(level: \"shall\", \"a.b+2\")"
+        );
+        // Named arg whose value looks like an id — must still be skipped.
+        assert_eq!(
+            rewrite("#req(alias: \"a.b.legacy\", \"a.b\")", "a.b", 2),
+            "#req(alias: \"a.b.legacy\", \"a.b+2\")"
+        );
+        // Named arg whose value *contains* the base — must still be skipped.
+        assert_eq!(
+            rewrite(
+                "#req(supersedes: \"auth.login\", \"auth.login+2\")",
+                "auth.login",
+                3
+            ),
+            "#req(supersedes: \"auth.login\", \"auth.login+3\")"
+        );
+    }
+
+    #[test]
+    fn id_range_on_non_marker_errors() {
+        assert!(id_range_in_marker("not a marker").is_err());
+        assert!(id_range_in_marker("#req(level: 1)").is_err());
+    }
+
+    #[test]
+    fn html_unescape_roundtrip() {
+        assert_eq!(html_unescape("a.b+1"), "a.b+1");
+        assert_eq!(html_unescape("a&amp;b"), "a&b");
+        assert_eq!(html_unescape("&lt;x&gt;&quot;y&quot;&#39;z&#39;"), "<x>\"y\"'z'");
+        // Escaped ampersand stays single-decoded.
+        assert_eq!(html_unescape("&amp;lt;"), "&lt;");
+    }
+
+    #[tokio::test]
+    async fn parses_req_with_leading_named_arg() {
+        // Named args are `tagged` nodes; the positional id `string` is a direct
+        // child of `group` regardless of order, so `find_child` skips past the
+        // `level:` value and locates `"a.b"`.
+        let src = "#req(level: \"shall\", \"a.b\")[body]\n";
+        let doc = parse(src).await.unwrap();
+        assert_eq!(doc.reqs.len(), 1);
+        let r = &doc.reqs[0];
+        assert_eq!(r.id.base, "a.b");
+        assert_eq!(r.metadata.level, Some(ReqLevel::Must));
+        let m = &src[r.marker_span.offset..r.marker_span.offset + r.marker_span.length];
+        assert_eq!(m, "#req(level: \"shall\", \"a.b\")");
     }
 
     #[tokio::test]

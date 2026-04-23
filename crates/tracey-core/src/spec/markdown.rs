@@ -41,14 +41,16 @@ pub(super) fn extract_marker_prefix(content: &str, marker_span: SourceSpan) -> O
     Some(prefix.to_string())
 }
 
-/// Rebuild a `prefix[base+ver]` marker from its current text and a new
-/// version number.
+/// Locate the id literal between `[` and `]` in a `prefix[id]` marker.
 ///
-/// Mirrors the logic at `crates/tracey/src/bump.rs`.
-pub(super) fn rewrite_marker(marker_str: &str, base: &str, new_ver: u32) -> eyre::Result<String> {
-    let bracket = marker_str
+/// Markdown markers have no inline metadata, so the bracket pair is unique and
+/// a simple `find`/`rfind` suffices. See [`super::id_range_in_marker`].
+pub(super) fn id_range_in_marker(marker_str: &str) -> eyre::Result<std::ops::Range<usize>> {
+    let open = marker_str
         .find('[')
-        .ok_or_else(|| eyre::eyre!("malformed marker: {}", marker_str))?;
-    let prefix = &marker_str[..bracket];
-    Ok(format!("{}[{}+{}]", prefix, base, new_ver))
+        .ok_or_else(|| eyre::eyre!("malformed markdown marker: {}", marker_str))?;
+    let close = marker_str
+        .rfind(']')
+        .ok_or_else(|| eyre::eyre!("malformed markdown marker: {}", marker_str))?;
+    Ok(open + 1..close)
 }
