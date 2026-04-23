@@ -101,6 +101,70 @@ async fn markdown_only_outline_slugs_unchanged() {
     assert_eq!(spec.sections[0].source_file, "spec.md");
 }
 
+/// Regression: marq's hierarchical heading ids join parent and child with
+/// `--`, so `# R` + `## Design` yields `r--design`. The allocator must move
+/// that out of the requirement-anchor namespace and the HTML patch must hit
+/// only the `<h2>`, never the req container `<div>`.
+#[tokio::test]
+async fn markdown_heading_under_r_avoids_req_anchor_namespace() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        tmp.path().join("spec.md"),
+        "# R\n\nr[design]\nbody\n\n## Design\n",
+    )
+    .unwrap();
+
+    let forward = ApiSpecForward {
+        name: "test".to_string(),
+        rules: vec![],
+    };
+    let spec = render_spec_content_for_impl(
+        tmp.path(),
+        &["spec.md".to_string()],
+        "test",
+        "rust",
+        None,
+        &forward,
+    )
+    .await
+    .expect("render must not panic on r--design heading slug");
+
+    let html = &spec.sections[0].html;
+
+    // The h2 was re-slugged out of the `r--` namespace.
+    let h2_id = html
+        .split("<h2 id=\"")
+        .nth(1)
+        .and_then(|s| s.split('"').next())
+        .expect("h2 with id present");
+    assert!(
+        !h2_id.starts_with("r--"),
+        "h2 id {h2_id:?} must not enter the req-anchor namespace"
+    );
+    assert!(
+        !html.contains("<h2 id=\"r--design\""),
+        "raw r--design heading id must be rewritten"
+    );
+
+    // The req container kept its own anchor, distinct from the heading.
+    let div_id = html
+        .split("class=\"req-container")
+        .nth(1)
+        .and_then(|s| s.split("id=\"").nth(1))
+        .and_then(|s| s.split('"').next())
+        .expect("req container with id present");
+    assert_ne!(div_id, h2_id, "req container and h2 must have distinct ids");
+
+    // Outline carries the rewritten slug so the anchor link resolves.
+    let h2_slug = spec
+        .outline
+        .iter()
+        .find(|e| e.level == 2)
+        .map(|e| e.slug.as_str())
+        .expect("h2 in outline");
+    assert_eq!(h2_slug, h2_id, "outline slug must match HTML anchor");
+}
+
 /// Full HTML rendering via the typst compiler: badges spliced in, heading IDs
 /// injected, body extracted from `<body>`.
 #[cfg(feature = "typst-spec")]
