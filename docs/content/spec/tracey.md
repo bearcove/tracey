@@ -422,7 +422,7 @@ Requirement references in comments associated with a code unit MUST be extracted
 > Output:
 > ```html
 > <div class="requirement" id="r--auth.token.validation">
->   <a href="#r-auth.token.validation">auth.<wbr>token.<wbr>validation</a>
+>   <a href="#r--auth.token.validation">auth.<wbr>token.<wbr>validation</a>
 > </div>
 > ```
 
@@ -437,7 +437,7 @@ Requirement references in comments associated with a code unit MUST be extracted
 > The generated div MUST contain a link (`<a>`) pointing to its own anchor.
 >
 > ```html
-> <a href="#r-user.login.flow">user.<wbr>login.<wbr>flow</a>
+> <a href="#r--user.login.flow">user.<wbr>login.<wbr>flow</a>
 > ```
 
 ## Configuration

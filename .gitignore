@@ -8,3 +8,4 @@ tracey-zed/extension.wasm
 .claude/settings*
 .cache
 docs/public
+.claude/tmp/
