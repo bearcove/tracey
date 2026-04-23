@@ -3105,12 +3105,14 @@ async fn load_spec_content(
 
 /// Render the spec HTML for a single (spec, impl) pair on demand.
 ///
-/// Returns the rendered content plus the set of project-relative file paths
-/// the typst compiler read while resolving `#import` / `#include`. The caller
-/// (the daemon) records these so edits to a transitively-included helper
-/// trigger a rebuild even when the helper does not match any spec `include`
-/// glob. Markdown specs and the `typst-spec`-disabled fallback yield an empty
-/// dep set.
+/// `deps` receives the project-relative path of every file the typst compiler
+/// read while resolving `#import` / `#include`. The caller (the daemon)
+/// records these so edits to a transitively-included helper trigger a rebuild
+/// even when the helper does not match any spec `include` glob. It is an
+/// out-param (not part of the return value) so deps reach the caller even
+/// when compilation fails — fixing a syntax error in a helper must trigger a
+/// rebuild. Markdown specs and the `typst-spec`-disabled fallback leave it
+/// untouched.
 pub async fn render_spec_content_for_impl(
     project_root: &Path,
     include_patterns: &[String],
@@ -3118,7 +3120,8 @@ pub async fn render_spec_content_for_impl(
     impl_name: &str,
     typst_package_path: Option<&Path>,
     forward: &ApiSpecForward,
-) -> Result<(ApiSpecData, std::collections::HashSet<PathBuf>)> {
+    deps: &mut std::collections::HashSet<PathBuf>,
+) -> Result<ApiSpecData> {
     let mut coverage: BTreeMap<String, RuleCoverage> = BTreeMap::new();
     for rule in &forward.rules {
         let rule_id_string = rule.id.to_string();
@@ -3147,7 +3150,7 @@ pub async fn render_spec_content_for_impl(
     let include_pattern_refs: Vec<&str> = include_patterns.iter().map(|s| s.as_str()).collect();
     let mut map = BTreeMap::new();
     let mut abs_deps = std::collections::HashSet::new();
-    load_spec_content(
+    let load_result = load_spec_content(
         project_root,
         &include_pattern_refs,
         spec_name,
@@ -3158,27 +3161,25 @@ pub async fn render_spec_content_for_impl(
         &FileOverlay::new(),
         &mut abs_deps,
     )
-    .await?;
-    // The watcher filter compares project-relative paths; strip the root here
-    // so the daemon-side check is a plain `HashSet::contains`. Paths that
-    // don't live under the project root (shouldn't happen for non-package
-    // imports, which resolve under the spec file's directory) are dropped.
+    .await;
+    // Relativize deps into the out-param BEFORE propagating any error: a
+    // helper that broke the compile is exactly the file the watcher needs to
+    // know about. The watcher filter compares project-relative paths; paths
+    // that don't live under the project root (shouldn't happen for
+    // non-package imports, which resolve under the spec file's directory) are
+    // dropped.
     let canon_root = project_root
         .canonicalize()
         .unwrap_or_else(|_| project_root.to_path_buf());
-    let rel_deps: std::collections::HashSet<PathBuf> = abs_deps
-        .into_iter()
-        .filter_map(|p| {
-            p.strip_prefix(project_root)
-                .or_else(|_| p.strip_prefix(&canon_root))
-                .ok()
-                .map(Path::to_path_buf)
-        })
-        .collect();
-    let data = map
-        .remove(spec_name)
-        .ok_or_else(|| eyre::eyre!("Spec content not found for {spec_name}/{impl_name}"))?;
-    Ok((data, rel_deps))
+    deps.extend(abs_deps.into_iter().filter_map(|p| {
+        p.strip_prefix(project_root)
+            .or_else(|_| p.strip_prefix(&canon_root))
+            .ok()
+            .map(Path::to_path_buf)
+    }));
+    load_result?;
+    map.remove(spec_name)
+        .ok_or_else(|| eyre::eyre!("Spec content not found for {spec_name}/{impl_name}"))
 }
 
 /// Build an outline with coverage info from document elements.
