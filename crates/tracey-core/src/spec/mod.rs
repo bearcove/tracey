@@ -26,6 +26,24 @@ pub type SpecDoc = marq::Document;
 /// File extensions recognised as spec documents (any format).
 pub const SPEC_EXTENSIONS: &[&str] = &["md", "markdown", "typ"];
 
+/// Prefix for requirement anchor IDs in rendered HTML (`id="r--auth.login"`).
+///
+/// Every spec backend MUST emit [`ReqDefinition::anchor_id`] in this shape so
+/// the dashboard, static export, and inter-spec links can address requirements
+/// without knowing which backend produced them.
+pub const REQ_ANCHOR_PREFIX: &str = "r--";
+
+/// Build the HTML anchor id for a requirement (`"r--{id}"`).
+pub fn req_anchor_id(id: &str) -> String {
+    format!("{REQ_ANCHOR_PREFIX}{id}")
+}
+
+/// Recover the requirement id from an anchor id, or `None` if `anchor` is not a
+/// requirement anchor.
+pub fn req_anchor_to_id(anchor: &str) -> Option<&str> {
+    anchor.strip_prefix(REQ_ANCHOR_PREFIX)
+}
+
 /// Which spec dialect a file is written in.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -118,6 +136,13 @@ pub fn rewrite_marker(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn req_anchor_roundtrip() {
+        assert_eq!(req_anchor_id("auth.login"), "r--auth.login");
+        assert_eq!(req_anchor_to_id("r--auth.login"), Some("auth.login"));
+        assert_eq!(req_anchor_to_id("some-heading"), None);
+    }
 
     #[test]
     fn from_path_classifies_extensions() {

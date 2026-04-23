@@ -14,7 +14,7 @@
   text(size: 0.8em, raw(body)),
 )
 
-#let req(id, level: none, status: none, ..meta, body) = block(
+#let req(id, level: none, status: none, ..args) = block(
   width: 100%,
   stroke: (left: 2pt + luma(180)),
   inset: (left: 1em, rest: 0.6em),
@@ -25,7 +25,9 @@
     if status != none { h(0.4em); _badge(fill: rgb("#fef7e0"), status) }
     linebreak()
     v(0.4em)
-    body
+    // Body is the optional trailing content block; the sink picks it up so
+    // bare `#req("id")` (no body) compiles.
+    args.pos().join()
   },
 )
 

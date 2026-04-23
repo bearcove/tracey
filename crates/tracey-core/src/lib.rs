@@ -26,8 +26,9 @@ pub use sources::{
     is_supported_extension,
 };
 pub use spec::{
-    ReqDefinition, SPEC_EXTENSIONS, SpecDoc, SpecFormat, diff_inline, extract_marker_prefix,
-    is_spec_extension, parse_spec, parse_weight, rewrite_marker,
+    REQ_ANCHOR_PREFIX, ReqDefinition, SPEC_EXTENSIONS, SpecDoc, SpecFormat, diff_inline,
+    extract_marker_prefix, is_spec_extension, parse_spec, parse_weight, req_anchor_id,
+    req_anchor_to_id, rewrite_marker,
 };
 
 #[cfg(feature = "walk")]
