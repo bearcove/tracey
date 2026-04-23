@@ -26,8 +26,8 @@ pub use sources::{
     is_supported_extension,
 };
 pub use spec::{
-    REQ_ANCHOR_PREFIX, ReqDefinition, SPEC_EXTENSIONS, SpecDoc, SpecFormat, diff_inline,
-    extract_marker_prefix, is_spec_extension, parse_spec, parse_weight, req_anchor_id,
+    REQ_ANCHOR_PREFIX, ReqDefinition, SPEC_EXTENSIONS, SlugAllocator, SpecDoc, SpecFormat,
+    diff_inline, extract_marker_prefix, is_spec_extension, parse_spec, parse_weight, req_anchor_id,
     req_anchor_to_id, rewrite_marker,
 };
 

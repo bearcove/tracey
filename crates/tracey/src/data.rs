@@ -24,8 +24,8 @@ use tracey_core::{
 };
 use tracey_core::{SUPPORTED_EXTENSIONS, is_supported_extension};
 use tracey_core::{
-    SpecFormat, extract_marker_prefix as spec_extract_prefix, is_spec_extension, parse_spec,
-    parse_weight, req_anchor_id,
+    SlugAllocator, SpecFormat, extract_marker_prefix as spec_extract_prefix, is_spec_extension,
+    parse_spec, parse_weight, req_anchor_id,
 };
 use tracing::info;
 
@@ -2961,9 +2961,14 @@ async fn load_spec_content(
     // Markdown runs are concatenated and rendered once via marq so that the
     // heading-slug stack and hierarchical IDs span the whole run (matching the
     // pre-multi-format behaviour). Typst files are rendered individually.
+    //
+    // A single `SlugAllocator` is threaded through every run so heading anchors
+    // are unique across the whole spec, with the rendered HTML and the outline
+    // always agreeing on the final slug.
     let mut sections: Vec<SpecSection> = Vec::new();
     let mut all_elements: Vec<marq::DocElement> = Vec::new();
     let mut head_injections: Vec<String> = Vec::new();
+    let mut slug_alloc = SlugAllocator::default();
 
     let mut i = 0;
     while i < files.len() {
@@ -2988,7 +2993,25 @@ async fn load_spec_content(
                 // click-to-edit. Must be absolute for editor navigation.
                 *current_source_file.lock().unwrap() = first_file.clone();
                 opts.source_path = Some(root.join(&first_file).display().to_string());
-                let doc = render(&combined, &opts).await?;
+                let mut doc = render(&combined, &opts).await?;
+
+                // marq slugifies internally (slugs are unique within this run);
+                // re-thread them through the global allocator so a later run
+                // can't collide. marq has already written `id="<slug>"` into
+                // the HTML, so patch it in place when the slug changes.
+                for el in doc.elements.iter_mut() {
+                    if let marq::DocElement::Heading(h) = el {
+                        let new = slug_alloc.alloc(&h.id);
+                        if new != h.id {
+                            doc.html = doc.html.replacen(
+                                &format!("id=\"{}\"", h.id),
+                                &format!("id=\"{new}\""),
+                                1,
+                            );
+                            h.id = new;
+                        }
+                    }
+                }
 
                 sections.push(SpecSection {
                     source_file: first_file,
@@ -3017,12 +3040,21 @@ async fn load_spec_content(
                         &abs_source,
                         typst_package_path,
                         &ctx,
+                        &mut slug_alloc,
                     )
                     .await?;
                     #[cfg(not(feature = "typst-spec"))]
                     let doc = {
                         let _ = (&ctx, &abs_source, typst_package_path);
-                        parse_spec(SpecFormat::Typst, content).await?
+                        let mut doc = parse_spec(SpecFormat::Typst, content).await?;
+                        // Placeholder `<pre>` HTML has no anchors to rewrite,
+                        // but the outline still needs globally-unique slugs.
+                        for el in doc.elements.iter_mut() {
+                            if let marq::DocElement::Heading(h) = el {
+                                h.id = slug_alloc.alloc(&h.id);
+                            }
+                        }
+                        doc
                     };
                     sections.push(SpecSection {
                         source_file: source_file.clone(),
@@ -3038,10 +3070,6 @@ async fn load_spec_content(
             _ => eyre::bail!("rendering not implemented for spec format {run_fmt:?}"),
         }
     }
-
-    // Heading slugs are unique within a single marq render, but separate runs
-    // (md/typ/md) can collide. Dedup post-hoc so outline anchors stay unique.
-    dedup_heading_slugs(&mut all_elements);
 
     // head_injections from multiple runs may repeat (e.g. mermaid loader); the
     // frontend already keys by content hash but dedup here too to keep payload
@@ -3068,23 +3096,6 @@ async fn load_spec_content(
     }
 
     Ok(())
-}
-
-/// Ensure heading `id`s are unique across `elements`, appending `-2`, `-3`, …
-/// to repeats. Within a single marq render slugs are already unique; this only
-/// fires when multiple format runs (or multiple marq renders) are concatenated.
-fn dedup_heading_slugs(elements: &mut [marq::DocElement]) {
-    use marq::DocElement;
-    let mut seen: HashMap<String, usize> = HashMap::new();
-    for el in elements.iter_mut() {
-        if let DocElement::Heading(h) = el {
-            let n = seen.entry(h.id.clone()).or_insert(0);
-            *n += 1;
-            if *n > 1 {
-                h.id = format!("{}-{}", h.id, *n);
-            }
-        }
-    }
 }
 
 pub async fn render_spec_content_for_impl(

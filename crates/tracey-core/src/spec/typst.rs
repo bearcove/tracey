@@ -19,7 +19,7 @@ use marq::{
     SourceSpan,
 };
 
-use super::SpecDoc;
+use super::{SlugAllocator, SpecDoc};
 
 /// Context for [`render_display`]: callbacks that the typst→HTML pipeline cannot
 /// resolve on its own (coverage data lives in the `tracey` crate).
@@ -54,6 +54,10 @@ pub struct RenderCtx<'a> {
 /// `<namespace>/<name>/<version>/`), then the system typst data dir (`@local`
 /// packages), then the system typst cache. Tracey never downloads packages.
 ///
+/// `alloc` is the cross-file heading-slug allocator; every `tracey-h` sentinel
+/// in the compiled HTML claims a slug from it so anchors stay unique across a
+/// multi-file spec.
+///
 /// Behind the `typst-spec` feature. Without it, returns an error and callers
 /// should fall back to [`parse`] (placeholder `<pre>` html).
 #[cfg_attr(not(feature = "typst-spec"), allow(unused_variables))]
@@ -62,6 +66,7 @@ pub async fn render_display(
     source_path: &std::path::Path,
     package_path: Option<&std::path::Path>,
     ctx: &RenderCtx<'_>,
+    alloc: &mut SlugAllocator,
 ) -> eyre::Result<SpecDoc> {
     #[cfg(not(feature = "typst-spec"))]
     {
@@ -71,7 +76,7 @@ pub async fn render_display(
     }
     #[cfg(feature = "typst-spec")]
     {
-        compiler::render(content, source_path, package_path, ctx).await
+        compiler::render(content, source_path, package_path, ctx, alloc).await
     }
 }
 
@@ -409,8 +414,8 @@ fn strip_delims<'a>(bytes: &'a [u8], node: Node<'_>) -> Option<&'a str> {
 
 #[cfg(feature = "typst-spec")]
 mod compiler {
-    use super::{RenderCtx, SpecDoc, parse};
-    use std::collections::HashMap;
+    use super::{RenderCtx, SlugAllocator, SpecDoc, extract_marker_prefix, parse};
+    use std::collections::{BTreeSet, HashMap};
     use std::fmt::Write as _;
     use std::path::{Path, PathBuf};
     use std::sync::Mutex;
@@ -435,40 +440,73 @@ mod compiler {
     const REQ_SENTINEL: &str = "tracey-req";
     const HEADING_SENTINEL: &str = "tracey-h";
 
-    /// Prelude prepended to every spec before compilation. Defines `#req` /
-    /// `#r` to emit sentinel `<div>`s and rewrites headings to sentinel
-    /// `<hN>` tags. Slugs are *not* computed here (`it.body.text` fails on
-    /// rich content); they're injected during post-processing from the
-    /// tree-sitter parse output.
-    const PRELUDE: &str = concat!(
+    /// Build the prelude prepended to every spec before compilation.
+    ///
+    /// Defines `#req` / `#r` to emit sentinel `<div>`s and rewrites top-level
+    /// headings to sentinel `<hN class="tracey-h">` tags. Slugs are *not*
+    /// computed here (`it.body.text` fails on rich content); they're injected
+    /// during post-processing from the tree-sitter parse output.
+    ///
+    /// `extra_prefixes` are additional aliases for `req` discovered by the
+    /// tree-sitter parse (e.g. a spec that uses `#spec(...)` instead of
+    /// `#req(...)`). `r` and `req` are always defined; duplicates are ignored.
+    ///
+    /// The `req` body sets a *nested* `#show heading:` rule that emits plain
+    /// `<hN>` (no `tracey-h` class), so a heading written inside a requirement
+    /// body never produces a sentinel and never claims a slug from
+    /// [`inject_heading_ids`].
+    fn build_prelude(extra_prefixes: &[&str]) -> String {
         // Body is the optional trailing content block. Typst has no
         // positional-with-default, so the sink collects it (and any tagged
         // metadata, which the HTML emitter ignores) and `args.pos().join()`
-        // yields `[]` when absent.
-        "#let req(id, ..args) = html.elem(\n",
-        "  \"div\", attrs: (class: \"tracey-req\", \"data-req-id\": id),\n",
-        "  args.pos().join(),\n",
-        ")\n",
-        "#let r = req\n",
-        "#show heading: it => html.elem(\n",
-        "  \"h\" + str(calc.min(it.level, 6)),\n",
-        "  attrs: (class: \"tracey-h\"),\n",
-        ")[#it.body]\n",
-    );
+        // yields `none` when absent.
+        let mut p = String::from(concat!(
+            "#let req(id, ..args) = html.elem(\n",
+            "  \"div\", attrs: (class: \"tracey-req\", \"data-req-id\": id),\n",
+            ")[\n",
+            "  #show heading: it => html.elem(",
+            "\"h\" + str(calc.min(it.level, 6)))[#it.body]\n",
+            "  #args.pos().join()\n",
+            "]\n",
+            "#let r = req\n",
+            "#show heading: it => html.elem(\n",
+            "  \"h\" + str(calc.min(it.level, 6)),\n",
+            "  attrs: (class: \"tracey-h\"),\n",
+            ")[#it.body]\n",
+        ));
+        for prefix in extra_prefixes {
+            if *prefix != "r" && *prefix != "req" {
+                let _ = writeln!(p, "#let {prefix} = req");
+            }
+        }
+        p
+    }
 
     pub(super) async fn render(
         content: &str,
         source_path: &Path,
         package_path: Option<&Path>,
         ctx: &RenderCtx<'_>,
+        alloc: &mut SlugAllocator,
     ) -> eyre::Result<SpecDoc> {
         // Structural extraction runs on the raw user content so spans / line
         // numbers point at the actual source file, not the prelude-shifted text.
         let mut doc = parse(content).await?;
 
+        // Any prefix the parse recognised as a requirement marker must also be
+        // bound in the prelude, or the typst compile will fail with "unknown
+        // variable" the moment a spec uses anything other than `r` / `req`.
+        let prefixes: BTreeSet<String> = doc
+            .reqs
+            .iter()
+            .filter_map(|r| extract_marker_prefix(content, r.marker_span))
+            .collect();
+        let prefix_refs: Vec<&str> = prefixes.iter().map(String::as_str).collect();
+        let prelude = build_prelude(&prefix_refs);
+
         let stripped = strip_tracey_imports(content);
-        let mut full = String::with_capacity(PRELUDE.len() + stripped.len());
-        full.push_str(PRELUDE);
+        let mut full = String::with_capacity(prelude.len() + stripped.len());
+        full.push_str(&prelude);
         full.push_str(&stripped);
 
         let world = SpecWorld::new(full, source_path, package_path.map(Path::to_path_buf));
@@ -495,8 +533,18 @@ mod compiler {
         let (head, body) = split_head_body(&html);
         doc.head_injections = extract_head_injections(head);
 
-        let slugs: Vec<&str> = doc.headings.iter().map(|h| h.id.as_str()).collect();
-        let body = inject_heading_ids(body, &slugs);
+        let body = inject_heading_ids(body, &mut doc.headings, alloc);
+        // `doc.elements` holds independent clones of the headings (the outline
+        // is built from elements, not `doc.headings`); mirror the freshly-
+        // allocated slugs across so anchors and outline agree.
+        let mut hi = doc.headings.iter();
+        for el in doc.elements.iter_mut() {
+            if let marq::DocElement::Heading(h) = el
+                && let Some(updated) = hi.next()
+            {
+                h.id.clone_from(&updated.id);
+            }
+        }
         let by_id: std::collections::HashMap<String, &marq::ReqDefinition> =
             doc.reqs.iter().map(|r| (r.id.to_string(), r)).collect();
         doc.html = splice_req_badges(&body, &by_id, ctx);
@@ -747,19 +795,36 @@ mod compiler {
         out
     }
 
-    /// Replace each `<hN class="tracey-h">` with `<hN id="slug">`, consuming
-    /// `slugs` in document order. Headings beyond `slugs.len()` keep the tag
-    /// but drop the sentinel class.
-    fn inject_heading_ids(body: &str, slugs: &[&str]) -> String {
+    /// Replace each `<hN class="tracey-h">` with `<hN id="slug">`, claiming
+    /// the slug from `alloc` and writing it back into the corresponding entry
+    /// of `headings` (so the outline and the HTML anchor always agree).
+    ///
+    /// Sentinels and `headings` are walked in lockstep — the prelude's nested
+    /// show rule guarantees headings inside `#req` bodies don't emit sentinels,
+    /// so for markup headings the two stay aligned. A `#heading(...)` *call*
+    /// (which tree-sitter does not recognise as a heading) can still produce
+    /// an extra sentinel; those get a `section`/`section-2`/… slug so the
+    /// anchor is valid even without an outline entry.
+    fn inject_heading_ids(
+        body: &str,
+        headings: &mut [marq::Heading],
+        alloc: &mut SlugAllocator,
+    ) -> String {
         let needle = format!(" class=\"{HEADING_SENTINEL}\"");
         let mut out = String::with_capacity(body.len());
         let mut rest = body;
         let mut idx = 0;
         while let Some(pos) = rest.find(&needle) {
             out.push_str(&rest[..pos]);
-            if let Some(slug) = slugs.get(idx) {
-                let _ = write!(out, " id=\"{slug}\"");
-            }
+            let slug = match headings.get_mut(idx) {
+                Some(h) => {
+                    let s = alloc.alloc(&h.id);
+                    h.id = s.clone();
+                    s
+                }
+                None => alloc.alloc("section"),
+            };
+            let _ = write!(out, " id=\"{slug}\"");
             idx += 1;
             rest = &rest[pos + needle.len()..];
         }
@@ -853,6 +918,10 @@ mod compiler {
     mod tests {
         use super::*;
 
+        fn alloc() -> SlugAllocator {
+            SlugAllocator::default()
+        }
+
         #[test]
         fn strips_tracey_package_imports() {
             let src = "#import \"@preview/tracey:0.1.0\": r\n\
@@ -882,11 +951,64 @@ mod compiler {
             let ctx = RenderCtx {
                 badge_for: &|d| (format!("<OPEN {}>", d.id), "</CLOSE>".into()),
             };
-            let doc = render(src, Path::new("test.typ"), None, &ctx)
+            let doc = render(src, Path::new("test.typ"), None, &ctx, &mut alloc())
                 .await
                 .expect("body-less req should compile");
             assert_eq!(doc.reqs.len(), 1);
             assert!(doc.html.contains("<OPEN a.b>"), "html: {}", doc.html);
+        }
+
+        /// Regression: a custom marker prefix (anything other than `r`/`req`)
+        /// must compile. Previously the static prelude only defined `r`/`req`,
+        /// so `#spec(...)` failed with "unknown variable: spec".
+        #[tokio::test]
+        async fn render_with_custom_prefix_compiles() {
+            let src = "#spec(\"a.b\")[body]\n";
+            let ctx = RenderCtx {
+                badge_for: &|d| (format!("<OPEN {}>", d.id), "</CLOSE>".into()),
+            };
+            let doc = render(src, Path::new("test.typ"), None, &ctx, &mut alloc())
+                .await
+                .expect("custom prefix should compile");
+            assert_eq!(doc.reqs.len(), 1);
+            assert!(doc.html.contains("<OPEN a.b>"), "html: {}", doc.html);
+            assert!(doc.html.contains("body"));
+        }
+
+        /// Regression: a heading inside a `#req` body must not emit a
+        /// `tracey-h` sentinel and must not steal the next top-level heading's
+        /// slug. Previously `== Inner` would consume slug `b`, leaving `= B`
+        /// unanchored.
+        #[tokio::test]
+        async fn render_heading_inside_req_body() {
+            let src = "= A\n#req(\"x\")[\n== Inner\nbody\n]\n= B\n";
+            let ctx = RenderCtx {
+                badge_for: &|d| (format!("<OPEN {}>", d.id), "</CLOSE>".into()),
+            };
+            let doc = render(src, Path::new("test.typ"), None, &ctx, &mut alloc())
+                .await
+                .expect("render with inner heading");
+            // Top-level headings get allocator slugs.
+            assert!(doc.html.contains(r#"<h1 id="a">"#), "html: {}", doc.html);
+            // `= B` is the second top-level heading and must get `id="b"`, not
+            // be shifted by the inner `== Inner`.
+            let b_pos = doc.html.rfind("<h1").expect("second h1");
+            assert!(
+                doc.html[b_pos..].starts_with(r#"<h1 id="b">"#),
+                "last h1 must carry id=\"b\": {}",
+                &doc.html[b_pos..]
+            );
+            // Inner heading is rendered as a plain <h2> with no sentinel class
+            // and no allocator-issued id.
+            assert!(
+                !doc.html.contains("tracey-h"),
+                "no sentinel class should survive post-processing"
+            );
+            assert!(doc.html.contains("<h2>Inner</h2>"), "html: {}", doc.html);
+            // Outline entries match the HTML anchors.
+            assert_eq!(doc.headings.len(), 2);
+            assert_eq!(doc.headings[0].id, "a");
+            assert_eq!(doc.headings[1].id, "b");
         }
 
         #[tokio::test]
@@ -895,7 +1017,7 @@ mod compiler {
             let ctx = RenderCtx {
                 badge_for: &|d| (format!("<OPEN {}>", d.id), "</CLOSE>".into()),
             };
-            let doc = render(src, Path::new("test.typ"), None, &ctx)
+            let doc = render(src, Path::new("test.typ"), None, &ctx, &mut alloc())
                 .await
                 .expect("render with import");
             assert_eq!(doc.reqs.len(), 1);
@@ -915,7 +1037,7 @@ mod compiler {
             let ctx = RenderCtx {
                 badge_for: &|d| (format!("<OPEN {}>", d.id), "</CLOSE>".into()),
             };
-            let doc = render(src, &dir.path().join("main.typ"), None, &ctx)
+            let doc = render(src, &dir.path().join("main.typ"), None, &ctx, &mut alloc())
                 .await
                 .expect("render with relative import");
             assert!(doc.html.contains("<OPEN a.b>"));
@@ -938,7 +1060,7 @@ mod compiler {
             let ctx = RenderCtx {
                 badge_for: &|d| (format!("<OPEN {}>", d.id), "</CLOSE>".into()),
             };
-            let doc = render(src, &dir.path().join("api.typ"), None, &ctx)
+            let doc = render(src, &dir.path().join("api.typ"), None, &ctx, &mut alloc())
                 .await
                 .expect("sibling spec.typ should resolve from disk");
             assert!(
@@ -968,7 +1090,7 @@ mod compiler {
             let ctx = RenderCtx {
                 badge_for: &|d| (format!("<OPEN {}>", d.id), "</CLOSE>".into()),
             };
-            let doc = render(src, Path::new("test.typ"), Some(dir.path()), &ctx)
+            let doc = render(src, Path::new("test.typ"), Some(dir.path()), &ctx, &mut alloc())
                 .await
                 .expect("render with vendored package");
             assert!(
@@ -1002,6 +1124,7 @@ mod compiler {
                 Path::new("test.typ"),
                 Some(dir.path()),
                 &ctx,
+                &mut alloc(),
             )
             .await
             .expect_err("unknown @preview package should not resolve");
@@ -1016,6 +1139,7 @@ mod compiler {
                 Path::new("test.typ"),
                 Some(dir.path()),
                 &ctx,
+                &mut alloc(),
             )
             .await
             .expect_err("unknown @local package should not resolve");
@@ -1031,6 +1155,7 @@ mod compiler {
                 Path::new("test.typ"),
                 Some(dir.path()),
                 &ctx,
+                &mut alloc(),
             )
             .await
             .expect_err("unknown @custom package should not resolve");
@@ -1059,8 +1184,32 @@ mod compiler {
         #[test]
         fn heading_ids_injected_in_order() {
             let body = r#"<h1 class="tracey-h">A</h1><h2 class="tracey-h">B</h2>"#;
-            let out = inject_heading_ids(body, &["a", "b"]);
+            let mut hs = vec![
+                marq::Heading { id: "a".into(), title: "A".into(), level: 1, line: 1 },
+                marq::Heading { id: "b".into(), title: "B".into(), level: 2, line: 2 },
+            ];
+            let out = inject_heading_ids(body, &mut hs, &mut alloc());
             assert_eq!(out, r#"<h1 id="a">A</h1><h2 id="b">B</h2>"#);
+            assert_eq!(hs[0].id, "a");
+            assert_eq!(hs[1].id, "b");
+        }
+
+        #[test]
+        fn heading_ids_extra_sentinel_gets_placeholder() {
+            // Three sentinels but only one tree-sitter heading (e.g. user wrote
+            // `#heading[..]` calls). Surplus sentinels still get valid anchors.
+            let body = r#"<h1 class="tracey-h">A</h1><h2 class="tracey-h">X</h2><h2 class="tracey-h">Y</h2>"#;
+            let mut hs = vec![marq::Heading {
+                id: "a".into(),
+                title: "A".into(),
+                level: 1,
+                line: 1,
+            }];
+            let out = inject_heading_ids(body, &mut hs, &mut alloc());
+            assert_eq!(
+                out,
+                r#"<h1 id="a">A</h1><h2 id="section">X</h2><h2 id="section-2">Y</h2>"#
+            );
         }
 
         #[test]

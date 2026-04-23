@@ -44,6 +44,32 @@ pub fn req_anchor_to_id(anchor: &str) -> Option<&str> {
     anchor.strip_prefix(REQ_ANCHOR_PREFIX)
 }
 
+/// Allocates globally-unique heading slugs across a multi-file spec.
+///
+/// Each backend slugifies headings independently, so two files (or two format
+/// runs) can produce the same slug. Threading a single allocator through the
+/// whole render keeps every anchor unique without a post-hoc dedup pass.
+#[derive(Default)]
+pub struct SlugAllocator {
+    seen: std::collections::HashMap<String, usize>,
+}
+
+impl SlugAllocator {
+    /// Returns `base` if unseen, else `base-2`, `base-3`, ...
+    pub fn alloc(&mut self, base: &str) -> String {
+        let n = self
+            .seen
+            .entry(base.to_string())
+            .and_modify(|n| *n += 1)
+            .or_insert(1);
+        if *n == 1 {
+            base.to_string()
+        } else {
+            format!("{base}-{n}")
+        }
+    }
+}
+
 /// Which spec dialect a file is written in.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -136,6 +162,15 @@ pub fn rewrite_marker(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn slug_allocator_suffixes_repeats() {
+        let mut alloc = SlugAllocator::default();
+        assert_eq!(alloc.alloc("a"), "a");
+        assert_eq!(alloc.alloc("a"), "a-2");
+        assert_eq!(alloc.alloc("b"), "b");
+        assert_eq!(alloc.alloc("a"), "a-3");
+    }
 
     #[test]
     fn req_anchor_roundtrip() {
