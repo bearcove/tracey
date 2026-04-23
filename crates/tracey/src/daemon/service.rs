@@ -724,23 +724,23 @@ impl TraceyDaemon for TraceyService {
             .get(&(spec.clone(), impl_name.clone()))?;
         let include_patterns = data.spec_includes_by_name.get(&spec)?;
         let typst_package_path = data.typst_package_path_by_spec.get(&spec).map(|p| p.as_path());
-        match crate::data::render_spec_content_for_impl(
+        let mut deps = std::collections::HashSet::new();
+        let result = crate::data::render_spec_content_for_impl(
             self.inner.engine.project_root(),
             include_patterns,
             &spec,
             &impl_name,
             typst_package_path,
             forward,
+            &mut deps,
         )
-        .await
-        {
-            Ok((v, deps)) => {
-                // Surface transitive typst `#import` deps to the watcher so
-                // editing a helper file triggers a rebuild even when no
-                // `include` glob matches it.
-                self.inner.engine.record_spec_file_deps(deps).await;
-                Some(v)
-            }
+        .await;
+        // Surface transitive typst `#import` deps to the watcher regardless of
+        // whether the compile succeeded — a helper with a syntax error is the
+        // file most in need of watching, so saving the fix re-renders.
+        self.inner.engine.record_spec_file_deps(deps).await;
+        match result {
+            Ok(v) => Some(v),
             Err(e) => {
                 tracing::warn!("spec render failed for {spec}/{impl_name}: {e:#}");
                 None

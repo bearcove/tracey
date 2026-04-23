@@ -78,7 +78,7 @@ async fn markdown_only_outline_slugs_unchanged() {
         name: "test".to_string(),
         rules: vec![],
     };
-    let (spec, _) = render_spec_content_for_impl(&root, &["spec.md".to_string()], "test", "rust", None, &forward)
+    let spec = render_spec_content_for_impl(&root, &["spec.md".to_string()], "test", "rust", None, &forward, &mut Default::default())
         .await
         .expect("render failed");
 
@@ -118,13 +118,14 @@ async fn markdown_heading_under_r_avoids_req_anchor_namespace() {
         name: "test".to_string(),
         rules: vec![],
     };
-    let (spec, _) = render_spec_content_for_impl(
+    let spec = render_spec_content_for_impl(
         tmp.path(),
         &["spec.md".to_string()],
         "test",
         "rust",
         None,
         &forward,
+        &mut Default::default(),
     )
     .await
     .expect("render must not panic on r--design heading slug");
@@ -175,8 +176,9 @@ async fn renders_html_with_badges() {
         name: "test".to_string(),
         rules: vec![],
     };
-    let (spec, deps) =
-        render_spec_content_for_impl(&root, &["spec.typ".to_string()], "test", "rust", None, &forward)
+    let mut deps = std::collections::HashSet::new();
+    let spec =
+        render_spec_content_for_impl(&root, &["spec.typ".to_string()], "test", "rust", None, &forward, &mut deps)
             .await
             .expect("typst render failed");
 
@@ -223,6 +225,41 @@ async fn renders_html_with_badges() {
     assert!(
         deps.contains(std::path::Path::new("helper.typ")),
         "deps should include project-relative helper.typ: {deps:?}"
+    );
+}
+
+/// A typst helper with a syntax error fails the render but still populates
+/// `deps` via the out-param, so the daemon can watch it and pick up the fix.
+/// Regression for the deps being dropped on the `Err` path one frame above
+/// `render_display`.
+#[cfg(feature = "typst-spec")]
+#[tokio::test]
+async fn deps_reported_when_render_fails() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    std::fs::write(tmp.path().join("spec.typ"), "#import \"broken.typ\": foo\n#req(\"a.b\")[body]\n")
+        .unwrap();
+    std::fs::write(tmp.path().join("broken.typ"), "#let foo = (\n").unwrap();
+
+    let forward = ApiSpecForward {
+        name: "test".to_string(),
+        rules: vec![],
+    };
+    let mut deps = std::collections::HashSet::new();
+    let err = render_spec_content_for_impl(
+        tmp.path(),
+        &["spec.typ".to_string()],
+        "test",
+        "rust",
+        None,
+        &forward,
+        &mut deps,
+    )
+    .await
+    .expect_err("syntax error in helper should fail the render");
+    assert!(err.to_string().contains("typst compile failed"));
+    assert!(
+        deps.contains(std::path::Path::new("broken.typ")),
+        "broken helper must reach the deps out-param even on Err: {deps:?}"
     );
 }
 
@@ -302,13 +339,14 @@ async fn mixed_format_spec() {
         name: "mix".to_string(),
         rules: vec![],
     };
-    let (spec, _) = render_spec_content_for_impl(
+    let spec = render_spec_content_for_impl(
         tmp.path(),
         &["*.md".to_string(), "*.typ".to_string()],
         "mix",
         "rust",
         None,
         &forward,
+        &mut Default::default(),
     )
     .await
     .expect("render failed");
@@ -350,13 +388,14 @@ async fn mixed_format_outline_dedups_heading_slugs() {
         name: "mix".to_string(),
         rules: vec![],
     };
-    let (spec, _) = render_spec_content_for_impl(
+    let spec = render_spec_content_for_impl(
         tmp.path(),
         &["*.md".to_string(), "*.typ".to_string()],
         "mix",
         "rust",
         None,
         &forward,
+        &mut Default::default(),
     )
     .await
     .expect("render failed");
