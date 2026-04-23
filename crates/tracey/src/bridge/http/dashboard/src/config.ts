@@ -1,6 +1,10 @@
 // Configuration constants
 import type { Editor } from "./types";
 
+// Prefix for requirement anchor ids in rendered spec HTML (`id="r--auth.login"`).
+// Mirrors `tracey_core::REQ_ANCHOR_PREFIX` — keep in sync.
+export const REQ_ANCHOR_PREFIX = "r--";
+
 // Editor configurations with devicon classes (zed uses inline SVG since devicon font doesn't have it yet)
 const ZED_SVG = `<svg class="editor-icon-svg" viewBox="0 0 128 128"><path fill="currentColor" d="M12 8a4 4 0 0 0-4 4v88H0V12C0 5.373 5.373 0 12 0h107.172c5.345 0 8.022 6.463 4.242 10.243L57.407 76.25H76V68h8v10.028a4 4 0 0 1-4 4H49.97l-13.727 13.729H98V56h8v47.757a8 8 0 0 1-8 8H27.657l-13.97 13.97H116a4 4 0 0 0 4-4V28h8v93.757c0 6.627-5.373 12-12 12H8.828c-5.345 0-8.022-6.463-4.242-10.243L70.343 57.757H52v8h-8V55.728a4 4 0 0 1 4-4h30.086l13.727-13.728H30V78h-8V30.243a8 8 0 0 1 8-8h70.343l13.97-13.971H12z"/></svg>`;
 

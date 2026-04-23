@@ -264,12 +264,13 @@ const TYPST_BUILTINS: &[&str] = &[
 
 /// Try to interpret a `code` node as a `#prefix("id", ..)[body]` requirement.
 fn extract_req(code: Node<'_>, bytes: &[u8]) -> Option<ReqDefinition> {
-    // code > call(outer) > [item: call(inner), content]
+    // Two tree shapes, depending on whether a `[body]` block is present:
+    //   with body:    code > call(outer) > [item: call(inner) > [item: ident, group], content]
+    //   without body: code > call(outer) > [item: ident, group]
+    // Normalise so `inner` is always the call carrying `ident` + `group`.
     let outer = find_child(code, "call")?;
-    let inner = outer.child_by_field_name("item")?;
-    if inner.kind() != "call" {
-        return None;
-    }
+    let item = outer.child_by_field_name("item")?;
+    let inner = if item.kind() == "call" { item } else { outer };
     let ident = inner.child_by_field_name("item")?;
     if ident.kind() != "ident" {
         return None;
@@ -304,7 +305,7 @@ fn extract_req(code: Node<'_>, bytes: &[u8]) -> Option<ReqDefinition> {
     let line = code.start_position().row + 1;
 
     Some(ReqDefinition {
-        anchor_id: format!("{}-{}", prefix, id),
+        anchor_id: super::req_anchor_id(&id.to_string()),
         id,
         marker_span: SourceSpan {
             offset: code_start,
@@ -438,9 +439,14 @@ mod compiler {
     /// rich content); they're injected during post-processing from the
     /// tree-sitter parse output.
     const PRELUDE: &str = concat!(
-        "#let req(id, ..meta, body) = html.elem(\n",
+        // Body is the optional trailing content block. Typst has no
+        // positional-with-default, so the sink collects it (and any tagged
+        // metadata, which the HTML emitter ignores) and `args.pos().join()`
+        // yields `[]` when absent.
+        "#let req(id, ..args) = html.elem(\n",
         "  \"div\", attrs: (class: \"tracey-req\", \"data-req-id\": id),\n",
-        ")[#body]\n",
+        "  args.pos().join(),\n",
+        ")\n",
         "#let r = req\n",
         "#show heading: it => html.elem(\n",
         "  \"h\" + str(calc.min(it.level, 6)),\n",
@@ -824,6 +830,19 @@ mod compiler {
         }
 
         #[tokio::test]
+        async fn render_bodyless_req() {
+            let src = "#r(\"a.b\")\n";
+            let ctx = RenderCtx {
+                badge_for: &|d| (format!("<OPEN {}>", d.id), "</CLOSE>".into()),
+            };
+            let doc = render(src, Path::new("."), None, &ctx)
+                .await
+                .expect("body-less req should compile");
+            assert_eq!(doc.reqs.len(), 1);
+            assert!(doc.html.contains("<OPEN a.b>"), "html: {}", doc.html);
+        }
+
+        #[tokio::test]
         async fn render_with_package_import() {
             let src = "#import \"@preview/tracey:0.1.0\": r\n\n#r(\"a.b\")[Body.]\n";
             let ctx = RenderCtx {
@@ -1119,7 +1138,7 @@ mod tests {
         assert_eq!(r0.id.base, "auth.login");
         assert_eq!(r0.id.version, 1);
         assert_eq!(r0.line, 3);
-        assert_eq!(r0.anchor_id, "req-auth.login");
+        assert_eq!(r0.anchor_id, "r--auth.login");
         assert_eq!(r0.raw, "Users MUST log in.");
         // marker_span covers `#req("auth.login")` only
         let m = &src[r0.marker_span.offset..r0.marker_span.offset + r0.marker_span.length];
@@ -1132,7 +1151,7 @@ mod tests {
         assert_eq!(r1.id.base, "auth.session");
         assert_eq!(r1.id.version, 2);
         assert_eq!(r1.line, 7);
-        assert_eq!(r1.anchor_id, "r-auth.session+2");
+        assert_eq!(r1.anchor_id, "r--auth.session+2");
         assert_eq!(r1.metadata.level, Some(ReqLevel::Must));
         assert_eq!(r1.metadata.status, Some(ReqStatus::Draft));
 
@@ -1285,7 +1304,25 @@ mod tests {
         let doc = parse(src).await.unwrap();
         assert_eq!(doc.reqs.len(), 1);
         assert_eq!(doc.reqs[0].id.base, "auth.login");
-        assert_eq!(doc.reqs[0].anchor_id, "requirement-auth.login");
+        assert_eq!(doc.reqs[0].anchor_id, "r--auth.login");
+    }
+
+    #[tokio::test]
+    async fn parses_bodyless_req() {
+        // Bare `#r("id")` with no `[body]` block parses as a single (non-nested)
+        // call; it must still be extracted as a definition with empty body.
+        let src = "#r(\"auth.stub\")\n";
+        let doc = parse(src).await.unwrap();
+        assert_eq!(doc.reqs.len(), 1);
+        let r = &doc.reqs[0];
+        assert_eq!(r.id.base, "auth.stub");
+        assert_eq!(r.anchor_id, "r--auth.stub");
+        assert_eq!(r.raw, "");
+        // marker_span and span both cover exactly `#r("auth.stub")`.
+        let m = &src[r.marker_span.offset..r.marker_span.offset + r.marker_span.length];
+        assert_eq!(m, "#r(\"auth.stub\")");
+        let s = &src[r.span.offset..r.span.offset + r.span.length];
+        assert_eq!(s, "#r(\"auth.stub\")");
     }
 
     #[test]

@@ -25,7 +25,7 @@ use tracey_core::{
 use tracey_core::{SUPPORTED_EXTENSIONS, is_supported_extension};
 use tracey_core::{
     SpecFormat, extract_marker_prefix as spec_extract_prefix, is_spec_extension, parse_spec,
-    parse_weight,
+    parse_weight, req_anchor_id,
 };
 use tracing::info;
 
@@ -252,9 +252,8 @@ impl InlineCodeHandler for TraceyInlineCodeHandler {
             return None;
         }
 
-        // Generate link: /{spec}/{impl}/spec#r-{rule_id}
-        // The anchor format matches what TraceyRuleHandler generates (r-{rule_id})
-        let anchor = format!("r-{}", rule_id);
+        // Generate link: /{spec}/{impl}/spec#{REQ_ANCHOR_PREFIX}{rule_id}
+        let anchor = req_anchor_id(rule_id);
         Some(format!(
             r#"<code><a href="/{}/{}/spec#{}" class="rule-ref">{}</a></code>"#,
             self.spec_name,
@@ -328,7 +327,7 @@ fn devicon_class(path: &str) -> Option<&'static str> {
 }
 
 // r[impl markdown.html.div] - rule wrapped in <div class="rule-container">
-// r[impl markdown.html.anchor] - div has id="r-{rule.id}"
+// r[impl markdown.html.anchor] - div has id="{REQ_ANCHOR_PREFIX}{rule.id}"
 // r[impl markdown.html.link] - rule-badge links to the rule
 //
 /// Render the opening and closing HTML for a requirement container with its
@@ -355,10 +354,11 @@ fn rule_coverage_badge_html(
     // r[impl dashboard.editing.copy.button]
     // r[impl dashboard.links.req-links]
     // Segmented badge group: copy button + requirement ID
+    let anchor = req_anchor_id(&rule_id);
     badges_html.push_str(&format!(
-        r#"<div class="req-badge-group"><button class="req-badge req-copy req-segment-left" data-req-id="{}" title="Copy requirement ID"><svg class="req-copy-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button><a class="req-badge req-id req-segment-right" href="/{}/{}/spec#r--{}" data-rule="{}" data-source-file="{}" data-source-line="{}" title="{}">{}</a></div>"#,
+        r#"<div class="req-badge-group"><button class="req-badge req-copy req-segment-left" data-req-id="{}" title="Copy requirement ID"><svg class="req-copy-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button><a class="req-badge req-id req-segment-right" href="/{}/{}/spec#{}" data-rule="{}" data-source-file="{}" data-source-line="{}" title="{}">{}</a></div>"#,
         &rule_id,
-        spec_name, impl_name, &rule_id, &rule_id, source_file, rule.line, &rule_id, display_id
+        spec_name, impl_name, anchor, &rule_id, source_file, rule.line, &rule_id, display_id
     ));
 
     // Implementation badge
