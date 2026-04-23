@@ -297,7 +297,9 @@ async fn mixed_format_outline_dedups_heading_slugs() {
         "colliding heading slugs across format runs must be deduplicated"
     );
     // The deduplicated slug must also land in the rendered HTML, not just the
-    // outline, so the anchor link actually resolves.
+    // outline, so the anchor link actually resolves. (Without `typst-spec` the
+    // typst section is a `<pre>` placeholder with no heading anchors at all.)
+    #[cfg(feature = "typst-spec")]
     assert!(
         spec.sections[1].html.contains(r#"id="shared-2""#),
         "typst section HTML must carry the deduplicated anchor: {}",
