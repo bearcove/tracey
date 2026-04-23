@@ -51,30 +51,44 @@ pub fn req_anchor_to_id(anchor: &str) -> Option<&str> {
 /// whole render keeps every anchor unique without a post-hoc dedup pass.
 #[derive(Default)]
 pub struct SlugAllocator {
-    seen: std::collections::HashMap<String, usize>,
+    /// Next suffix to try per base (1 = bare, 2 = `-2`, …).
+    next: std::collections::HashMap<String, usize>,
+    /// Every slug ever returned. A literal `foo-2` input must not collide with
+    /// a suffix we already handed out for `foo`, so the suffix probe consults
+    /// this set rather than just the per-base counter.
+    emitted: std::collections::HashSet<String>,
 }
 
 impl SlugAllocator {
-    /// Returns `base` if unseen, else `base-2`, `base-3`, ...
+    /// Accepts any string; returns a slug unique among all prior `alloc`
+    /// results and never starting with [`REQ_ANCHOR_PREFIX`].
     ///
-    /// `base` must be a `marq::slugify`-produced slug (or a literal known not
-    /// to contain `--`). The slugifier collapses consecutive separators, so
-    /// heading slugs cannot enter the [`REQ_ANCHOR_PREFIX`] namespace and the
-    /// dashboard router can safely distinguish the two by prefix.
+    /// Inputs already in the requirement-anchor namespace are rewritten
+    /// (`r--foo` → `h-foo`, bare `r--` → `section`) so heading anchors and
+    /// requirement anchors stay disjoint regardless of how the caller built
+    /// the slug — marq's hierarchical ids join parent and child with `--`, so
+    /// `# R` + `## Design` legitimately yields `r--design`. Other `--` joins
+    /// (e.g. `auth--login`) pass through untouched. Repeats are suffixed
+    /// `-2`, `-3`, …, skipping any value already emitted.
     pub fn alloc(&mut self, base: &str) -> String {
-        debug_assert!(
-            !base.starts_with(REQ_ANCHOR_PREFIX),
-            "heading slug {base:?} entered the req-anchor namespace; slugifier invariant broken"
-        );
-        let n = self
-            .seen
-            .entry(base.to_string())
-            .and_modify(|n| *n += 1)
-            .or_insert(1);
-        if *n == 1 {
-            base.to_string()
-        } else {
-            format!("{base}-{n}")
+        let base = match base.strip_prefix(REQ_ANCHOR_PREFIX) {
+            Some("") => "section".to_owned(),
+            Some(rest) => format!("h-{rest}"),
+            None => base.to_owned(),
+        };
+
+        let mut n = self.next.get(&base).copied().unwrap_or(1);
+        loop {
+            let candidate = if n == 1 {
+                base.clone()
+            } else {
+                format!("{base}-{n}")
+            };
+            n += 1;
+            if self.emitted.insert(candidate.clone()) {
+                self.next.insert(base, n);
+                return candidate;
+            }
         }
     }
 }
@@ -182,19 +196,32 @@ mod tests {
     }
 
     #[test]
-    fn slugifier_cannot_enter_req_anchor_namespace() {
-        // SlugAllocator inputs are always `marq::slugify`-produced. The
-        // slugifier collapses consecutive separators, so no heading title can
-        // produce a slug starting with `r--`. This test locks that invariant
-        // so the debug_assert in `alloc()` stays unreachable.
-        assert_eq!(marq::slugify("r--design"), "r-design");
-        assert_eq!(marq::slugify("# R-- Design Review"), "r-design-review");
-        for title in ["r--x", "r--", "--r--foo", "r - - bar"] {
-            assert!(
-                !marq::slugify(title).starts_with(REQ_ANCHOR_PREFIX),
-                "marq::slugify({title:?}) produced a req-anchor-prefixed slug"
-            );
-        }
+    fn slug_allocator_avoids_suffix_collision() {
+        let mut alloc = SlugAllocator::default();
+        assert_eq!(alloc.alloc("intro"), "intro");
+        assert_eq!(alloc.alloc("intro-2"), "intro-2");
+        // Second `intro` would naïvely yield `intro-2`, which is already
+        // taken; the allocator must skip past it.
+        assert_eq!(alloc.alloc("intro"), "intro-3");
+    }
+
+    #[test]
+    fn slug_allocator_normalises_req_prefix() {
+        let mut alloc = SlugAllocator::default();
+        let a = alloc.alloc("r--design");
+        assert!(!a.starts_with(REQ_ANCHOR_PREFIX), "got {a:?}");
+        assert!(!a.is_empty());
+        let b = alloc.alloc("r--");
+        assert!(!b.starts_with(REQ_ANCHOR_PREFIX), "got {b:?}");
+        assert!(!b.is_empty());
+    }
+
+    #[test]
+    fn slug_allocator_preserves_hierarchical_slugs() {
+        let mut alloc = SlugAllocator::default();
+        // marq joins parent/child with `--`; only the literal `r--` prefix is
+        // reserved, every other hierarchical id must pass through unchanged.
+        assert_eq!(alloc.alloc("auth--login"), "auth--login");
     }
 
     #[test]

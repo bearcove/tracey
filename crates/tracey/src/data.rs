@@ -3003,9 +3003,12 @@ async fn load_spec_content(
                     if let marq::DocElement::Heading(h) = el {
                         let new = slug_alloc.alloc(&h.id);
                         if new != h.id {
+                            // marq emits `<hN id="…">`; anchor the search on
+                            // the heading tag so a req-container `<div id="…">`
+                            // that happens to share the slug is never patched.
                             doc.html = doc.html.replacen(
-                                &format!("id=\"{}\"", h.id),
-                                &format!("id=\"{new}\""),
+                                &format!("<h{} id=\"{}\"", h.level, h.id),
+                                &format!("<h{} id=\"{new}\"", h.level),
                                 1,
                             );
                             h.id = new;
