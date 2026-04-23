@@ -417,16 +417,16 @@ Requirement references in comments associated with a code unit MUST be extracted
 >
 > Output:
 > ```html
-> <div class="requirement" id="r-auth.token.validation">
+> <div class="requirement" id="r--auth.token.validation">
 >   <a href="#r-auth.token.validation">auth.<wbr>token.<wbr>validation</a>
 > </div>
 > ```
 
 > r[markdown.html.anchor]
-> The generated div MUST have an `id` attribute in the format `r-{req.id}` for linking.
+> The generated div MUST have an `id` attribute in the format `r--{req.id}` for linking.
 >
 > ```html
-> <div class="requirement" id="r-api.response.format">
+> <div class="requirement" id="r--api.response.format">
 > ```
 
 > r[markdown.html.link]
