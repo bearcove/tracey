@@ -734,7 +734,13 @@ impl TraceyDaemon for TraceyService {
         )
         .await
         {
-            Ok(v) => Some(v),
+            Ok((v, deps)) => {
+                // Surface transitive typst `#import` deps to the watcher so
+                // editing a helper file triggers a rebuild even when no
+                // `include` glob matches it.
+                self.inner.engine.record_spec_file_deps(deps).await;
+                Some(v)
+            }
             Err(e) => {
                 tracing::warn!("spec render failed for {spec}/{impl_name}: {e:#}");
                 None

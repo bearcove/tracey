@@ -2886,6 +2886,7 @@ async fn load_spec_content(
     coverage: &BTreeMap<String, RuleCoverage>,
     specs_content: &mut BTreeMap<String, ApiSpecData>,
     overlay: &FileOverlay,
+    spec_file_deps: &mut std::collections::HashSet<PathBuf>,
 ) -> Result<()> {
     use ignore::WalkBuilder;
 
@@ -3044,11 +3045,12 @@ async fn load_spec_content(
                         typst_package_path,
                         &ctx,
                         &mut slug_alloc,
+                        spec_file_deps,
                     )
                     .await?;
                     #[cfg(not(feature = "typst-spec"))]
                     let doc = {
-                        let _ = (&ctx, &abs_source, typst_package_path);
+                        let _ = (&ctx, &abs_source, typst_package_path, &mut *spec_file_deps);
                         let mut doc = parse_spec(SpecFormat::Typst, content).await?;
                         // Placeholder `<pre>` HTML has no anchors to rewrite,
                         // but the outline still needs globally-unique slugs.
@@ -3101,6 +3103,14 @@ async fn load_spec_content(
     Ok(())
 }
 
+/// Render the spec HTML for a single (spec, impl) pair on demand.
+///
+/// Returns the rendered content plus the set of project-relative file paths
+/// the typst compiler read while resolving `#import` / `#include`. The caller
+/// (the daemon) records these so edits to a transitively-included helper
+/// trigger a rebuild even when the helper does not match any spec `include`
+/// glob. Markdown specs and the `typst-spec`-disabled fallback yield an empty
+/// dep set.
 pub async fn render_spec_content_for_impl(
     project_root: &Path,
     include_patterns: &[String],
@@ -3108,7 +3118,7 @@ pub async fn render_spec_content_for_impl(
     impl_name: &str,
     typst_package_path: Option<&Path>,
     forward: &ApiSpecForward,
-) -> Result<ApiSpecData> {
+) -> Result<(ApiSpecData, std::collections::HashSet<PathBuf>)> {
     let mut coverage: BTreeMap<String, RuleCoverage> = BTreeMap::new();
     for rule in &forward.rules {
         let rule_id_string = rule.id.to_string();
@@ -3136,6 +3146,7 @@ pub async fn render_spec_content_for_impl(
 
     let include_pattern_refs: Vec<&str> = include_patterns.iter().map(|s| s.as_str()).collect();
     let mut map = BTreeMap::new();
+    let mut abs_deps = std::collections::HashSet::new();
     load_spec_content(
         project_root,
         &include_pattern_refs,
@@ -3145,10 +3156,29 @@ pub async fn render_spec_content_for_impl(
         &coverage,
         &mut map,
         &FileOverlay::new(),
+        &mut abs_deps,
     )
     .await?;
-    map.remove(spec_name)
-        .ok_or_else(|| eyre::eyre!("Spec content not found for {spec_name}/{impl_name}"))
+    // The watcher filter compares project-relative paths; strip the root here
+    // so the daemon-side check is a plain `HashSet::contains`. Paths that
+    // don't live under the project root (shouldn't happen for non-package
+    // imports, which resolve under the spec file's directory) are dropped.
+    let canon_root = project_root
+        .canonicalize()
+        .unwrap_or_else(|_| project_root.to_path_buf());
+    let rel_deps: std::collections::HashSet<PathBuf> = abs_deps
+        .into_iter()
+        .filter_map(|p| {
+            p.strip_prefix(project_root)
+                .or_else(|_| p.strip_prefix(&canon_root))
+                .ok()
+                .map(Path::to_path_buf)
+        })
+        .collect();
+    let data = map
+        .remove(spec_name)
+        .ok_or_else(|| eyre::eyre!("Spec content not found for {spec_name}/{impl_name}"))?;
+    Ok((data, rel_deps))
 }
 
 /// Build an outline with coverage info from document elements.
