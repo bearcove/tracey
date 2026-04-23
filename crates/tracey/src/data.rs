@@ -3004,28 +3004,24 @@ async fn load_spec_content(
                 // back to `parse_spec` which yields a `<pre>` placeholder.
                 for (source_file, content, weight, _) in run {
                     let abs_source = root.join(source_file);
-                    let base_dir = abs_source
-                        .parent()
-                        .map(|p| p.to_path_buf())
-                        .unwrap_or_else(|| root.to_path_buf());
-                    let abs_source = abs_source.display().to_string();
+                    let abs_source_str = abs_source.display().to_string();
                     let ctx = tracey_core::spec::typst::RenderCtx {
                         badge_for: &|def| {
                             let cov = coverage.get(&def.id.to_string());
-                            rule_coverage_badge_html(def, cov, &abs_source, spec_name, impl_name)
+                            rule_coverage_badge_html(def, cov, &abs_source_str, spec_name, impl_name)
                         },
                     };
                     #[cfg(feature = "typst-spec")]
                     let doc = tracey_core::spec::typst::render_display(
                         content,
-                        &base_dir,
+                        &abs_source,
                         typst_package_path,
                         &ctx,
                     )
                     .await?;
                     #[cfg(not(feature = "typst-spec"))]
                     let doc = {
-                        let _ = (&ctx, &base_dir, typst_package_path);
+                        let _ = (&ctx, &abs_source, typst_package_path);
                         parse_spec(SpecFormat::Typst, content).await?
                     };
                     sections.push(SpecSection {

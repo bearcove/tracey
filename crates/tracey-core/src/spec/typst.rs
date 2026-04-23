@@ -46,18 +46,20 @@ pub struct RenderCtx<'a> {
 /// 4. Lift `<style>` / `<link>` from the compiler's `<head>` into
 ///    `head_injections`; return only the `<body>` interior as `html`.
 ///
-/// `base_dir` is the directory containing the spec file; relative `#import` /
-/// `#include` paths resolve against it. Package imports (`@preview/...`) other
-/// than the tracey shim resolve from `package_path` (vendored directory laid
-/// out as `<namespace>/<name>/<version>/`) and then from the system typst
-/// cache. Tracey never downloads packages.
+/// `source_path` is the path to the spec file itself; relative `#import` /
+/// `#include` paths resolve against its parent directory, and the file name is
+/// used as the main module's virtual path so a sibling file with the same name
+/// is not shadowed. Package imports (`@preview/...`) other than the tracey shim
+/// resolve from `package_path` (vendored directory laid out as
+/// `<namespace>/<name>/<version>/`), then the system typst data dir (`@local`
+/// packages), then the system typst cache. Tracey never downloads packages.
 ///
 /// Behind the `typst-spec` feature. Without it, returns an error and callers
 /// should fall back to [`parse`] (placeholder `<pre>` html).
 #[cfg_attr(not(feature = "typst-spec"), allow(unused_variables))]
 pub async fn render_display(
     content: &str,
-    base_dir: &std::path::Path,
+    source_path: &std::path::Path,
     package_path: Option<&std::path::Path>,
     ctx: &RenderCtx<'_>,
 ) -> eyre::Result<SpecDoc> {
@@ -69,7 +71,7 @@ pub async fn render_display(
     }
     #[cfg(feature = "typst-spec")]
     {
-        compiler::render(content, base_dir, package_path, ctx).await
+        compiler::render(content, source_path, package_path, ctx).await
     }
 }
 
@@ -456,7 +458,7 @@ mod compiler {
 
     pub(super) async fn render(
         content: &str,
-        base_dir: &Path,
+        source_path: &Path,
         package_path: Option<&Path>,
         ctx: &RenderCtx<'_>,
     ) -> eyre::Result<SpecDoc> {
@@ -469,7 +471,7 @@ mod compiler {
         full.push_str(PRELUDE);
         full.push_str(&stripped);
 
-        let world = SpecWorld::new(full, base_dir.to_path_buf(), package_path.map(Path::to_path_buf));
+        let world = SpecWorld::new(full, source_path, package_path.map(Path::to_path_buf));
         let compiled = typst::compile::<HtmlDocument>(&world);
         // Clear typst's global memoization cache so repeated compilations in a
         // long-running daemon don't accumulate unbounded memory.
@@ -478,15 +480,11 @@ mod compiler {
             let mut msg = String::from("typst compile failed:");
             for e in errs.iter() {
                 let _ = write!(msg, "\n  {}", e.message);
-                // Typst's `PackageError::NotFound` display is terse; add the
-                // actionable hint here so it surfaces in the dashboard error.
+                // Typst's `PackageError::NotFound` display is terse; add an
+                // actionable, namespace-aware hint so it surfaces in the
+                // dashboard error.
                 if e.message.contains("package not found") {
-                    msg.push_str(
-                        "\n  hint: tracey resolves typst packages offline only. \
-                         Run `typst compile` once to populate the system cache, \
-                         or set `typst_package_path` in the spec config to a \
-                         vendored package directory.",
-                    );
+                    let _ = write!(msg, "\n  hint: {}", package_not_found_hint(&e.message));
                 }
             }
             eyre::eyre!(msg)
@@ -506,10 +504,40 @@ mod compiler {
         Ok(doc)
     }
 
+    /// Namespace-aware hint for a "package not found" diagnostic. `message` is
+    /// the typst error text, which embeds the full `@ns/name:ver` spec.
+    fn package_not_found_hint(message: &str) -> String {
+        let prefix = "tracey resolves typst packages offline only. ";
+        if message.contains("@local/") {
+            let where_ = dirs::data_dir()
+                .map(|d| d.join(TYPST_PACKAGES_SUBDIR).display().to_string())
+                .unwrap_or_else(|| "<data-dir>/typst/packages".into());
+            format!(
+                "{prefix}Place the package under `{where_}/local/<name>/<version>/`, \
+                 or set `typst_package_path` in the spec config to a vendored \
+                 package directory."
+            )
+        } else if message.contains("@preview/") {
+            format!(
+                "{prefix}Run `typst compile` once to populate the system cache, \
+                 or set `typst_package_path` in the spec config to a vendored \
+                 package directory."
+            )
+        } else {
+            format!(
+                "{prefix}Set `typst_package_path` in the spec config to a vendored \
+                 package directory laid out as `<namespace>/<name>/<version>/`."
+            )
+        }
+    }
+
     /// Minimal [`World`]: in-memory main source, embedded fonts, offline-only
     /// package resolution. Relative `#import` / `#include` resolve against
-    /// `base_dir`; package imports (`@preview/...`) resolve against
-    /// `package_path` (vendored) then `package_cache_path` (system cache).
+    /// `base_dir`; package imports (`@preview/...`, `@local/...`) resolve
+    /// against `package_path` (vendored), then `package_data_path` (system data
+    /// dir, where `@local` packages live), then `package_cache_path` (system
+    /// cache, where `@preview` downloads land) — matching typst-kit's local
+    /// probe order.
     struct SpecWorld {
         library: LazyHash<Library>,
         book: LazyHash<FontBook>,
@@ -519,6 +547,8 @@ mod compiler {
         base_dir: PathBuf,
         /// Vendored package root from config (`<ns>/<name>/<ver>/` layout).
         package_path: Option<PathBuf>,
+        /// System typst package data dir (e.g. `~/.local/share/typst/packages`).
+        package_data_path: Option<PathBuf>,
         /// System typst package cache (e.g. `~/.cache/typst/packages`).
         package_cache_path: Option<PathBuf>,
         /// Disk reads cached per [`FileId`] — typst may request the same file
@@ -529,14 +559,26 @@ mod compiler {
     }
 
     impl SpecWorld {
-        fn new(text: String, base_dir: PathBuf, package_path: Option<PathBuf>) -> Self {
+        fn new(text: String, source_path: &Path, package_path: Option<PathBuf>) -> Self {
             let features: Features = [Feature::Html].into_iter().collect();
             let library = Library::builder().with_features(features).build();
             let fonts = Fonts::searcher()
                 .include_system_fonts(false)
                 .include_embedded_fonts(true)
                 .search();
-            let id = FileId::new(None, VirtualPath::new("spec.typ"));
+            // Use the real file name for the main module's vpath so a sibling
+            // file with the same name (e.g. `#import "spec.typ"` next to a spec
+            // that *is* `spec.typ` is fine, but `#import "spec.typ"` from
+            // `api.typ` must hit disk, not the in-memory main).
+            let main_name = source_path
+                .file_name()
+                .map(std::ffi::OsStr::to_os_string)
+                .unwrap_or_else(|| "main.typ".into());
+            let id = FileId::new(None, VirtualPath::new(main_name));
+            let base_dir = source_path
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| PathBuf::from("."));
             Self {
                 library: LazyHash::new(library),
                 book: LazyHash::new(fonts.book),
@@ -544,20 +586,25 @@ mod compiler {
                 main: Source::new(id, text),
                 base_dir,
                 package_path,
+                package_data_path: dirs::data_dir().map(|d| d.join(TYPST_PACKAGES_SUBDIR)),
                 package_cache_path: dirs::cache_dir().map(|d| d.join(TYPST_PACKAGES_SUBDIR)),
                 sources: Mutex::new(HashMap::new()),
                 files: Mutex::new(HashMap::new()),
             }
         }
 
-        /// Locate `spec`'s on-disk root by probing the vendored path and then
-        /// the system cache. No network. The directory must already exist.
+        /// Locate `spec`'s on-disk root by probing the vendored path, then the
+        /// system data dir, then the system cache. No network. The directory
+        /// must already exist.
         fn package_root(&self, spec: &PackageSpec) -> FileResult<PathBuf> {
             let subdir: PathBuf =
                 [spec.namespace.as_str(), spec.name.as_str(), &spec.version.to_string()]
                     .iter()
                     .collect();
-            for base in [&self.package_path, &self.package_cache_path].into_iter().flatten() {
+            for base in [&self.package_path, &self.package_data_path, &self.package_cache_path]
+                .into_iter()
+                .flatten()
+            {
                 let dir = base.join(&subdir);
                 if dir.exists() {
                     return Ok(dir);
@@ -835,7 +882,7 @@ mod compiler {
             let ctx = RenderCtx {
                 badge_for: &|d| (format!("<OPEN {}>", d.id), "</CLOSE>".into()),
             };
-            let doc = render(src, Path::new("."), None, &ctx)
+            let doc = render(src, Path::new("test.typ"), None, &ctx)
                 .await
                 .expect("body-less req should compile");
             assert_eq!(doc.reqs.len(), 1);
@@ -848,7 +895,7 @@ mod compiler {
             let ctx = RenderCtx {
                 badge_for: &|d| (format!("<OPEN {}>", d.id), "</CLOSE>".into()),
             };
-            let doc = render(src, Path::new("."), None, &ctx)
+            let doc = render(src, Path::new("test.typ"), None, &ctx)
                 .await
                 .expect("render with import");
             assert_eq!(doc.reqs.len(), 1);
@@ -856,8 +903,9 @@ mod compiler {
             assert!(doc.html.contains("Body."));
         }
 
-        /// Relative `#import` resolves against `base_dir`: a helper file on disk
-        /// is loaded and its definitions are usable from the in-memory main.
+        /// Relative `#import` resolves against the source file's directory: a
+        /// helper file on disk is loaded and its definitions are usable from the
+        /// in-memory main.
         #[tokio::test]
         async fn render_resolves_relative_import() {
             let dir = tempfile::tempdir().expect("tempdir");
@@ -867,7 +915,7 @@ mod compiler {
             let ctx = RenderCtx {
                 badge_for: &|d| (format!("<OPEN {}>", d.id), "</CLOSE>".into()),
             };
-            let doc = render(src, dir.path(), None, &ctx)
+            let doc = render(src, &dir.path().join("main.typ"), None, &ctx)
                 .await
                 .expect("render with relative import");
             assert!(doc.html.contains("<OPEN a.b>"));
@@ -876,6 +924,29 @@ mod compiler {
                 "imported binding should expand into output: {}",
                 doc.html
             );
+        }
+
+        /// The main file's vpath is its real file name, so a sibling literally
+        /// named `spec.typ` is read from disk rather than aliased to the
+        /// in-memory main source. Regression for the hardcoded-`spec.typ` bug.
+        #[tokio::test]
+        async fn render_resolves_sibling_named_spec_typ() {
+            let dir = tempfile::tempdir().expect("tempdir");
+            std::fs::write(dir.path().join("spec.typ"), "#let foo = [sibling text]\n")
+                .expect("write sibling");
+            let src = "#import \"spec.typ\": foo\n\n#req(\"a.b\")[#foo]\n";
+            let ctx = RenderCtx {
+                badge_for: &|d| (format!("<OPEN {}>", d.id), "</CLOSE>".into()),
+            };
+            let doc = render(src, &dir.path().join("api.typ"), None, &ctx)
+                .await
+                .expect("sibling spec.typ should resolve from disk");
+            assert!(
+                doc.html.contains("sibling text"),
+                "sibling spec.typ should not be shadowed by main: {}",
+                doc.html
+            );
+            assert!(doc.html.contains("<OPEN a.b>"));
         }
 
         /// Package import resolves from a vendored `<ns>/<name>/<ver>/` tree
@@ -897,7 +968,7 @@ mod compiler {
             let ctx = RenderCtx {
                 badge_for: &|d| (format!("<OPEN {}>", d.id), "</CLOSE>".into()),
             };
-            let doc = render(src, Path::new("."), Some(dir.path()), &ctx)
+            let doc = render(src, Path::new("test.typ"), Some(dir.path()), &ctx)
                 .await
                 .expect("render with vendored package");
             assert!(
@@ -908,22 +979,66 @@ mod compiler {
             assert!(doc.html.contains("<OPEN a.b>"));
         }
 
-        /// A package not present in the vendored path or system cache yields a
-        /// helpful error naming the package and the offline-only resolution.
+        // `@local` package resolution probes `dirs::data_dir()`. Exercising that
+        // in-process would require mutating `XDG_DATA_HOME`, which is `unsafe`
+        // in edition 2024 and racy under parallel test execution. The probe is a
+        // one-line addition to the same loop covered by
+        // `render_resolves_vendored_package`; the namespace-aware error hint is
+        // checked below.
+
+        /// A package not present anywhere yields a helpful error naming the
+        /// package and the offline-only resolution. Hints are namespace-aware:
+        /// `@preview` suggests populating the cache, `@local` points at the
+        /// data dir, anything else falls back to the vendored-path hint.
         #[tokio::test]
         async fn render_rejects_unknown_package_import() {
             let dir = tempfile::tempdir().expect("tempdir");
-            let src = "#import \"@preview/tracey-nosuch:1.0.0\": x\n";
             let ctx = RenderCtx {
                 badge_for: &|_| (String::new(), String::new()),
             };
-            let err = render(src, Path::new("."), Some(dir.path()), &ctx)
-                .await
-                .expect_err("unknown package should not resolve");
+
+            let err = render(
+                "#import \"@preview/tracey-nosuch:1.0.0\": x\n",
+                Path::new("test.typ"),
+                Some(dir.path()),
+                &ctx,
+            )
+            .await
+            .expect_err("unknown @preview package should not resolve");
             let msg = err.to_string();
             assert!(msg.contains("typst compile failed"));
             assert!(msg.contains("@preview/tracey-nosuch:1.0.0"), "names the package: {msg}");
             assert!(msg.contains("typst_package_path"), "actionable hint: {msg}");
+            assert!(msg.contains("`typst compile`"), "@preview hints cache: {msg}");
+
+            let err = render(
+                "#import \"@local/tracey-nosuch:1.0.0\": x\n",
+                Path::new("test.typ"),
+                Some(dir.path()),
+                &ctx,
+            )
+            .await
+            .expect_err("unknown @local package should not resolve");
+            let msg = err.to_string();
+            assert!(msg.contains("@local/tracey-nosuch:1.0.0"), "names the package: {msg}");
+            assert!(
+                msg.contains("/local/<name>/<version>/"),
+                "@local hints data dir layout: {msg}"
+            );
+
+            let err = render(
+                "#import \"@custom/tracey-nosuch:1.0.0\": x\n",
+                Path::new("test.typ"),
+                Some(dir.path()),
+                &ctx,
+            )
+            .await
+            .expect_err("unknown @custom package should not resolve");
+            let msg = err.to_string();
+            assert!(
+                msg.contains("<namespace>/<name>/<version>/"),
+                "other ns hints vendored layout: {msg}"
+            );
         }
 
         #[test]
