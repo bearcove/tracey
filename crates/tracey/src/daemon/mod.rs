@@ -125,7 +125,7 @@ pub fn local_endpoint(project_root: &Path) -> String {
         .file_name()
         .and_then(|n| n.to_str())
         .expect("state_dir hash");
-    format!(r"\\.\pipe\tracey-{hash}").into()
+    format!(r"\\.\pipe\tracey-{hash}")
 }
 
 /// Path to the daemon PID file within the state directory.

@@ -18,24 +18,11 @@ A [Zed](https://zed.dev) extension for [tracey](https://github.com/bearcove/trac
 
 ## Installation
 
-### Option 1: Automatic (Recommended)
+### Dev extension
 
-Install this extension from the Zed extension registry (search for "Tracey"). The extension will automatically download the tracey binary from GitHub releases.
+The Tracey Zed extension is not available in the registry at this time. You have to install it yourself by opening the command palette (Cmd+Shift+P on mac, Ctrl+Shift+P elsewhere) and picking "install dev extension", then choosing `path/to/tracey/tracey-zed`.
 
-### Option 2: Manual Binary Installation
-
-If you prefer to manage the binary yourself:
-
-1. Install the tracey binary:
-   ```bash
-   cargo binstall tracey
-   # or: cargo install tracey
-   # or: download from https://github.com/bearcove/tracey/releases
-   ```
-
-2. Install this extension from the Zed extension registry
-
-The extension will use the downloaded binary if available, otherwise fall back to looking for `tracey` in your PATH.
+It will compile the tree-sitter grammar and the extension to WASM. If everything goes fine, Tracey should show up in your installed extensions. If it doesn't, you can show "zed: open log" from the command palette to see what went wrong.
 
 ## Configuration
 
