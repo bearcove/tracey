@@ -368,6 +368,119 @@ async fn mixed_format_spec() {
     assert!(slugs.contains(&"typst-part"));
 }
 
+/// Regression for the markdown re-slug pass swapping anchors: when heading N's
+/// reallocated slug equals heading N+1's *original* marq slug, a from-zero
+/// `replacen` on iteration N+1 would re-match N (just rewritten) instead of
+/// N+1, leaving the HTML anchors swapped relative to the outline. The forward
+/// cursor must keep each match strictly after the previous one.
+#[cfg(feature = "typst-spec")]
+#[tokio::test]
+async fn markdown_reslug_forward_cursor_avoids_swap() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    // Typst sorts first (filename order) and claims `overview`.
+    std::fs::write(tmp.path().join("00-intro.typ"), "= Overview\n").unwrap();
+    // marq gives these `overview` and `overview-2`; the allocator then hands
+    // out `overview-2` and `overview-2-2` — the first rewrite collides with
+    // the second heading's original id.
+    std::fs::write(
+        tmp.path().join("chapter.md"),
+        "# Overview\n\ntext\n\n# Overview 2\n\ntext\n",
+    )
+    .unwrap();
+
+    let forward = ApiSpecForward {
+        name: "test".to_string(),
+        rules: vec![],
+    };
+    let spec = render_spec_content_for_impl(
+        tmp.path(),
+        &["*.typ".to_string(), "*.md".to_string()],
+        "test",
+        "rust",
+        None,
+        &forward,
+        &mut Default::default(),
+    )
+    .await
+    .expect("render failed");
+
+    let slugs: Vec<&str> = spec.outline.iter().map(|e| e.slug.as_str()).collect();
+    assert_eq!(
+        slugs,
+        vec!["overview", "overview-2", "overview-2-2"],
+        "outline must be typst h1, md h1, md h2 in that order"
+    );
+
+    assert_eq!(spec.sections.len(), 2);
+    assert_eq!(spec.sections[1].source_file, "chapter.md");
+    let md_html = &spec.sections[1].html;
+    let first = md_html
+        .find("<h1 id=\"overview-2\"")
+        .expect("first md heading carries overview-2");
+    let second = md_html
+        .find("<h1 id=\"overview-2-2\"")
+        .expect("second md heading carries overview-2-2");
+    assert!(
+        first < second,
+        "HTML anchor order must match outline order (no swap): {md_html}"
+    );
+    assert!(
+        !md_html.contains("<h1 id=\"overview\">"),
+        "bare `overview` was claimed by typst; md must not reuse it"
+    );
+}
+
+/// marq does not dedup repeated heading text within a single render, so two
+/// `# Overview` headings both arrive with id `overview`. The first passes the
+/// allocator unchanged; the second is bumped to `overview-2`. The cursor must
+/// advance past the first (unchanged) match so the second rewrite lands on the
+/// second `<h1>`, not the first.
+#[tokio::test]
+async fn markdown_reslug_handles_intra_run_duplicates() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        tmp.path().join("spec.md"),
+        "# Overview\n\nx\n\n# Overview\n\ny\n",
+    )
+    .unwrap();
+
+    let forward = ApiSpecForward {
+        name: "test".to_string(),
+        rules: vec![],
+    };
+    let spec = render_spec_content_for_impl(
+        tmp.path(),
+        &["spec.md".to_string()],
+        "test",
+        "rust",
+        None,
+        &forward,
+        &mut Default::default(),
+    )
+    .await
+    .expect("render failed");
+
+    let slugs: Vec<&str> = spec.outline.iter().map(|e| e.slug.as_str()).collect();
+    assert_eq!(slugs, vec!["overview", "overview-2"]);
+
+    let html = &spec.sections[0].html;
+    let first = html
+        .find("<h1 id=\"overview\">")
+        .expect("first heading keeps `overview`");
+    let second = html
+        .find("<h1 id=\"overview-2\">")
+        .expect("second heading bumped to `overview-2`");
+    assert!(
+        first < second,
+        "rewrite must hit the second <h1>, not the first: {html}"
+    );
+    assert_eq!(
+        html.matches("<h1 id=\"overview\">").count(),
+        1,
+        "first heading's anchor must stay unique: {html}"
+    );
+}
+
 /// Mixed-format specs render in separate runs; colliding heading titles across
 /// runs must get unique slugs in the merged outline.
 #[tokio::test]

@@ -3087,24 +3087,44 @@ async fn load_spec_content(
                 opts.source_path = Some(root.join(&first_file).display().to_string());
                 let mut doc = render(&combined, &opts).await?;
 
-                // marq slugifies internally (slugs are unique within this run);
-                // re-thread them through the global allocator so a later run
-                // can't collide. marq has already written `id="<slug>"` into
-                // the HTML, so patch it in place when the slug changes.
+                // marq slugifies internally; re-thread its slugs through the
+                // global allocator so a later run can't collide. marq has
+                // already written `id="<slug>"` into the HTML, so patch it in
+                // place when the slug changes.
+                //
+                // The scan walks forward with a byte cursor: heading N's
+                // rewrite can land it on heading N+1's *original* id (e.g.
+                // `overview` → `overview-2` while a literal `# Overview 2`
+                // follows), so a from-zero `replacen` on the next iteration
+                // would hit the freshly-rewritten N instead of N+1 and swap
+                // their anchors. Searching from `cursor` keeps each match
+                // strictly after the previous one. The cursor advances even
+                // when `new == h.id` so an unchanged heading still consumes
+                // its own match.
+                let mut cursor = 0;
                 for el in doc.elements.iter_mut() {
                     if let marq::DocElement::Heading(h) = el {
                         let new = slug_alloc.alloc(&h.id);
-                        if new != h.id {
-                            // marq emits `<hN id="…">`; anchor the search on
-                            // the heading tag so a req-container `<div id="…">`
-                            // that happens to share the slug is never patched.
-                            doc.html = doc.html.replacen(
-                                &format!("<h{} id=\"{}\"", h.level, h.id),
-                                &format!("<h{} id=\"{new}\"", h.level),
-                                1,
+                        // marq emits `<hN id="…">`; anchor the search on the
+                        // heading tag so a req-container `<div id="…">` that
+                        // happens to share the slug is never patched.
+                        let needle = format!("<h{} id=\"{}\"", h.level, h.id);
+                        if let Some(rel) = doc.html[cursor..].find(&needle) {
+                            let abs = cursor + rel;
+                            if new != h.id {
+                                let repl = format!("<h{} id=\"{new}\"", h.level);
+                                doc.html.replace_range(abs..abs + needle.len(), &repl);
+                                cursor = abs + repl.len();
+                            } else {
+                                cursor = abs + needle.len();
+                            }
+                        } else {
+                            tracing::warn!(
+                                "heading id {:?} not found in marq html; skipping rewrite",
+                                h.id
                             );
-                            h.id = new;
                         }
+                        h.id = new;
                     }
                 }
 
