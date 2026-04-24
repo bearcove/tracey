@@ -799,8 +799,11 @@ mod compiler {
             }
             // Multi-line import list: `#import "...": (` … `)`. Consume and
             // blank continuation lines until the closing paren so we don't
-            // leave orphaned `r, req,` tokens behind.
-            if line.trim_end().ends_with('(') {
+            // leave orphaned `r, req,` tokens behind. The opening line may
+            // already carry items — `#import "...": (r,` — so trigger on any
+            // unbalanced `(` rather than only a trailing one.
+            let trimmed = line.trim_end();
+            if trimmed.contains('(') && !trimmed.ends_with(')') {
                 for cont in lines.by_ref() {
                     if cont.ends_with('\n') {
                         out.push('\n');
@@ -1065,6 +1068,15 @@ mod compiler {
             let src = "#import \"@preview/tracey:0.1.0\": (\n  r, req,\n)\n= Title\n";
             let out = strip_tracey_imports(src);
             // All three import lines blanked, line count preserved.
+            assert_eq!(out, "\n\n\n= Title\n");
+        }
+
+        #[test]
+        fn strips_multiline_tracey_import_with_item_on_first_line() {
+            // Opening paren is *not* the last char: `(r,` — previously this
+            // fell through and left `  req,\n)` un-blanked.
+            let src = "#import \"@preview/tracey:0.1.0\": (r,\n  req,\n)\n= Title\n";
+            let out = strip_tracey_imports(src);
             assert_eq!(out, "\n\n\n= Title\n");
         }
 

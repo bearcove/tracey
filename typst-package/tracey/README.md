@@ -1,6 +1,6 @@
 # tracey
 
-Requirement markers for [tracey](https://github.com/tracey-rs/tracey)-traced
+Requirement markers for [tracey](https://github.com/bearcove/tracey)-traced
 specifications.
 
 ```typst

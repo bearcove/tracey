@@ -247,23 +247,41 @@ export function SpecView({
   scrollPosition,
   onScrollChange,
 }: SpecViewProps) {
+  // Track viewport width reactively so auto-collapse on narrow screens
+  // doesn't clobber the user's persisted wide-screen preference.
+  const narrowMq =
+    typeof window !== "undefined" ? window.matchMedia("(max-width: 1199px)") : null;
+  const [isNarrow, setIsNarrow] = useState(() => narrowMq?.matches ?? false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
-    if (window.innerWidth < 1200) return true;
+    if (narrowMq?.matches) return true;
     return window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "1";
   });
 
   useEffect(() => {
-    window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, sidebarCollapsed ? "1" : "0");
-  }, [sidebarCollapsed]);
-
-  useEffect(() => {
-    const handleResize = () => {
-      if (window.innerWidth < 1200) setSidebarCollapsed(true);
-    };
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
+    if (!narrowMq) return;
+    const onChange = (e: MediaQueryListEvent) => setIsNarrow(e.matches);
+    narrowMq.addEventListener("change", onChange);
+    return () => narrowMq.removeEventListener("change", onChange);
   }, []);
+
+  // Only persist while wide — the forced collapse on narrow viewports is
+  // transient and must not overwrite the user's saved choice.
+  useEffect(() => {
+    if (isNarrow) return;
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, sidebarCollapsed ? "1" : "0");
+  }, [sidebarCollapsed, isNarrow]);
+
+  // Entering narrow → auto-collapse. Leaving narrow → restore saved choice.
+  useEffect(() => {
+    if (isNarrow) {
+      setSidebarCollapsed(true);
+    } else {
+      setSidebarCollapsed(
+        window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "1",
+      );
+    }
+  }, [isNarrow]);
 
   // Use selectedSpec or default to first spec
   const specName = selectedSpec || config.specs?.[0]?.name || null;

@@ -12,6 +12,43 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracey_core::SpecFormat;
 
+/// Private-Use-Area sentinels marking the start/end of a search highlight
+/// span. Search hits are recorded as `MARK_OPEN..MARK_CLOSE` runs in the raw
+/// (unescaped) snippet text; downstream renderers HTML-escape the snippet and
+/// then swap the sentinels for `<mark>`/`</mark>`. This avoids the ambiguity
+/// of literal `<mark>` strings, which would otherwise be indistinguishable
+/// from user content like `let x = "<mark>";`.
+///
+/// Caveat: if the indexed content itself contains U+E000/U+E001, those
+/// codepoints will be promoted to stray `<mark>` tags after rendering. PUA
+/// codepoints have no assigned meaning and are vanishingly rare in source
+/// code or specs, so this is an acceptable trade-off.
+pub const MARK_OPEN: char = '\u{E000}';
+pub const MARK_CLOSE: char = '\u{E001}';
+
+/// HTML-escape `raw` and then replace [`MARK_OPEN`]/[`MARK_CLOSE`] sentinels
+/// with `<mark>`/`</mark>`. Use this for snippets that have **not** already
+/// been through an HTML renderer (typst rule bodies, source-file lines, marq
+/// fallback path).
+pub fn marks_to_html(raw: &str) -> String {
+    pua_to_mark(&html_escape(raw))
+}
+
+/// Replace [`MARK_OPEN`]/[`MARK_CLOSE`] sentinels with `<mark>`/`</mark>`
+/// **without** escaping. Use this for snippets that are already valid HTML
+/// (e.g. marq output), where the PUA chars survived the renderer untouched.
+pub fn pua_to_mark(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    for c in html.chars() {
+        match c {
+            MARK_OPEN => out.push_str("<mark>"),
+            MARK_CLOSE => out.push_str("</mark>"),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 /// Result type for unified search
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Facet)]
 #[facet(rename_all = "lowercase")]
@@ -34,7 +71,9 @@ pub struct SearchResult {
     pub line: usize,
     /// The matching content (line content or rule text)
     pub content: String,
-    /// HTML snippet with highlighted matches (uses `<mark>` tags)
+    /// Raw snippet with highlighted matches delimited by [`MARK_OPEN`] /
+    /// [`MARK_CLOSE`] sentinels. Run through [`marks_to_html`] (or
+    /// [`pua_to_mark`] after a markdown render) before displaying.
     pub highlighted: String,
     /// For Rule: spec dialect of the rule's source. None for Source results.
     pub format: Option<SpecFormat>,
@@ -283,9 +322,10 @@ mod tantivy_impl {
 
                     // r[impl dashboard.search.render-requirements]
                     // r[impl dashboard.search.requirement-styling]
-                    // Generate highlighted snippet with <mark> tags
-                    // We use snippet.highlighted() to get ranges and insert marks ourselves,
-                    // because snippet.to_html() HTML-escapes the content which breaks markdown
+                    // Generate highlighted snippet with PUA sentinels (see MARK_OPEN).
+                    // We use snippet.highlighted() to get ranges and insert sentinels
+                    // ourselves, because snippet.to_html() HTML-escapes the content
+                    // which breaks downstream markdown rendering.
                     let highlighted = snippet_generator
                         .as_ref()
                         .map(|sg| {
@@ -322,14 +362,16 @@ mod tantivy_impl {
         }
     }
 
-    /// Insert `<mark>` tags at the given byte ranges without HTML-escaping content.
-    /// Ranges must be non-overlapping and sorted by start position.
+    /// Insert [`MARK_OPEN`]/[`MARK_CLOSE`] sentinels at the given byte ranges
+    /// without HTML-escaping content. Ranges must be non-overlapping and sorted
+    /// by start position.
     fn insert_mark_tags(content: &str, ranges: &[std::ops::Range<usize>]) -> String {
         if ranges.is_empty() {
             return content.to_string();
         }
 
-        let mut result = String::with_capacity(content.len() + ranges.len() * 13); // "<mark></mark>" = 13 chars
+        // Each sentinel is 3 UTF-8 bytes; two per range.
+        let mut result = String::with_capacity(content.len() + ranges.len() * 6);
         let mut last_end = 0;
 
         for range in ranges {
@@ -338,9 +380,9 @@ mod tantivy_impl {
                 result.push_str(&content[last_end..range.start]);
             }
             // Add marked content
-            result.push_str("<mark>");
+            result.push(MARK_OPEN);
             result.push_str(&content[range.start..range.end]);
-            result.push_str("</mark>");
+            result.push(MARK_CLOSE);
             last_end = range.end;
         }
 
@@ -481,7 +523,10 @@ impl SearchIndex for SimpleIndex {
     }
 }
 
-/// Simple case-insensitive highlighting for fallback
+/// Simple case-insensitive highlighting for fallback. Emits the raw
+/// (unescaped) content with [`MARK_OPEN`]/[`MARK_CLOSE`] sentinels around
+/// matches — same contract as the tantivy path so callers can treat both
+/// uniformly via [`marks_to_html`] / [`pua_to_mark`].
 fn highlight_simple(content: &str, query: &str) -> String {
     let content_lower = content.to_lowercase();
     let query_lower = query.to_lowercase();
@@ -490,17 +535,14 @@ fn highlight_simple(content: &str, query: &str) -> String {
     let mut last_end = 0;
 
     for (start, _) in content_lower.match_indices(&query_lower) {
-        // Append text before match (escaped)
-        result.push_str(&html_escape(&content[last_end..start]));
-        // Append highlighted match
-        result.push_str("<mark>");
-        result.push_str(&html_escape(&content[start..start + query.len()]));
-        result.push_str("</mark>");
+        result.push_str(&content[last_end..start]);
+        result.push(MARK_OPEN);
+        result.push_str(&content[start..start + query.len()]);
+        result.push(MARK_CLOSE);
         last_end = start + query.len();
     }
 
-    // Append remaining text
-    result.push_str(&html_escape(&content[last_end..]));
+    result.push_str(&content[last_end..]);
     result
 }
 
@@ -530,4 +572,37 @@ pub fn build_index(
     rules: &[RuleEntry],
 ) -> Box<dyn SearchIndex> {
     Box::new(SimpleIndex::build(project_root, files, rules))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn marks_to_html_escapes_literals_but_keeps_sentinels() {
+        // A snippet whose *content* contains a literal "<mark>" string plus a
+        // real highlight marked by PUA sentinels.
+        let raw = format!("uses <mark> {MARK_OPEN}tags{MARK_CLOSE}");
+        let html = marks_to_html(&raw);
+        // The literal "<mark>" from user content is escaped...
+        assert!(html.contains("&lt;mark&gt;"), "got: {html}");
+        // ...while the sentinel-delimited hit becomes a real <mark> element.
+        assert!(html.contains("<mark>tags</mark>"), "got: {html}");
+    }
+
+    #[test]
+    fn pua_to_mark_does_not_escape() {
+        let already_html = format!("<p>{MARK_OPEN}hi{MARK_CLOSE} &amp; bye</p>");
+        let out = pua_to_mark(&already_html);
+        assert_eq!(out, "<p><mark>hi</mark> &amp; bye</p>");
+    }
+
+    #[test]
+    fn highlight_simple_emits_raw_with_sentinels() {
+        let out = highlight_simple("let x = <foo>;", "foo");
+        // Raw, unescaped angle brackets survive; sentinel wraps the match.
+        assert_eq!(out, format!("let x = <{MARK_OPEN}foo{MARK_CLOSE}>;"));
+        // Round-tripping through marks_to_html escapes the surroundings.
+        assert_eq!(marks_to_html(&out), "let x = &lt;<mark>foo</mark>&gt;;");
+    }
 }

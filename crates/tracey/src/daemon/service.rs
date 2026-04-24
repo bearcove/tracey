@@ -766,27 +766,27 @@ impl TraceyDaemon for TraceyService {
                 ResultKind::Source => "source",
             };
 
-            // For rules, render the snippet to HTML according to its source format.
+            // For rules, render the snippet to HTML according to its source
+            // format. The search index emits raw text with PUA sentinels (see
+            // `crate::search::MARK_OPEN`); convert those to `<mark>` *after*
+            // escaping/rendering so a literal "<mark>" in user content can't
+            // inject a highlight.
             let highlighted = if r.kind == ResultKind::Rule {
                 match r.format {
-                    Some(SpecFormat::Typst) => {
-                        // Escape Typst body text for safe HTML embedding, but
-                        // preserve the <mark> tags inserted by the search index.
-                        html_escape(&r.highlighted)
-                            .replace("&lt;mark&gt;", "<mark>")
-                            .replace("&lt;/mark&gt;", "</mark>")
-                    }
+                    Some(SpecFormat::Typst) => crate::search::marks_to_html(&r.highlighted),
                     // Markdown (or unknown → assume markdown for legacy entries)
                     _ => {
                         let opts = marq::RenderOptions::default();
                         match marq::render(&r.highlighted, &opts).await {
-                            Ok(doc) => doc.html,
-                            Err(_) => r.highlighted.clone(),
+                            // marq output is already escaped HTML; PUA chars
+                            // pass through the markdown pipeline untouched.
+                            Ok(doc) => crate::search::pua_to_mark(&doc.html),
+                            Err(_) => crate::search::marks_to_html(&r.highlighted),
                         }
                     }
                 }
             } else {
-                r.highlighted.clone()
+                crate::search::marks_to_html(&r.highlighted)
             };
 
             results.push(SearchResult {
