@@ -29,7 +29,7 @@ name = "tracey"
 path = "src/main.rs"
 
 [dependencies]
-tracey-core = { workspace = true, features = ["walk", "parallel", "reverse"] }
+tracey-core = { workspace = true, features = ["walk", "parallel", "reverse", "asciidoc-spec"] }
 tracey-api = { workspace = true }
 tracey-proto = { workspace = true }
 tracey-config = { workspace = true }

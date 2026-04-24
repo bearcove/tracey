@@ -33,8 +33,8 @@ pub struct SpecConfig {
     #[facet(default)]
     pub source_url: Option<String>,
 
-    /// Glob patterns for markdown spec files containing requirement definitions
-    /// e.g., "docs/spec/**/*.md"
+    /// Glob patterns for spec files (Markdown or AsciiDoc) containing requirement definitions.
+    /// e.g., "docs/spec/**/*.md" or "docs/spec/**/*.adoc"
     /// r[impl config.spec.include]
     #[facet(default)]
     pub include: Vec<String>,

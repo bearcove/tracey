@@ -28,8 +28,10 @@ use tracing::info;
 // Markdown rendering
 use marq::{
     AasvgHandler, ArboriumHandler, CompareHandler, InlineCodeHandler, MermaidHandler, PikruHandler,
-    RenderOptions, ReqHandler, parse_frontmatter, render,
+    RenderOptions, ReqHandler, render,
 };
+
+use tracey_core::spec::{SpecFormat, is_spec_extension};
 
 use crate::config::Config;
 use crate::rule_suggestions::suggest_similar_rule_ids;
@@ -316,6 +318,7 @@ fn devicon_class(path: &str) -> Option<&'static str> {
         "scss" | "sass" => Some("devicon-sass-original"),
         // Docs
         "md" | "markdown" => Some("devicon-markdown-original"),
+        "adoc" | "asciidoc" | "asc" => Some("devicon-markdown-original"),
         _ => None,
     }
 }
@@ -456,6 +459,116 @@ impl ReqHandler for TraceyRuleHandler {
             Ok("</div>\n</div>".to_string())
         })
     }
+}
+
+// ============================================================================
+// Shared badge renderer (used by both Markdown and AsciiDoc rendering)
+// ============================================================================
+
+/// Render the opening and closing HTML for a requirement container with coverage badges.
+///
+/// Returns `(open_html, close_html)` to wrap the requirement body.
+/// Used by `TraceyRuleHandler` (Markdown) and AsciiDoc `RenderCtx` alike.
+fn rule_coverage_badge_html(
+    rule: &ReqDefinition,
+    coverage: Option<&RuleCoverage>,
+    source_file: &str,
+    spec_name: &str,
+    impl_name: &str,
+) -> (String, String) {
+    let rule_id = rule.id.to_string();
+    let status = coverage.map(|c| c.status).unwrap_or("uncovered");
+    let display_id = rule_id.replace('.', ".<wbr>");
+
+    let mut badges_html = String::new();
+
+    badges_html.push_str(&format!(
+        r#"<div class="req-badge-group"><button class="req-badge req-copy req-segment-left" data-req-id="{}" title="Copy requirement ID"><svg class="req-copy-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button><a class="req-badge req-id req-segment-right" href="/{}/{}/spec#r--{}" data-rule="{}" data-source-file="{}" data-source-line="{}" title="{}">{}</a></div>"#,
+        &rule_id, spec_name, impl_name, &rule_id, &rule_id, source_file, rule.line, &rule_id, display_id
+    ));
+
+    if let Some(cov) = coverage {
+        if !cov.impl_refs.is_empty() {
+            let r = &cov.impl_refs[0];
+            let filename = r.file.rsplit('/').next().unwrap_or(&r.file);
+            let icon = devicon_class(&r.file)
+                .map(|c| format!(r#"<i class="{c}"></i> "#))
+                .unwrap_or_default();
+            let count_suffix = if cov.impl_refs.len() > 1 {
+                format!(" +{}", cov.impl_refs.len() - 1)
+            } else {
+                String::new()
+            };
+            let all_refs_json = cov
+                .impl_refs
+                .iter()
+                .map(|r| {
+                    format!(
+                        r#"{{"file":"{}","line":{}}}"#,
+                        r.file.replace('\\', "\\\\").replace('"', "\\\""),
+                        r.line
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+            let all_refs_json = format!("[{}]", all_refs_json).replace('"', "&quot;");
+            badges_html.push_str(&format!(
+                r#"<a class="req-badge req-impl" href="/{}/{}/sources/{}:{}" data-file="{}" data-line="{}" data-all-refs="{}" title="Implementation: {}:{}">{icon}{}:{}{}</a>"#,
+                spec_name, impl_name, r.file, r.line, r.file, r.line, all_refs_json, r.file, r.line, filename, r.line, count_suffix
+            ));
+        }
+
+        if !cov.verify_refs.is_empty() {
+            let r = &cov.verify_refs[0];
+            let filename = r.file.rsplit('/').next().unwrap_or(&r.file);
+            let icon = devicon_class(&r.file)
+                .map(|c| format!(r#"<i class="{c}"></i> "#))
+                .unwrap_or_default();
+            let count_suffix = if cov.verify_refs.len() > 1 {
+                format!(" +{}", cov.verify_refs.len() - 1)
+            } else {
+                String::new()
+            };
+            let all_refs_json = cov
+                .verify_refs
+                .iter()
+                .map(|r| {
+                    format!(
+                        r#"{{"file":"{}","line":{}}}"#,
+                        r.file.replace('\\', "\\\\").replace('"', "\\\""),
+                        r.line
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+            let all_refs_json = format!("[{}]", all_refs_json).replace('"', "&quot;");
+            badges_html.push_str(&format!(
+                r#"<a class="req-badge req-test" href="/{}/{}/sources/{}:{}" data-file="{}" data-line="{}" data-all-refs="{}" title="Test: {}:{}">{icon}{}:{}{}</a>"#,
+                spec_name, impl_name, r.file, r.line, r.file, r.line, all_refs_json, r.file, r.line, filename, r.line, count_suffix
+            ));
+        }
+    }
+
+    let edit_badge_html = format!(
+        r#"<button class="req-badge req-edit" data-br="{}-{}" data-source-file="{}" title="Edit this requirement"><svg class="req-edit-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg> Edit</button>"#,
+        rule.span.offset,
+        rule.span.offset + rule.span.length,
+        source_file
+    );
+
+    let open = format!(
+        r#"<div class="req-container req-{status}" id="{anchor}" data-br="{br_start}-{br_end}">
+<div class="req-badges-left">{badges}</div>
+<div class="req-badges-right">{edit_badge}</div>
+<div class="req-content">"#,
+        status = status,
+        anchor = rule.anchor_id,
+        br_start = rule.span.offset,
+        br_end = rule.span.offset + rule.span.length,
+        badges = badges_html,
+        edit_badge = edit_badge_html,
+    );
+    (open, "</div>\n</div>".to_string())
 }
 
 // ============================================================================
@@ -830,7 +943,9 @@ fn full_walk_for_roots(
             if !ft.is_file() {
                 continue;
             }
-            if include_markdown_only && path.extension().is_none_or(|ext| ext != "md") {
+            if include_markdown_only
+                && !path.extension().is_some_and(|ext| is_spec_extension(ext))
+            {
                 continue;
             }
             if include_supported_ext_only
@@ -864,7 +979,7 @@ fn update_cached_scan_paths(
     for changed in changed_files {
         let exists = changed.exists();
         let ext_ok = if include_markdown_only {
-            changed.extension().is_some_and(|ext| ext == "md")
+            changed.extension().is_some_and(|ext| is_spec_extension(ext))
         } else if include_supported_ext_only {
             changed.extension().is_some_and(is_supported_extension)
         } else {
@@ -998,7 +1113,9 @@ async fn extract_markdown_rules_cached(
         compute_relative_path(project_root, &canonical)
     };
 
-    let doc = render(&content, &RenderOptions::default())
+    let fmt = tracey_core::spec::SpecFormat::from_path(&canonical)
+        .unwrap_or(tracey_core::spec::SpecFormat::Markdown);
+    let doc = tracey_core::spec::parse_spec(fmt, &content)
         .await
         .map_err(|e| eyre::eyre!("Failed to process {}: {}", canonical.display(), e))?;
 
@@ -1080,7 +1197,7 @@ async fn load_rules_from_includes_cached(
         get_cached_spec_scan_paths(project_root, include_patterns, changed_files, cache);
     let (spec_roots, _) = build_scan_roots(project_root, include_patterns);
     for overlay_path in overlay.keys() {
-        if overlay_path.extension().is_none_or(|ext| ext != "md") {
+        if !overlay_path.extension().is_some_and(|ext| is_spec_extension(ext)) {
             continue;
         }
         if path_matches_any_root(overlay_path, &spec_roots) {
@@ -1971,9 +2088,10 @@ async fn compute_spec_file_diagnostics(
     for (path, content) in spec_file_contents {
         let mut diagnostics = Vec::new();
 
-        // Coverage diagnostics: parse the markdown to get requirement definitions
-        let options = RenderOptions::default();
-        if let Ok(doc) = render(content, &options).await {
+        // Coverage diagnostics: parse the spec file to get requirement definitions
+        let fmt = tracey_core::spec::SpecFormat::from_path(path)
+            .unwrap_or(tracey_core::spec::SpecFormat::Markdown);
+        if let Ok(doc) = tracey_core::spec::parse_spec(fmt, content).await {
             for def in &doc.reqs {
                 let (start_line, start_char, end_line, end_char) =
                     span_to_range(content, def.marker_span.offset, def.marker_span.length);
@@ -2470,7 +2588,8 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
                 Add at least one impl block to your config:\n\n\
                 spec {{\n    \
                     name \"{}\"\n    \
-                    include \"docs/spec/**/*.md\"\n\n    \
+                    include \"docs/spec/**/*.md\"\n    \
+                    include \"docs/spec/**/*.adoc\"\n\n    \
                     impl {{\n        \
                         name \"main\"\n        \
                         include \"src/**/*.rs\"\n    \
@@ -2895,7 +3014,7 @@ async fn load_spec_content(
     for entry in walker.flatten() {
         let path = entry.path();
 
-        if path.extension().is_none_or(|ext| ext != "md") {
+        if !path.extension().is_some_and(|ext| is_spec_extension(ext)) {
             continue;
         }
 
@@ -2912,11 +3031,8 @@ async fn load_spec_content(
         }
 
         if let Ok(content) = read_file_with_overlay(path, overlay).await {
-            // Parse frontmatter to get weight
-            let weight = match parse_frontmatter(&content) {
-                Ok((fm, _)) => fm.weight,
-                Err(_) => 0, // Default weight if no frontmatter
-            };
+            let fmt = SpecFormat::from_path(path).unwrap_or(SpecFormat::Markdown);
+            let weight = tracey_core::spec::parse_weight(fmt, &content);
             files.push((relative.to_string_lossy().to_string(), content, weight));
         }
     }
@@ -2926,42 +3042,96 @@ async fn load_spec_content(
         weight_a.cmp(weight_b).then_with(|| path_a.cmp(path_b))
     });
 
-    // Concatenate all markdown files to render as one document
-    // This ensures heading IDs are hierarchical across all files
-    let mut combined_markdown = String::new();
-    let mut first_source_file = String::new();
+    let mut sections = Vec::new();
+    let mut all_elements = Vec::new();
+    let mut head_injections = Vec::new();
+    // Shared slug allocator across all formats so heading IDs stay globally unique.
+    let mut slug_alloc = tracey_core::spec::SlugAllocator::new();
 
-    for (i, (source_file, content, _weight)) in files.iter().enumerate() {
-        if i == 0 {
-            first_source_file = source_file.clone();
+    // Separate markdown files (rendered as one combined doc) from other formats.
+    let mut md_files: Vec<(String, String, i32)> = Vec::new();
+    let mut other_files: Vec<(String, String, i32)> = Vec::new();
+    for file in files {
+        let ext = file.0.rsplit('.').next().unwrap_or("").to_lowercase();
+        if ext == "md" || ext == "markdown" {
+            md_files.push(file);
+        } else {
+            other_files.push(file);
         }
-        combined_markdown.push_str(content);
-        combined_markdown.push_str("\n\n"); // Ensure separation between files
     }
 
-    // Render the combined document once (so heading_stack works across files)
-    // Set source_path so paragraphs get data-source-file attributes for click-to-edit
-    // Must use absolute path for editor navigation to work correctly
-    *current_source_file.lock().unwrap() = first_source_file.clone();
-    let absolute_source_path = root.join(&first_source_file).display().to_string();
-    let opts = opts.with_source_path(&absolute_source_path);
-    let doc = render(&combined_markdown, &opts).await?;
+    // Render all markdown files concatenated (preserves cross-file heading hierarchy).
+    if !md_files.is_empty() {
+        let mut combined_markdown = String::new();
+        let first_source_file = md_files[0].0.clone();
 
-    // Create a single section with all content
-    // (Frontend concatenates sections anyway, this just simplifies tracking)
-    let mut sections = Vec::new();
-    if !files.is_empty() {
+        for (_, content, _) in &md_files {
+            combined_markdown.push_str(content);
+            combined_markdown.push_str("\n\n");
+        }
+
+        *current_source_file.lock().unwrap() = first_source_file.clone();
+        let absolute_source_path = root.join(&first_source_file).display().to_string();
+        let md_opts = opts.with_source_path(&absolute_source_path);
+        let doc = render(&combined_markdown, &md_opts).await?;
+
         sections.push(SpecSection {
             source_file: first_source_file,
             html: doc.html,
-            weight: files[0].2,
+            weight: md_files[0].2,
         });
+        all_elements.extend(doc.elements);
+        head_injections.extend(doc.head_injections);
     }
 
-    let all_elements = doc.elements;
-    let head_injections = doc.head_injections;
+    // Render each non-Markdown spec file independently.
+    for (source_file, content, weight) in &other_files {
+        let abs_path = root.join(source_file);
+        let fmt = tracey_core::spec::SpecFormat::from_path(&abs_path)
+            .unwrap_or(tracey_core::spec::SpecFormat::AsciiDoc);
+        let abs_source_str = abs_path.display().to_string();
 
-    // Build outline from elements
+        match fmt {
+            tracey_core::spec::SpecFormat::AsciiDoc => {
+                let ctx = tracey_core::spec::asciidoc::RenderCtx {
+                    badge_for: &|def: &ReqDefinition| {
+                        rule_coverage_badge_html(
+                            def,
+                            coverage.get(&def.id.to_string()),
+                            &abs_source_str,
+                            spec_name,
+                            impl_name,
+                        )
+                    },
+                };
+                let mut deps = std::collections::HashSet::new();
+                let doc = tracey_core::spec::asciidoc::render_display(
+                    content,
+                    &abs_path,
+                    &ctx,
+                    &mut slug_alloc,
+                    &mut deps,
+                )
+                .await?;
+                sections.push(SpecSection {
+                    source_file: source_file.clone(),
+                    html: doc.html,
+                    weight: *weight,
+                });
+                all_elements.extend(doc.elements);
+                head_injections.extend(doc.head_injections);
+            }
+            _ => {
+                // Unknown format — skip with a warning
+                eprintln!(
+                    "load_spec_content: rendering not implemented for spec format {:?}, skipping {}",
+                    fmt, source_file
+                );
+            }
+        }
+    }
+
+    // Build outline from all elements
     let outline = build_outline(&all_elements, coverage);
 
     if !sections.is_empty() {

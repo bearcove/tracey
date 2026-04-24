@@ -256,6 +256,36 @@ async fn test_engine_rebuild_increments_version() {
 // Helper: create a temp project for engine rebuild tests
 // ============================================================================
 
+/// Create a temporary project with an AsciiDoc spec, config, and source file.
+/// Returns (temp_dir, config_path) — temp_dir must be kept alive for the test duration.
+fn create_rebuild_test_project_adoc(
+    spec_content: &str,
+    source_files: &[(&str, &str)],
+) -> (tempfile::TempDir, std::path::PathBuf) {
+    let temp = tempfile::tempdir().expect("Failed to create temp dir");
+    let root = temp.path();
+
+    std::fs::create_dir_all(root.join(".config/tracey")).expect("create config dir");
+    let config_path = root.join(".config/tracey/config.styx");
+    std::fs::write(
+        &config_path,
+        "specs (\n  {\n    name test\n    include (spec.adoc)\n    impls (\n      {\n        name rust\n        include (src/**/*.rs)\n      }\n    )\n  }\n)\n",
+    )
+    .expect("write config");
+
+    std::fs::write(root.join("spec.adoc"), spec_content).expect("write spec");
+    std::fs::create_dir_all(root.join("src")).expect("create src dir");
+    for (name, content) in source_files {
+        let path = root.join(name);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).expect("create parent dir");
+        }
+        std::fs::write(&path, content).expect("write source file");
+    }
+
+    (temp, config_path)
+}
+
 /// Create a temporary project with a config, spec, and source file.
 /// Returns (temp_dir, config_path) — temp_dir must be kept alive for the test duration.
 fn create_rebuild_test_project(
@@ -525,5 +555,54 @@ async fn test_rebuild_modify_source_file() {
     assert!(
         rule_has_impl_refs(&data, "auth.login"),
         "Expected auth.login to have impl refs after modifying source"
+    );
+}
+
+/// Editing an AsciiDoc spec file triggers a rebuild and the new rule is picked up.
+#[tokio::test]
+async fn test_rebuild_adoc_spec_file_change() {
+    use tracey::daemon::Engine;
+
+    let (temp, config_path) = create_rebuild_test_project_adoc(
+        "= Spec\n\nr[auth.login]\nUsers must log in.\n",
+        &[("src/lib.rs", "/// r[impl auth.login]\npub fn login() {}\n")],
+    );
+    let root = temp.path().to_path_buf();
+
+    let engine = Arc::new(
+        Engine::new(root.clone(), config_path)
+            .await
+            .expect("Failed to create engine"),
+    );
+
+    let version1 = engine.version();
+
+    // Add a new rule to the adoc spec
+    let spec_path = root.join("spec.adoc");
+    std::fs::write(
+        &spec_path,
+        "= Spec\n\nr[auth.login]\nUsers must log in.\n\nr[auth.logout]\nUsers must log out.\n",
+    )
+    .expect("update spec.adoc");
+
+    engine
+        .rebuild_with_changes(&[spec_path])
+        .await
+        .expect("rebuild failed");
+
+    let version2 = engine.version();
+    assert!(
+        version2 > version1,
+        "Version should increment after adoc spec change"
+    );
+
+    let data = engine.data().await;
+    assert!(
+        has_rule_in_forward(&data, "auth.logout"),
+        "Expected auth.logout in forward data after updating adoc spec"
+    );
+    assert!(
+        rule_has_impl_refs(&data, "auth.login"),
+        "auth.login should still be covered after adoc spec change"
     );
 }

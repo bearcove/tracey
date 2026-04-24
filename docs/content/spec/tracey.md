@@ -121,6 +121,86 @@ Requirements are defined in markdown specification documents using the syntax `P
 > OK - different spec, different prefix, no conflict.
 > ```
 
+## Requirement Definitions in AsciiDoc
+
+AsciiDoc (`.adoc`, `.asciidoc`, `.asc`) files are supported as a second spec format. The requirement marker syntax is identical to Markdown.
+
+### AsciiDoc Requirement Syntax
+
+> r[asciidoc.syntax.marker]
+> A requirement definition in AsciiDoc MUST be written as `PREFIX[REQ]` in one of two contexts: as a standalone paragraph at column 0, or as the first line inside an AsciiDoc `____` quote block. The PREFIX and REQ follow the same rules as in Markdown.
+>
+> Valid (standalone paragraph):
+> ```adoc
+> r[auth.token.validation]
+> The system must validate tokens before granting access.
+> ```
+>
+> Valid (quote block for multi-paragraph content):
+> ```adoc
+> ____
+> r[api.error.format]
+> API errors must follow this format:
+>
+> [source,json]
+> ----
+> {"error": "message", "code": 400}
+> ----
+> ____
+> ```
+
+> r[asciidoc.syntax.inline-ignored]
+> Requirement markers that appear inline within other text MUST be treated as regular text, not requirement definitions.
+>
+> Invalid (treated as text, not a definition):
+> ```adoc
+> When implementing r[database.connection] you should...
+> ```
+
+### Duplicate Detection
+
+> r[asciidoc.duplicates.same-file]
+> If the same requirement ID appears multiple times in a single AsciiDoc file, an error MUST be reported.
+
+> r[asciidoc.duplicates.cross-file]
+> If the same requirement ID appears in multiple AsciiDoc files (or across AsciiDoc and Markdown files) within the same spec, an error MUST be reported when merging manifests.
+
+### Block Masking
+
+> r[asciidoc.blocks.listing]
+> Requirement markers that appear inside listing blocks (`----`), literal blocks (`....`), passthrough blocks (`++++`), line comments (`//`), or block comments (`////`) MUST be ignored — they do not define requirements.
+>
+> ```adoc
+> ----
+> r[masked.example]
+> This is inside a listing block — not a requirement.
+> ----
+>
+> // r[also.masked] This line comment marker is also ignored.
+> ```
+
+### Frontmatter and Weight
+
+> r[asciidoc.frontmatter.attributes]
+> The sort weight for an AsciiDoc spec file MUST be read from a `:weight: N` document attribute near the top of the file. YAML/TOML frontmatter (`---`/`+++` delimiters) is also accepted for compatibility.
+>
+> ```adoc
+> :weight: 10
+>
+> = My Spec
+> ```
+
+### HTML Output
+
+> r[asciidoc.html.div]
+> Each requirement in a rendered AsciiDoc spec MUST be wrapped in a `<div>` container element with CSS classes indicating coverage status.
+
+> r[asciidoc.html.anchor]
+> The requirement container `<div>` MUST carry an `id` attribute of the form `r--{req.id}` so requirement anchors are linkable in the rendered output.
+
+> r[asciidoc.html.link]
+> When rendered with coverage context, each requirement container MUST include a coverage badge that links to the implementing code.
+
 ## Requirement References in Source Code
 
 Requirement references are extracted from source code comments using the syntax `PREFIX[VERB REQ]` where PREFIX matches a spec marker inferred from requirement definitions.

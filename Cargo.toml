@@ -154,6 +154,14 @@ tantivy = "0.22"
 marq = { version = "2.2.0", features = ["all-handlers", "lang-vixen"] }
 pulldown-cmark = "0.13"
 
+# AsciiDoc processing
+asciidork-core = "0.37"
+asciidork-parser = "0.38"
+asciidork-ast = "0.38"
+asciidork-backend = "0.38"
+asciidork-dr-html-backend = "0.38"
+bumpalo = "3"
+
 # CLI/runtime dependencies
 indoc = "2"
 urlencoding = "2.1"
