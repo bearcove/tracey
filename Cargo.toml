@@ -127,6 +127,11 @@ arborium-ocaml = "2.16.0"
 arborium-bash = "2.16.0"
 arborium-nix = "2.16.0"
 arborium-lean = "2.16.0"
+arborium-typst = "2.16.0"
+arborium-tree-sitter = "2.16.0"
+
+# HTML escaping
+html-escape = "0.2"
 
 # HTTP server for serve command
 axum = { version = "0.8", features = ["ws"] }
@@ -153,6 +158,12 @@ tantivy = "0.22"
 # Markdown processing (with syntax highlighting and diagram handlers)
 marq = { version = "2.2.0", features = ["all-handlers", "lang-vixen"] }
 pulldown-cmark = "0.13"
+
+# Typst HTML rendering (343 transitive crates — feature-gated as `typst-spec`)
+typst = "0.14"
+typst-html = "0.14"
+typst-kit = { version = "0.14", default-features = false, features = ["fonts", "embed-fonts"] }
+comemo = "0.5"
 
 # CLI/runtime dependencies
 indoc = "2"

@@ -3,7 +3,7 @@ title = "Writing Specs"
 weight = 2
 +++
 
-Specifications are markdown documents containing requirements. Each requirement has a unique ID and describes a single behavior or constraint that is both implementable and testable.
+Specifications are markdown (or [Typst](#typst-specs)) documents containing requirements. Each requirement has a unique ID and describes a single behavior or constraint that is both implementable and testable.
 
 ## Requirement markers
 
@@ -132,6 +132,48 @@ graph TD
 ~~~
 
 The diagram is rendered client-side by Mermaid.js when the spec is viewed in the dashboard. The source text is stored in the spec file as-is, so it's readable and diffable in plain text.
+
+## Typst specs
+
+Spec files can also be written in [Typst](https://typst.app/). Tracey detects the format by file extension — include `*.typ` files in your spec's `include` glob and they'll be parsed alongside (or instead of) markdown.
+
+In Typst, define a requirement with a function call whose name is your prefix:
+
+```typst
+== Authentication
+
+#r("auth.login")[The system must accept a username and password and return a session token.]
+
+#r("auth.token-expiry")[Session tokens should expire after 24 hours.]
+```
+
+The same spec in markdown for comparison:
+
+```markdown
+## Authentication
+
+r[auth.login]
+The system must accept a username and password and return a session token.
+
+r[auth.token-expiry]
+Session tokens should expire after 24 hours.
+```
+
+Source-side annotations (`r[impl auth.login]` etc.) are identical regardless of which spec format you use.
+
+### Standalone compilation
+
+Tracey injects the definition of `#r` / `#req` when it renders a spec, so the import below is **optional** — but adding it lets the file compile on its own with `typst compile` (PDF preview, CI) and gives the Typst language server something to type-check:
+
+```typst
+#import "@preview/tracey:0.1.0": r
+```
+
+Tracey strips this import before rendering, so it never conflicts with the dashboard output.
+
+**Imports and packages:** Relative `#import` / `#include` paths are resolved against the spec file's directory. Package imports (`@preview/...`) are resolved offline only — first from a vendored directory (set `typst_package_path` in the spec config to a tree laid out as `<namespace>/<name>/<version>/`), then from the system typst package cache. Tracey never downloads packages itself; if a package isn't already on disk, run `typst compile` once to populate the cache or vendor it into your repository.
+
+**Limitations:** Any function call of the shape `#prefix("id")[body]` is treated as a requirement marker unless `prefix` is a typst standard-library function (`image`, `link`, `figure`, …), so avoid choosing a prefix that shadows a built-in.
 
 ## Avoiding duplicates
 

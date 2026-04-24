@@ -5,12 +5,13 @@
 //! - Computing coverage statistics
 
 mod coverage;
+mod languages;
 mod lexer;
 mod markdown;
 mod positions;
 mod rule_id;
 mod sources;
-mod spec;
+pub mod spec;
 
 #[cfg(feature = "reverse")]
 pub mod code_units;
@@ -25,7 +26,11 @@ pub use sources::{
     ExtractionResult, MemorySources, PathSources, SUPPORTED_EXTENSIONS, Sources,
     is_supported_extension,
 };
-pub use spec::ReqDefinition;
+pub use spec::{
+    REQ_ANCHOR_PREFIX, ReqDefinition, SPEC_EXTENSIONS, SlugAllocator, SpecDoc, SpecFormat,
+    diff_inline, extract_marker_prefix, id_range_in_marker, is_spec_extension, parse_spec,
+    parse_weight, req_anchor_id, req_anchor_to_id, rewrite_marker,
+};
 
 #[cfg(feature = "walk")]
 pub use sources::WalkSources;

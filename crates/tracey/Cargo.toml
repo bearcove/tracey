@@ -101,8 +101,9 @@ roam-local = { workspace = true }
 dirs = { workspace = true }
 
 [features]
-default = ["search"]
+default = ["search", "typst-spec"]
 search = ["dep:tantivy"]
+typst-spec = ["tracey-core/typst-spec"]
 
 [build-dependencies]
 tracey-api = { workspace = true }

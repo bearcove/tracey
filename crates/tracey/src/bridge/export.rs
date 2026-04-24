@@ -533,6 +533,7 @@ fn render_rule_row(
     include_sources: bool,
 ) -> String {
     let id = rule.id.to_string();
+    let anchor = tracey_core::req_anchor_id(&id);
 
     let impl_refs = rule
         .impl_refs
@@ -568,7 +569,7 @@ fn render_rule_row(
 
     format!(
         r#"<tr>
-  <td><div class="rule-id-row"><a class="rule-id" href="/{spec_name}/{impl_name}/spec.html#r--{id}">{id}</a></div></td>
+  <td><div class="rule-id-row"><a class="rule-id" href="/{spec_name}/{impl_name}/spec.html#{anchor}">{id}</a></div></td>
   <td class="rule-refs">{impl_refs}</td>
   <td class="rule-refs">{verify_refs}</td>
 </tr>"#

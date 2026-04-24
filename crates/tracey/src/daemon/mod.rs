@@ -125,7 +125,7 @@ pub fn local_endpoint(project_root: &Path) -> String {
         .file_name()
         .and_then(|n| n.to_str())
         .expect("state_dir hash");
-    format!(r"\\.\pipe\tracey-{hash}").into()
+    format!(r"\\.\pipe\tracey-{hash}")
 }
 
 /// Path to the daemon PID file within the state directory.
@@ -358,6 +358,12 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
                         }
                     }
 
+                    // Transitive typst `#import` / `#include` targets discovered
+                    // during the last spec render. Checked before the
+                    // exclude/include globs so a helper that happens to match an
+                    // impl `exclude` (e.g. `**/generated/**`) still triggers.
+                    let spec_deps = engine_for_rebuild.spec_file_deps().await;
+
                     // Filter changed files
                     let relative_paths: Vec<PathBuf> = changed_files
                         .iter()
@@ -380,6 +386,12 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
                                 .is_ignore()
                         })
                         .filter(|p| {
+                            // Typst `#import` deps short-circuit the glob
+                            // checks: they are inputs to the rendered spec
+                            // regardless of what the config globs say.
+                            if spec_deps.contains(p) {
+                                return true;
+                            }
                             // r[impl server.watch.respect-excludes]
                             // Reject paths that match exclude patterns
                             for pattern in &exclude_patterns {
