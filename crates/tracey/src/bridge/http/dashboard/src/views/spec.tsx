@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { render } from "preact";
 import { EDITORS, SIDEBAR_COLLAPSED_STORAGE_KEY } from "../config";
-import { useSpec } from "../hooks";
+import { useResponsiveSidebar, useSpec } from "../hooks";
 import { CoverageArc, html, showRefsPopup } from "../main";
 import type { OutlineEntry, SpecViewProps, FileContent } from "../types";
 import { MarkdownEditor } from "../components/MarkdownEditor";
@@ -247,41 +247,7 @@ export function SpecView({
   scrollPosition,
   onScrollChange,
 }: SpecViewProps) {
-  // Track viewport width reactively so auto-collapse on narrow screens
-  // doesn't clobber the user's persisted wide-screen preference.
-  const narrowMq =
-    typeof window !== "undefined" ? window.matchMedia("(max-width: 1199px)") : null;
-  const [isNarrow, setIsNarrow] = useState(() => narrowMq?.matches ?? false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    if (typeof window === "undefined") return false;
-    if (narrowMq?.matches) return true;
-    return window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "1";
-  });
-
-  useEffect(() => {
-    if (!narrowMq) return;
-    const onChange = (e: MediaQueryListEvent) => setIsNarrow(e.matches);
-    narrowMq.addEventListener("change", onChange);
-    return () => narrowMq.removeEventListener("change", onChange);
-  }, []);
-
-  // Only persist while wide — the forced collapse on narrow viewports is
-  // transient and must not overwrite the user's saved choice.
-  useEffect(() => {
-    if (isNarrow) return;
-    window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, sidebarCollapsed ? "1" : "0");
-  }, [sidebarCollapsed, isNarrow]);
-
-  // Entering narrow → auto-collapse. Leaving narrow → restore saved choice.
-  useEffect(() => {
-    if (isNarrow) {
-      setSidebarCollapsed(true);
-    } else {
-      setSidebarCollapsed(
-        window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "1",
-      );
-    }
-  }, [isNarrow]);
+  const [sidebarCollapsed, toggleSidebar] = useResponsiveSidebar(SIDEBAR_COLLAPSED_STORAGE_KEY);
 
   // Use selectedSpec or default to first spec
   const specName = selectedSpec || config.specs?.[0]?.name || null;
@@ -1126,7 +1092,7 @@ export function SpecView({
           <button
             class="sidebar-collapse-btn"
             type="button"
-            onClick=${() => setSidebarCollapsed((collapsed) => !collapsed)}
+            onClick=${toggleSidebar}
             title=${sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
             aria-label=${sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
             aria-expanded=${!sidebarCollapsed}
