@@ -782,17 +782,6 @@ pub async fn is_running(project_root: &Path) -> bool {
 
 /// Connect to a running daemon, or return an error.
 #[allow(dead_code)]
-#[cfg(unix)]
-pub async fn connect(project_root: &Path) -> Result<roam_local::LocalStream> {
-    let endpoint = local_endpoint(project_root);
-    roam_local::connect(&endpoint)
-        .await
-        .wrap_err_with(|| format!("Failed to connect to daemon at {}", endpoint))
-}
-
-/// Connect to a running daemon, or return an error.
-#[allow(dead_code)]
-#[cfg(windows)]
 pub async fn connect(project_root: &Path) -> Result<roam_local::LocalStream> {
     let endpoint = local_endpoint(project_root);
     roam_local::connect(&endpoint)
