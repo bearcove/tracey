@@ -168,8 +168,9 @@ fn arborium_language(path: &str) -> Option<&'static str> {
         "html" | "htm" => Some("html"),
         "css" => Some("css"),
         "scss" | "sass" => Some("scss"),
-        // Markdown
+        // Markdown / AsciiDoc
         "md" | "markdown" => Some("markdown"),
+        "adoc" | "asciidoc" | "asc" => Some("asciidoc"),
         // SQL
         "sql" => Some("sql"),
         // Zig

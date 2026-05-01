@@ -32,7 +32,7 @@ This registers tracey as an MCP server and installs the bundled Tracey skill.
 
 ## Create your spec
 
-Create a markdown file with your requirements. Each requirement uses the syntax `r[requirement.id]` followed by its text:
+Create a spec file with your requirements. Tracey supports Markdown (`.md`) and AsciiDoc (`.adoc`) files. Each requirement uses the syntax `r[requirement.id]` followed by its text:
 
 ```markdown
 <!-- docs/spec/api.md -->

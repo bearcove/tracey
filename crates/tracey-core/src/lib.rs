@@ -10,7 +10,7 @@ mod markdown;
 mod positions;
 mod rule_id;
 mod sources;
-mod spec;
+pub mod spec;
 
 #[cfg(feature = "reverse")]
 pub mod code_units;

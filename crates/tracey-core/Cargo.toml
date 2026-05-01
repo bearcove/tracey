@@ -19,6 +19,14 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 default = ["walk", "parallel"]
 walk = ["dep:ignore", "dep:globset"]
 parallel = ["dep:rayon"]
+asciidoc-spec = [
+  "dep:asciidork-core",
+  "dep:asciidork-parser",
+  "dep:asciidork-ast",
+  "dep:asciidork-backend",
+  "dep:asciidork-dr-html-backend",
+  "dep:bumpalo",
+]
 reverse = [
   "dep:arborium",
   "dep:arborium-rust",
@@ -64,6 +72,12 @@ pulldown-cmark = { workspace = true }
 ignore = { workspace = true, optional = true }
 globset = { workspace = true, optional = true }
 rayon = { workspace = true, optional = true }
+asciidork-core = { workspace = true, optional = true }
+asciidork-parser = { workspace = true, optional = true }
+asciidork-ast = { workspace = true, optional = true }
+asciidork-backend = { workspace = true, optional = true }
+asciidork-dr-html-backend = { workspace = true, optional = true }
+bumpalo = { workspace = true, optional = true }
 arborium = { workspace = true, optional = true }
 arborium-rust = { workspace = true, optional = true }
 arborium-swift = { workspace = true, optional = true }
@@ -96,3 +110,6 @@ arborium-ocaml = { workspace = true, optional = true }
 arborium-bash = { workspace = true, optional = true }
 arborium-nix = { workspace = true, optional = true }
 arborium-lean = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }

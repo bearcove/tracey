@@ -17,9 +17,8 @@ use config::Config;
 use eyre::{Result, WrapErr};
 use std::path::PathBuf;
 use tracey_core::ReqDefinition;
+use tracey_core::spec::{SpecFormat, is_spec_extension, parse_spec};
 
-// Re-export from marq for rule extraction
-use marq::{RenderOptions, render};
 
 /// Extracted rule with source location info
 #[derive(Clone)]
@@ -125,8 +124,8 @@ pub async fn load_rules_from_glob(
         let entry = entry?;
         let path = entry.path();
 
-        // Only process .md files
-        if path.extension().is_none_or(|ext| ext != "md") {
+        // Only process spec files (.md, .adoc, etc.)
+        if !path.extension().is_some_and(|ext| is_spec_extension(ext)) {
             continue;
         }
 
@@ -148,11 +147,13 @@ pub async fn load_rules_from_glob(
             continue;
         }
 
-        // Read and render markdown to extract rules with HTML
+        // Read and parse the spec file to extract requirements
         let content = std::fs::read_to_string(path)
             .wrap_err_with(|| format!("Failed to read {}", path.display()))?;
 
-        let doc = render(&content, &RenderOptions::default())
+        let fmt = SpecFormat::from_path(path)
+            .unwrap_or(SpecFormat::Markdown);
+        let doc = parse_spec(fmt, &content)
             .await
             .map_err(|e| eyre::eyre!("Failed to process {}: {}", path.display(), e))?;
 
@@ -169,6 +170,7 @@ pub async fn load_rules_from_glob(
             // Check for duplicates
             // r[impl markdown.duplicates.same-file] - caught when marq returns duplicate reqs from single file
             // r[impl markdown.duplicates.cross-file] - caught via seen_ids persisting across files
+            // r[impl asciidoc.duplicates.cross-file] - same mechanism applies to .adoc files
             for req in &doc.reqs {
                 let req_id = req.id.to_string();
                 if seen_ids.contains(&req_id) {

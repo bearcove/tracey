@@ -3,7 +3,7 @@ title = "Writing Specs"
 weight = 2
 +++
 
-Specifications are markdown documents containing requirements. Each requirement has a unique ID and describes a single behavior or constraint that is both implementable and testable.
+Specifications are documents containing requirements. Tracey supports Markdown (`.md`) and AsciiDoc (`.adoc`, `.asciidoc`) spec files. Each requirement has a unique ID and describes a single behavior or constraint that is both implementable and testable.
 
 ## Requirement markers
 
@@ -152,6 +152,39 @@ Messages must use Protocol Buffers.
 ```
 
 These don't conflict because `r[api.format]` and `m[api.format]` belong to different specs.
+
+## AsciiDoc specs
+
+Tracey also supports AsciiDoc (`.adoc`, `.asciidoc`, `.asc`) spec files. The requirement marker syntax is identical to Markdown — markers at column 0 define requirements:
+
+```adoc
+r[auth.login]
+The system must accept a username and password and return a session token.
+```
+
+Use a `____` quote block for multi-paragraph requirements (the AsciiDoc equivalent of a Markdown blockquote):
+
+```adoc
+____
+r[api.error-format]
+API errors must follow this format:
+
+[source,json]
+----
+{"error": "message", "code": 400}
+----
+____
+```
+
+Markers inside listing blocks (`----`), literal blocks (`....`), passthrough blocks (`++++`), and comments (`//`, `////`) are masked and not treated as requirement definitions.
+
+Configure AsciiDoc spec files the same way as Markdown in your `config.styx`:
+
+```styx
+include (docs/spec/**/*.adoc)
+```
+
+You can mix Markdown and AsciiDoc files in the same spec — each file is parsed independently and their requirements are merged.
 
 ## Versioning
 
