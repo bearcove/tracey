@@ -1077,21 +1077,25 @@ mod compiler {
             assert!(doc.html.contains("<OPEN a.b>"), "html: {}", doc.html);
         }
 
-        /// Regression: a custom marker prefix (anything other than `r`/`req`)
-        /// must compile. Previously the static prelude only defined `r`/`req`,
-        /// so `#spec(...)` failed with "unknown variable: spec".
+        /// Custom prefixes are *not* supported in typst — only `#r` / `#req`
+        /// are recognised. `#ident("str")` is universal call syntax, so any
+        /// wider allowlist picks up third-party functions (`#qty`, `#gls`, …)
+        /// as phantom markers; see commit narrowing to the explicit allowlist.
+        /// A `#spec(...)` call is therefore left to typst, which errors with
+        /// "unknown variable" — that's the intended behaviour.
         #[tokio::test]
-        async fn render_with_custom_prefix_compiles() {
+        async fn render_with_unknown_prefix_fails_compile() {
             let src = "#spec(\"a.b\")[body]\n";
             let ctx = RenderCtx {
                 badge_for: &|d| (format!("<OPEN {}>", d.id), "</CLOSE>".into()),
             };
-            let doc = render(src, Path::new("test.typ"), None, &ctx, &mut alloc(), &mut nodeps())
+            let err = render(src, Path::new("test.typ"), None, &ctx, &mut alloc(), &mut nodeps())
                 .await
-                .expect("custom prefix should compile");
-            assert_eq!(doc.reqs.len(), 1);
-            assert!(doc.html.contains("<OPEN a.b>"), "html: {}", doc.html);
-            assert!(doc.html.contains("body"));
+                .expect_err("non-allowlisted prefix should fail typst compile");
+            assert!(
+                err.to_string().contains("unknown variable"),
+                "expected typst 'unknown variable' error, got: {err}"
+            );
         }
 
         /// Regression: a heading inside a `#req` body must not emit a
