@@ -57,6 +57,13 @@ impl SpecBackend for Markdown {
             marq_opts,
         } = input;
 
+        if sources.is_empty() {
+            return Ok(RenderOutput {
+                sections: vec![],
+                deps: vec![],
+            });
+        }
+
         // Concatenate the run so heading IDs are hierarchical across files
         // (matches the pre-multi-format behaviour in `data.rs`).
         let mut combined = String::new();
@@ -81,6 +88,7 @@ impl SpecBackend for Markdown {
             }
         };
         opts.source_path = Some(abs_source.clone());
+        // caller may have set its own req_handler; ours wins — badge injection is mandatory
         opts.req_handler = Some(std::sync::Arc::new(BadgeReqHandler {
             badge_for: badge_for.clone(),
             source_path: abs_source,
