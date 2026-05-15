@@ -4,10 +4,8 @@
 //! provides a small enum-dispatched facade over the per-format implementations
 //! so callers never need to know which concrete parser is in play.
 //!
-//! Design rationale: enum + free functions, not a trait. There are only two
-//! variants, every call site already has a `Path` to dispatch on, and this
-//! avoids async-trait boxing. `RenderOptions` is marq-specific and does not
-//! generalise cleanly to a trait.
+//! Backends implement [`SpecBackend`]; dispatch goes through the registry in
+//! [`registry`].
 
 use std::ffi::OsStr;
 use std::ops::Range;
@@ -163,6 +161,7 @@ pub struct RenderInput<'a> {
 }
 
 /// Output of [`SpecBackend::render_html`].
+#[derive(Debug)]
 pub struct RenderOutput {
     pub html: String,
     /// Extra files read during render (imports/includes) — fed to the
