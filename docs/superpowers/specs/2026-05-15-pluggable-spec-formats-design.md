@@ -29,30 +29,40 @@ All formats live under `crates/tracey-core/src/spec/`.
 
 ### `SpecBackend` trait
 
-Single trait in `tracey-core::spec` capturing every per-format operation.
-`#[async_trait]` (already a workspace dep) for the two async methods.
+What format authors implement. Has an associated `Config` type so per-backend
+options (e.g. typst's `package_path`) are declared as a struct, validated at
+config-load time, and reach `render_html` fully typed — no `toml::Table`
+poking. `#[async_trait]` (already a workspace dep) for the two async methods.
 
 ```rust
 #[async_trait]
 pub trait SpecBackend: Send + Sync + 'static {
+    /// Per-backend options deserialized from the `[spec.<name>]` table in
+    /// `config.styx`. Use `()` if the backend has none.
+    type Config: Facet<'static> + Default + Send + Sync + 'static;
+
     /// Enum variant this backend implements. 1:1 with `SpecFormat`.
     fn format(&self) -> SpecFormat;
 
-    /// Stable lowercase identifier — tantivy field, logs, telemetry.
+    /// Stable lowercase identifier — tantivy field, logs, config table key.
     fn name(&self) -> &'static str;
 
     /// File extensions (no leading dot) this backend claims.
     fn extensions(&self) -> &'static [&'static str];
 
-    // ─── extraction (cheap path; no HTML) ────────────────────────────
+    // ─── extraction (cheap path; no HTML, no config) ─────────────────
     async fn parse(&self, content: &str) -> eyre::Result<SpecDoc>;
     fn parse_weight(&self, _content: &str) -> i32 { 0 }
     fn extract_marker_prefix(&self, content: &str, span: SourceSpan) -> Option<String>;
     fn id_range_in_marker(&self, marker: &str) -> eyre::Result<Range<usize>>;
     fn diff_inline(&self, old: &str, new: &str) -> Option<String>;
 
-    // ─── display (dashboard HTML; expensive) ─────────────────────────
-    async fn render_html(&self, input: RenderInput<'_>) -> eyre::Result<RenderOutput>;
+    // ─── display (dashboard HTML; expensive, config-dependent) ───────
+    async fn render_html(
+        &self,
+        input: RenderInput<'_>,
+        cfg: &Self::Config,
+    ) -> eyre::Result<RenderOutput>;
 
     /// Render a short body fragment as inline HTML (search snippets, hovers).
     /// Default: HTML-escape only. Markdown overrides to run marq.
@@ -61,6 +71,59 @@ pub trait SpecBackend: Send + Sync + 'static {
     }
 }
 ```
+
+#### Object-safe dispatch layer
+
+`type Config` makes `SpecBackend` non-object-safe (it appears in
+`render_html`'s signature), so the registry can't hold `&dyn SpecBackend`
+directly. A private erased trait bridges the gap; format authors never see it.
+
+```rust
+// spec/registry.rs — internal
+#[async_trait]
+trait DynBackend: Send + Sync + 'static {
+    fn format(&self) -> SpecFormat;
+    fn name(&self) -> &'static str;
+    fn extensions(&self) -> &'static [&'static str];
+    async fn parse(&self, content: &str) -> eyre::Result<SpecDoc>;
+    fn parse_weight(&self, content: &str) -> i32;
+    fn extract_marker_prefix(&self, content: &str, span: SourceSpan) -> Option<String>;
+    fn id_range_in_marker(&self, marker: &str) -> eyre::Result<Range<usize>>;
+    fn diff_inline(&self, old: &str, new: &str) -> Option<String>;
+    async fn render_inline(&self, text: &str) -> String;
+
+    /// Deserialize this backend's `[spec.<name>]` table. Called once at
+    /// config load; result is stored alongside the backend.
+    fn deserialize_config(&self, raw: Option<&styx::Value>) -> eyre::Result<ErasedConfig>;
+    async fn render_html(
+        &self,
+        input: RenderInput<'_>,
+        cfg: &ErasedConfig,
+    ) -> eyre::Result<RenderOutput>;
+}
+
+pub struct ErasedConfig(Box<dyn Any + Send + Sync>);
+
+#[async_trait]
+impl<B: SpecBackend> DynBackend for B {
+    // …forwarders…
+    fn deserialize_config(&self, raw: Option<&styx::Value>) -> eyre::Result<ErasedConfig> {
+        let cfg: B::Config = match raw {
+            Some(v) => facet::from_value(v)?,
+            None => B::Config::default(),
+        };
+        Ok(ErasedConfig(Box::new(cfg)))
+    }
+    async fn render_html(&self, input: RenderInput<'_>, cfg: &ErasedConfig) -> eyre::Result<RenderOutput> {
+        let cfg = cfg.0.downcast_ref::<B::Config>()
+            .expect("ErasedConfig was produced by this backend's deserialize_config");
+        SpecBackend::render_html(self, input, cfg).await
+    }
+}
+```
+
+The `Any` round-trip is sealed inside `registry.rs`; both the format author
+and the driver in `data.rs` work with concrete types.
 
 ### Unified render contract
 
@@ -81,9 +144,6 @@ pub struct RenderInput<'a> {
     pub badge_for: &'a (dyn Fn(&ReqDefinition) -> String + Sync),
     /// Cross-file heading-slug deduplicator (shared across the whole build).
     pub slugs: &'a mut SlugAllocator,
-    /// Backend-specific config from `config.styx` `[spec.<name>]` table,
-    /// passed through opaquely. Typst reads `package_path` from here.
-    pub options: Option<&'a toml::Table>,
 }
 
 pub struct RenderOutput {
@@ -98,7 +158,7 @@ The driver in `data.rs` groups consecutive same-format spec files and calls
 `render_html` once per group. This replaces the 96-line `match` with ~15
 lines of format-agnostic grouping.
 
-### Registry
+### Registry & config flow
 
 `SpecFormat` **stays a `Copy` enum** — it's stored on `ExtractedRule`,
 serialized into tantivy, and pattern-matched in tests. Behaviour lives on the
@@ -110,7 +170,7 @@ trait; the enum is just a token.
 pub enum SpecFormat { Markdown, Typst, Sdoc, AsciiDoc }
 
 /// Single source of truth. Adding a format = one line here + one variant above.
-static BACKENDS: &[&(dyn SpecBackend)] = &[
+static BACKENDS: &[&(dyn DynBackend)] = &[
     &markdown::Markdown,
     &typst::Typst,
     &sdoc::Sdoc,
@@ -118,7 +178,7 @@ static BACKENDS: &[&(dyn SpecBackend)] = &[
 ];
 
 impl SpecFormat {
-    pub fn backend(self) -> &'static dyn SpecBackend {
+    pub(crate) fn backend(self) -> &'static dyn DynBackend {
         BACKENDS.iter().copied()
             .find(|b| b.format() == self)
             .expect("every SpecFormat variant has a registered backend")
@@ -134,10 +194,32 @@ impl SpecFormat {
 }
 ```
 
+**Config flow.** `tracey-config` gains a `spec: BTreeMap<String, styx::Value>`
+field holding raw `[spec.<name>]` tables. At build time `data.rs` constructs:
+
+```rust
+pub struct SpecConfigs(HashMap<SpecFormat, ErasedConfig>);
+
+impl SpecConfigs {
+    pub fn load(raw: &BTreeMap<String, styx::Value>) -> eyre::Result<Self> {
+        BACKENDS.iter()
+            .map(|b| Ok((b.format(), b.deserialize_config(raw.get(b.name()))?)))
+            .collect::<Result<_>>()
+            .map(Self)
+    }
+    pub fn get(&self, fmt: SpecFormat) -> &ErasedConfig { &self.0[&fmt] }
+}
+```
+
+Unknown keys in `raw` are rejected (`"no spec backend named '{k}'"`), so
+typos surface at startup. `SpecConfigs` is held on `BuildContext` and passed
+to the render loop. Typst's existing `package_path` becomes
+`TypstConfig { package_path: Option<PathBuf> }`.
+
 The five existing free functions (`parse_spec`, `diff_inline`, …) become thin
 shims: `pub async fn parse_spec(fmt, c) { fmt.backend().parse(c).await }`.
 Kept for one release to avoid churning every call site at once; deprecated
-afterwards in favour of `fmt.backend().…` direct calls.
+afterwards.
 
 ### Derived helpers
 
@@ -150,8 +232,9 @@ afterwards in favour of `fmt.backend().…` direct calls.
 
 Each step compiles green.
 
-1. **Trait + types** — add `SpecBackend`, `RenderInput/Output`, `BACKENDS` to
-   `spec/mod.rs`. No callers yet.
+1. **Trait + types** — add `SpecBackend`, `DynBackend` + blanket impl,
+   `ErasedConfig`, `RenderInput/Output`, `SpecConfigs`, `BACKENDS` to
+   `spec/{mod.rs,registry.rs}`. No callers yet.
 2. **Markdown impl** — `struct Markdown; impl SpecBackend for Markdown`.
    `render_html` absorbs the concat + `marq::render` + slug-rewrite logic
    currently inline at `data.rs:3074-3130`.
@@ -190,9 +273,9 @@ No edits to `data.rs`, `service.rs`, `search.rs`, `lib.rs`.
 - **`&mut SlugAllocator` across async** — `render_html` is async and takes
   `&mut` via `RenderInput`. Fine for sequential rendering; if we ever
   parallelise per-format groups, switch to `Arc<Mutex<SlugAllocator>>`.
-- **`options: Option<&toml::Table>`** is loosely typed. If more than typst
-  ends up needing config, revisit with a `Backend::Config: Deserialize`
-  associated type and a typed registry. YAGNI for now.
+- **`Facet<'static>` bound** — assumes `facet` can deserialize from a borrowed
+  `styx::Value` subtree. If not, `SpecConfigs::load` falls back to
+  re-serialize → `facet::from_str`. Verify in step 1.
 - **sdoc → `SpecDoc`** — `extract_rules_from_sdoc` currently builds
   `ExtractedRule` directly (with `source_file`, `prefix`). Converting to
   `SpecDoc` means the section/column derivation in `lib.rs:173-210` must work
