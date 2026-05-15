@@ -214,6 +214,8 @@ fn arborium_language(path: &str) -> Option<&'static str> {
         "cmake" => Some("cmake"),
         // MATLAB
         "mat" => Some("matlab"),
+        // Svelte
+        "svelte" => Some("svelte"),
         _ => None,
     }
 }

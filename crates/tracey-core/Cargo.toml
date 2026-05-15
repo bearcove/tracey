@@ -52,6 +52,7 @@ reverse = [
   "dep:arborium-bash",
   "dep:arborium-nix",
   "dep:arborium-lean",
+  "dep:arborium-svelte",
 ]
 
 [dependencies]
@@ -97,3 +98,4 @@ arborium-ocaml = { workspace = true, optional = true }
 arborium-bash = { workspace = true, optional = true }
 arborium-nix = { workspace = true, optional = true }
 arborium-lean = { workspace = true, optional = true }
+arborium-svelte = { workspace = true, optional = true }

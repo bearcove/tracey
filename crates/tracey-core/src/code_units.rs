@@ -180,6 +180,7 @@ pub fn extract(path: &Path, source: &str) -> CodeUnits {
         "sh" | "bash" | "zsh" => extract_bash(path, source),
         "nix" => extract_nix(path, source),
         "lean" => extract_lean(path, source),
+        "svelte" => extract_svelte(path, source),
         _ => CodeUnits::new(),
     }
 }
@@ -1120,6 +1121,31 @@ fn lean_node_kind(kind: &str) -> Option<CodeUnitKind> {
     }
 }
 
+/// Extract code units from Svelte source code
+pub fn extract_svelte(path: &Path, source: &str) -> CodeUnits {
+    let mut parser = Parser::new();
+    parser
+        .set_language(&arborium_svelte::language().into())
+        .expect("Failed to load Svelte grammar");
+
+    let Some(tree) = parser.parse(source, None) else {
+        return CodeUnits::new();
+    };
+
+    let mut units = CodeUnits::new();
+    let root = tree.root_node();
+    extract_units_recursive(path, source, root, &mut units, svelte_node_kind);
+    units
+}
+
+fn svelte_node_kind(kind: &str) -> Option<CodeUnitKind> {
+    match kind {
+        "snippet_statement" => Some(CodeUnitKind::Function),
+        "script_element" => Some(CodeUnitKind::Module),
+        _ => None,
+    }
+}
+
 fn extract_units_recursive<F>(
     path: &Path,
     source: &str,
@@ -1522,6 +1548,7 @@ pub fn extract_refs_with_warnings(path: &Path, source: &str) -> ExtractedRefs {
         "ml" | "mli" => arborium_ocaml::language(),
         "sh" | "bash" | "zsh" => arborium_bash::language(),
         "nix" => arborium_nix::language(),
+        "svelte" => arborium_svelte::language(),
         _ => return ExtractedRefs::default(),
     };
 
