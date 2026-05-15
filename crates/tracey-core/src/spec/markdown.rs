@@ -83,6 +83,7 @@ impl SpecBackend for Markdown {
         marq::render(text, &marq::RenderOptions::default())
             .await
             .map(|d| d.html)
+            // degrade: snippet render must not fail the search response
             .unwrap_or_else(|_| html_escape::encode_text(text).into_owned())
     }
 }
@@ -104,6 +105,7 @@ impl marq::ReqHandler for BadgeReqHandler {
         &'a self,
         rule: &'a marq::ReqDefinition,
     ) -> Pin<Box<dyn Future<Output = marq::Result<String>> + Send + 'a>> {
+        // close-half is constant in practice; cheaper than threading state through the handler
         let (_, close) = (self.badge_for)(rule);
         Box::pin(async move { Ok(close) })
     }
@@ -112,8 +114,9 @@ impl marq::ReqHandler for BadgeReqHandler {
 /// Re-thread marq's per-document heading slugs through the global allocator,
 /// patching `<hN id="…">` in `doc.html` to match.
 ///
-/// Ported verbatim from `crates/tracey/src/data.rs:3104-3128`; see the
-/// rationale there for the forward-cursor scan.
+/// Ported sans the `tracing::warn!` on needle-miss (`tracey-core` has no
+/// tracing dep) from `crates/tracey/src/data.rs:3104-3128`; see the rationale
+/// there for the forward-cursor scan.
 pub(super) fn reslug_marq_html(doc: &mut SpecDoc, slugs: &mut super::SlugAllocator) {
     let mut cursor = 0;
     for el in doc.elements.iter_mut() {
