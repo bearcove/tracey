@@ -830,7 +830,11 @@ fn full_walk_for_roots(
             if !ft.is_file() {
                 continue;
             }
-            if include_markdown_only && path.extension().is_none_or(|ext| ext != "md") {
+            if include_markdown_only
+                && path
+                    .extension()
+                    .is_none_or(|ext| !tracey_core::is_spec_extension(ext))
+            {
                 continue;
             }
             if include_supported_ext_only
@@ -864,7 +868,9 @@ fn update_cached_scan_paths(
     for changed in changed_files {
         let exists = changed.exists();
         let ext_ok = if include_markdown_only {
-            changed.extension().is_some_and(|ext| ext == "md")
+            changed
+                .extension()
+                .is_some_and(tracey_core::is_spec_extension)
         } else if include_supported_ext_only {
             changed.extension().is_some_and(is_supported_extension)
         } else {
@@ -1067,6 +1073,90 @@ async fn extract_markdown_rules_cached(
     Ok(extracted)
 }
 
+async fn extract_sdoc_rules_cached(
+    project_root: &Path,
+    path: &Path,
+    overlay: &FileOverlay,
+    cache: &mut BuildCache,
+    quiet: bool,
+    stats: &mut CacheStats,
+) -> Result<Vec<crate::ExtractedRule>> {
+    let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let overlay_content = overlay
+        .get(path)
+        .or_else(|| overlay.get(&canonical))
+        .cloned();
+    let overlay_is_present = overlay_content.is_some();
+
+    let (content, file_len, modified_nanos) = if let Some(content) = overlay_content {
+        (content.clone(), content.len() as u64, None)
+    } else {
+        let metadata = tokio::fs::metadata(&canonical).await.ok();
+        let file_len = metadata.as_ref().map_or(0, std::fs::Metadata::len);
+        let modified_nanos = metadata
+            .as_ref()
+            .and_then(|m| m.modified().ok())
+            .and_then(file_modified_nanos);
+        (
+            read_file_with_overlay(&canonical, overlay).await?,
+            file_len,
+            modified_nanos,
+        )
+    };
+
+    let content_hash = compute_content_hash(&content);
+    if let Some(entry) = cache.markdown_files.get(&canonical) {
+        if !overlay_is_present
+            && entry.file_len == file_len
+            && entry.modified_nanos == modified_nanos
+        {
+            stats.metadata_hits += 1;
+            return Ok(entry.extracted_rules.clone());
+        }
+        if entry.content_hash == content_hash {
+            let updated = CachedMarkdownFile {
+                content_hash,
+                file_len,
+                modified_nanos,
+                extracted_rules: entry.extracted_rules.clone(),
+            };
+            cache.markdown_files.insert(canonical, updated.clone());
+            stats.hash_hits += 1;
+            return Ok(updated.extracted_rules);
+        }
+    }
+
+    let relative_display = if let Ok(rel) = canonical.strip_prefix(project_root) {
+        rel.display().to_string()
+    } else {
+        compute_relative_path(project_root, &canonical)
+    };
+
+    let extracted = crate::sdoc::extract_rules_from_sdoc(&content, &relative_display).await?;
+
+    if !quiet && !extracted.is_empty() {
+        eprintln!(
+            "   {} {} requirements from {}",
+            "Found".green(),
+            extracted.len(),
+            relative_display
+        );
+    }
+
+    cache.markdown_files.insert(
+        canonical,
+        CachedMarkdownFile {
+            content_hash,
+            file_len,
+            modified_nanos,
+            extracted_rules: extracted.clone(),
+        },
+    );
+    stats.misses += 1;
+    stats.reparsed += 1;
+    Ok(extracted)
+}
+
 async fn load_rules_from_includes_cached(
     project_root: &Path,
     include_patterns: &[String],
@@ -1080,7 +1170,10 @@ async fn load_rules_from_includes_cached(
         get_cached_spec_scan_paths(project_root, include_patterns, changed_files, cache);
     let (spec_roots, _) = build_scan_roots(project_root, include_patterns);
     for overlay_path in overlay.keys() {
-        if overlay_path.extension().is_none_or(|ext| ext != "md") {
+        if overlay_path
+            .extension()
+            .is_none_or(|ext| !tracey_core::is_spec_extension(ext))
+        {
             continue;
         }
         if path_matches_any_root(overlay_path, &spec_roots) {
@@ -1092,8 +1185,15 @@ async fn load_rules_from_includes_cached(
     let mut seen_ids: BTreeSet<String> = BTreeSet::new();
     let collected_paths: Vec<PathBuf> = spec_paths.into_iter().collect();
     for path in &collected_paths {
-        let extracted =
-            extract_markdown_rules_cached(project_root, path, overlay, cache, quiet, stats).await?;
+        let extracted = if path
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e == "sdoc")
+        {
+            extract_sdoc_rules_cached(project_root, path, overlay, cache, quiet, stats).await?
+        } else {
+            extract_markdown_rules_cached(project_root, path, overlay, cache, quiet, stats).await?
+        };
         for rule in extracted {
             let id = rule.def.id.to_string();
             if seen_ids.contains(&id) {

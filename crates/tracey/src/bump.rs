@@ -71,8 +71,20 @@ pub fn git_cat_file(project_root: &Path, revision: &str, path: &str) -> Result<O
         .wrap_err_with(|| format!("content of {spec} is not valid UTF-8"))
 }
 
-/// Parse a spec markdown string and return a map from rule **base** ID → `ReqDefinition`.
-async fn parse_spec_rules(content: &str) -> Result<HashMap<String, marq::ReqDefinition>> {
+/// Parse a spec file's contents (markdown or `.sdoc`) and return a map from
+/// rule **base** ID → `ReqDefinition`.
+async fn parse_spec_rules(
+    content: &str,
+    path: &str,
+) -> Result<HashMap<String, marq::ReqDefinition>> {
+    if path.ends_with(".sdoc") {
+        let rules = crate::sdoc::extract_rules_from_sdoc(content, path).await?;
+        return Ok(rules
+            .into_iter()
+            .map(|r| (r.def.id.base.clone(), r.def))
+            .collect());
+    }
+
     let doc = render(content, &RenderOptions::default())
         .await
         .map_err(|e| eyre::eyre!("failed to parse spec: {e}"))?;
@@ -143,10 +155,10 @@ pub async fn detect_changed_rules(
         };
 
         let old_rules = match old_content {
-            Some(ref c) => parse_spec_rules(c).await?,
+            Some(ref c) => parse_spec_rules(c, staged_file).await?,
             None => HashMap::new(), // new file
         };
-        let new_rules = parse_spec_rules(&new_content).await?;
+        let new_rules = parse_spec_rules(&new_content, staged_file).await?;
 
         for (base, new_req) in &new_rules {
             let Some(old_req) = old_rules.get(base) else {

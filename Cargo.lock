@@ -3826,8 +3826,9 @@ checksum = "2b2231b7c3057d5e4ad0156fb3dc807d900806020c5ffa3ee6ff2c8c76fb8520"
 
 [[package]]
 name = "strictdoc-parser"
-version = "0.1.0"
-source = "git+https://github.com/kraln/strictdoc-parser?tag=v0.1.0#f0e5cc52715db71c0086e76dfc9598c9ce062b38"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1a87844e382e636cd1b44888b5c06c8644f806d6b697bf39bbaad500b08ac75e"
 
 [[package]]
 name = "strip-ansi-escapes"

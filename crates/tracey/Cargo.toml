@@ -58,6 +58,9 @@ globset = { workspace = true }
 # Markdown rendering with syntax highlighting and diagrams
 marq = { workspace = true }
 
+# StrictDoc (.sdoc) spec parser
+strictdoc-parser = { workspace = true }
+
 # Syntax highlighting for source files
 arborium = { workspace = true }
 
@@ -114,3 +117,4 @@ time = { workspace = true, features = ["formatting"] }
 [dev-dependencies]
 tempfile = { workspace = true }
 roam-core = { workspace = true }
+walkdir = "2"

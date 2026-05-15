@@ -155,7 +155,7 @@ marq = { version = "2.2.0", features = ["all-handlers", "lang-vixen"] }
 pulldown-cmark = "0.13"
 
 # StrictDoc parser for .sdoc spec files
-strictdoc-parser = { git = "https://github.com/kraln/strictdoc-parser", tag = "v0.1.0" }
+strictdoc-parser = "0.1.1"
 
 # CLI/runtime dependencies
 indoc = "2"

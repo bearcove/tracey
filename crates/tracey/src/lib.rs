@@ -9,6 +9,7 @@ pub mod config;
 pub mod daemon;
 pub mod data;
 pub(crate) mod rule_suggestions;
+pub mod sdoc;
 pub mod search;
 pub mod server;
 pub mod vite;
@@ -100,7 +101,7 @@ pub async fn load_rules_from_glob(
         })?;
 
         let effective = if remaining_parts.is_empty() {
-            "**/*.md".to_string()
+            "**/*.{md,sdoc}".to_string()
         } else {
             remaining_parts.join("/")
         };
@@ -125,10 +126,17 @@ pub async fn load_rules_from_glob(
         let entry = entry?;
         let path = entry.path();
 
-        // Only process .md files
-        if path.extension().is_none_or(|ext| ext != "md") {
+        // Only process supported spec files (.md, .sdoc)
+        if path
+            .extension()
+            .is_none_or(|ext| !tracey_core::is_spec_extension(ext))
+        {
             continue;
         }
+        let is_sdoc = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e == "sdoc");
 
         // Check if the path matches the glob pattern
         let relative = path.strip_prefix(&walk_root).unwrap_or(path);
@@ -148,9 +156,33 @@ pub async fn load_rules_from_glob(
             continue;
         }
 
-        // Read and render markdown to extract rules with HTML
         let content = std::fs::read_to_string(path)
             .wrap_err_with(|| format!("Failed to read {}", path.display()))?;
+
+        if is_sdoc {
+            let sdoc_rules = crate::sdoc::extract_rules_from_sdoc(&content, &display_path).await?;
+            if !sdoc_rules.is_empty() && !quiet {
+                eprintln!(
+                    "   {} {} requirements from {}",
+                    "Found".green(),
+                    sdoc_rules.len(),
+                    display_path
+                );
+            }
+            for extracted in sdoc_rules {
+                let req_id = extracted.def.id.to_string();
+                if seen_ids.contains(&req_id) {
+                    eyre::bail!(
+                        "Duplicate requirement '{}' found in {}",
+                        extracted.def.id.red(),
+                        display_path
+                    );
+                }
+                seen_ids.insert(req_id);
+                rules.push(extracted);
+            }
+            continue;
+        }
 
         let doc = render(&content, &RenderOptions::default())
             .await

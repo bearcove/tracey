@@ -1,0 +1,14 @@
+// Tracey config for the StrictDoc fixture: .sdoc spec + @relation source markers.
+
+specs (
+  {
+    name br
+    include (spec.sdoc)
+    impls (
+      {
+        name rust
+        include (src/**/*.rs)
+      }
+    )
+  }
+)
