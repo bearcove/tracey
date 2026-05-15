@@ -27,7 +27,6 @@ struct Counts {
     ok: u32,
     err: u32,
     total_rules: u64,
-    total_uidless: u64,
     markup_markdown_docs: u64,
     max_rules_in_doc: usize,
     max_path: String,
@@ -114,11 +113,11 @@ async fn walk_corpus(root: &Path, corpus: &mut Counts, overall: &mut Counts) {
             overall.markup_markdown_docs += 1;
         }
 
-        match tracey::sdoc::extract_rules_from_sdoc(&content, &display).await {
-            Ok(rules) => {
+        match tracey_core::parse_spec(tracey_core::SpecFormat::Sdoc, &content).await {
+            Ok(doc) => {
                 corpus.ok += 1;
                 overall.ok += 1;
-                let n = rules.len();
+                let n = doc.reqs.len();
                 corpus.total_rules += n as u64;
                 overall.total_rules += n as u64;
                 if n > corpus.max_rules_in_doc {
@@ -139,15 +138,6 @@ async fn walk_corpus(root: &Path, corpus: &mut Counts, overall: &mut Counts) {
                 *overall.errors.entry(short).or_insert(0) += 1;
             }
         }
-
-        if let Ok(doc) = strictdoc_parser::parse(&content) {
-            for view in doc.requirements_flat() {
-                if view.uid().is_none() {
-                    corpus.total_uidless += 1;
-                    overall.total_uidless += 1;
-                }
-            }
-        }
     }
 }
 
@@ -156,10 +146,6 @@ fn report(c: &Counts) {
     eprintln!("  Parsed OK by bridge:    {}", c.ok);
     eprintln!("  Failed in bridge:       {}", c.err);
     eprintln!("Total requirements via bridge: {}", c.total_rules);
-    eprintln!(
-        "Requirements without UID (skipped by bridge): {}",
-        c.total_uidless
-    );
     eprintln!(
         "Max requirements in a single doc: {} ({})",
         c.max_rules_in_doc, c.max_path

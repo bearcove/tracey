@@ -13,9 +13,11 @@ use std::path::{Path, PathBuf};
 
 mod markdown;
 mod registry;
+mod sdoc;
 pub mod typst;
 
 pub use registry::{ErasedConfig, NoConfig, SpecConfigs};
+pub use sdoc::SDOC_PREFIX;
 pub use typst::TypstConfig;
 
 // Re-export the marq types that callers interact with regardless of format.
@@ -104,6 +106,8 @@ pub enum SpecFormat {
     Markdown,
     /// Typst markup with `#req(...)` calls.
     Typst,
+    /// StrictDoc requirements (`.sdoc`).
+    Sdoc,
 }
 
 impl SpecFormat {
@@ -277,12 +281,8 @@ pub trait SpecBackend: Send + Sync + 'static {
 }
 
 /// Returns true if `ext` is a recognised spec-document extension.
-///
-/// `.sdoc` is special-cased pending a `SpecFormat::Sdoc` variant — StrictDoc
-/// extraction currently lives in `tracey::sdoc` and is dispatched directly in
-/// `data.rs` rather than via [`parse_spec`].
 pub fn is_spec_extension(ext: &OsStr) -> bool {
-    SpecFormat::from_ext(ext).is_some() || ext.to_str() == Some("sdoc")
+    SpecFormat::from_ext(ext).is_some()
 }
 
 /// Parse spec `content` into a [`SpecDoc`].

@@ -1014,90 +1014,6 @@ async fn extract_spec_rules_cached(
     Ok(extracted)
 }
 
-async fn extract_sdoc_rules_cached(
-    project_root: &Path,
-    path: &Path,
-    overlay: &FileOverlay,
-    cache: &mut BuildCache,
-    quiet: bool,
-    stats: &mut CacheStats,
-) -> Result<Vec<crate::ExtractedRule>> {
-    let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    let overlay_content = overlay
-        .get(path)
-        .or_else(|| overlay.get(&canonical))
-        .cloned();
-    let overlay_is_present = overlay_content.is_some();
-
-    let (content, file_len, modified_nanos) = if let Some(content) = overlay_content {
-        (content.clone(), content.len() as u64, None)
-    } else {
-        let metadata = tokio::fs::metadata(&canonical).await.ok();
-        let file_len = metadata.as_ref().map_or(0, std::fs::Metadata::len);
-        let modified_nanos = metadata
-            .as_ref()
-            .and_then(|m| m.modified().ok())
-            .and_then(file_modified_nanos);
-        (
-            read_file_with_overlay(&canonical, overlay).await?,
-            file_len,
-            modified_nanos,
-        )
-    };
-
-    let content_hash = compute_content_hash(&content);
-    if let Some(entry) = cache.spec_files.get(&canonical) {
-        if !overlay_is_present
-            && entry.file_len == file_len
-            && entry.modified_nanos == modified_nanos
-        {
-            stats.metadata_hits += 1;
-            return Ok(entry.extracted_rules.clone());
-        }
-        if entry.content_hash == content_hash {
-            let updated = CachedSpecFile {
-                content_hash,
-                file_len,
-                modified_nanos,
-                extracted_rules: entry.extracted_rules.clone(),
-            };
-            cache.spec_files.insert(canonical, updated.clone());
-            stats.hash_hits += 1;
-            return Ok(updated.extracted_rules);
-        }
-    }
-
-    let relative_display = if let Ok(rel) = canonical.strip_prefix(project_root) {
-        rel.display().to_string()
-    } else {
-        compute_relative_path(project_root, &canonical)
-    };
-
-    let extracted = crate::sdoc::extract_rules_from_sdoc(&content, &relative_display).await?;
-
-    if !quiet && !extracted.is_empty() {
-        eprintln!(
-            "   {} {} requirements from {}",
-            "Found".green(),
-            extracted.len(),
-            relative_display
-        );
-    }
-
-    cache.spec_files.insert(
-        canonical,
-        CachedSpecFile {
-            content_hash,
-            file_len,
-            modified_nanos,
-            extracted_rules: extracted.clone(),
-        },
-    );
-    stats.misses += 1;
-    stats.reparsed += 1;
-    Ok(extracted)
-}
-
 async fn load_rules_from_includes_cached(
     project_root: &Path,
     include_patterns: &[String],
@@ -1123,15 +1039,8 @@ async fn load_rules_from_includes_cached(
     let mut seen_ids: BTreeSet<String> = BTreeSet::new();
     let collected_paths: Vec<PathBuf> = spec_paths.into_iter().collect();
     for path in &collected_paths {
-        let extracted = if path
-            .extension()
-            .and_then(|e| e.to_str())
-            .is_some_and(|e| e == "sdoc")
-        {
-            extract_sdoc_rules_cached(project_root, path, overlay, cache, quiet, stats).await?
-        } else {
-            extract_spec_rules_cached(project_root, path, overlay, cache, quiet, stats).await?
-        };
+        let extracted =
+            extract_spec_rules_cached(project_root, path, overlay, cache, quiet, stats).await?;
         for rule in extracted {
             let id = rule.def.id.to_string();
             if seen_ids.contains(&id) {

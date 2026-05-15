@@ -121,7 +121,8 @@ impl<B: SpecBackend> DynBackend for B {
 /// Single source of truth for spec-format dispatch.
 ///
 /// Adding a format = one entry here + one [`SpecFormat`] variant.
-pub(crate) static BACKENDS: &[&dyn DynBackend] = &[&super::markdown::Markdown, &super::typst::Typst];
+pub(crate) static BACKENDS: &[&dyn DynBackend] =
+    &[&super::markdown::Markdown, &super::typst::Typst, &super::sdoc::Sdoc];
 
 /// Per-project config bundle for every registered backend.
 ///

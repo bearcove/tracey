@@ -9,7 +9,6 @@ pub mod config;
 pub mod daemon;
 pub mod data;
 pub(crate) mod rule_suggestions;
-pub mod sdoc;
 pub mod search;
 pub mod server;
 pub mod vite;
