@@ -18,6 +18,9 @@
     "typescript": "^5.9.3",
     "vite": "^7.3.0"
   },
+  "pnpm": {
+    "allowBuild": ["@parcel/watcher", "esbuild"]
+  },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.0",
     "@codemirror/commands": "^6.10.1",
