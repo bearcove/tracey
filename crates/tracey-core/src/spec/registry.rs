@@ -24,11 +24,20 @@ pub struct NoConfig;
 
 /// Type-erased backend config.
 ///
-/// Produced by [`DynBackend::deserialize_config`] and consumed by
+/// Produced by [`DynBackend::deserialize_config`] (or
+/// [`ErasedConfig::new`] for caller-supplied overrides) and consumed by
 /// [`DynBackend::render_html`]. The wrapped `Any` is always the impl's
 /// `B::Config`; the downcast in the blanket impl is therefore infallible by
 /// construction (panics on misuse).
 pub struct ErasedConfig(Box<dyn Any + Send + Sync>);
+
+impl ErasedConfig {
+    /// Wrap a concrete `B::Config`. Use with [`SpecConfigs::insert`] to
+    /// override a backend's defaults until styx-subtree deserialization lands.
+    pub fn new<C: Any + Send + Sync>(cfg: C) -> Self {
+        Self(Box::new(cfg))
+    }
+}
 
 /// Object-safe mirror of [`SpecBackend`].
 ///
@@ -47,13 +56,11 @@ pub(crate) trait DynBackend: Send + Sync + 'static {
     fn id_range_in_marker(&self, marker: &str) -> eyre::Result<Range<usize>>;
     fn diff_inline(&self, old: &str, new: &str) -> Option<String>;
 
-    #[allow(dead_code)] // wired in task 5 (data.rs render loop)
     async fn render_html(
         &self,
         input: RenderInput<'_>,
         cfg: &ErasedConfig,
     ) -> eyre::Result<RenderOutput>;
-    #[allow(dead_code)] // wired in task 6 (service.rs snippet render)
     async fn render_inline(&self, text: &str) -> String;
 
     /// Build this backend's [`ErasedConfig`].
@@ -119,10 +126,8 @@ pub(crate) static BACKENDS: &[&dyn DynBackend] = &[&super::markdown::Markdown, &
 /// Per-project config bundle for every registered backend.
 ///
 /// Built once at config-load time and held on `BuildContext`.
-#[allow(dead_code)] // wired up in task 5
 pub struct SpecConfigs(HashMap<SpecFormat, ErasedConfig>);
 
-#[allow(dead_code)] // wired up in task 5
 impl SpecConfigs {
     /// Deserialize every backend's config. Currently every backend gets its
     /// `Config::default()`; raw `[spec.<name>]` tables are wired in once the
@@ -133,6 +138,16 @@ impl SpecConfigs {
             .map(|b| (b.format(), b.deserialize_config()))
             .collect();
         Ok(Self(map))
+    }
+
+    /// Override the config for `fmt` with a caller-supplied value.
+    ///
+    /// Bridge until [`load`](Self::load) deserializes from the raw config:
+    /// callers that already hold a typed config (e.g. typst's `package_path`)
+    /// inject it here. The value MUST be the backend's `Config` type or
+    /// `render_html` will panic on downcast.
+    pub fn insert(&mut self, fmt: SpecFormat, cfg: ErasedConfig) {
+        self.0.insert(fmt, cfg);
     }
 
     /// Panics if `fmt` has no registered backend (every variant should).

@@ -5,7 +5,7 @@ use std::pin::Pin;
 
 use marq::SourceSpan;
 
-use super::{NoConfig, RenderInput, RenderOutput, SpecBackend, SpecDoc, SpecFormat};
+use super::{NoConfig, RenderInput, RenderOutput, RenderedSection, SpecBackend, SpecDoc, SpecFormat};
 
 /// Markdown backend.
 ///
@@ -49,32 +49,53 @@ impl SpecBackend for Markdown {
         input: RenderInput<'_>,
         _cfg: &NoConfig,
     ) -> eyre::Result<RenderOutput> {
+        let RenderInput {
+            sources,
+            root,
+            badge_for,
+            slugs,
+            marq_opts,
+        } = input;
+
         // Concatenate the run so heading IDs are hierarchical across files
         // (matches the pre-multi-format behaviour in `data.rs`).
         let mut combined = String::new();
-        for src in input.sources {
+        for src in sources {
             combined.push_str(src.content);
             combined.push_str("\n\n");
         }
 
-        // Minimal `RenderOptions`: a req-handler wrapping `input.badge_for` so
-        // requirement bodies are bracketed by the caller's badge markup.
-        //
-        // The full `data.rs` pipeline additionally configures diagram handlers
-        // (aasvg/pikchr/mermaid/compare), an inline-code handler, and
-        // `opts.source_path` for `data-source-file` attributes — all of which
-        // live in `crates/tracey/` and cannot be referenced here. Task 5 must
-        // either move those handlers into `tracey-core` or extend `RenderInput`
-        // to carry a pre-built `marq::RenderOptions`.
-        let opts = marq::RenderOptions::new().with_req_handler(BadgeReqHandler {
-            badge_for: input.badge_for.clone(),
-        });
-        let mut doc = marq::render(&combined, &opts).await?;
+        // The whole run is attributed to the first file for `data-source-file`
+        // attributes and badge edit-links (existing behaviour).
+        let abs_source = root.join(sources[0].path).display().to_string();
 
-        reslug_marq_html(&mut doc, input.slugs);
+        // Caller supplies diagram / inline-code handlers via `marq_opts`; we
+        // overwrite `source_path` and `req_handler` per-render. `RenderOptions`
+        // is not `Clone`, so when no opts are provided we own a default.
+        let mut local_opts;
+        let opts: &mut marq::RenderOptions = match marq_opts {
+            Some(o) => o,
+            None => {
+                local_opts = marq::RenderOptions::default();
+                &mut local_opts
+            }
+        };
+        opts.source_path = Some(abs_source.clone());
+        opts.req_handler = Some(std::sync::Arc::new(BadgeReqHandler {
+            badge_for: badge_for.clone(),
+            source_path: abs_source,
+        }));
+
+        let mut doc = marq::render(&combined, opts).await?;
+        reslug_marq_html(&mut doc, slugs);
 
         Ok(RenderOutput {
-            html: doc.html,
+            sections: vec![RenderedSection {
+                source_idx: 0,
+                html: doc.html,
+                elements: doc.elements,
+                head_injections: doc.head_injections,
+            }],
             deps: Vec::new(),
         })
     }
@@ -91,6 +112,7 @@ impl SpecBackend for Markdown {
 /// `marq::ReqHandler` that delegates to a [`BadgeFn`](super::BadgeFn).
 struct BadgeReqHandler {
     badge_for: super::BadgeFn,
+    source_path: String,
 }
 
 impl marq::ReqHandler for BadgeReqHandler {
@@ -98,7 +120,7 @@ impl marq::ReqHandler for BadgeReqHandler {
         &'a self,
         rule: &'a marq::ReqDefinition,
     ) -> Pin<Box<dyn Future<Output = marq::Result<String>> + Send + 'a>> {
-        let (open, _) = (self.badge_for)(rule);
+        let (open, _) = (self.badge_for)(rule, &self.source_path);
         Box::pin(async move { Ok(open) })
     }
     fn end<'a>(
@@ -106,7 +128,7 @@ impl marq::ReqHandler for BadgeReqHandler {
         rule: &'a marq::ReqDefinition,
     ) -> Pin<Box<dyn Future<Output = marq::Result<String>> + Send + 'a>> {
         // close-half is constant in practice; cheaper than threading state through the handler
-        let (_, close) = (self.badge_for)(rule);
+        let (_, close) = (self.badge_for)(rule, &self.source_path);
         Box::pin(async move { Ok(close) })
     }
 }

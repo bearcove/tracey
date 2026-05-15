@@ -23,7 +23,9 @@ use marq::{
     SourceSpan,
 };
 
-use super::{RenderInput, RenderOutput, SlugAllocator, SpecBackend, SpecDoc, SpecFormat};
+use super::{
+    RenderInput, RenderOutput, RenderedSection, SlugAllocator, SpecBackend, SpecDoc, SpecFormat,
+};
 
 /// Context for [`render_display`]: callbacks that the typst→HTML pipeline cannot
 /// resolve on its own (coverage data lives in the `tracey` crate).
@@ -91,33 +93,40 @@ impl SpecBackend for Typst {
     ) -> eyre::Result<RenderOutput> {
         let RenderInput {
             sources,
+            root,
             slugs,
             badge_for,
-            // root unused: render_display resolves imports relative to src.path
+            // marq_opts unused: typst has its own renderer
             ..
         } = input;
-        // `RenderCtx.badge_for` wants `&dyn Fn + Sync`; `BadgeFn` is
-        // `Arc<dyn Fn + Send + Sync>`. Adapt with a borrowing closure rather
-        // than relying on auto-trait dyn upcast.
-        let badge = |r: &ReqDefinition| badge_for(r);
-        let ctx = RenderCtx { badge_for: &badge };
 
         let mut deps = HashSet::new();
-        let mut html = String::new();
-        for src in sources {
+        let mut sections = Vec::with_capacity(sources.len());
+        for (idx, src) in sources.iter().enumerate() {
+            let abs_source = root.join(src.path);
+            let abs_source_str = abs_source.display().to_string();
+            // `RenderCtx.badge_for` wants `&dyn Fn + Sync`; adapt the
+            // path-aware `BadgeFn` with a per-file borrowing closure.
+            let badge = |r: &ReqDefinition| badge_for(r, &abs_source_str);
+            let ctx = RenderCtx { badge_for: &badge };
             let doc = render_display(
                 src.content,
-                src.path,
+                &abs_source,
                 cfg.package_path.as_deref(),
                 &ctx,
                 slugs,
                 &mut deps,
             )
             .await?;
-            html.push_str(&doc.html);
+            sections.push(RenderedSection {
+                source_idx: idx,
+                html: doc.html,
+                elements: doc.elements,
+                head_injections: doc.head_injections,
+            });
         }
         Ok(RenderOutput {
-            html,
+            sections,
             deps: deps.into_iter().collect(),
         })
     }

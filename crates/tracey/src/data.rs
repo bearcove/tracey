@@ -10,11 +10,8 @@ use owo_colors::OwoColorize;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
-use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::time::Instant;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracey_core::code_units::CodeUnit;
@@ -32,7 +29,7 @@ use tracing::info;
 // Markdown rendering
 use marq::{
     AasvgHandler, ArboriumHandler, CompareHandler, InlineCodeHandler, MermaidHandler, PikruHandler,
-    RenderOptions, ReqHandler, render,
+    RenderOptions,
 };
 
 use crate::config::Config;
@@ -174,41 +171,6 @@ struct RuleCoverage {
     status: &'static str, // "covered", "partial", "stale", "uncovered"
     impl_refs: Vec<ApiCodeRef>,
     verify_refs: Vec<ApiCodeRef>,
-}
-
-/// Custom rule handler that renders rules with coverage status and refs
-struct TraceyRuleHandler {
-    coverage: BTreeMap<String, RuleCoverage>,
-    /// Current source file being rendered (shared with rendering loop)
-    current_source_file: Arc<Mutex<String>>,
-    /// Spec name for URL generation
-    spec_name: String,
-    /// Implementation name for URL generation
-    impl_name: String,
-    /// Project root for absolute paths
-    project_root: PathBuf,
-    /// Git status for files
-    git_status: HashMap<String, GitStatus>,
-}
-
-impl TraceyRuleHandler {
-    fn new(
-        coverage: BTreeMap<String, RuleCoverage>,
-        current_source_file: Arc<Mutex<String>>,
-        spec_name: String,
-        impl_name: String,
-        project_root: PathBuf,
-        git_status: HashMap<String, GitStatus>,
-    ) -> Self {
-        Self {
-            coverage,
-            current_source_file,
-            spec_name,
-            impl_name,
-            project_root,
-            git_status,
-        }
-    }
 }
 
 /// @tracey:ignore-next-line
@@ -454,42 +416,6 @@ fn rule_coverage_badge_html(
     );
 
     (open, "</div>\n</div>".to_string())
-}
-
-impl ReqHandler for TraceyRuleHandler {
-    fn start<'a>(
-        &'a self,
-        rule: &'a ReqDefinition,
-    ) -> Pin<Box<dyn Future<Output = marq::Result<String>> + Send + 'a>> {
-        Box::pin(async move {
-            let rule_id = rule.id.to_string();
-            let coverage = self.coverage.get(&rule_id);
-
-            // Get current source file for this rule (make it absolute)
-            let relative_source = self.current_source_file.lock().unwrap().clone();
-            let absolute_source = self.project_root.join(&relative_source);
-            let source_file = absolute_source.display().to_string();
-
-            let (open, _close) = rule_coverage_badge_html(
-                rule,
-                coverage,
-                &source_file,
-                &self.spec_name,
-                &self.impl_name,
-            );
-            Ok(open)
-        })
-    }
-
-    fn end<'a>(
-        &'a self,
-        _rule: &'a ReqDefinition,
-    ) -> Pin<Box<dyn Future<Output = marq::Result<String>> + Send + 'a>> {
-        Box::pin(async move {
-            // Close the rule container
-            Ok("</div>\n</div>".to_string())
-        })
-    }
 }
 
 // ============================================================================
@@ -2981,21 +2907,9 @@ async fn load_spec_content(
 ) -> Result<()> {
     use ignore::WalkBuilder;
 
-    // Shared source file tracker for rule handler
-    let current_source_file = Arc::new(Mutex::new(String::new()));
-
-    // Get git status for files in the project
-    let git_status = get_git_status(root);
-
-    // Set up marq handlers for consistent rendering with coverage-aware rule rendering
-    let rule_handler = TraceyRuleHandler::new(
-        coverage.clone(),
-        Arc::clone(&current_source_file),
-        spec_name.to_string(),
-        impl_name.to_string(),
-        root.to_path_buf(),
-        git_status,
-    );
+    // Diagram / inline-code handlers for marq. The req-handler (coverage badge)
+    // is supplied by the markdown backend via `BadgeFn`, so it is intentionally
+    // absent here.
     let inline_code_handler =
         TraceyInlineCodeHandler::new(spec_name.to_string(), impl_name.to_string());
     let mut opts = RenderOptions::new()
@@ -3004,8 +2918,29 @@ async fn load_spec_content(
         .with_handler(&["pikchr"], PikruHandler::new())
         .with_handler(&["compare"], CompareHandler::new())
         .with_handler(&["mermaid"], MermaidHandler::new())
-        .with_req_handler(rule_handler)
         .with_inline_code_handler(inline_code_handler);
+
+    // Coverage-badge callback shared by every backend. `'static` because the
+    // markdown backend boxes it into a `marq::ReqHandler`.
+    let badge_for: tracey_core::BadgeFn = {
+        let coverage = coverage.clone();
+        let spec_name = spec_name.to_string();
+        let impl_name = impl_name.to_string();
+        Arc::new(move |def: &ReqDefinition, source_file: &str| {
+            let cov = coverage.get(&def.id.to_string());
+            rule_coverage_badge_html(def, cov, source_file, &spec_name, &impl_name)
+        })
+    };
+
+    // Per-backend render config. styx-subtree deserialization is not yet wired,
+    // so seed defaults and override typst from the existing function param.
+    let mut spec_cfgs = tracey_core::SpecConfigs::load()?;
+    spec_cfgs.insert(
+        SpecFormat::Typst,
+        tracey_core::ErasedConfig::new(tracey_core::TypstConfig {
+            package_path: typst_package_path.map(|p| p.to_path_buf()),
+        }),
+    );
 
     // Collect all matching files with their content, weight, and format
     let mut files: Vec<(String, String, i32, SpecFormat)> = Vec::new();
@@ -3071,120 +3006,38 @@ async fn load_spec_content(
         }
         let run = &files[run_start..i];
 
-        match run_fmt {
-            SpecFormat::Markdown => {
-                // Concatenate all markdown in this run and render as one document
-                // so heading IDs are hierarchical across the run.
-                let mut combined = String::new();
-                for (_, content, _, _) in run {
-                    combined.push_str(content);
-                    combined.push_str("\n\n"); // Ensure separation between files
-                }
-                let first_file = run[0].0.clone();
-                // Set source_path so paragraphs get data-source-file attributes for
-                // click-to-edit. Must be absolute for editor navigation.
-                *current_source_file.lock().unwrap() = first_file.clone();
-                opts.source_path = Some(root.join(&first_file).display().to_string());
-                let mut doc = render(&combined, &opts).await?;
+        let sources: Vec<tracey_core::RenderSource<'_>> = run
+            .iter()
+            .map(|(path, content, _, _)| tracey_core::RenderSource {
+                path: Path::new(path),
+                content,
+            })
+            .collect();
 
-                // marq slugifies internally; re-thread its slugs through the
-                // global allocator so a later run can't collide. marq has
-                // already written `id="<slug>"` into the HTML, so patch it in
-                // place when the slug changes.
-                //
-                // The scan walks forward with a byte cursor: heading N's
-                // rewrite can land it on heading N+1's *original* id (e.g.
-                // `overview` → `overview-2` while a literal `# Overview 2`
-                // follows), so a from-zero `replacen` on the next iteration
-                // would hit the freshly-rewritten N instead of N+1 and swap
-                // their anchors. Searching from `cursor` keeps each match
-                // strictly after the previous one. The cursor advances even
-                // when `new == h.id` so an unchanged heading still consumes
-                // its own match.
-                let mut cursor = 0;
-                for el in doc.elements.iter_mut() {
-                    if let marq::DocElement::Heading(h) = el {
-                        let new = slug_alloc.alloc(&h.id);
-                        // marq emits `<hN id="…">`; anchor the search on the
-                        // heading tag so a req-container `<div id="…">` that
-                        // happens to share the slug is never patched.
-                        let needle = format!("<h{} id=\"{}\"", h.level, h.id);
-                        if let Some(rel) = doc.html[cursor..].find(&needle) {
-                            let abs = cursor + rel;
-                            if new != h.id {
-                                let repl = format!("<h{} id=\"{new}\"", h.level);
-                                doc.html.replace_range(abs..abs + needle.len(), &repl);
-                                cursor = abs + repl.len();
-                            } else {
-                                cursor = abs + needle.len();
-                            }
-                        } else {
-                            tracing::warn!(
-                                "heading id {:?} not found in marq html; skipping rewrite",
-                                h.id
-                            );
-                        }
-                        h.id = new;
-                    }
-                }
+        let out = tracey_core::render_spec_html(
+            run_fmt,
+            tracey_core::RenderInput {
+                sources: &sources,
+                root,
+                badge_for: badge_for.clone(),
+                slugs: &mut slug_alloc,
+                marq_opts: Some(&mut opts),
+            },
+            &spec_cfgs,
+        )
+        .await?;
 
-                sections.push(SpecSection {
-                    source_file: first_file,
-                    html: doc.html,
-                    weight: run[0].2,
-                });
-                all_elements.extend(doc.elements);
-                head_injections.extend(doc.head_injections);
-            }
-            SpecFormat::Typst => {
-                // Typst files render one section each via the typst→HTML
-                // compiler (feature `typst-spec`). Without the feature, fall
-                // back to `parse_spec` which yields a `<pre>` placeholder.
-                for (source_file, content, weight, _) in run {
-                    let abs_source = root.join(source_file);
-                    let abs_source_str = abs_source.display().to_string();
-                    let ctx = tracey_core::spec::typst::RenderCtx {
-                        badge_for: &|def| {
-                            let cov = coverage.get(&def.id.to_string());
-                            rule_coverage_badge_html(def, cov, &abs_source_str, spec_name, impl_name)
-                        },
-                    };
-                    #[cfg(feature = "typst-spec")]
-                    let doc = tracey_core::spec::typst::render_display(
-                        content,
-                        &abs_source,
-                        typst_package_path,
-                        &ctx,
-                        &mut slug_alloc,
-                        spec_file_deps,
-                    )
-                    .await?;
-                    #[cfg(not(feature = "typst-spec"))]
-                    let doc = {
-                        let _ = (&ctx, &abs_source, typst_package_path, &mut *spec_file_deps);
-                        let mut doc = parse_spec(SpecFormat::Typst, content).await?;
-                        // Placeholder `<pre>` HTML has no anchors to rewrite,
-                        // but the outline still needs globally-unique slugs.
-                        for el in doc.elements.iter_mut() {
-                            if let marq::DocElement::Heading(h) = el {
-                                h.id = slug_alloc.alloc(&h.id);
-                            }
-                        }
-                        doc
-                    };
-                    sections.push(SpecSection {
-                        source_file: source_file.clone(),
-                        html: doc.html,
-                        weight: *weight,
-                    });
-                    all_elements.extend(doc.elements);
-                    head_injections.extend(doc.head_injections);
-                }
-            }
-            // SpecFormat is #[non_exhaustive]; future formats need explicit
-            // handling here before they can render in the dashboard.
-            _ => eyre::bail!("rendering not implemented for spec format {run_fmt:?}"),
+        for sec in out.sections {
+            let (source_file, _, weight, _) = &run[sec.source_idx];
+            sections.push(SpecSection {
+                source_file: source_file.clone(),
+                html: sec.html,
+                weight: *weight,
+            });
+            all_elements.extend(sec.elements);
+            head_injections.extend(sec.head_injections);
         }
+        spec_file_deps.extend(out.deps);
     }
 
     // head_injections from multiple runs may repeat (e.g. mermaid loader); the

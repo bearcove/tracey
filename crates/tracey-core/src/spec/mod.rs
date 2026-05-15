@@ -150,10 +150,14 @@ impl SpecFormat {
 
 /// Callback returning `(open_html, close_html)` to wrap a requirement body.
 ///
+/// The second argument is the absolute source-file path of the document
+/// currently being rendered, so the badge can embed click-to-edit links.
+///
 /// `Arc` + `'static` so backends can hand it to `marq::ReqHandler` (which
 /// boxes handlers as `'static`). Callers must move owned data into the
 /// closure rather than borrow from the stack.
-pub type BadgeFn = std::sync::Arc<dyn Fn(&ReqDefinition) -> (String, String) + Send + Sync>;
+pub type BadgeFn =
+    std::sync::Arc<dyn Fn(&ReqDefinition, &str) -> (String, String) + Send + Sync>;
 
 /// One spec source file fed to [`SpecBackend::render_html`].
 pub struct RenderSource<'a> {
@@ -178,12 +182,32 @@ pub struct RenderInput<'a> {
     pub badge_for: BadgeFn,
     /// Cross-file heading-slug deduplicator (shared across the whole build).
     pub slugs: &'a mut SlugAllocator,
+    /// Pre-built marq render options (code-block / inline-code handlers from
+    /// the caller's environment). Used by [`SpecFormat::Markdown`]; other
+    /// backends ignore it. The backend overwrites `source_path` and
+    /// `req_handler` per call. `None` → [`marq::RenderOptions::default()`].
+    ///
+    /// Mutable because [`marq::RenderOptions`] is not `Clone` and the
+    /// backend must set `source_path` for `data-source-file` attributes.
+    pub marq_opts: Option<&'a mut marq::RenderOptions>,
+}
+
+/// One logical section produced by [`SpecBackend::render_html`].
+///
+/// Markdown emits one per run (the concatenated render); typst emits one per
+/// source file. `source_idx` indexes [`RenderInput::sources`].
+#[derive(Debug)]
+pub struct RenderedSection {
+    pub source_idx: usize,
+    pub html: String,
+    pub elements: Vec<DocElement>,
+    pub head_injections: Vec<String>,
 }
 
 /// Output of [`SpecBackend::render_html`].
 #[derive(Debug)]
 pub struct RenderOutput {
-    pub html: String,
+    pub sections: Vec<RenderedSection>,
     /// Extra files read during render (imports/includes) — fed to the
     /// file-watcher and cache-key.
     pub deps: Vec<PathBuf>,
@@ -267,6 +291,23 @@ pub fn is_spec_extension(ext: &OsStr) -> bool {
 /// spans are populated. The `html` field may be empty depending on backend.
 pub async fn parse_spec(fmt: SpecFormat, content: &str) -> eyre::Result<SpecDoc> {
     fmt.backend().parse(content).await
+}
+
+/// Render spec sources to dashboard HTML via the backend for `fmt`.
+///
+/// Thin shim over [`SpecBackend::render_html`] that hides the
+/// `DynBackend`/`ErasedConfig` erasure layer from callers.
+pub async fn render_spec_html(
+    fmt: SpecFormat,
+    input: RenderInput<'_>,
+    cfgs: &SpecConfigs,
+) -> eyre::Result<RenderOutput> {
+    fmt.backend().render_html(input, cfgs.get(fmt)).await
+}
+
+/// Render a short body fragment as inline HTML (search snippets, hovers).
+pub async fn render_spec_inline(fmt: SpecFormat, text: &str) -> String {
+    fmt.backend().render_inline(text).await
 }
 
 /// Render an inline diff of two spec snippets as markdown.
