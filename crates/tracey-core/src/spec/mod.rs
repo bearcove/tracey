@@ -11,10 +11,13 @@
 
 use std::ffi::OsStr;
 use std::ops::Range;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 mod markdown;
+mod registry;
 pub mod typst;
+
+pub use registry::{ErasedConfig, NoConfig, SpecConfigs};
 
 // Re-export the marq types that callers interact with regardless of format.
 // `SpecDoc` is a type alias for `marq::Document` — see Spike C in NOTES: all
@@ -95,7 +98,7 @@ impl SlugAllocator {
 }
 
 /// Which spec dialect a file is written in.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum SpecFormat {
     /// CommonMark + tracey marker syntax, parsed via `marq`.
@@ -117,6 +120,116 @@ impl SpecFormat {
             "typ" => Some(Self::Typst),
             _ => None,
         }
+    }
+
+    /// Stable lowercase identifier — used for the tantivy index, logs, and the
+    /// `[spec.<name>]` config table key.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Markdown => "markdown",
+            Self::Typst => "typst",
+        }
+    }
+
+    /// Inverse of [`name`](Self::name).
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "markdown" => Some(Self::Markdown),
+            "typst" => Some(Self::Typst),
+            _ => None,
+        }
+    }
+}
+
+/// One spec source file fed to [`SpecBackend::render_html`].
+pub struct RenderSource<'a> {
+    pub path: &'a Path,
+    pub content: &'a str,
+}
+
+/// Inputs to [`SpecBackend::render_html`].
+///
+/// `sources` is a run of one or more same-format files. Backends that render
+/// per-file (typst, sdoc) iterate; markdown concatenates the run to preserve
+/// its unified-TOC behaviour.
+pub struct RenderInput<'a> {
+    pub sources: &'a [RenderSource<'a>],
+    /// Project root, for resolving relative `#import` / `include::`.
+    pub root: &'a Path,
+    /// Coverage badge HTML to inject next to each requirement.
+    pub badge_for: &'a (dyn Fn(&ReqDefinition) -> String + Sync),
+    /// Cross-file heading-slug deduplicator (shared across the whole build).
+    pub slugs: &'a mut SlugAllocator,
+}
+
+/// Output of [`SpecBackend::render_html`].
+pub struct RenderOutput {
+    pub html: String,
+    /// Extra files read during render (imports/includes) — fed to the
+    /// file-watcher and cache-key.
+    pub deps: Vec<PathBuf>,
+}
+
+/// Per-format spec backend.
+///
+/// Format authors implement this trait once per format under
+/// `crates/tracey-core/src/spec/<fmt>.rs`. The associated [`Config`] type
+/// declares the backend's `[spec.<name>]` config-table schema; use
+/// [`NoConfig`] when none is needed.
+///
+/// The trait is intentionally **not** object-safe (`Config` appears in
+/// `render_html`'s signature) — dynamic dispatch goes through the private
+/// `DynBackend` erasure layer in `registry.rs`, which downcasts the config.
+///
+/// [`Config`]: SpecBackend::Config
+#[async_trait::async_trait]
+pub trait SpecBackend: Send + Sync + 'static {
+    /// Per-backend options deserialized from the `[spec.<name>]` table in
+    /// `config.styx`. Use [`NoConfig`] if the backend has none.
+    type Config: facet::Facet<'static> + Default + Send + Sync + 'static;
+
+    /// Enum variant this backend implements. 1:1 with [`SpecFormat`].
+    fn format(&self) -> SpecFormat;
+
+    /// Stable lowercase identifier — must equal `self.format().name()`.
+    fn name(&self) -> &'static str;
+
+    /// File extensions (no leading dot) this backend claims.
+    fn extensions(&self) -> &'static [&'static str];
+
+    // ─── extraction (cheap path; no HTML, no config) ─────────────────
+
+    /// Parse `content` into a [`SpecDoc`]. Populates reqs, elements, and
+    /// source spans; `html` may be empty.
+    async fn parse(&self, content: &str) -> eyre::Result<SpecDoc>;
+
+    /// Extract the sort weight from frontmatter / document metadata.
+    fn parse_weight(&self, _content: &str) -> i32 {
+        0
+    }
+
+    /// Extract the marker prefix (e.g. `"r"` from `r[foo.bar]`) at `span`.
+    fn extract_marker_prefix(&self, content: &str, span: SourceSpan) -> Option<String>;
+
+    /// Locate the requirement-id literal within a marker string.
+    fn id_range_in_marker(&self, marker: &str) -> eyre::Result<Range<usize>>;
+
+    /// Render an inline diff of two spec snippets as markdown.
+    fn diff_inline(&self, old: &str, new: &str) -> Option<String>;
+
+    // ─── display (dashboard HTML; expensive, config-dependent) ───────
+
+    /// Render `input.sources` to dashboard HTML with coverage badges.
+    async fn render_html(
+        &self,
+        input: RenderInput<'_>,
+        cfg: &Self::Config,
+    ) -> eyre::Result<RenderOutput>;
+
+    /// Render a short body fragment as inline HTML (search snippets, hovers).
+    /// Default: HTML-escape only. Markdown overrides to run marq.
+    async fn render_inline(&self, text: &str) -> String {
+        html_escape::encode_text(text).into_owned()
     }
 }
 

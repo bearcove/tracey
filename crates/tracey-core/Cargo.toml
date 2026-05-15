@@ -64,6 +64,7 @@ strictdoc-parser = { workspace = true }
 arborium-tree-sitter = { workspace = true }
 arborium-typst = { workspace = true }
 html-escape = { workspace = true }
+async-trait = { workspace = true }
 
 # Optional
 ignore = { workspace = true, optional = true }
