@@ -17,7 +17,6 @@ mod sdoc;
 pub mod typst;
 
 pub use registry::{ErasedConfig, NoConfig, SpecConfigs};
-pub use sdoc::SDOC_PREFIX;
 pub use typst::TypstConfig;
 
 // Re-export the marq types that callers interact with regardless of format.
@@ -183,6 +182,13 @@ pub struct RenderInput<'a> {
     pub badge_for: BadgeFn,
     /// Cross-file heading-slug deduplicator (shared across the whole build).
     pub slugs: &'a mut SlugAllocator,
+    /// Out-param: extra files read during render (imports/includes) — fed to
+    /// the file-watcher and cache-key.
+    ///
+    /// An out-param rather than a [`RenderOutput`] field so that partial
+    /// fills survive `Err` — a helper that *broke* the compile is exactly
+    /// the file the watcher needs to learn about.
+    pub deps: &'a mut std::collections::HashSet<PathBuf>,
     /// Pre-built marq render options (code-block / inline-code handlers from
     /// the caller's environment). Used by [`SpecFormat::Markdown`]; other
     /// backends ignore it. The backend overwrites `source_path` and
@@ -206,12 +212,13 @@ pub struct RenderedSection {
 }
 
 /// Output of [`SpecBackend::render_html`].
+///
+/// Transitive-dependency paths are written to [`RenderInput::deps`] rather
+/// than returned here, so they reach the watcher even when render returns
+/// `Err`.
 #[derive(Debug)]
 pub struct RenderOutput {
     pub sections: Vec<RenderedSection>,
-    /// Extra files read during render (imports/includes) — fed to the
-    /// file-watcher and cache-key.
-    pub deps: Vec<PathBuf>,
 }
 
 /// Per-format spec backend.

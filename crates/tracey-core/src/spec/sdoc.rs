@@ -101,10 +101,7 @@ impl SpecBackend for Sdoc {
                 head_injections: vec![],
             });
         }
-        Ok(RenderOutput {
-            sections,
-            deps: vec![],
-        })
+        Ok(RenderOutput { sections })
     }
 }
 

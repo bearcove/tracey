@@ -2877,6 +2877,7 @@ async fn load_spec_content(
                 root,
                 badge_for: badge_for.clone(),
                 slugs: &mut slug_alloc,
+                deps: spec_file_deps,
                 marq_opts: Some(&mut opts),
             },
             &spec_cfgs,
@@ -2893,7 +2894,6 @@ async fn load_spec_content(
             all_elements.extend(sec.elements);
             head_injections.extend(sec.head_injections);
         }
-        spec_file_deps.extend(out.deps);
     }
 
     // head_injections from multiple runs may repeat (e.g. mermaid loader); the

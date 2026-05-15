@@ -55,13 +55,12 @@ impl SpecBackend for Markdown {
             badge_for,
             slugs,
             marq_opts,
+            // markdown has no transitive includes; nothing to write to `deps`
+            deps: _,
         } = input;
 
         if sources.is_empty() {
-            return Ok(RenderOutput {
-                sections: vec![],
-                deps: vec![],
-            });
+            return Ok(RenderOutput { sections: vec![] });
         }
 
         // Concatenate the run so heading IDs are hierarchical across files
@@ -104,7 +103,6 @@ impl SpecBackend for Markdown {
                 elements: doc.elements,
                 head_injections: doc.head_injections,
             }],
-            deps: Vec::new(),
         })
     }
 

@@ -13,7 +13,6 @@
 //!   - `heading` level = `child(0).kind().len()` (anonymous `=`, `==`, …).
 //!   - `raw_span > blob` is inline code without backticks.
 
-use std::collections::HashSet;
 use std::ops::Range;
 use std::path::PathBuf;
 
@@ -95,12 +94,12 @@ impl SpecBackend for Typst {
             sources,
             root,
             slugs,
+            deps,
             badge_for,
             // marq_opts unused: typst has its own renderer
             ..
         } = input;
 
-        let mut deps = HashSet::new();
         let mut sections = Vec::with_capacity(sources.len());
         for (idx, src) in sources.iter().enumerate() {
             let abs_source = root.join(src.path);
@@ -115,7 +114,7 @@ impl SpecBackend for Typst {
                 cfg.package_path.as_deref(),
                 &ctx,
                 slugs,
-                &mut deps,
+                deps,
             )
             .await?;
             sections.push(RenderedSection {
@@ -125,10 +124,7 @@ impl SpecBackend for Typst {
                 head_injections: doc.head_injections,
             });
         }
-        Ok(RenderOutput {
-            sections,
-            deps: deps.into_iter().collect(),
-        })
+        Ok(RenderOutput { sections })
     }
 }
 
