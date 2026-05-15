@@ -156,3 +156,34 @@ These don't conflict because `r[api.format]` and `m[api.format]` belong to diffe
 ## Versioning
 
 Requirements can carry a version suffix like `r[auth.login+2]`. This is covered in detail in [Versioning](versioning.md). The short version: when you change a requirement's text, you bump its version number so tracey can tell you which code references are stale.
+
+## StrictDoc format (`.sdoc`)
+
+Tracey also reads [StrictDoc](https://strictdoc.readthedocs.io/) `.sdoc` files as a sibling to markdown. The format is picked from the file extension — there is no `format` field on `SpecConfig`. Mix `.md` and `.sdoc` files inside the same `include` glob freely; both end up in the same coverage table.
+
+Minimal example:
+
+```sdoc
+[DOCUMENT]
+TITLE: Channel management
+
+[REQUIREMENT]
+UID: CH-001
+TITLE: Sequential ID allocation
+STATEMENT: Channel IDs MUST be allocated sequentially starting from 0.
+
+[REQUIREMENT]
+UID: CH-002
+TITLE: Parity rule
+STATEMENT: Client-initiated channels MUST use odd IDs, server-initiated channels MUST use even IDs.
+```
+
+Requirements without a `UID:` field are skipped silently; tracey can't reference a requirement it can't name.
+
+**Source-side prefix.** `.sdoc` has no `PREFIX[…]` marker, so tracey uses the synthetic prefix `r` for these requirements. References from your code use the same `r[…]` syntax that markdown specs use, or — if you'd rather match StrictDoc's own conventions — the [`@relation(...)`](annotating-code.md#strictdoc-style-markers-relation) form.
+
+**UID case is preserved.** A spec declaring `UID: CH-001` is queried as `tracey query rule CH-001` — uppercase end-to-end. `CH-001` and `ch-001` are distinct rule IDs.
+
+**STATEMENT rendering.** When the document declares `OPTIONS: MARKUP: Markdown`, tracey renders STATEMENT fields through its markdown pipeline. Other `MARKUP:` values (`Text`, `RST`, or absent) are HTML-escaped and wrapped in `<p>`; an RST renderer is not bundled.
+
+Refer to the StrictDoc documentation for the full grammar; tracey reads the common subset (`[DOCUMENT]`, `[[SECTION]]`, `[REQUIREMENT]`, single-line and heredoc field values, and the document-level `OPTIONS:` block).

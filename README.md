@@ -2,13 +2,13 @@
 
 > **Note:** Looking for Tracy, the frame profiler? That's a different project: [wolfpld/tracy](https://github.com/wolfpld/tracy)
 
-Spec coverage for codebases. Tracks traceability between requirements (in markdown) and implementations/tests (in source code). Catches spec drift before it becomes a problem.
+Spec coverage for codebases. Tracks traceability between requirements (in markdown or StrictDoc) and implementations/tests (in source code). Catches spec drift before it becomes a problem.
 
 ## What it does
 
 Specs, implementations, and tests drift apart — code changes without updating specs, specs describe unimplemented features, tests cover different scenarios than requirements specify.
 
-Tracey uses lightweight annotations in markdown and source code comments to link specification requirements with implementing code and tests. This enables:
+Tracey uses lightweight annotations in source code comments to link specification requirements — written in markdown or StrictDoc (`.sdoc`) — with the implementing code and tests. This enables:
 
 - Verifying multiple implementations (different languages, platforms) match the same spec
 - Finding which requirements lack implementation or tests
@@ -32,9 +32,9 @@ Pre-built binaries are available for `aarch64-apple-darwin`, `aarch64-unknown-li
 
 ## Quick Start
 
-### 1. Define requirements in your spec (markdown)
+### 1. Define requirements in your spec
 
-Use the `r[req.id]` syntax to define requirements in your specification documents:
+Use the `r[req.id]` syntax to define requirements in a markdown specification document:
 
 ```markdown
 # Channel Management
@@ -47,6 +47,8 @@ Client-initiated channels MUST use odd IDs, server-initiated channels MUST use e
 ```
 
 The prefix (`r` in this case) can be any lowercase alphanumeric marker. Tracey infers it from the spec files.
+
+Specs authored in [StrictDoc](https://strictdoc.readthedocs.io/) (`.sdoc`) are loaded the same way — see [Writing Specs](docs/content/guide/writing-specs.md) for the syntax. Pick whichever format fits your project; they don't mix per spec.
 
 ### 2. Reference requirements in your code
 
