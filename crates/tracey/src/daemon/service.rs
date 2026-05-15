@@ -772,19 +772,12 @@ impl TraceyDaemon for TraceyService {
             // escaping/rendering so a literal "<mark>" in user content can't
             // inject a highlight.
             let highlighted = if r.kind == ResultKind::Rule {
-                match r.format {
-                    Some(SpecFormat::Typst) => crate::search::marks_to_html(&r.highlighted),
-                    // Markdown (or unknown → assume markdown for legacy entries)
-                    _ => {
-                        let opts = marq::RenderOptions::default();
-                        match marq::render(&r.highlighted, &opts).await {
-                            // marq output is already escaped HTML; PUA chars
-                            // pass through the markdown pipeline untouched.
-                            Ok(doc) => crate::search::pua_to_mark(&doc.html),
-                            Err(_) => crate::search::marks_to_html(&r.highlighted),
-                        }
-                    }
-                }
+                // Render via the spec backend (markdown → marq, typst → escape,
+                // …); PUA sentinels survive every backend's render_inline path
+                // so the `<mark>` substitution stays here, search-side.
+                let fmt = r.format.unwrap_or(SpecFormat::Markdown);
+                let rendered = tracey_core::render_spec_inline(fmt, &r.highlighted).await;
+                crate::search::pua_to_mark(&rendered)
             } else {
                 crate::search::marks_to_html(&r.highlighted)
             };

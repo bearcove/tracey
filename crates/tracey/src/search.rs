@@ -223,11 +223,7 @@ mod tantivy_impl {
             // Index rules - use raw markdown directly (rule_id_field handles ID search)
             // r[impl dashboard.search.render-requirements]
             for rule in rules {
-                let format_str = match rule.format {
-                    SpecFormat::Markdown => "markdown",
-                    SpecFormat::Typst => "typst",
-                    _ => "markdown", // future formats: index as markdown until handled
-                };
+                let format_str = rule.format.name();
                 index_writer.add_document(doc!(
                     kind_field => "rule",
                     id_field => rule.id.clone(),
@@ -314,11 +310,7 @@ mod tantivy_impl {
                     let format = doc
                         .get_first(format_field)
                         .and_then(|v| v.as_str())
-                        .and_then(|s| match s {
-                            "markdown" => Some(SpecFormat::Markdown),
-                            "typst" => Some(SpecFormat::Typst),
-                            _ => None,
-                        });
+                        .and_then(SpecFormat::from_name);
 
                     // r[impl dashboard.search.render-requirements]
                     // r[impl dashboard.search.requirement-styling]
