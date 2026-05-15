@@ -107,6 +107,18 @@ pub enum SpecFormat {
 }
 
 impl SpecFormat {
+    /// The registered backend for this format.
+    ///
+    /// Crate-private because [`DynBackend`](registry::DynBackend) is the
+    /// internal erasure layer; callers go through [`parse_spec`] etc.
+    pub(crate) fn backend(self) -> &'static dyn registry::DynBackend {
+        registry::BACKENDS
+            .iter()
+            .copied()
+            .find(|b| b.format() == self)
+            .expect("every SpecFormat variant has a registered backend")
+    }
+
     /// Classify a path by its extension.
     pub fn from_path(p: &Path) -> Option<Self> {
         Self::from_ext(p.extension()?)
@@ -114,29 +126,25 @@ impl SpecFormat {
 
     /// Classify a bare extension (no leading dot).
     pub fn from_ext(ext: &OsStr) -> Option<Self> {
-        match ext.to_str()? {
-            "md" | "markdown" => Some(Self::Markdown),
-            "typ" => Some(Self::Typst),
-            _ => None,
-        }
+        let s = ext.to_str()?;
+        registry::BACKENDS
+            .iter()
+            .find(|b| b.extensions().contains(&s))
+            .map(|b| b.format())
     }
 
     /// Stable lowercase identifier — used for the tantivy index, logs, and the
     /// `[spec.<name>]` config table key.
     pub fn name(self) -> &'static str {
-        match self {
-            Self::Markdown => "markdown",
-            Self::Typst => "typst",
-        }
+        self.backend().name()
     }
 
     /// Inverse of [`name`](Self::name).
     pub fn from_name(name: &str) -> Option<Self> {
-        match name {
-            "markdown" => Some(Self::Markdown),
-            "typst" => Some(Self::Typst),
-            _ => None,
-        }
+        registry::BACKENDS
+            .iter()
+            .find(|b| b.name() == name)
+            .map(|b| b.format())
     }
 }
 
@@ -258,10 +266,7 @@ pub fn is_spec_extension(ext: &OsStr) -> bool {
 /// This is the cheap path: requirement definitions, doc elements, and source
 /// spans are populated. The `html` field may be empty depending on backend.
 pub async fn parse_spec(fmt: SpecFormat, content: &str) -> eyre::Result<SpecDoc> {
-    match fmt {
-        SpecFormat::Markdown => markdown::parse(content).await,
-        SpecFormat::Typst => typst::parse(content).await,
-    }
+    fmt.backend().parse(content).await
 }
 
 /// Render an inline diff of two spec snippets as markdown.
@@ -269,20 +274,14 @@ pub async fn parse_spec(fmt: SpecFormat, content: &str) -> eyre::Result<SpecDoc>
 /// Removed runs are wrapped in `~~strikethrough~~`, added runs in `**bold**`.
 /// Returns `None` only when a backend cannot diff at all (none currently).
 pub fn diff_inline(fmt: SpecFormat, old: &str, new: &str) -> Option<String> {
-    match fmt {
-        SpecFormat::Markdown => Some(markdown::diff_inline(old, new)),
-        SpecFormat::Typst => typst::diff_inline(old, new),
-    }
+    fmt.backend().diff_inline(old, new)
 }
 
 /// Extract the sort weight from frontmatter / document metadata.
 ///
 /// Returns `0` when no weight is declared or parsing fails.
 pub fn parse_weight(fmt: SpecFormat, content: &str) -> i32 {
-    match fmt {
-        SpecFormat::Markdown => markdown::parse_weight(content),
-        SpecFormat::Typst => typst::parse_weight(content),
-    }
+    fmt.backend().parse_weight(content)
 }
 
 /// Extract the marker prefix (e.g. `"r"` from `r[foo.bar]`) at `span` in
@@ -290,10 +289,7 @@ pub fn parse_weight(fmt: SpecFormat, content: &str) -> i32 {
 ///
 /// Returns `None` if the span is out of bounds or the marker is malformed.
 pub fn extract_marker_prefix(fmt: SpecFormat, content: &str, span: SourceSpan) -> Option<String> {
-    match fmt {
-        SpecFormat::Markdown => markdown::extract_marker_prefix(content, span),
-        SpecFormat::Typst => typst::extract_marker_prefix(content, span),
-    }
+    fmt.backend().extract_marker_prefix(content, span)
 }
 
 /// Locate the requirement-id literal within a marker string.
@@ -304,10 +300,7 @@ pub fn extract_marker_prefix(fmt: SpecFormat, content: &str, span: SourceSpan) -
 /// arguments before the positional id (`#req(level: "shall", "a.b")`), which
 /// only the parser can disambiguate.
 pub fn id_range_in_marker(fmt: SpecFormat, marker_str: &str) -> eyre::Result<Range<usize>> {
-    match fmt {
-        SpecFormat::Markdown => markdown::id_range_in_marker(marker_str),
-        SpecFormat::Typst => typst::id_range_in_marker(marker_str),
-    }
+    fmt.backend().id_range_in_marker(marker_str)
 }
 
 /// Rewrite a marker string to point at `base+new_ver`.

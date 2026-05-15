@@ -36,7 +36,6 @@ pub struct ErasedConfig(Box<dyn Any + Send + Sync>);
 /// free-function shims; only `data.rs` (via `SpecConfigs`) interacts with this
 /// directly once the render loop is migrated.
 #[async_trait]
-#[allow(dead_code)] // wired up in tasks 2-5
 pub(crate) trait DynBackend: Send + Sync + 'static {
     fn format(&self) -> SpecFormat;
     fn name(&self) -> &'static str;
@@ -48,11 +47,13 @@ pub(crate) trait DynBackend: Send + Sync + 'static {
     fn id_range_in_marker(&self, marker: &str) -> eyre::Result<Range<usize>>;
     fn diff_inline(&self, old: &str, new: &str) -> Option<String>;
 
+    #[allow(dead_code)] // wired in task 5 (data.rs render loop)
     async fn render_html(
         &self,
         input: RenderInput<'_>,
         cfg: &ErasedConfig,
     ) -> eyre::Result<RenderOutput>;
+    #[allow(dead_code)] // wired in task 6 (service.rs snippet render)
     async fn render_inline(&self, text: &str) -> String;
 
     /// Build this backend's [`ErasedConfig`].
@@ -113,7 +114,6 @@ impl<B: SpecBackend> DynBackend for B {
 /// Single source of truth for spec-format dispatch.
 ///
 /// Adding a format = one entry here + one [`SpecFormat`] variant.
-#[allow(dead_code)] // consumed in task 4
 pub(crate) static BACKENDS: &[&dyn DynBackend] = &[&super::markdown::Markdown, &super::typst::Typst];
 
 /// Per-project config bundle for every registered backend.

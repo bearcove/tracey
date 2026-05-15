@@ -93,12 +93,13 @@ impl SpecBackend for Typst {
             sources,
             slugs,
             badge_for,
+            // root unused: render_display resolves imports relative to src.path
             ..
         } = input;
         // `RenderCtx.badge_for` wants `&dyn Fn + Sync`; `BadgeFn` is
         // `Arc<dyn Fn + Send + Sync>`. Adapt with a borrowing closure rather
         // than relying on auto-trait dyn upcast.
-        let badge = move |r: &ReqDefinition| badge_for(r);
+        let badge = |r: &ReqDefinition| badge_for(r);
         let ctx = RenderCtx { badge_for: &badge };
 
         let mut deps = HashSet::new();
