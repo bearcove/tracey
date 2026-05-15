@@ -16,6 +16,7 @@ mod registry;
 pub mod typst;
 
 pub use registry::{ErasedConfig, NoConfig, SpecConfigs};
+pub use typst::TypstConfig;
 
 // Re-export the marq types that callers interact with regardless of format.
 // `SpecDoc` is a type alias for `marq::Document` — see Spike C in NOTES: all

@@ -29,8 +29,8 @@ pub use sources::{
 pub use spec::{
     BadgeFn, ErasedConfig, NoConfig, REQ_ANCHOR_PREFIX, RenderInput, RenderOutput, RenderSource,
     ReqDefinition, SPEC_EXTENSIONS, SlugAllocator, SpecBackend, SpecConfigs, SpecDoc, SpecFormat,
-    diff_inline, extract_marker_prefix, id_range_in_marker, is_spec_extension, parse_spec,
-    parse_weight, req_anchor_id, req_anchor_to_id, rewrite_marker,
+    TypstConfig, diff_inline, extract_marker_prefix, id_range_in_marker, is_spec_extension,
+    parse_spec, parse_weight, req_anchor_id, req_anchor_to_id, rewrite_marker,
 };
 
 #[cfg(feature = "walk")]

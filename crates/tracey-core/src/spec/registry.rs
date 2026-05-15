@@ -114,7 +114,7 @@ impl<B: SpecBackend> DynBackend for B {
 ///
 /// Adding a format = one entry here + one [`SpecFormat`] variant.
 #[allow(dead_code)] // consumed in task 4
-pub(crate) static BACKENDS: &[&dyn DynBackend] = &[&super::markdown::Markdown];
+pub(crate) static BACKENDS: &[&dyn DynBackend] = &[&super::markdown::Markdown, &super::typst::Typst];
 
 /// Per-project config bundle for every registered backend.
 ///

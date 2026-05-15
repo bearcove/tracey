@@ -13,13 +13,17 @@
 //!   - `heading` level = `child(0).kind().len()` (anonymous `=`, `==`, …).
 //!   - `raw_span > blob` is inline code without backticks.
 
+use std::collections::HashSet;
+use std::ops::Range;
+use std::path::PathBuf;
+
 use arborium_tree_sitter::{Node, Parser};
 use marq::{
     DocElement, Heading, InlineCodeSpan, ReqDefinition, ReqLevel, ReqMetadata, ReqStatus,
     SourceSpan,
 };
 
-use super::{SlugAllocator, SpecDoc};
+use super::{RenderInput, RenderOutput, SlugAllocator, SpecBackend, SpecDoc, SpecFormat};
 
 /// Context for [`render_display`]: callbacks that the typst→HTML pipeline cannot
 /// resolve on its own (coverage data lives in the `tracey` crate).
@@ -32,6 +36,90 @@ pub struct RenderCtx<'a> {
     /// `Sync` because [`render_display`] is async and the ctx is held across
     /// awaits inside `Send` futures.
     pub badge_for: &'a (dyn Fn(&ReqDefinition) -> (String, String) + Sync),
+}
+
+/// `[spec.typst]` config table.
+#[derive(Default, Debug, Clone, facet::Facet)]
+pub struct TypstConfig {
+    /// Vendored typst package directory laid out as
+    /// `<namespace>/<name>/<version>/`. See [`render_display`].
+    pub package_path: Option<PathBuf>,
+}
+
+/// Typst backend.
+///
+/// Extraction walks the tree-sitter parse tree (cheap; no compiler).
+/// `render_html` drives the full typst→HTML compiler via [`render_display`]
+/// per source file — typst has its own `#include` mechanism so concatenation
+/// is neither needed nor correct.
+pub struct Typst;
+
+#[async_trait::async_trait]
+impl SpecBackend for Typst {
+    type Config = TypstConfig;
+
+    fn format(&self) -> SpecFormat {
+        SpecFormat::Typst
+    }
+    fn name(&self) -> &'static str {
+        "typst"
+    }
+    fn extensions(&self) -> &'static [&'static str] {
+        &["typ"]
+    }
+
+    async fn parse(&self, content: &str) -> eyre::Result<SpecDoc> {
+        parse(content).await
+    }
+    fn parse_weight(&self, content: &str) -> i32 {
+        parse_weight(content)
+    }
+    fn extract_marker_prefix(&self, content: &str, span: SourceSpan) -> Option<String> {
+        extract_marker_prefix(content, span)
+    }
+    fn id_range_in_marker(&self, marker: &str) -> eyre::Result<Range<usize>> {
+        id_range_in_marker(marker)
+    }
+    fn diff_inline(&self, old: &str, new: &str) -> Option<String> {
+        diff_inline(old, new)
+    }
+
+    async fn render_html(
+        &self,
+        input: RenderInput<'_>,
+        cfg: &TypstConfig,
+    ) -> eyre::Result<RenderOutput> {
+        let RenderInput {
+            sources,
+            slugs,
+            badge_for,
+            ..
+        } = input;
+        // `RenderCtx.badge_for` wants `&dyn Fn + Sync`; `BadgeFn` is
+        // `Arc<dyn Fn + Send + Sync>`. Adapt with a borrowing closure rather
+        // than relying on auto-trait dyn upcast.
+        let badge = move |r: &ReqDefinition| badge_for(r);
+        let ctx = RenderCtx { badge_for: &badge };
+
+        let mut deps = HashSet::new();
+        let mut html = String::new();
+        for src in sources {
+            let doc = render_display(
+                src.content,
+                src.path,
+                cfg.package_path.as_deref(),
+                &ctx,
+                slugs,
+                &mut deps,
+            )
+            .await?;
+            html.push_str(&doc.html);
+        }
+        Ok(RenderOutput {
+            html,
+            deps: deps.into_iter().collect(),
+        })
+    }
 }
 
 /// Compile `content` with the typst HTML backend and splice coverage badges in.
