@@ -1120,7 +1120,7 @@ async fn extract_sdoc_rules_cached(
     };
 
     let content_hash = compute_content_hash(&content);
-    if let Some(entry) = cache.markdown_files.get(&canonical) {
+    if let Some(entry) = cache.spec_files.get(&canonical) {
         if !overlay_is_present
             && entry.file_len == file_len
             && entry.modified_nanos == modified_nanos
@@ -1129,13 +1129,13 @@ async fn extract_sdoc_rules_cached(
             return Ok(entry.extracted_rules.clone());
         }
         if entry.content_hash == content_hash {
-            let updated = CachedMarkdownFile {
+            let updated = CachedSpecFile {
                 content_hash,
                 file_len,
                 modified_nanos,
                 extracted_rules: entry.extracted_rules.clone(),
             };
-            cache.markdown_files.insert(canonical, updated.clone());
+            cache.spec_files.insert(canonical, updated.clone());
             stats.hash_hits += 1;
             return Ok(updated.extracted_rules);
         }
@@ -1158,9 +1158,9 @@ async fn extract_sdoc_rules_cached(
         );
     }
 
-    cache.markdown_files.insert(
+    cache.spec_files.insert(
         canonical,
-        CachedMarkdownFile {
+        CachedSpecFile {
             content_hash,
             file_len,
             modified_nanos,

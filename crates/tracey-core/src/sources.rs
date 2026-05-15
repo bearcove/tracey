@@ -23,13 +23,6 @@ pub fn is_supported_extension(ext: &OsStr) -> bool {
         .is_some_and(|e| SUPPORTED_EXTENSIONS.contains(&e))
 }
 
-/// Check if a file extension identifies a specification source tracey can load.
-///
-/// Currently `md` (marq markdown) and `sdoc` (StrictDoc).
-pub fn is_spec_extension(ext: &OsStr) -> bool {
-    matches!(ext.to_str(), Some("md") | Some("sdoc"))
-}
-
 /// Trait for providing source files to extract requirements from
 pub trait Sources {
     /// Extract requirements from all sources

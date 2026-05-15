@@ -121,8 +121,12 @@ impl SpecFormat {
 }
 
 /// Returns true if `ext` is a recognised spec-document extension.
+///
+/// `.sdoc` is special-cased pending a `SpecFormat::Sdoc` variant — StrictDoc
+/// extraction currently lives in `tracey::sdoc` and is dispatched directly in
+/// `data.rs` rather than via [`parse_spec`].
 pub fn is_spec_extension(ext: &OsStr) -> bool {
-    SpecFormat::from_ext(ext).is_some()
+    SpecFormat::from_ext(ext).is_some() || ext.to_str() == Some("sdoc")
 }
 
 /// Parse spec `content` into a [`SpecDoc`].

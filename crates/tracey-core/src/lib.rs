@@ -23,7 +23,7 @@ pub use rule_id::{
     parse_rule_id,
 };
 pub use sources::{
-    ExtractionResult, MemorySources, PathSources, SUPPORTED_EXTENSIONS, Sources, is_spec_extension,
+    ExtractionResult, MemorySources, PathSources, SUPPORTED_EXTENSIONS, Sources,
     is_supported_extension,
 };
 pub use spec::{

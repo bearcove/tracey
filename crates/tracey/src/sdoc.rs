@@ -83,6 +83,11 @@ pub async fn extract_rules_from_sdoc(
         rules.push(ExtractedRule {
             def,
             source_file: source_file.to_string(),
+            // TODO(sdoc-specformat): add `SpecFormat::Sdoc` and route extraction
+            // through `parse_spec`; until then sdoc rules report as Markdown so
+            // downstream rendering (search highlight, hover) treats body text
+            // as plain prose via the existing wildcard arms.
+            format: tracey_core::SpecFormat::Markdown,
             prefix: SDOC_PREFIX.to_string(),
             column,
             section: None,
