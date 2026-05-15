@@ -166,118 +166,6 @@ fn walk<'a>(node: Node<'a>, f: &mut impl FnMut(Node<'a>) -> bool) {
     }
 }
 
-/// Typst standard-library globals that must never be interpreted as requirement
-/// marker prefixes.
-///
-/// Typst's `#fn("str")[body]` is the universal call syntax, so without this
-/// filter `#image("foo.png")` or `#link("url")[text]` would be extracted as
-/// requirements and poison downstream prefix inference (`tracey::data` hard-
-/// errors on mixed prefixes rather than silently dropping them).
-///
-/// Sorted for `binary_search`. Covers the documented top-level functions from
-/// the typst reference; if typst adds a new global that collides with a user's
-/// chosen prefix, the "multiple requirement marker prefixes" error will surface
-/// it explicitly.
-const TYPST_BUILTINS: &[&str] = &[
-    "align",
-    "array",
-    "assert",
-    "bibliography",
-    "block",
-    "box",
-    "bytes",
-    "cbor",
-    "circle",
-    "cite",
-    "colbreak",
-    "columns",
-    "counter",
-    "csv",
-    "curve",
-    "datetime",
-    "dictionary",
-    "document",
-    "duration",
-    "ellipse",
-    "emph",
-    "enum",
-    "eval",
-    "figure",
-    "float",
-    "footnote",
-    "gradient",
-    "grid",
-    "h",
-    "heading",
-    "hide",
-    "highlight",
-    "image",
-    "include",
-    "int",
-    "json",
-    "label",
-    "layout",
-    "line",
-    "linebreak",
-    "link",
-    "list",
-    "locate",
-    "lorem",
-    "lower",
-    "measure",
-    "metadata",
-    "move",
-    "numbering",
-    "outline",
-    "overline",
-    "pad",
-    "page",
-    "pagebreak",
-    "panic",
-    "par",
-    "parbreak",
-    "path",
-    "pattern",
-    "place",
-    "plugin",
-    "polygon",
-    "query",
-    "quote",
-    "raw",
-    "read",
-    "rect",
-    "ref",
-    "regex",
-    "repeat",
-    "repr",
-    "rotate",
-    "scale",
-    "selector",
-    "skew",
-    "smallcaps",
-    "smartquote",
-    "square",
-    "stack",
-    "state",
-    "str",
-    "strike",
-    "strong",
-    "sub",
-    "super",
-    "table",
-    "terms",
-    "text",
-    "tiling",
-    "toml",
-    "type",
-    "underline",
-    "upper",
-    "v",
-    "version",
-    "xml",
-    "yaml",
-];
-
 /// Try to interpret a `code` node as a `#prefix("id", ..)[body]` requirement.
 fn extract_req(code: Node<'_>, bytes: &[u8]) -> Option<ReqDefinition> {
     // Two tree shapes, depending on whether a `[body]` block is present:
@@ -292,10 +180,12 @@ fn extract_req(code: Node<'_>, bytes: &[u8]) -> Option<ReqDefinition> {
         return None;
     }
     let prefix = slice(bytes, ident.start_byte(), ident.end_byte());
-    // Reject typst stdlib globals so `#image(..)`, `#link(..)`, etc. are never
-    // mistaken for requirement markers. Any other ident is a candidate; if a
-    // spec genuinely mixes prefixes the inference step reports it.
-    if TYPST_BUILTINS.binary_search(&prefix).is_ok() {
+    // Only `#r(...)` and `#req(...)` are requirement markers. A denylist of
+    // typst builtins is insufficient: third-party packages (unify's `#qty`,
+    // glossarium's `#gls`, etc.) define their own functions that take string
+    // args, and every such call would otherwise be picked up as a phantom
+    // marker and poison downstream prefix inference.
+    if !matches!(prefix, "r" | "req") {
         return None;
     }
 
@@ -1887,18 +1777,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn typst_builtins_are_not_reqs() {
-        // `#image`, `#link`, `#figure` all match the `#ident("str")[body]` call
-        // shape but are typst stdlib functions, not requirement markers.
+    async fn marker_extraction_is_allowlist() {
+        // Only `#r(..)` and `#req(..)` are requirement markers. Everything
+        // else — typst stdlib (`#image`, `#link`), third-party packages
+        // (unify's `#qty`, glossarium's `#gls`), or arbitrary user-defined
+        // functions — must be ignored even though it matches the
+        // `#ident("str")[body]` call shape.
         let src = concat!(
             "#image(\"foo.png\")\n",
             "#link(\"https://example.com\")[click me]\n",
             "#figure(\"img.one\")[Caption]\n",
-            "#req(\"real.one\")[Body]\n",
+            "#qty(\"5\", \"s\")\n",
+            "#gls(\"term\")\n",
+            "#custom(\"x\")[body]\n",
+            "#r(\"a.b\")[Body]\n",
+            "#req(\"c.d\")[Body]\n",
         );
         let doc = parse(src).await.unwrap();
-        assert_eq!(doc.reqs.len(), 1);
-        assert_eq!(doc.reqs[0].id.base, "real.one");
+        let ids: Vec<_> = doc.reqs.iter().map(|r| r.id.base.as_str()).collect();
+        assert_eq!(ids, vec!["a.b", "c.d"]);
     }
 
     #[test]
@@ -1941,16 +1838,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn long_prefixes_are_accepted() {
-        // No length cap on the prefix ident — only the builtin denylist filters.
-        let src = "#requirement(\"auth.login\")[Body]\n";
-        let doc = parse(src).await.unwrap();
-        assert_eq!(doc.reqs.len(), 1);
-        assert_eq!(doc.reqs[0].id.base, "auth.login");
-        assert_eq!(doc.reqs[0].anchor_id, "r--auth.login");
-    }
-
-    #[tokio::test]
     async fn parses_bodyless_req() {
         // Bare `#r("id")` with no `[body]` block parses as a single (non-nested)
         // call; it must still be extracted as a definition with empty body.
@@ -1966,15 +1853,6 @@ mod tests {
         assert_eq!(m, "#r(\"auth.stub\")");
         let s = &src[r.span.offset..r.span.offset + r.span.length];
         assert_eq!(s, "#r(\"auth.stub\")");
-    }
-
-    #[test]
-    fn typst_builtins_list_is_sorted() {
-        // `binary_search` requires a sorted slice; guard against accidental
-        // mis-ordering when the list is extended.
-        for w in TYPST_BUILTINS.windows(2) {
-            assert!(w[0] < w[1], "TYPST_BUILTINS not sorted: {} >= {}", w[0], w[1]);
-        }
     }
 
     #[tokio::test]

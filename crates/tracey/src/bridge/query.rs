@@ -619,7 +619,11 @@ impl QueryClient {
             };
 
             if status.impls.is_empty() {
-                ("No spec/impl combinations configured.".to_string(), false)
+                // Empty impls with a config error means the daemon fell back
+                // to an empty config after a load/validation failure — that
+                // must fail `tracey query validate`, not silently pass.
+                let has_config_error = self.get_config_error_banner().await.is_some();
+                ("No spec/impl combinations configured.".to_string(), has_config_error)
             } else {
                 let mut output = String::new();
                 let mut total_errors = 0;
