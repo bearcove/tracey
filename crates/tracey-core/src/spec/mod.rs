@@ -139,6 +139,13 @@ impl SpecFormat {
     }
 }
 
+/// Callback returning `(open_html, close_html)` to wrap a requirement body.
+///
+/// `Arc` + `'static` so backends can hand it to `marq::ReqHandler` (which
+/// boxes handlers as `'static`). Callers must move owned data into the
+/// closure rather than borrow from the stack.
+pub type BadgeFn = std::sync::Arc<dyn Fn(&ReqDefinition) -> (String, String) + Send + Sync>;
+
 /// One spec source file fed to [`SpecBackend::render_html`].
 pub struct RenderSource<'a> {
     pub path: &'a Path,
@@ -154,8 +161,12 @@ pub struct RenderInput<'a> {
     pub sources: &'a [RenderSource<'a>],
     /// Project root, for resolving relative `#import` / `include::`.
     pub root: &'a Path,
-    /// Coverage badge HTML to inject next to each requirement.
-    pub badge_for: &'a (dyn Fn(&ReqDefinition) -> String + Sync),
+    /// Coverage badge HTML to inject around each requirement: `(open, close)`.
+    /// Typically wraps the body in `<div class="req-container">…badges…<body></div></div>`.
+    ///
+    /// `Arc` because marq's `with_req_handler` requires `'static`; the markdown
+    /// backend clones this into a [`marq::ReqHandler`] adapter.
+    pub badge_for: BadgeFn,
     /// Cross-file heading-slug deduplicator (shared across the whole build).
     pub slugs: &'a mut SlugAllocator,
 }

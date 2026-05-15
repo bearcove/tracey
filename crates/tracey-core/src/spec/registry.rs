@@ -113,8 +113,8 @@ impl<B: SpecBackend> DynBackend for B {
 /// Single source of truth for spec-format dispatch.
 ///
 /// Adding a format = one entry here + one [`SpecFormat`] variant.
-#[allow(dead_code)] // populated in tasks 2-3
-pub(crate) static BACKENDS: &[&dyn DynBackend] = &[];
+#[allow(dead_code)] // consumed in task 4
+pub(crate) static BACKENDS: &[&dyn DynBackend] = &[&super::markdown::Markdown];
 
 /// Per-project config bundle for every registered backend.
 ///
