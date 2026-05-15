@@ -33,6 +33,7 @@ pub mod watcher;
 
 use eyre::{Result, WrapErr};
 use roam_stream::LocalLinkAcceptor;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -125,7 +126,7 @@ pub fn local_endpoint(project_root: &Path) -> String {
         .file_name()
         .and_then(|n| n.to_str())
         .expect("state_dir hash");
-    format!(r"\\.\pipe\tracey-{hash}").into()
+    format!(r"\\.\pipe\tracey-{hash}")
 }
 
 /// Path to the daemon PID file within the state directory.
@@ -358,6 +359,13 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
                         }
                     }
 
+                    // Transitive typst `#import` / `#include` targets discovered
+                    // during the last spec render. Checked before gitignore and
+                    // the exclude/include globs so a helper living in a
+                    // gitignored or excluded dir (e.g. `**/_generated/**`)
+                    // still triggers a re-render.
+                    let spec_deps = engine_for_rebuild.spec_file_deps().await;
+
                     // Filter changed files
                     let relative_paths: Vec<PathBuf> = changed_files
                         .iter()
@@ -373,37 +381,18 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
                         })
                         .filter(|p| !is_temporary_edit_artifact(p))
                         .filter(|p| {
-                            // Keep paths that are NOT ignored by gitignore
-                            let full_path = project_root_for_rebuild.join(p);
-                            !gitignore
-                                .matched_path_or_any_parents(&full_path, full_path.is_dir())
-                                .is_ignore()
-                        })
-                        .filter(|p| {
-                            // r[impl server.watch.respect-excludes]
-                            // Reject paths that match exclude patterns
-                            for pattern in &exclude_patterns {
-                                if let Ok(glob) = globset::Glob::new(pattern.as_str())
-                                    && glob.compile_matcher().is_match(p)
-                                {
-                                    return false;
-                                }
-                            }
-
-                            // r[impl server.watch.patterns-from-config]
-                            // Accept paths that match include patterns
-                            // If no include patterns, accept all non-excluded files
-                            if include_patterns.is_empty() {
-                                return true;
-                            }
-                            for pattern in &include_patterns {
-                                if let Ok(glob) = globset::Glob::new(pattern.as_str())
-                                    && glob.compile_matcher().is_match(p)
-                                {
-                                    return true;
-                                }
-                            }
-                            false
+                            // Hoist the only FS-touching bit so the predicate
+                            // itself stays pure and unit-testable.
+                            let is_dir = project_root_for_rebuild.join(p).is_dir();
+                            accept_changed_path(
+                                p,
+                                is_dir,
+                                &project_root_for_rebuild,
+                                &spec_deps,
+                                &gitignore,
+                                &exclude_patterns,
+                                &include_patterns,
+                            )
                         })
                         .collect();
 
@@ -581,6 +570,69 @@ fn is_temporary_edit_artifact(path: &Path) -> bool {
         || name.starts_with(".#")
 }
 
+/// Decide whether a changed path (relative to the project root) should
+/// trigger a rebuild.
+///
+/// Precedence (first match wins):
+/// 1. Paths in `spec_deps` (transitive typst `#import` / `#include` targets)
+///    always pass — even if gitignored or matched by an impl `exclude` glob.
+/// 2. Paths matched by `.gitignore` are rejected.
+///    r[impl server.watch.respect-gitignore]
+/// 3. Paths matching any `exclude` glob are rejected.
+///    r[impl server.watch.respect-excludes]
+/// 4. Paths matching any `include` glob are accepted (or all surviving
+///    paths if no include globs are configured).
+///    r[impl server.watch.patterns-from-config]
+///
+/// `is_dir` is hoisted to the caller so this function performs no
+/// filesystem I/O and can be unit-tested in isolation.
+fn accept_changed_path(
+    rel: &Path,
+    is_dir: bool,
+    project_root: &Path,
+    spec_deps: &HashSet<PathBuf>,
+    gitignore: &ignore::gitignore::Gitignore,
+    exclude_patterns: &[String],
+    include_patterns: &[String],
+) -> bool {
+    // (1) spec deps trump everything: a gitignored helper that the spec
+    // `#import`s must still cause a re-render.
+    if spec_deps.contains(rel) {
+        return true;
+    }
+
+    // (2) gitignore
+    let full_path = project_root.join(rel);
+    if gitignore
+        .matched_path_or_any_parents(&full_path, is_dir)
+        .is_ignore()
+    {
+        return false;
+    }
+
+    // (3) exclude globs
+    for pattern in exclude_patterns {
+        if let Ok(glob) = globset::Glob::new(pattern.as_str())
+            && glob.compile_matcher().is_match(rel)
+        {
+            return false;
+        }
+    }
+
+    // (4) include globs (empty = accept everything that survived above)
+    if include_patterns.is_empty() {
+        return true;
+    }
+    for pattern in include_patterns {
+        if let Ok(glob) = globset::Glob::new(pattern.as_str())
+            && glob.compile_matcher().is_match(rel)
+        {
+            return true;
+        }
+    }
+    false
+}
+
 fn path_triggers_reconfigure(path: &Path, config_path: &Path, gitignore_path: &Path) -> bool {
     if path == config_path || path == gitignore_path {
         return true;
@@ -730,17 +782,6 @@ pub async fn is_running(project_root: &Path) -> bool {
 
 /// Connect to a running daemon, or return an error.
 #[allow(dead_code)]
-#[cfg(unix)]
-pub async fn connect(project_root: &Path) -> Result<roam_local::LocalStream> {
-    let endpoint = local_endpoint(project_root);
-    roam_local::connect(&endpoint)
-        .await
-        .wrap_err_with(|| format!("Failed to connect to daemon at {}", endpoint))
-}
-
-/// Connect to a running daemon, or return an error.
-#[allow(dead_code)]
-#[cfg(windows)]
 pub async fn connect(project_root: &Path) -> Result<roam_local::LocalStream> {
     let endpoint = local_endpoint(project_root);
     roam_local::connect(&endpoint)
@@ -750,8 +791,87 @@ pub async fn connect(project_root: &Path) -> Result<roam_local::LocalStream> {
 
 #[cfg(test)]
 mod tests {
-    use super::path_triggers_reconfigure;
-    use std::path::Path;
+    use super::{accept_changed_path, path_triggers_reconfigure};
+    use std::collections::HashSet;
+    use std::path::{Path, PathBuf};
+
+    fn gitignore_with(root: &Path, lines: &[&str]) -> ignore::gitignore::Gitignore {
+        let mut builder = ignore::gitignore::GitignoreBuilder::new(root);
+        for line in lines {
+            builder.add_line(None, line).unwrap();
+        }
+        builder.build().unwrap()
+    }
+
+    #[test]
+    fn accept_spec_dep_even_when_gitignored() {
+        let root = Path::new("/repo");
+        let gi = gitignore_with(root, &["_generated/"]);
+        let helper = PathBuf::from("docs/_generated/helper.typ");
+        let spec_deps: HashSet<PathBuf> = [helper.clone()].into_iter().collect();
+
+        assert!(accept_changed_path(
+            &helper,
+            false,
+            root,
+            &spec_deps,
+            &gi,
+            &[],
+            &["**/*.typ".to_owned()],
+        ));
+    }
+
+    #[test]
+    fn reject_gitignored_path_without_spec_dep() {
+        let root = Path::new("/repo");
+        let gi = gitignore_with(root, &["_generated/"]);
+        let helper = Path::new("docs/_generated/helper.typ");
+
+        assert!(!accept_changed_path(
+            helper,
+            false,
+            root,
+            &HashSet::new(),
+            &gi,
+            &[],
+            &["**/*.typ".to_owned()],
+        ));
+    }
+
+    #[test]
+    fn accept_non_gitignored_path_matching_include_glob() {
+        let root = Path::new("/repo");
+        let gi = gitignore_with(root, &["_generated/"]);
+        let src = Path::new("docs/spec.typ");
+
+        assert!(accept_changed_path(
+            src,
+            false,
+            root,
+            &HashSet::new(),
+            &gi,
+            &[],
+            &["**/*.typ".to_owned()],
+        ));
+    }
+
+    #[test]
+    fn accept_spec_dep_even_when_excluded_by_glob() {
+        let root = Path::new("/repo");
+        let gi = ignore::gitignore::Gitignore::empty();
+        let helper = PathBuf::from("docs/_generated/helper.typ");
+        let spec_deps: HashSet<PathBuf> = [helper.clone()].into_iter().collect();
+
+        assert!(accept_changed_path(
+            &helper,
+            false,
+            root,
+            &spec_deps,
+            &gi,
+            &["**/_generated/**".to_owned()],
+            &["**/*.typ".to_owned()],
+        ));
+    }
 
     #[test]
     fn reconfigure_triggers_for_exact_paths() {

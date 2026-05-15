@@ -396,7 +396,7 @@ impl DaemonConnector {
                 return Ok(None);
             }
 
-            match roam_stream::LocalLink::connect(&endpoint).await {
+            match roam_stream::LocalLink::connect(endpoint).await {
                 Ok(stream) => return Ok(Some(stream)),
                 Err(e) => {
                     last_error = Some(e.to_string());

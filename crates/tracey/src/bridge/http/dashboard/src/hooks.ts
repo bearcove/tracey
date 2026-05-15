@@ -1,5 +1,5 @@
 // Custom hooks
-import { useCallback, useEffect, useState } from "preact/hooks";
+import { useCallback, useEffect, useMemo, useState } from "preact/hooks";
 import type {
   ApiData,
   Config,
@@ -259,4 +259,40 @@ export function useSpec(name: string | null, version: string | null): SpecConten
   }, [name, version]);
 
   return spec;
+}
+
+/**
+ * Sidebar collapse state that auto-collapses on narrow viewports without
+ * clobbering the user's persisted wide-viewport preference.
+ *
+ * Persistence happens ONLY in `toggle()` (user intent), never in an effect,
+ * so there is no effect-ordering dependency between viewport changes and
+ * localStorage writes.
+ */
+export function useResponsiveSidebar(storageKey: string): [boolean, () => void] {
+  const mq = useMemo(() => window.matchMedia("(max-width: 1199px)"), []);
+  const readPref = () => {
+    try { return window.localStorage.getItem(storageKey) === "1"; }
+    catch { return false; }
+  };
+  const [isNarrow, setIsNarrow] = useState(() => mq.matches);
+  const [collapsed, setCollapsed] = useState(() => mq.matches ? true : readPref());
+  useEffect(() => {
+    const onChange = (e: MediaQueryListEvent) => setIsNarrow(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  // ONLY effect that touches collapsed; never writes to localStorage.
+  useEffect(() => { setCollapsed(isNarrow ? true : readPref()); }, [isNarrow]);
+  const toggle = () => setCollapsed(c => {
+    const next = !c;
+    // Persist only explicit wide-viewport toggles. Read mq.matches directly
+    // (not closed-over isNarrow) so a click racing a viewport change can't
+    // mis-persist.
+    if (!mq.matches) {
+      try { window.localStorage.setItem(storageKey, next ? "1" : "0"); } catch {}
+    }
+    return next;
+  });
+  return [collapsed, toggle];
 }

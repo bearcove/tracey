@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { EDITORS, SIDEBAR_COLLAPSED_STORAGE_KEY } from "../config";
-import { useFile } from "../hooks";
+import { useFile, useResponsiveSidebar } from "../hooks";
 import { FilePath, html, LangIcon } from "../main";
 import type { FileContent, SourcesViewProps, TreeNodeWithCoverage } from "../types";
 import {
@@ -295,23 +295,7 @@ export function SourcesView({
   onSelectRule,
   onClearContext,
 }: SourcesViewProps) {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    if (typeof window === "undefined") return false;
-    if (window.innerWidth < 1200) return true;
-    return window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "1";
-  });
-
-  useEffect(() => {
-    window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, sidebarCollapsed ? "1" : "0");
-  }, [sidebarCollapsed]);
-
-  useEffect(() => {
-    const handleResize = () => {
-      if (window.innerWidth < 1200) setSidebarCollapsed(true);
-    };
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
+  const [sidebarCollapsed, toggleSidebar] = useResponsiveSidebar(SIDEBAR_COLLAPSED_STORAGE_KEY);
 
   const fileTree = useMemo(() => buildFileTree(data.files), [data.files]);
   const file = useFile(selectedFile);
@@ -388,7 +372,7 @@ export function SourcesView({
           <button
             class="sidebar-collapse-btn"
             type="button"
-            onClick=${() => setSidebarCollapsed((collapsed) => !collapsed)}
+            onClick=${toggleSidebar}
             title=${sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
             aria-label=${sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
             aria-expanded=${!sidebarCollapsed}

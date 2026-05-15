@@ -51,7 +51,7 @@ status, find uncovered rules, inspect specific requirements, and more.
 
 ## Supported Languages
 
-Rust, TypeScript, TSX, JavaScript, Python, Go, and Markdown.
+Rust, Swift, Go, Java, Python, TypeScript, TSX, JavaScript, Markdown, and Typst.
 
 ## Requirements
 

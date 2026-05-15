@@ -11,6 +11,7 @@
 
 export { LocationProvider, Route, Router, useLocation, useRoute } from "preact-iso";
 
+import { REQ_ANCHOR_PREFIX } from "./config";
 import type { ViewType } from "./types";
 
 export interface UrlParams {
@@ -52,8 +53,8 @@ export function buildUrl(
   if (view === "spec") {
     const { rule, heading } = params;
     let url = `${base}/spec`;
-    // Requirements use #r--{id} anchors, headings use #{slug}
-    if (rule) url += `#r--${rule}`;
+    // Requirements use #{REQ_ANCHOR_PREFIX}{id} anchors, headings use #{slug}
+    if (rule) url += `#${REQ_ANCHOR_PREFIX}${rule}`;
     else if (heading) url += `#${heading}`;
     return url;
   }
