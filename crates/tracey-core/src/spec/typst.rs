@@ -187,7 +187,7 @@ pub async fn render_display(
     }
 }
 
-pub(super) async fn parse(content: &str) -> eyre::Result<SpecDoc> {
+async fn parse(content: &str) -> eyre::Result<SpecDoc> {
     let mut parser = Parser::new();
     parser
         .set_language(&arborium_typst::language().into())
@@ -414,7 +414,7 @@ fn strip_delims<'a>(bytes: &'a [u8], node: Node<'_>) -> Option<&'a str> {
 /// `data-req-id="…"`). `&amp;` is decoded last so an escaped ampersand
 /// (`&amp;lt;`) round-trips to `&lt;`, not `<`.
 #[cfg_attr(not(feature = "typst-spec"), allow(dead_code))]
-pub(super) fn html_unescape(s: &str) -> std::borrow::Cow<'_, str> {
+fn html_unescape(s: &str) -> std::borrow::Cow<'_, str> {
     if !s.contains('&') {
         return std::borrow::Cow::Borrowed(s);
     }
@@ -1544,7 +1544,7 @@ mod compiler {
 /// (e.g. `*emph*` is treated as a word) but matches the granularity the
 /// markdown backend offers and is good enough for "what changed in this
 /// rule" hovers.
-pub(super) fn diff_inline(old: &str, new: &str) -> Option<String> {
+fn diff_inline(old: &str, new: &str) -> Option<String> {
     let old_words: Vec<&str> = old.split_whitespace().collect();
     let new_words: Vec<&str> = new.split_whitespace().collect();
 
@@ -1629,14 +1629,14 @@ pub(super) fn diff_inline(old: &str, new: &str) -> Option<String> {
     Some(out)
 }
 
-pub(super) fn parse_weight(_content: &str) -> i32 {
+fn parse_weight(_content: &str) -> i32 {
     // Weight is deferred for typst (Q2): always sort with default weight.
     0
 }
 
 /// Extract the marker prefix (e.g. `"req"` from `#req("X")`) at `span` in
 /// `content`.
-pub(super) fn extract_marker_prefix(content: &str, span: SourceSpan) -> Option<String> {
+fn extract_marker_prefix(content: &str, span: SourceSpan) -> Option<String> {
     let start = span.offset;
     let end = start.checked_add(span.length)?;
     let marker = content.get(start..end)?;
@@ -1659,7 +1659,7 @@ pub(super) fn extract_marker_prefix(content: &str, span: SourceSpan) -> Option<S
 ///
 /// `marker_str` is the exact `marker_span` slice (e.g. `#req("a.b", level:
 /// "shall")`, no `[body]`); it is small, so the throwaway parse is cheap.
-pub(super) fn id_range_in_marker(marker_str: &str) -> eyre::Result<std::ops::Range<usize>> {
+fn id_range_in_marker(marker_str: &str) -> eyre::Result<std::ops::Range<usize>> {
     let mut parser = Parser::new();
     parser
         .set_language(&arborium_typst::language().into())

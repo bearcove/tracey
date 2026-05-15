@@ -283,3 +283,25 @@ No edits to `data.rs`, `service.rs`, `search.rs`, `lib.rs`.
 - **Markdown run-concat semantics** — moving concat into
   `Markdown::render_html` must preserve current TOC/anchor output exactly.
   Golden-file test against current `data.rs` output before step 5.
+
+## Implementation deviations
+
+Recorded post-hoc; the design above describes the *intent*, this section the
+shipped shape.
+
+- **`BadgeFn`** is `Arc<dyn Fn(&ReqDefinition, &str) -> (String, String) + Send + Sync>`.
+  The second arg is the source-file path — passed by the backend so the
+  caller's badge can stamp `data-source-file` without an `Arc<Mutex<String>>`
+  side-channel. Return is `(open_html, close_html)` to match marq's
+  `ReqHandler` and typst's existing `RenderCtx`.
+- **`RenderInput.marq_opts: Option<&'a mut marq::RenderOptions>`** replaces the
+  proposed `options: &toml::Table`. `RenderOptions` is not `Clone`, and the
+  backend must overwrite `source_path`/`req_handler` per render, hence `&mut`.
+  Non-markdown backends ignore it.
+- **`RenderOutput`** is `{ sections: Vec<RenderedSection>, deps }` with
+  `RenderedSection { source_idx, html, elements, head_injections }`. Backends
+  control section granularity (markdown: one per run; typst/sdoc: one per
+  file) instead of returning a single concatenated `html` string.
+- **`SpecConfigs::insert(fmt, cfg)`** lets the caller override a backend's
+  config at build time — bridges `typst_package_path` until styx-subtree
+  deserialization is wired in `deserialize_config`.

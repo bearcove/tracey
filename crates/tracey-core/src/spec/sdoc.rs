@@ -170,7 +170,7 @@ fn walk_body<'a>(
                     let h = Heading {
                         title: s.title.clone(),
                         id: slugify(&s.title),
-                        level: depth,
+                        level: depth.min(6),
                         line: s.span.line as usize,
                     };
                     headings.push(h.clone());

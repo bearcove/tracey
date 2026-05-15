@@ -28,9 +28,6 @@ pub use marq::{DocElement, InlineCodeSpan, ReqDefinition, RuleId as SpecRuleId, 
 /// Parsed spec document. Every backend produces this shape.
 pub type SpecDoc = marq::Document;
 
-/// File extensions recognised as spec documents (any format).
-pub const SPEC_EXTENSIONS: &[&str] = &["md", "markdown", "typ"];
-
 /// Prefix for requirement anchor IDs in rendered HTML (`id="r--auth.login"`).
 ///
 /// Every spec backend MUST emit [`ReqDefinition::anchor_id`] in this shape so
@@ -289,6 +286,9 @@ pub fn is_spec_extension(ext: &OsStr) -> bool {
 ///
 /// This is the cheap path: requirement definitions, doc elements, and source
 /// spans are populated. The `html` field may be empty depending on backend.
+///
+/// Thin shim over [`SpecBackend::parse`]; prefer `fmt.backend()` direct calls
+/// for new code.
 pub async fn parse_spec(fmt: SpecFormat, content: &str) -> eyre::Result<SpecDoc> {
     fmt.backend().parse(content).await
 }
@@ -306,6 +306,8 @@ pub async fn render_spec_html(
 }
 
 /// Render a short body fragment as inline HTML (search snippets, hovers).
+///
+/// Thin shim over [`SpecBackend::render_inline`].
 pub async fn render_spec_inline(fmt: SpecFormat, text: &str) -> String {
     fmt.backend().render_inline(text).await
 }
@@ -314,6 +316,8 @@ pub async fn render_spec_inline(fmt: SpecFormat, text: &str) -> String {
 ///
 /// Removed runs are wrapped in `~~strikethrough~~`, added runs in `**bold**`.
 /// Returns `None` only when a backend cannot diff at all (none currently).
+///
+/// Thin shim over [`SpecBackend::diff_inline`].
 pub fn diff_inline(fmt: SpecFormat, old: &str, new: &str) -> Option<String> {
     fmt.backend().diff_inline(old, new)
 }
@@ -321,6 +325,8 @@ pub fn diff_inline(fmt: SpecFormat, old: &str, new: &str) -> Option<String> {
 /// Extract the sort weight from frontmatter / document metadata.
 ///
 /// Returns `0` when no weight is declared or parsing fails.
+///
+/// Thin shim over [`SpecBackend::parse_weight`].
 pub fn parse_weight(fmt: SpecFormat, content: &str) -> i32 {
     fmt.backend().parse_weight(content)
 }
@@ -329,6 +335,8 @@ pub fn parse_weight(fmt: SpecFormat, content: &str) -> i32 {
 /// `content`.
 ///
 /// Returns `None` if the span is out of bounds or the marker is malformed.
+///
+/// Thin shim over [`SpecBackend::extract_marker_prefix`].
 pub fn extract_marker_prefix(fmt: SpecFormat, content: &str, span: SourceSpan) -> Option<String> {
     fmt.backend().extract_marker_prefix(content, span)
 }
@@ -340,6 +348,8 @@ pub fn extract_marker_prefix(fmt: SpecFormat, content: &str, span: SourceSpan) -
 /// any string searching. Format-specific because typst markers may carry named
 /// arguments before the positional id (`#req(level: "shall", "a.b")`), which
 /// only the parser can disambiguate.
+///
+/// Thin shim over [`SpecBackend::id_range_in_marker`].
 pub fn id_range_in_marker(fmt: SpecFormat, marker_str: &str) -> eyre::Result<Range<usize>> {
     fmt.backend().id_range_in_marker(marker_str)
 }
@@ -436,12 +446,14 @@ mod tests {
     }
 
     #[test]
-    fn is_spec_extension_matches_constant() {
-        for ext in SPEC_EXTENSIONS {
-            assert!(
-                is_spec_extension(OsStr::new(ext)),
-                "{ext} should be recognised"
-            );
+    fn is_spec_extension_matches_registered_backends() {
+        for b in registry::BACKENDS {
+            for ext in b.extensions() {
+                assert!(
+                    is_spec_extension(OsStr::new(ext)),
+                    "{ext} should be recognised"
+                );
+            }
         }
         assert!(!is_spec_extension(OsStr::new("rs")));
         assert!(!is_spec_extension(OsStr::new("txt")));

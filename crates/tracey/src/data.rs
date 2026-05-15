@@ -43,7 +43,7 @@ use crate::search;
 // Re-export API types from tracey-api crate
 pub use tracey_api::{
     ApiCodeRef, ApiCodeUnit, ApiConfig, ApiFileData, ApiFileEntry, ApiForwardData, ApiReverseData,
-    ApiRule, ApiSpecData, ApiSpecForward, ApiSpecInfo, ApiStaleRef, GitStatus, OutlineCoverage,
+    ApiRule, ApiSpecData, ApiSpecForward, ApiSpecInfo, ApiStaleRef, OutlineCoverage,
     OutlineEntry, SpecSection, ValidationError, ValidationErrorCode, ValidationResult,
 };
 use tracey_proto::{LspDiagnostic, LspFileDiagnostics};
@@ -416,59 +416,6 @@ fn rule_coverage_badge_html(
     );
 
     (open, "</div>\n</div>".to_string())
-}
-
-// ============================================================================
-// Git Status
-// ============================================================================
-
-/// Get git status for all files in the repository
-/// Returns a map of file path -> GitStatus
-fn get_git_status(project_root: &Path) -> HashMap<String, GitStatus> {
-    let mut status_map = HashMap::new();
-
-    // Run git status --porcelain to get file statuses
-    let output = match std::process::Command::new("git")
-        .arg("status")
-        .arg("--porcelain")
-        .current_dir(project_root)
-        .output()
-    {
-        Ok(output) => output,
-        Err(_) => return status_map, // Not a git repo or git not available
-    };
-
-    if !output.status.success() {
-        return status_map;
-    }
-
-    let status_text = String::from_utf8_lossy(&output.stdout);
-    for line in status_text.lines() {
-        if line.len() < 4 {
-            continue;
-        }
-
-        // Git status --porcelain format: "XY filename"
-        // X = index status, Y = working tree status
-        let index_status = line.chars().next().unwrap_or(' ');
-        let worktree_status = line.chars().nth(1).unwrap_or(' ');
-        let filename = line[3..].trim().to_string();
-
-        let status = if worktree_status != ' ' && worktree_status != '?' {
-            // Working tree has changes (dirty)
-            GitStatus::Dirty
-        } else if index_status != ' ' && index_status != '?' {
-            // Changes staged in index
-            GitStatus::Staged
-        } else {
-            // Clean or unknown
-            GitStatus::Clean
-        };
-
-        status_map.insert(filename, status);
-    }
-
-    status_map
 }
 
 // ============================================================================
