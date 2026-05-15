@@ -302,6 +302,14 @@ shipped shape.
   `RenderedSection { source_idx, html, elements, head_injections }`. Backends
   control section granularity (markdown: one per run; typst/sdoc: one per
   file) instead of returning a single concatenated `html` string.
-- **`SpecConfigs::insert(fmt, cfg)`** lets the caller override a backend's
-  config at build time — bridges `typst_package_path` until styx-subtree
-  deserialization is wired in `deserialize_config`.
+- **Config flow is typed end-to-end** rather than via raw styx subtrees.
+  `facet-styx` is string→struct only (no `styx::Value` raw type), so the
+  `[spec.<name>]` raw-map design above is unimplementable. Instead:
+  `tracey_config::SpecConfig` gains a typed `format: FormatConfig` struct
+  (`{ typst: TypstFormatConfig, … }`); `tracey::data::build_spec_configs`
+  converts each field into the matching `tracey_core::*Config` (resolving
+  relative paths against the project root) and feeds [`SpecConfigs::insert`].
+  `DynBackend::deserialize_config` was renamed `default_config` since it can
+  only ever produce `B::Config::default()`. Adding a backend with config = +1
+  field on `FormatConfig` + +1 arm in `build_spec_configs`; backends with
+  `NoConfig` need neither.

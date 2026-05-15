@@ -590,18 +590,18 @@ mod compiler {
                 .unwrap_or_else(|| "<data-dir>/typst/packages".into());
             format!(
                 "{prefix}Place the package under `{where_}/local/<name>/<version>/`, \
-                 or set `typst_package_path` in the spec config to a vendored \
+                 or set `format.typst.package_path` in the spec config to a vendored \
                  package directory."
             )
         } else if message.contains("@preview/") {
             format!(
                 "{prefix}Run `typst compile` once to populate the system cache, \
-                 or set `typst_package_path` in the spec config to a vendored \
+                 or set `format.typst.package_path` in the spec config to a vendored \
                  package directory."
             )
         } else {
             format!(
-                "{prefix}Set `typst_package_path` in the spec config to a vendored \
+                "{prefix}Set `format.typst.package_path` in the spec config to a vendored \
                  package directory laid out as `<namespace>/<name>/<version>/`."
             )
         }
@@ -1344,7 +1344,7 @@ mod compiler {
             let msg = err.to_string();
             assert!(msg.contains("typst compile failed"));
             assert!(msg.contains("@preview/tracey-nosuch:1.0.0"), "names the package: {msg}");
-            assert!(msg.contains("typst_package_path"), "actionable hint: {msg}");
+            assert!(msg.contains("format.typst.package_path"), "actionable hint: {msg}");
             assert!(msg.contains("`typst compile`"), "@preview hints cache: {msg}");
 
             let err = render(

@@ -78,7 +78,7 @@ async fn markdown_only_outline_slugs_unchanged() {
         name: "test".to_string(),
         rules: vec![],
     };
-    let spec = render_spec_content_for_impl(&root, &["spec.md".to_string()], "test", "rust", None, &forward, &mut Default::default())
+    let spec = render_spec_content_for_impl(&root, &["spec.md".to_string()], "test", "rust", &Default::default(), &forward, &mut Default::default())
         .await
         .expect("render failed");
 
@@ -123,7 +123,7 @@ async fn markdown_heading_under_r_avoids_req_anchor_namespace() {
         &["spec.md".to_string()],
         "test",
         "rust",
-        None,
+        &Default::default(),
         &forward,
         &mut Default::default(),
     )
@@ -178,7 +178,7 @@ async fn renders_html_with_badges() {
     };
     let mut deps = std::collections::HashSet::new();
     let spec =
-        render_spec_content_for_impl(&root, &["spec.typ".to_string()], "test", "rust", None, &forward, &mut deps)
+        render_spec_content_for_impl(&root, &["spec.typ".to_string()], "test", "rust", &Default::default(), &forward, &mut deps)
             .await
             .expect("typst render failed");
 
@@ -250,7 +250,7 @@ async fn deps_reported_when_render_fails() {
         &["spec.typ".to_string()],
         "test",
         "rust",
-        None,
+        &Default::default(),
         &forward,
         &mut deps,
     )
@@ -344,7 +344,7 @@ async fn mixed_format_spec() {
         &["*.md".to_string(), "*.typ".to_string()],
         "mix",
         "rust",
-        None,
+        &Default::default(),
         &forward,
         &mut Default::default(),
     )
@@ -397,7 +397,7 @@ async fn markdown_reslug_forward_cursor_avoids_swap() {
         &["*.typ".to_string(), "*.md".to_string()],
         "test",
         "rust",
-        None,
+        &Default::default(),
         &forward,
         &mut Default::default(),
     )
@@ -453,7 +453,7 @@ async fn markdown_reslug_handles_intra_run_duplicates() {
         &["spec.md".to_string()],
         "test",
         "rust",
-        None,
+        &Default::default(),
         &forward,
         &mut Default::default(),
     )
@@ -506,7 +506,7 @@ async fn mixed_format_outline_dedups_heading_slugs() {
         &["*.md".to_string(), "*.typ".to_string()],
         "mix",
         "rust",
-        None,
+        &Default::default(),
         &forward,
         &mut Default::default(),
     )

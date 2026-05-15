@@ -32,7 +32,7 @@ use marq::{
     RenderOptions,
 };
 
-use crate::config::Config;
+use crate::config::{Config, FormatConfig};
 use crate::rule_suggestions::suggest_similar_rule_ids;
 use crate::search;
 
@@ -68,8 +68,9 @@ pub struct DashboardData {
     pub specs_content_by_impl: BTreeMap<ImplKey, ApiSpecData>,
     /// Spec include patterns by spec name
     pub spec_includes_by_name: BTreeMap<String, Vec<String>>,
-    /// Vendored typst package directory by spec name (absolute), if configured.
-    pub typst_package_path_by_spec: BTreeMap<String, PathBuf>,
+    /// Per-format render options by spec name. Converted into
+    /// [`tracey_core::SpecConfigs`] on demand via [`build_spec_configs`].
+    pub format_config_by_spec: BTreeMap<String, FormatConfig>,
     /// Source files for full-text index construction
     pub search_files: BTreeMap<PathBuf, String>,
     /// Parsed requirement references and warnings by source file, captured during rebuild.
@@ -2279,7 +2280,7 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
         BTreeMap::new();
     let specs_content_by_impl: BTreeMap<ImplKey, ApiSpecData> = BTreeMap::new();
     let mut spec_includes_by_name: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    let mut typst_package_path_by_spec: BTreeMap<String, PathBuf> = BTreeMap::new();
+    let mut format_config_by_spec: BTreeMap<String, FormatConfig> = BTreeMap::new();
     let mut all_file_contents: BTreeMap<PathBuf, String> = BTreeMap::new();
     let mut all_spec_file_contents: BTreeMap<PathBuf, String> = BTreeMap::new();
     let mut all_source_reqs_by_file: BTreeMap<PathBuf, Reqs> = BTreeMap::new();
@@ -2448,9 +2449,7 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
             implementations: spec_config.impls.iter().map(|i| i.name.clone()).collect(),
         });
         spec_includes_by_name.insert(spec_name.clone(), include_patterns.clone());
-        if let Some(p) = &spec_config.typst_package_path {
-            typst_package_path_by_spec.insert(spec_name.clone(), project_root.join(p));
-        }
+        format_config_by_spec.insert(spec_name.clone(), spec_config.format.clone());
 
         // Build data for each implementation
         struct ImplComputeTaskMeta {
@@ -2726,7 +2725,7 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
         code_units_by_impl,
         specs_content_by_impl,
         spec_includes_by_name,
-        typst_package_path_by_spec,
+        format_config_by_spec,
         search_files: all_file_contents,
         source_reqs_by_file: all_source_reqs_by_file,
         search_rules: all_search_rules,
@@ -2749,13 +2748,32 @@ fn simple_hash(s: &str) -> u64 {
     hash
 }
 
+/// Convert the per-spec [`FormatConfig`] schema into the type-erased
+/// [`tracey_core::SpecConfigs`] used by `render_spec_html`.
+///
+/// `facet-styx` is string→struct only (no raw subtree value type), so this
+/// is the irreducible per-format coupling: each backend with config gets one
+/// arm here translating its `tracey_config` schema (string paths, relative)
+/// into its `tracey_core::*Config` (resolved `PathBuf`). Backends with
+/// `NoConfig` need no arm — `SpecConfigs::default()` already covers them.
+pub fn build_spec_configs(format: &FormatConfig, root: &Path) -> tracey_core::SpecConfigs {
+    let mut cfgs = tracey_core::SpecConfigs::default();
+    cfgs.insert(
+        SpecFormat::Typst,
+        tracey_core::ErasedConfig::new(tracey_core::TypstConfig {
+            package_path: format.typst.package_path.as_ref().map(|p| root.join(p)),
+        }),
+    );
+    cfgs
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn load_spec_content(
     root: &Path,
     patterns: &[&str],
     spec_name: &str,
     impl_name: &str,
-    typst_package_path: Option<&Path>,
+    format: &FormatConfig,
     coverage: &BTreeMap<String, RuleCoverage>,
     specs_content: &mut BTreeMap<String, ApiSpecData>,
     overlay: &FileOverlay,
@@ -2788,15 +2806,7 @@ async fn load_spec_content(
         })
     };
 
-    // Per-backend render config. styx-subtree deserialization is not yet wired,
-    // so seed defaults and override typst from the existing function param.
-    let mut spec_cfgs = tracey_core::SpecConfigs::load()?;
-    spec_cfgs.insert(
-        SpecFormat::Typst,
-        tracey_core::ErasedConfig::new(tracey_core::TypstConfig {
-            package_path: typst_package_path.map(|p| p.to_path_buf()),
-        }),
-    );
+    let spec_cfgs = build_spec_configs(format, root);
 
     // Collect all matching files with their content, weight, and format
     let mut files: Vec<(String, String, i32, SpecFormat)> = Vec::new();
@@ -2938,7 +2948,7 @@ pub async fn render_spec_content_for_impl(
     include_patterns: &[String],
     spec_name: &str,
     impl_name: &str,
-    typst_package_path: Option<&Path>,
+    format: &FormatConfig,
     forward: &ApiSpecForward,
     deps: &mut std::collections::HashSet<PathBuf>,
 ) -> Result<ApiSpecData> {
@@ -2975,7 +2985,7 @@ pub async fn render_spec_content_for_impl(
         &include_pattern_refs,
         spec_name,
         impl_name,
-        typst_package_path,
+        format,
         &coverage,
         &mut map,
         &FileOverlay::new(),

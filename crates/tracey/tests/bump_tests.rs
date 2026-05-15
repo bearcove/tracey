@@ -63,7 +63,7 @@ fn simple_config() -> Config {
             prefix: None,
             source_url: None,
             include: vec!["spec.md".to_string()],
-            typst_package_path: None,
+            format: Default::default(),
             impls: vec![],
         }],
     }
@@ -77,7 +77,7 @@ fn simple_typst_config() -> Config {
             prefix: None,
             source_url: None,
             include: vec!["spec.typ".to_string()],
-            typst_package_path: None,
+            format: Default::default(),
             impls: vec![],
         }],
     }
@@ -484,7 +484,7 @@ async fn test_renamed_spec_file_not_flagged() {
             prefix: None,
             source_url: None,
             include: vec!["**/*.md".to_string()],
-            typst_package_path: None,
+            format: Default::default(),
             impls: vec![],
         }],
     };
