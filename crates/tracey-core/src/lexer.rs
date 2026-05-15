@@ -413,9 +413,11 @@ fn extract_references_from_text(
             let mut first_word = String::new();
             let mut valid = true;
 
-            // First char must be lowercase letter
+            // First char must be an ASCII letter. Case is preserved: lowercase
+            // first words are still tried as a verb (the only verbs are lowercase);
+            // uppercase or mixed-case first words flow through as a rule-ID body.
             if let Some(&(_, first_char)) = chars.peek() {
-                if first_char.is_ascii_lowercase() {
+                if first_char.is_ascii_alphabetic() {
                     first_word.push(first_char);
                     chars.next();
                 } else {
@@ -431,12 +433,7 @@ fn extract_references_from_text(
                 while let Some(&(_, c)) = chars.peek() {
                     if c == ']' || c == ' ' {
                         break;
-                    } else if c.is_ascii_lowercase()
-                        || c.is_ascii_digit()
-                        || c == '-'
-                        || c == '.'
-                        || c == '+'
-                    {
+                    } else if c.is_ascii_alphanumeric() || c == '-' || c == '.' || c == '+' {
                         first_word.push(c);
                         chars.next();
                     } else {
@@ -461,9 +458,10 @@ fn extract_references_from_text(
                         // Now read the rule ID
                         let mut req_id = String::new();
 
-                        // First char of rule ID must be lowercase letter
+                        // First char of rule ID must be an ASCII letter.
+                        // Case is preserved (StrictDoc-style UIDs like BR-001).
                         if let Some(&(_, c)) = chars.peek() {
-                            if c.is_ascii_lowercase() {
+                            if c.is_ascii_alphabetic() {
                                 req_id.push(c);
                                 chars.next();
                             } else {
@@ -478,11 +476,7 @@ fn extract_references_from_text(
                             if c == ']' {
                                 chars.next();
                                 break;
-                            } else if c.is_ascii_lowercase()
-                                || c.is_ascii_digit()
-                                || c == '-'
-                                || c == '+'
-                                || c == '.'
+                            } else if c.is_ascii_alphanumeric() || c == '-' || c == '+' || c == '.'
                             {
                                 req_id.push(c);
                                 chars.next();
@@ -575,6 +569,97 @@ fn extract_references_from_text(
         } else {
             prev_ch = Some(ch);
         }
+    }
+
+    extract_relation_annotations(path, text, text_offset, base_line, file_code_mask, reqs);
+}
+
+/// Scan `text` for StrictDoc-style `@relation(UID[, UID...][, scope=...][, role=...])`
+/// annotations and emit a [`ReqReference`] for each UID.
+///
+/// Multi-UID annotations expand to one reference per UID, all sharing the call's span.
+/// `role=Refines` and unknown roles emit a parse warning and produce no references.
+#[cfg(not(feature = "reverse"))]
+fn extract_relation_annotations(
+    path: &Path,
+    text: &str,
+    text_offset: ByteOffset,
+    base_line: LineNumber,
+    file_code_mask: &[bool],
+    reqs: &mut Reqs,
+) {
+    let code_mask = crate::markdown::markdown_code_mask(text);
+    let mut search_start = 0;
+    while let Some(rel) = text[search_start..].find("@relation") {
+        let hit_start = search_start + rel;
+
+        // Honour code-mask: ignore `@relation` inside inline code spans or
+        // fenced code blocks, same as `r[...]` markers.
+        if crate::markdown::is_code_index(hit_start, &code_mask)
+            || crate::markdown::is_code_index(text_offset.as_usize() + hit_start, file_code_mask)
+        {
+            search_start = hit_start + "@relation".len();
+            continue;
+        }
+
+        let Some(ann) = strictdoc_parser::parse_relation_annotation(&text[hit_start..]) else {
+            search_start = hit_start + "@relation".len();
+            continue;
+        };
+
+        let abs_start = hit_start + ann.start;
+        let abs_end = hit_start + ann.end;
+
+        let verb = match ann.role {
+            None | Some(strictdoc_parser::RelationRole::Implements) => RefVerb::Impl,
+            Some(strictdoc_parser::RelationRole::Verifies) => RefVerb::Verify,
+            Some(strictdoc_parser::RelationRole::Refines)
+            | Some(strictdoc_parser::RelationRole::Other(_)) => {
+                let location = RefLocation::from_relative_indices(
+                    base_line,
+                    text_offset,
+                    abs_start,
+                    abs_end.saturating_sub(1),
+                );
+                reqs.warnings.push(ParseWarning {
+                    file: path.to_path_buf(),
+                    line: location.line().as_usize(),
+                    span: location.span().into(),
+                    kind: WarningKind::MalformedReference,
+                });
+                search_start = abs_end;
+                continue;
+            }
+        };
+
+        let location = RefLocation::from_relative_indices(
+            base_line,
+            text_offset,
+            abs_start,
+            abs_end.saturating_sub(1),
+        );
+
+        for uid in &ann.uids {
+            if let Some(rule_id) = parse_rule_id(uid) {
+                reqs.references.push(ReqReference {
+                    prefix: "r".to_string(),
+                    verb,
+                    req_id: rule_id,
+                    file: path.to_path_buf(),
+                    line: location.line().as_usize(),
+                    span: location.span().into(),
+                });
+            } else {
+                reqs.warnings.push(ParseWarning {
+                    file: path.to_path_buf(),
+                    line: location.line().as_usize(),
+                    span: location.span().into(),
+                    kind: WarningKind::MalformedReference,
+                });
+            }
+        }
+
+        search_start = abs_end;
     }
 }
 
@@ -896,5 +981,118 @@ mod tests {
         assert_eq!(reqs.references[0].prefix, "r");
         assert_eq!(reqs.references[0].verb, RefVerb::Impl);
         assert_eq!(reqs.references[0].req_id, "foo.bar");
+    }
+
+    #[test]
+    fn test_uppercase_rule_id_in_marker_is_preserved() {
+        let content = "// r[impl BR-001]\nfn f() {}\n";
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs.references[0].req_id, "BR-001");
+        assert_eq!(reqs.references[0].verb, RefVerb::Impl);
+    }
+
+    #[test]
+    fn test_mixed_case_rule_id_in_marker_is_preserved() {
+        let content = "// r[verify Auth.Login]\nfn f() {}\n";
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs.references[0].req_id, "Auth.Login");
+        assert_eq!(reqs.references[0].verb, RefVerb::Verify);
+    }
+
+    #[test]
+    fn test_uppercase_rule_id_no_verb_defaults_to_impl() {
+        let content = "// r[BR-001]\nfn f() {}\n";
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs.references[0].req_id, "BR-001");
+        assert_eq!(reqs.references[0].verb, RefVerb::Impl);
+    }
+
+    #[test]
+    fn test_relation_annotation_single_uid() {
+        let content = "// @relation(BR-001, scope=function)\nfn f() {}\n";
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs.references[0].req_id, "BR-001");
+        assert_eq!(reqs.references[0].verb, RefVerb::Impl);
+        assert_eq!(reqs.references[0].prefix, "r");
+    }
+
+    #[test]
+    fn test_relation_annotation_role_verifies() {
+        let content = "// @relation(BR-001, role=Verifies)\nfn f() {}\n";
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs.references[0].verb, RefVerb::Verify);
+    }
+
+    #[test]
+    fn test_relation_annotation_multi_uid_shares_span() {
+        let content = "// @relation(BR-001, BR-002, scope=function, role=Verifies)\nfn f() {}\n";
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 2);
+        assert_eq!(reqs.references[0].req_id, "BR-001");
+        assert_eq!(reqs.references[1].req_id, "BR-002");
+        assert_eq!(reqs.references[0].verb, RefVerb::Verify);
+        assert_eq!(reqs.references[1].verb, RefVerb::Verify);
+        // Both annotations share the same span (the @relation call)
+        assert_eq!(
+            reqs.references[0].span.offset,
+            reqs.references[1].span.offset
+        );
+        assert_eq!(
+            reqs.references[0].span.length,
+            reqs.references[1].span.length
+        );
+    }
+
+    #[test]
+    fn test_relation_annotation_refines_warns_and_skips() {
+        let content = "// @relation(BR-001, role=Refines)\nfn f() {}\n";
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 0, "Refines role must not produce a reference");
+        assert_eq!(reqs.warnings.len(), 1);
+        assert!(matches!(
+            reqs.warnings[0].kind,
+            WarningKind::MalformedReference
+        ));
+    }
+
+    #[test]
+    fn test_fixture_strictdoc_lib_rs_yields_all_refs() {
+        // Mirror of the integration fixture so any drift in lexer is caught here.
+        let content = "// Implementation site: @relation, no explicit role -> Implements.
+// @relation(BR-001, scope=function)
+pub fn connect() {}
+
+// Test site: explicit Verifies role.
+// @relation(BR-002, scope=function, role=Verifies)
+#[test]
+fn test_heartbeat_emitted() {}
+
+// Multi-UID annotation; both UIDs share the same span.
+// @relation(BR-001, BR-002, scope=function, role=Verifies)
+fn dual_verify() {}
+
+// Refines role is rejected for v1: warning, no reference produced.
+// @relation(BR-003, role=Refines)
+fn refines_placeholder() {}
+
+// Legacy r[...] marker uses the same prefix and continues to work alongside @relation.
+// r[impl BR-003]
+pub fn reconnect() {}
+";
+        let reqs = Reqs::extract_from_content(Path::new("src/lib.rs"), content);
+        let ids: Vec<String> = reqs
+            .references
+            .iter()
+            .map(|r| format!("{:?} {}", r.verb, r.req_id))
+            .collect();
+        // 1 impl BR-001 + 1 verify BR-002 + 2 verify (BR-001, BR-002) + 1 impl BR-003 = 5 refs
+        assert_eq!(reqs.len(), 5, "expected 5 references, got: {ids:?}");
+        // Refines produces a warning
+        assert_eq!(reqs.warnings.len(), 1);
     }
 }
