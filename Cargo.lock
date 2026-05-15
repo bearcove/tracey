@@ -4406,7 +4406,7 @@ checksum = "8df9b6e13f2d32c91b9bd719c00d1958837bc7dec474d94952798cc8e69eeec3"
 
 [[package]]
 name = "tracey"
-version = "1.3.0"
+version = "1.4.0"
 dependencies = [
  "arborium",
  "async-trait",
@@ -4460,7 +4460,7 @@ dependencies = [
 
 [[package]]
 name = "tracey-api"
-version = "1.3.0"
+version = "1.4.0"
 dependencies = [
  "facet",
  "tracey-core",
@@ -4468,14 +4468,14 @@ dependencies = [
 
 [[package]]
 name = "tracey-config"
-version = "1.3.0"
+version = "1.4.0"
 dependencies = [
  "facet",
 ]
 
 [[package]]
 name = "tracey-core"
-version = "1.3.0"
+version = "1.4.0"
 dependencies = [
  "arborium",
  "arborium-asm",
@@ -4521,7 +4521,7 @@ dependencies = [
 
 [[package]]
 name = "tracey-proto"
-version = "1.3.0"
+version = "1.4.0"
 dependencies = [
  "facet",
  "roam",
@@ -5209,7 +5209,7 @@ checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
 
 [[package]]
 name = "xtask"
-version = "1.3.0"
+version = "1.4.0"
 
 [[package]]
 name = "yansi"
