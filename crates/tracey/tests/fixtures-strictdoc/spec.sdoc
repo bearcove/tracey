@@ -1,0 +1,24 @@
+[DOCUMENT]
+TITLE: Bridge requirements
+
+OPTIONS:
+  MARKUP: Markdown
+
+[REQUIREMENT]
+UID: BR-001
+TITLE: Connection setup
+STATEMENT: >>>
+The bridge **must** establish a connection within 5 seconds of startup.
+
+A retry policy is **out of scope** for this requirement.
+<<<
+
+[REQUIREMENT]
+UID: BR-002
+TITLE: Heartbeat
+STATEMENT: The bridge MUST emit a heartbeat every 1000 milliseconds.
+
+[REQUIREMENT]
+UID: BR-003
+TITLE: Reconnect
+STATEMENT: The bridge MUST attempt reconnection on link loss.

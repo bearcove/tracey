@@ -3825,6 +3825,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b2231b7c3057d5e4ad0156fb3dc807d900806020c5ffa3ee6ff2c8c76fb8520"
 
 [[package]]
+name = "strictdoc-parser"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1a87844e382e636cd1b44888b5c06c8644f806d6b697bf39bbaad500b08ac75e"
+
+[[package]]
 name = "strip-ansi-escapes"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4431,6 +4437,7 @@ dependencies = [
  "rust-mcp-sdk",
  "serde",
  "serde_json",
+ "strictdoc-parser",
  "strsim",
  "styx-embed",
  "tantivy",
@@ -4448,6 +4455,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "urlencoding",
+ "walkdir",
 ]
 
 [[package]]
@@ -4508,6 +4516,7 @@ dependencies = [
  "marq",
  "pulldown-cmark",
  "rayon",
+ "strictdoc-parser",
 ]
 
 [[package]]

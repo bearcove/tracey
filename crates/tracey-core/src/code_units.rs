@@ -1666,6 +1666,16 @@ fn extract_full_refs_from_text(
     warnings: &mut Vec<FullReqRefWarning>,
 ) {
     let code_mask = crate::markdown::markdown_code_mask(text);
+    extract_full_relation_annotations_from_text(
+        text,
+        line,
+        base_offset,
+        file_code_mask,
+        &code_mask,
+        refs,
+        warnings,
+    );
+
     let mut chars = text.char_indices().peekable();
     let mut prev_ch: Option<char> = None;
 
@@ -1741,6 +1751,74 @@ fn extract_full_refs_from_text(
     }
 }
 
+/// Scan `text` for StrictDoc-style `@relation(...)` annotations and emit one
+/// [`FullReqRef`] per UID in each annotation. Multi-UID annotations share the
+/// call's span. `role=Refines` and unknown roles emit a warning and produce no
+/// references.
+fn extract_full_relation_annotations_from_text(
+    text: &str,
+    line: LineNumber,
+    base_offset: ByteOffset,
+    file_code_mask: &[bool],
+    code_mask: &[bool],
+    refs: &mut Vec<FullReqRef>,
+    warnings: &mut Vec<FullReqRefWarning>,
+) {
+    let mut search_start = 0;
+    while let Some(rel) = text[search_start..].find("@relation") {
+        let hit_start = search_start + rel;
+
+        if crate::markdown::is_code_index(hit_start, code_mask)
+            || crate::markdown::is_code_index(base_offset.as_usize() + hit_start, file_code_mask)
+        {
+            search_start = hit_start + "@relation".len();
+            continue;
+        }
+
+        let Some(ann) = strictdoc_parser::parse_relation_annotation(&text[hit_start..]) else {
+            search_start = hit_start + "@relation".len();
+            continue;
+        };
+
+        let abs_start = hit_start + ann.start;
+        let abs_end = hit_start + ann.end;
+
+        let verb = match ann.role {
+            None | Some(strictdoc_parser::RelationRole::Implements) => "impl",
+            Some(strictdoc_parser::RelationRole::Verifies) => "verify",
+            Some(strictdoc_parser::RelationRole::Refines)
+            | Some(strictdoc_parser::RelationRole::Other(_)) => {
+                let location = RefLocation::from_relative_indices(
+                    line,
+                    base_offset,
+                    abs_start,
+                    abs_end.saturating_sub(1),
+                );
+                warnings.push(location.into_warning());
+                search_start = abs_end;
+                continue;
+            }
+        };
+
+        let location = RefLocation::from_relative_indices(
+            line,
+            base_offset,
+            abs_start,
+            abs_end.saturating_sub(1),
+        );
+
+        for uid in &ann.uids {
+            if let Some(rule_id) = parse_rule_id(uid) {
+                refs.push(location.into_full_ref("r".to_string(), verb.to_string(), rule_id));
+            } else {
+                warnings.push(location.into_warning());
+            }
+        }
+
+        search_start = abs_end;
+    }
+}
+
 enum ParsedFullRef {
     Parsed {
         verb: String,
@@ -1756,9 +1834,9 @@ enum ParsedFullRef {
 fn try_parse_full_ref(
     chars: &mut std::iter::Peekable<impl Iterator<Item = (usize, char)>>,
 ) -> Option<ParsedFullRef> {
-    // First char must be lowercase letter
+    // First char must be an ASCII letter. Case is preserved (StrictDoc UIDs).
     let first_char = chars.peek().map(|(_, c)| *c)?;
-    if !first_char.is_ascii_lowercase() {
+    if !first_char.is_ascii_alphabetic() {
         return None;
     }
 
@@ -1766,13 +1844,13 @@ fn try_parse_full_ref(
     first_word.push(first_char);
     chars.next();
 
-    // Read the first word
+    // Read the first word (could be verb or start of rule ID)
     let mut end_idx = 0;
     while let Some(&(idx, c)) = chars.peek() {
         end_idx = idx;
         if c == ']' || c == ' ' {
             break;
-        } else if c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.' || c == '+' {
+        } else if c.is_ascii_alphanumeric() || c == '-' || c == '.' || c == '+' {
             first_word.push(c);
             chars.next();
         } else {
@@ -1791,9 +1869,9 @@ fn try_parse_full_ref(
 
                 // Read the requirement ID
                 let mut req_id = String::new();
-                // First char must be lowercase
+                // First char of rule ID must be an ASCII letter (case preserved).
                 if let Some(&(_, c)) = chars.peek() {
-                    if c.is_ascii_lowercase() {
+                    if c.is_ascii_alphabetic() {
                         req_id.push(c);
                         chars.next();
                     } else {
@@ -1806,8 +1884,7 @@ fn try_parse_full_ref(
                     if c == ']' {
                         chars.next();
                         break;
-                    } else if c.is_ascii_lowercase()
-                        || c.is_ascii_digit()
+                    } else if c.is_ascii_alphanumeric()
                         || c == '-'
                         || c == '_'
                         || c == '+'
@@ -1851,9 +1928,9 @@ fn try_parse_full_ref(
 fn try_parse_req_ref(
     chars: &mut std::iter::Peekable<impl Iterator<Item = (usize, char)>>,
 ) -> Option<RuleId> {
-    // First char must be lowercase letter
+    // First char must be an ASCII letter. Case is preserved.
     let first_char = chars.peek().map(|(_, c)| *c)?;
-    if !first_char.is_ascii_lowercase() {
+    if !first_char.is_ascii_alphabetic() {
         return None;
     }
 
@@ -1865,7 +1942,7 @@ fn try_parse_req_ref(
     while let Some(&(_, c)) = chars.peek() {
         if c == ']' || c == ' ' {
             break;
-        } else if c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.' || c == '+' {
+        } else if c.is_ascii_alphanumeric() || c == '-' || c == '.' || c == '+' {
             first_word.push(c);
             chars.next();
         } else {
@@ -1884,9 +1961,9 @@ fn try_parse_req_ref(
                 // Read the requirement ID
                 let mut req_id = String::new();
 
-                // First char must be lowercase
+                // First char of rule ID must be an ASCII letter (case preserved).
                 if let Some(&(_, c)) = chars.peek() {
-                    if c.is_ascii_lowercase() {
+                    if c.is_ascii_alphabetic() {
                         req_id.push(c);
                         chars.next();
                     } else {
@@ -1898,12 +1975,7 @@ fn try_parse_req_ref(
                     if c == ']' {
                         chars.next();
                         break;
-                    } else if c.is_ascii_lowercase()
-                        || c.is_ascii_digit()
-                        || c == '-'
-                        || c == '+'
-                        || c == '.'
-                    {
+                    } else if c.is_ascii_alphanumeric() || c == '-' || c == '+' || c == '.' {
                         req_id.push(c);
                         chars.next();
                     } else {

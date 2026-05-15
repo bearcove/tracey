@@ -128,6 +128,62 @@ Tracey extracts annotations from comments in all major languages via tree-sitter
 /* r[verify buffer.allocation] */
 ```
 
+## StrictDoc-style markers (`@relation`)
+
+If your spec is authored in [StrictDoc](https://strictdoc.readthedocs.io/) — see [Writing Specs](writing-specs.md#strictdoc-format-sdoc) — tracey also recognises StrictDoc's `@relation(...)` annotation in source comments. The two syntaxes coexist freely; both produce references against the same spec.
+
+```rust
+// @relation(CH-001, scope=function)
+fn allocate_channel_id(&mut self) -> u32 { /* ... */ }
+```
+
+`scope=` is accepted (`function`, `file`, or `line`) and forwarded to StrictDoc tooling but is not used by tracey's matcher; it's safe to omit if you're tracey-only.
+
+### Role mapping
+
+The optional `role=` field selects the tracey verb:
+
+| StrictDoc role | Tracey verb | Notes |
+|----------------|-------------|-------|
+| (omitted) | `impl` | Default — same as `role=Implements` |
+| `Implements` | `impl` | |
+| `Verifies` | `verify` | |
+| `Refines` | — | Not yet mapped; emits a warning and is skipped |
+
+```rust
+// @relation(CH-001, role=Verifies)
+#[test]
+fn channels_are_sequential() { /* ... */ }
+```
+
+### Multiple UIDs in one annotation
+
+A single `@relation(...)` call can reference several UIDs:
+
+```rust
+// @relation(CH-001, CH-002, scope=function, role=Verifies)
+#[test]
+fn id_allocation_and_parity_match_spec() { /* ... */ }
+```
+
+This expands to one reference per UID. All references share the same source span.
+
+### Interoperating with `r[…]` markers
+
+Within a single project you can mix `@relation(...)` and `r[…]` freely:
+
+```rust
+// Legacy markdown-style marker:
+// r[impl CH-001]
+fn allocate_one() {}
+
+// StrictDoc-style equivalent:
+// @relation(CH-002, scope=function)
+fn allocate_another() {}
+```
+
+Both forms produce references that match the same spec rules. The `r[…]` form continues to work unchanged for projects that don't use StrictDoc.
+
 ## Multiple annotations per function
 
 A single function can implement multiple requirements:
