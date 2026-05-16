@@ -123,6 +123,12 @@ impl DaemonClient {
         self.with_client(|c| async move { c.untested(req).await })
             .await
     }
+    pub async fn all(
+        &self,
+        req: tracey_proto::AllRequest,
+    ) -> Result<tracey_proto::AllResponse, roam::RoamError> {
+        self.with_client(|c| async move { c.all(req).await }).await
+    }
     pub async fn stale(
         &self,
         req: tracey_proto::StaleRequest,

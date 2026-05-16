@@ -246,6 +246,17 @@ enum QueryCommand {
         prefix: Option<String>,
     },
 
+    /// List every rule in a spec/impl with body text (designed for --json export)
+    All {
+        /// Spec/impl to query (e.g., "my-spec/rust"). Optional if only one exists.
+        #[facet(args::named, default)]
+        spec_impl: Option<String>,
+
+        /// Filter by rule ID prefix
+        #[facet(args::named, default)]
+        prefix: Option<String>,
+    },
+
     /// Show unmapped code units
     Unmapped {
         /// Spec/impl to query (e.g., "my-spec/rust"). Optional if only one exists.
@@ -508,6 +519,12 @@ async fn main() -> Result<()> {
                         .await,
                     false,
                 ),
+                QueryCommand::All { spec_impl, prefix } => (
+                    query_client
+                        .all(spec_impl.as_deref(), prefix.as_deref())
+                        .await,
+                    false,
+                ),
                 QueryCommand::Unmapped { spec_impl, path } => (
                     query_client
                         .unmapped(spec_impl.as_deref(), path.as_deref())
@@ -628,6 +645,35 @@ async fn query_json(qc: &bridge::query::QueryClient, query: QueryCommand) -> (St
                 prefix,
             };
             match qc.client.untested(req).await {
+                Ok(resp) => (
+                    facet_json::to_string_pretty(&resp).expect("JSON serialization failed"),
+                    false,
+                ),
+                Err(e) => (json_error(&format!("{e:?}")), false),
+            }
+        }
+        QueryCommand::All { spec_impl, prefix } => {
+            let (spec, impl_name) = match spec_impl.as_deref() {
+                Some(raw) => {
+                    let config = match qc.client.config().await {
+                        Ok(config) => config,
+                        Err(e) => {
+                            return (json_error(&format!("failed to load config: {e:?}")), false);
+                        }
+                    };
+                    match validate_spec_impl_selection(Some(raw), &config) {
+                        Ok(values) => values,
+                        Err(error) => return (json_error(&error), false),
+                    }
+                }
+                None => parse_spec_impl(None),
+            };
+            let req = AllRequest {
+                spec,
+                impl_name,
+                prefix,
+            };
+            match qc.client.all(req).await {
                 Ok(resp) => (
                     facet_json::to_string_pretty(&resp).expect("JSON serialization failed"),
                     false,

@@ -322,6 +322,44 @@ impl TraceyDaemon for TraceyService {
         }
     }
 
+    /// Get every rule with body text populated
+    async fn all(&self, req: AllRequest) -> AllResponse {
+        let data = self.inner.engine.data().await;
+        let query = QueryEngine::new(&data);
+
+        let (spec, impl_name) =
+            self.resolve_spec_impl(req.spec.as_deref(), req.impl_name.as_deref(), &data.config);
+
+        if let Some(result) = query.all(&spec, &impl_name, req.prefix.as_deref()) {
+            AllResponse {
+                spec: result.spec,
+                impl_name: result.impl_name,
+                total_rules: result.total_rules,
+                by_section: result
+                    .by_section
+                    .into_iter()
+                    .map(|(section, rules)| SectionRules {
+                        section,
+                        rules: rules
+                            .into_iter()
+                            .map(|r| tracey_proto::RuleRef {
+                                id: r.id,
+                                text: r.text,
+                            })
+                            .collect(),
+                    })
+                    .collect(),
+            }
+        } else {
+            AllResponse {
+                spec,
+                impl_name,
+                total_rules: 0,
+                by_section: vec![],
+            }
+        }
+    }
+
     /// Get stale references
     async fn stale(&self, req: StaleRequest) -> StaleResponse {
         let data = self.inner.engine.data().await;
