@@ -368,6 +368,50 @@ impl QueryClient {
         self.with_config_banner(output).await
     }
 
+    /// List every rule in a spec/impl with body text.
+    pub async fn all(&self, spec_impl: Option<&str>, prefix: Option<&str>) -> String {
+        let (spec, impl_name) = match self.checked_spec_impl(spec_impl).await {
+            Ok(values) => values,
+            Err(error) => return self.with_config_banner(format!("Error: {error}")).await,
+        };
+
+        let req = AllRequest {
+            spec,
+            impl_name,
+            prefix: prefix.map(String::from),
+        };
+
+        let output = match self.client.all(req).await {
+            Ok(response) => {
+                let mut output = format!(
+                    "{}/{}: {} rules total\n\n",
+                    response.spec, response.impl_name, response.total_rules
+                );
+
+                for section in &response.by_section {
+                    if !section.rules.is_empty() {
+                        output.push_str(&format!("## {}\n", section.section));
+                        for rule in &section.rules {
+                            output.push_str(&format!("  - {}\n", rule.id));
+                        }
+                        output.push('\n');
+                    }
+                }
+
+                output.push_str("---\n");
+                output.push_str(&self.hint(
+                    "tracey query all",
+                    "tracey query to list all rules with body text",
+                ));
+
+                output
+            }
+            Err(e) => format!("Error: {e:?}"),
+        };
+
+        self.with_config_banner(output).await
+    }
+
     /// Get code units without rule references
     pub async fn unmapped(&self, spec_impl: Option<&str>, path: Option<&str>) -> String {
         let (spec, impl_name) = match self.checked_spec_impl(spec_impl).await {

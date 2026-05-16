@@ -14,7 +14,7 @@ pub use tracey_api::*;
 /// Protocol version — bump this whenever any RPC method is added, removed, or changed.
 /// The daemon writes this into its PID file; connectors compare it before connecting
 /// to detect stale daemons running an incompatible build.
-pub const PROTOCOL_VERSION: u32 = 4;
+pub const PROTOCOL_VERSION: u32 = 5;
 
 // ============================================================================
 // Request/Response types for the TraceyDaemon service
@@ -83,6 +83,29 @@ pub struct UntestedResponse {
     pub impl_name: String,
     pub total_rules: usize,
     pub untested_count: usize,
+    pub by_section: Vec<SectionRules>,
+}
+
+/// Request for all-rules query
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct AllRequest {
+    #[facet(default)]
+    pub spec: Option<String>,
+    #[facet(default)]
+    pub impl_name: Option<String>,
+    #[facet(default)]
+    pub prefix: Option<String>,
+}
+
+/// Response for all-rules query.
+/// Returns every rule in the spec/impl with its body text populated.
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct AllResponse {
+    pub spec: String,
+    pub impl_name: String,
+    pub total_rules: usize,
     pub by_section: Vec<SectionRules>,
 }
 
@@ -652,6 +675,9 @@ pub trait TraceyDaemon {
 
     /// Get untested rules (rules with impl but no verify references)
     async fn untested(&self, req: UntestedRequest) -> UntestedResponse;
+
+    /// Get every rule in a spec/impl, with body text populated.
+    async fn all(&self, req: AllRequest) -> AllResponse;
 
     /// Get stale references (code pointing to older rule versions)
     async fn stale(&self, req: StaleRequest) -> StaleResponse;

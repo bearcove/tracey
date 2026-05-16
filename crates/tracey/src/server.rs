@@ -314,6 +314,42 @@ impl<'a> QueryEngine<'a> {
         })
     }
 
+    /// Get every rule for a spec/impl with body text populated.
+    ///
+    /// Designed for machine-readable export (e.g. syncing requirements to an
+    /// external tracker). Unlike `uncovered`/`untested`, this populates each
+    /// `RuleRef.text` so callers do not need to issue a follow-up `rule()` call
+    /// per rule.
+    pub fn all(
+        &self,
+        spec: &str,
+        impl_name: &str,
+        prefix_filter: Option<&str>,
+    ) -> Option<AllResult> {
+        let key: ImplKey = (spec.to_string(), impl_name.to_string());
+        let forward = self.data.forward_by_impl.get(&key)?;
+
+        let rules: Vec<&ApiRule> = forward
+            .rules
+            .iter()
+            .filter(|r| {
+                prefix_filter
+                    .map(|p| r.id.base.to_lowercase().starts_with(&p.to_lowercase()))
+                    .unwrap_or(true)
+            })
+            .collect();
+
+        let by_section = group_rules_by_section_with_text(&rules);
+
+        Some(AllResult {
+            spec: spec.to_string(),
+            impl_name: impl_name.to_string(),
+            total_rules: rules.len(),
+            by_section,
+            prefix_filter: prefix_filter.map(|s| s.to_string()),
+        })
+    }
+
     /// Get stale references for a spec/impl, optionally filtered by rule ID prefix
     pub fn stale(
         &self,
@@ -532,9 +568,22 @@ pub struct UntestedResult {
 }
 
 #[derive(Debug, Clone)]
+pub struct AllResult {
+    pub spec: String,
+    pub impl_name: String,
+    pub by_section: BTreeMap<String, Vec<RuleRef>>,
+    pub total_rules: usize,
+    pub prefix_filter: Option<String>,
+}
+
+#[derive(Debug, Clone)]
 pub struct RuleRef {
     pub id: RuleId,
     pub impl_refs: Vec<ApiCodeRef>,
+    /// Raw markdown body of the rule. Populated only when the caller asks for it
+    /// (e.g. `all()` for machine-readable export); `None` for the lightweight
+    /// summary commands (`uncovered`, `untested`).
+    pub text: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -645,6 +694,17 @@ impl RuleInfo {
 // ============================================================================
 
 fn group_rules_by_section(rules: &[&ApiRule]) -> BTreeMap<String, Vec<RuleRef>> {
+    group_rules_by_section_inner(rules, false)
+}
+
+fn group_rules_by_section_with_text(rules: &[&ApiRule]) -> BTreeMap<String, Vec<RuleRef>> {
+    group_rules_by_section_inner(rules, true)
+}
+
+fn group_rules_by_section_inner(
+    rules: &[&ApiRule],
+    include_text: bool,
+) -> BTreeMap<String, Vec<RuleRef>> {
     let mut result: BTreeMap<String, Vec<RuleRef>> = BTreeMap::new();
 
     for rule in rules {
@@ -657,6 +717,11 @@ fn group_rules_by_section(rules: &[&ApiRule]) -> BTreeMap<String, Vec<RuleRef>> 
         result.entry(section).or_default().push(RuleRef {
             id: rule.id.clone(),
             impl_refs: rule.impl_refs.clone(),
+            text: if include_text {
+                Some(rule.raw.clone())
+            } else {
+                None
+            },
         });
     }
 
