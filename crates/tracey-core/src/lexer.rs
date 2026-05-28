@@ -225,6 +225,10 @@ pub(crate) fn extract_from_content(path: &Path, content: &str, reqs: &mut Reqs) 
     }
 }
 
+pub(crate) fn is_valid_req_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '+'
+}
+
 /// State for tracking ignore directives across lines.
 ///
 /// r[impl ref.ignore.prefix]
@@ -433,7 +437,7 @@ fn extract_references_from_text(
                 while let Some(&(_, c)) = chars.peek() {
                     if c == ']' || c == ' ' {
                         break;
-                    } else if c.is_ascii_alphanumeric() || c == '-' || c == '.' || c == '+' {
+                    } else if is_valid_req_char(c) {
                         first_word.push(c);
                         chars.next();
                     } else {
@@ -476,8 +480,7 @@ fn extract_references_from_text(
                             if c == ']' {
                                 chars.next();
                                 break;
-                            } else if c.is_ascii_alphanumeric() || c == '-' || c == '+' || c == '.'
-                            {
+                            } else if is_valid_req_char(c) {
                                 req_id.push(c);
                                 chars.next();
                             } else {
@@ -687,6 +690,21 @@ mod tests {
         assert_eq!(reqs.len(), 1);
         assert_eq!(reqs.references[0].prefix, "r");
         assert_eq!(reqs.references[0].req_id, "channel.id.allocation");
+        assert_eq!(reqs.references[0].verb, RefVerb::Impl);
+    }
+
+    // r[verify ref.syntax.req-id+3]
+    #[test]
+    fn test_extract_all_valid_req_chars() {
+        let content = r#"
+            // See r[channel0_config.no-reuse] for details
+            fn set_channel0_config() {}
+        "#;
+
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs.references[0].prefix, "r");
+        assert_eq!(reqs.references[0].req_id, "channel0_config.no-reuse");
         assert_eq!(reqs.references[0].verb, RefVerb::Impl);
     }
 
