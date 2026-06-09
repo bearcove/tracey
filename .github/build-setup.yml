@@ -1,11 +1,12 @@
 - name: Setup Rust 1.91
   uses: dtolnay/rust-toolchain@1.91.0
 - name: Setup Node.js
-  uses: actions/setup-node@v4
+  uses: actions/setup-node@v6
   with:
     node-version: "20"
+    package-manager-cache: false
 - name: Setup pnpm
-  uses: pnpm/action-setup@v4
+  uses: pnpm/action-setup@v6
   with:
     version: "9"
 - name: Verify pnpm
