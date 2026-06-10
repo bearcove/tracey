@@ -12,14 +12,15 @@ github-build-setup = "../build-setup.yml"
 # The installers to generate for each app
 installers = ["shell"]
 # Target platforms to build apps for (Rust target-triple syntax)
-targets = ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"]
+targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"]
 # Path that installers should place binaries in
 install-path = "CARGO_HOME"
 # Whether to install an updater program
 install-updater = false
-# Use bearcove self-hosted runners for all Linux release jobs.
+# Use bearcove for x64 Linux release jobs, but GitHub-hosted ARM for Linux ARM.
 allow-dirty = ["ci"]
 
 [dist.github-custom-runners]
 global = "bearcove-ubuntu-24.04"
+aarch64-unknown-linux-gnu = "ubuntu-24.04-arm"
 x86_64-unknown-linux-gnu = "bearcove-ubuntu-24.04"
