@@ -38,9 +38,7 @@ struct Counts {
 #[ignore]
 async fn upstream_strictdoc_corpus_smoke() {
     let Ok(roots_str) = std::env::var("STRICTDOC_CORPUS") else {
-        eprintln!(
-            "skipping: STRICTDOC_CORPUS env var not set; see test file docs"
-        );
+        eprintln!("skipping: STRICTDOC_CORPUS env var not set; see test file docs");
         return;
     };
 
@@ -133,8 +131,7 @@ async fn walk_corpus(root: &Path, corpus: &mut Counts, overall: &mut Counts) {
             Err(e) => {
                 corpus.err += 1;
                 overall.err += 1;
-                let short =
-                    e.to_string().lines().next().unwrap_or("").to_string();
+                let short = e.to_string().lines().next().unwrap_or("").to_string();
                 *corpus.errors.entry(short.clone()).or_insert(0) += 1;
                 *overall.errors.entry(short).or_insert(0) += 1;
             }

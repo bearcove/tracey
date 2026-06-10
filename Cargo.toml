@@ -7,7 +7,7 @@ resolver = "3"
 ignored = ["facet-error"]
 
 [workspace.package]
-version = "1.4.0"
+version = "2.0.0-rc.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/bearcove/tracey"
@@ -15,23 +15,23 @@ authors = ["Amos Wenger <amos@bearcove.eu>"]
 
 [workspace.dependencies]
 # Internal
-tracey-core = { path = "crates/tracey-core", version = "1.4.0", default-features = false }
-tracey-api = { path = "crates/tracey-api", version = "1.4.0" }
-tracey-proto = { path = "crates/tracey-proto", version = "1.4.0" }
-tracey-config = { path = "crates/tracey-config", version = "1.4.0" }
+tracey-core = { path = "crates/tracey-core", version = "2.0.0-rc.0", default-features = false }
+tracey-api = { path = "crates/tracey-api", version = "2.0.0-rc.0" }
+tracey-proto = { path = "crates/tracey-proto", version = "2.0.0-rc.0" }
+tracey-config = { path = "crates/tracey-config", version = "2.0.0-rc.0" }
 
 # Facet ecosystem
-facet = { version = "0.44" }
-facet-axum = { version = "0.44" }
-facet-styx = { version = "2.0.0" }
-facet-json = { version = "0.44" }
-facet-error = { version = "0.44" }
+facet = { version = "0.50.0-rc.0" }
+facet-axum = { version = "0.50.0-rc.0" }
+facet-styx = { version = "5.0.0-rc.0" }
+facet-json = { version = "0.50.0-rc.0" }
+facet-error = { version = "0.50.0-rc.0" }
 
 # Styx
-styx-embed = { version = "2.0.0" }
+styx-embed = { version = "5.0.0-rc.0" }
 
 # Figue
-figue = { version = "2.0.0" }
+figue = { version = "5.0.0-rc.0" }
 
 # Error handling
 eyre = "0.6"
@@ -173,15 +173,13 @@ url = { version = "2", features = ["serde"] }
 tower-lsp = "0.20"
 open = "5"
 dirs = "6.0.0"
-facet-typescript = { version = "0.44" }
+facet-typescript = { version = "0.50.0-rc.0" }
 time = { version = "0.3", features = ["formatting"] }
 tempfile = "3.24.0"
 
-# roam RPC framework
-roam = "7.0.0"
-roam-core = "7.0.0"
-roam-stream = "7.0.0"
-roam-local = "7.0.0"
+# vox RPC framework
+vox = "0.9.0-rc.0"
+vox-schema = "0.9.0-rc.0"
 
 # The profile that 'dist' will build with
 [profile.dist]

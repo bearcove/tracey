@@ -196,6 +196,7 @@ fn build_dashboard() {
     println!("cargo:rerun-if-changed=src/bridge/http/dashboard/src");
     println!("cargo:rerun-if-changed=src/bridge/http/dashboard/index.html");
     println!("cargo:rerun-if-changed=src/bridge/http/dashboard/package.json");
+    println!("cargo:rerun-if-changed=src/bridge/http/dashboard/pnpm-workspace.yaml");
     println!("cargo:rerun-if-changed=src/bridge/http/dashboard/vite.config.ts");
 
     // Skip build if dist already exists in OUT_DIR (for faster incremental builds)
@@ -324,6 +325,7 @@ fn build_dashboard() {
     // Install dependencies if needed
     let status = shell_command("pnpm")
         .args(["install", "--frozen-lockfile"])
+        .env("CI", "true")
         .current_dir(dashboard_dir)
         .status()
         .expect("Failed to run pnpm install - is pnpm installed?");
@@ -335,6 +337,7 @@ fn build_dashboard() {
     // Build the dashboard (output goes to OUT_DIR/dashboard/dist)
     let status = shell_command("pnpm")
         .args(["run", "build"])
+        .env("CI", "true")
         .current_dir(dashboard_dir)
         .status()
         .expect("Failed to run pnpm build");

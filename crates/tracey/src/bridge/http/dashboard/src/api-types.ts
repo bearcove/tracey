@@ -8,163 +8,91 @@
  * A validation error found in the spec or implementation.
  */
 export interface ValidationError {
-  /**
-   * Error code for programmatic handling
-   */
+  /** Error code for programmatic handling */
   code: ValidationErrorCode;
-  /**
-   * Human-readable error message
-   */
+  /** Human-readable error message */
   message: string;
-  /**
-   * File where the error was found (if applicable)
-   */
+  /** File where the error was found (if applicable) */
   file?: string;
-  /**
-   * Line number (if applicable)
-   */
+  /** Line number (if applicable) */
   line?: number;
-  /**
-   * Column number (if applicable)
-   */
+  /** Column number (if applicable) */
   column?: number;
-  /**
-   * Related rule IDs (for dependency errors)
-   */
+  /** Related rule IDs (for dependency errors) */
   relatedRules?: RuleId[];
-  /**
-   * The referenced rule ID (for StaleRequirement/UnknownRequirement errors)
-   */
+  /** The referenced rule ID (for StaleRequirement/UnknownRequirement errors) */
   referenceRuleId?: RuleId;
-  /**
-   * Original annotation text for unknown references (for example `r[impl auth.logn]`).
-   */
+  /** Original annotation text for unknown references (for example `r[impl auth.logn]`). */
   referenceText?: string;
 }
 
-/**
- * Structured rule ID representation.
- */
+/** Structured rule ID representation. */
 export interface RuleId {
-  /**
-   * Base rule ID without version suffix.
-   */
+  /** Base rule ID without version suffix. */
   base: string;
-  /**
-   * Normalized version number (unversioned IDs are version 1).
-   */
+  /** Normalized version number (unversioned IDs are version 1). */
   version: number;
 }
 
-/**
- * Error codes for validation errors
- */
+/** Error codes for validation errors */
 export type ValidationErrorCode = "circular_dependency" | "invalid_naming" | "unknown_requirement" | "stale_requirement" | "duplicate_requirement" | "unknown_prefix" | "impl_in_test_file" | "include_unparseable_file";
 
-/**
- * Validation results for a spec/implementation pair
- */
+/** Validation results for a spec/implementation pair */
 export interface ValidationResult {
-  /**
-   * Spec name
-   */
+  /** Spec name */
   spec: string;
-  /**
-   * Implementation name
-   */
+  /** Implementation name */
   implName: string;
-  /**
-   * List of validation errors found
-   */
+  /** List of validation errors found */
   errors: ValidationError[];
-  /**
-   * Number of warnings (non-fatal issues)
-   */
+  /** Number of warnings (non-fatal issues) */
   warningCount: number;
-  /**
-   * Number of errors (fatal issues)
-   */
+  /** Number of errors (fatal issues) */
   errorCount: number;
 }
 
-/**
- * Spec content (may span multiple files)
- */
+/** Spec content (may span multiple files) */
 export interface ApiSpecData {
   name: string;
-  /**
-   * Sections ordered by weight
-   */
+  /** Sections ordered by weight */
   sections: SpecSection[];
-  /**
-   * Outline with coverage info
-   */
+  /** Outline with coverage info */
   outline: OutlineEntry[];
-  /**
-   * HTML snippets to inject into the page head (e.g. mermaid.js loader)
-   */
+  /** HTML snippets to inject into the page head (e.g. mermaid.js loader) */
   head_injections?: string[];
 }
 
-/**
- * An entry in the spec outline (heading with coverage info)
- */
+/** An entry in the spec outline (heading with coverage info) */
 export interface OutlineEntry {
-  /**
-   * Heading text
-   */
+  /** Heading text */
   title: string;
-  /**
-   * Slug for linking
-   */
+  /** Slug for linking */
   slug: string;
-  /**
-   * Heading level (1-6)
-   */
+  /** Heading level (1-6) */
   level: number;
-  /**
-   * Direct coverage (rules directly under this heading)
-   */
+  /** Direct coverage (rules directly under this heading) */
   coverage: OutlineCoverage;
-  /**
-   * Aggregated coverage (includes all nested rules)
-   */
+  /** Aggregated coverage (includes all nested rules) */
   aggregated: OutlineCoverage;
 }
 
-/**
- * Coverage counts for an outline entry
- */
+/** Coverage counts for an outline entry */
 export interface OutlineCoverage {
-  /**
-   * Number of rules with implementation refs
-   */
+  /** Number of rules with implementation refs */
   implCount: number;
-  /**
-   * Number of rules with verification refs
-   */
+  /** Number of rules with verification refs */
   verifyCount: number;
-  /**
-   * Total number of rules
-   */
+  /** Total number of rules */
   total: number;
 }
 
-/**
- * A section of a spec (one source file)
- */
+/** A section of a spec (one source file) */
 export interface SpecSection {
-  /**
-   * Source file path
-   */
+  /** Source file path */
   sourceFile: string;
-  /**
-   * Rendered HTML content
-   */
+  /** Rendered HTML content */
   html: string;
-  /**
-   * Weight for ordering (from frontmatter)
-   */
+  /** Weight for ordering (from frontmatter) */
   weight: number;
 }
 
@@ -173,55 +101,35 @@ export interface ApiCodeUnit {
   name?: string;
   startLine: number;
   endLine: number;
-  /**
-   * Rule references found in this code unit's comments
-   */
+  /** Rule references found in this code unit's comments */
   ruleRefs: string[];
 }
 
-/**
- * Single file with full coverage details
- */
+/** Single file with full coverage details */
 export interface ApiFileData {
   path: string;
   content: string;
-  /**
-   * Syntax-highlighted HTML content
-   */
+  /** Syntax-highlighted HTML content */
   html: string;
-  /**
-   * Code units in this file with their coverage
-   */
+  /** Code units in this file with their coverage */
   units: ApiCodeUnit[];
 }
 
 export interface ApiFileEntry {
   path: string;
-  /**
-   * Number of code units in this file
-   */
+  /** Number of code units in this file */
   totalUnits: number;
-  /**
-   * Number of covered code units
-   */
+  /** Number of covered code units */
   coveredUnits: number;
 }
 
-/**
- * Reverse traceability: file tree with coverage info
- */
+/** Reverse traceability: file tree with coverage info */
 export interface ApiReverseData {
-  /**
-   * Total code units across all files
-   */
+  /** Total code units across all files */
   totalUnits: number;
-  /**
-   * Code units with at least one rule reference
-   */
+  /** Code units with at least one rule reference */
   coveredUnits: number;
-  /**
-   * File tree with coverage info
-   */
+  /** File tree with coverage info */
   files: ApiFileEntry[];
 }
 
@@ -232,26 +140,18 @@ export interface ApiCodeRef {
 
 export interface ApiRule {
   id: RuleId;
-  /**
-   * Raw markdown source (without r[...] marker, but with `>` prefixes for blockquote rules)
-   */
+  /** Raw markdown source (without r[...] marker, but with `>` prefixes for blockquote rules) */
   raw: string;
-  /**
-   * Rendered HTML (for dashboard display)
-   */
+  /** Rendered HTML (for dashboard display) */
   html: string;
   status?: string;
   level?: string;
   sourceFile?: string;
   sourceLine?: number;
   sourceColumn?: number;
-  /**
-   * Section slug (heading ID) that this rule belongs to
-   */
+  /** Section slug (heading ID) that this rule belongs to */
   section?: string;
-  /**
-   * Section title (heading text) that this rule belongs to
-   */
+  /** Section title (heading text) that this rule belongs to */
   sectionTitle?: string;
   implRefs: ApiCodeRef[];
   verifyRefs: ApiCodeRef[];
@@ -261,21 +161,15 @@ export interface ApiRule {
    * A stale rule is not counted as covered.
    */
   isStale?: boolean;
-  /**
-   * Stale references pointing to older versions of this rule.
-   */
+  /** Stale references pointing to older versions of this rule. */
   staleRefs?: ApiStaleRef[];
 }
 
-/**
- * A stale reference: code points to an older version of a rule.
- */
+/** A stale reference: code points to an older version of a rule. */
 export interface ApiStaleRef {
   file: string;
   line: number;
-  /**
-   * The rule ID referenced in code (older version)
-   */
+  /** The rule ID referenced in code (older version) */
   reference_id: RuleId;
 }
 
@@ -284,9 +178,7 @@ export interface ApiSpecForward {
   rules: ApiRule[];
 }
 
-/**
- * Forward traceability: rules with their code references
- */
+/** Forward traceability: rules with their code references */
 export interface ApiForwardData {
   specs: ApiSpecForward[];
 }
@@ -298,31 +190,21 @@ export interface ApiSpecInfo {
    * Prefix used in annotations (e.g., "r" for r[req.id])
    */
   prefix: string;
-  /**
-   * Path to spec file(s) if local
-   */
+  /** Path to spec file(s) if local */
   source?: string;
-  /**
-   * Canonical URL for the specification (e.g., a GitHub repository)
-   */
+  /** Canonical URL for the specification (e.g., a GitHub repository) */
   sourceUrl?: string;
-  /**
-   * Available implementations for this spec
-   */
+  /** Available implementations for this spec */
   implementations: string[];
 }
 
-/**
- * Project configuration info
- */
+/** Project configuration info */
 export interface ApiConfig {
   projectRoot: string;
   specs: ApiSpecInfo[];
 }
 
-/**
- * Git status for a file
- */
+/** Git status for a file */
 export type GitStatus = "dirty" | "staged" | "clean" | "unknown";
 
 

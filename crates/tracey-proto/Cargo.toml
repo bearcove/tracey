@@ -16,8 +16,9 @@ authors.workspace = true
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [dependencies]
-# roam RPC framework
-roam = { workspace = true }
+# vox RPC framework
+vox = { workspace = true }
+vox-schema = { workspace = true }
 
 # API types (re-exported for convenience)
 tracey-api = { workspace = true }

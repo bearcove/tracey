@@ -829,7 +829,7 @@ The server MUST maintain a version identifier that changes when any source data 
 
 ## Daemon Architecture
 
-Tracey uses a daemon architecture where a single persistent daemon per workspace owns all state and computation. Protocol bridges (HTTP, LSP, MCP) connect as clients to the daemon via roam RPC over Unix sockets.
+Tracey uses a daemon architecture where a single persistent daemon per workspace owns all state and computation. Protocol bridges (HTTP, LSP, MCP) connect as clients to the daemon via Vox RPC over Unix sockets.
 
 ### Daemon Lifecycle
 
@@ -859,15 +859,15 @@ The daemon MUST maintain a virtual filesystem (VFS) overlay that stores in-memor
 r[daemon.state.blocking-rebuild]
 On file changes, the daemon MUST block all incoming requests until the rebuild completes. This ensures clients never see stale or inconsistent data.
 
-### roam Service
+### Vox Service
 
-r[daemon.roam.protocol]
-The daemon MUST expose a `TraceyDaemon` service via the roam RPC protocol.
+r[daemon.vox.protocol]
+The daemon MUST expose a `TraceyDaemon` service via the Vox RPC protocol.
 
-r[daemon.roam.unix-socket]
+r[daemon.vox.unix-socket]
 Communication between the daemon and bridges MUST occur over Unix domain sockets.
 
-r[daemon.roam.framing]
+r[daemon.vox.framing]
 Messages on the Unix socket MUST use COBS framing for reliable message boundary detection.
 
 ### VFS Overlay
@@ -887,13 +887,13 @@ When computing coverage, VFS overlay content MUST take precedence over disk cont
 ### Protocol Bridges
 
 r[daemon.bridge.http]
-The HTTP bridge MUST translate REST API requests to roam RPC calls and serve the dashboard frontend.
+The HTTP bridge MUST translate REST API requests to Vox RPC calls and serve the dashboard frontend.
 
 r[daemon.bridge.mcp]
-The MCP bridge MUST translate MCP tool calls to roam RPC calls, providing AI assistants access to coverage data.
+The MCP bridge MUST translate MCP tool calls to Vox RPC calls, providing AI assistants access to coverage data.
 
 r[daemon.bridge.lsp]
-The LSP bridge MUST translate LSP protocol messages to roam RPC calls and feed the VFS overlay with document open/change/close events.
+The LSP bridge MUST translate LSP protocol messages to Vox RPC calls and feed the VFS overlay with document open/change/close events.
 
 ### CLI Commands
 

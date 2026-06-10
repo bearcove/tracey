@@ -22,8 +22,8 @@ use crate::daemon::{DaemonClient, new_client};
 use tracey_core::{RefVerb, parse_rule_id};
 use tracey_proto::*;
 
-/// Convert roam RPC result to a simple Result
-fn rpc<T, E: std::fmt::Debug>(res: Result<T, roam::RoamError<E>>) -> Result<T, String> {
+/// Convert Vox RPC result to a simple Result
+fn rpc<T, E: std::fmt::Debug>(res: Result<T, vox::VoxError<E>>) -> Result<T, String> {
     res.map_err(|e| format!("RPC error: {:?}", e))
 }
 
@@ -664,7 +664,7 @@ impl Backend {
         project_state: Arc<Mutex<LspProjectState>>,
     ) {
         let mut last_version: Option<u64> = None;
-        let (tx, mut rx) = roam::channel::<DataUpdate>();
+        let (tx, mut rx) = vox::channel::<DataUpdate>();
         let subscribe_client = daemon_client.clone();
         let subscribe_task = tokio::spawn(async move { subscribe_client.subscribe(tx).await });
 
@@ -677,7 +677,7 @@ impl Backend {
             }
             let next_version =
                 match tokio::time::timeout(Duration::from_millis(500), rx.recv()).await {
-                    Ok(Ok(Some(update))) => Some(update.version),
+                    Ok(Ok(Some(update))) => Some(update.get().version),
                     Ok(Ok(None)) => daemon_client.version().await.ok(),
                     Ok(Err(_)) => daemon_client.version().await.ok(),
                     Err(_) => daemon_client.version().await.ok(),

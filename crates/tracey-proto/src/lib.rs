@@ -1,12 +1,12 @@
 //! Protocol definitions for the tracey daemon RPC service.
 //!
-//! This crate defines the `TraceyDaemon` service trait using roam's `#[service]`
+//! This crate defines the `TraceyDaemon` service trait using Vox's `#[service]`
 //! macro. The daemon exposes this service over a Unix socket, and bridges
 //! (HTTP, MCP, LSP) connect as clients.
 
 use facet::Facet;
-use roam::Tx;
 use tracey_core::RuleId;
+use vox::Tx;
 
 // Re-export API types for convenience
 pub use tracey_api::*;
@@ -302,6 +302,8 @@ pub struct DataUpdate {
     #[facet(default)]
     pub delta: Option<DeltaSummary>,
 }
+
+vox_schema::impl_reborrow_owned!(DataUpdate);
 
 /// Response for health check query.
 ///
@@ -640,7 +642,7 @@ pub struct LspDocumentRequest {
 ///
 /// This service is exposed by the daemon over a Unix socket. Bridges (HTTP, MCP, LSP)
 /// connect as clients and translate their protocols to/from these RPC calls.
-#[roam::service]
+#[vox::service]
 pub trait TraceyDaemon {
     // === Core Queries ===
 

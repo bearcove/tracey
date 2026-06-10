@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use tracey::daemon::watcher::{WatcherState, glob_to_watch_dir};
 
-fn rpc<T, E: std::fmt::Debug>(res: Result<T, roam::RoamError<E>>) -> T {
+fn rpc<T, E: std::fmt::Debug>(res: Result<T, vox::VoxError<E>>) -> T {
     res.expect("RPC call failed")
 }
 

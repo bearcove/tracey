@@ -97,10 +97,8 @@ tower-lsp = { workspace = true }
 # Open URLs in browser
 open = { workspace = true }
 
-# roam RPC framework (for daemon architecture)
-roam = { workspace = true }
-roam-stream = { workspace = true }
-roam-local = { workspace = true }
+# vox RPC framework (for daemon architecture)
+vox = { workspace = true }
 dirs = { workspace = true }
 
 [features]
@@ -116,5 +114,5 @@ time = { workspace = true, features = ["formatting"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
-roam-core = { workspace = true }
+vox = { workspace = true }
 walkdir = "2"
