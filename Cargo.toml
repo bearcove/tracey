@@ -151,7 +151,7 @@ notify = "8"
 tantivy = "0.22"
 
 # Markdown processing (with syntax highlighting and diagram handlers)
-marq = { version = "2.2.0", features = ["all-handlers", "lang-vixen"] }
+marq = { version = "5.0.0-rc.0", features = ["all-handlers", "lang-vixen"] }
 pulldown-cmark = "0.13"
 
 # StrictDoc parser for .sdoc spec files
