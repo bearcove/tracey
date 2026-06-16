@@ -1,11 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { render } from "preact";
 import { EDITORS, SIDEBAR_COLLAPSED_STORAGE_KEY } from "../config";
 import { useSpec } from "../hooks";
 import { CoverageArc, html, showRefsPopup } from "../main";
 import type { OutlineEntry, SpecViewProps, FileContent } from "../types";
-import { MarkdownEditor } from "../components/MarkdownEditor";
-import { InlineEditor } from "../components/InlineEditor";
 import { CodeView } from "./sources";
 
 // Tree node for hierarchical outline
@@ -274,21 +271,8 @@ export function SpecView({
   const initialScrollPosition = useRef(scrollPosition);
   const lastScrolledHeading = useRef<string | null>(null);
 
-  // Markdown editor modal state
-  const [editorState, setEditorState] = useState<{
-    filePath: string;
-    byteRange: string;
-  } | null>(null);
-
   // Vim-style pending key indicator (for gg, yy, yl sequences)
   const [pendingKey, setPendingKey] = useState<string | null>(null);
-
-  // Inline editor state
-  const editingContainerRef = useRef<{
-    element: HTMLElement;
-    originalHTML: string;
-    placeholder?: Comment;
-  } | null>(null);
 
   // r[impl dashboard.impl-preview.modal]
   // Implementation preview modal state
@@ -562,14 +546,23 @@ export function SpecView({
         }
       }
 
-      // Handle 'e' key - open editor for focused requirement
+      // Handle 'e' key - open source for focused requirement in editor
       if (e.key === "e") {
         if (currentIndex === -1) return;
         e.preventDefault();
         const focusedReq = reqs[currentIndex];
-        const editBadge = focusedReq.querySelector("button.req-badge.req-edit") as HTMLElement | null;
-        if (editBadge) {
-          editBadge.click();
+        const sourceBadge = focusedReq.querySelector(
+          "a.req-badge.req-id[data-source-file][data-source-line]",
+        ) as HTMLElement | null;
+        const sourceFile = sourceBadge?.dataset.sourceFile;
+        const sourceLine = parseInt(sourceBadge?.dataset.sourceLine || "0", 10);
+        if (sourceFile && !Number.isNaN(sourceLine)) {
+          const fullPath = sourceFile.startsWith("/")
+            ? sourceFile
+            : config.projectRoot
+              ? `${config.projectRoot}/${sourceFile}`
+              : sourceFile;
+          window.location.href = EDITORS.zed.urlTemplate(fullPath, sourceLine);
         }
         return;
       }
@@ -876,96 +869,6 @@ export function SpecView({
         return;
       }
 
-      // r[impl dashboard.editing.activation.click]
-      // Handle Edit badge clicks - mount inline editor
-      const editBadge = target.closest("button.req-badge.req-edit") as HTMLElement | null;
-      if (editBadge) {
-        e.preventDefault();
-        const sourceFile = editBadge.dataset.sourceFile;
-        const byteRange = editBadge.dataset.br;
-        if (sourceFile && byteRange) {
-          // r[impl dashboard.editing.git.check-required]
-          // Check if file is in git repository
-          try {
-            const gitCheckResponse = await fetch(
-              `/api/check-git?${new URLSearchParams({ path: sourceFile })}`,
-            );
-            if (gitCheckResponse.ok) {
-              const gitData = await gitCheckResponse.json();
-              if (!gitData.in_git) {
-                // r[impl dashboard.editing.git.error-message]
-                alert(
-                  "This file is not in a git repository. Tracey requires git for safe editing.",
-                );
-                return;
-              }
-            }
-          } catch (err) {
-            console.error("Git check failed:", err);
-            alert("Failed to verify git status. Please try again.");
-            return;
-          }
-
-          // Find the req-container
-          const reqContainer = editBadge.closest(".req-container") as HTMLElement | null;
-          if (reqContainer?.parentElement) {
-            // Save original element and its position
-            const placeholder = document.createComment("editor-placeholder");
-            reqContainer.parentElement.insertBefore(placeholder, reqContainer);
-            const originalElement = reqContainer;
-
-            editingContainerRef.current = {
-              element: originalElement,
-              originalHTML: "", // Not used - we'll restore the whole element
-              placeholder,
-            };
-
-            // Remove the original element
-            originalElement.remove();
-
-            // Create container for editor
-            const editorContainer = document.createElement("div");
-            placeholder.parentElement?.insertBefore(editorContainer, placeholder);
-
-            // Mount InlineEditor
-            render(
-              html`<${InlineEditor}
-                filePath=${sourceFile}
-                byteRange=${byteRange}
-                onSave=${() => {
-                  // Unmount editor and restore original element
-                  if (editingContainerRef.current) {
-                    render(null, editorContainer);
-                    editorContainer.remove();
-                    editingContainerRef.current.placeholder.parentElement?.insertBefore(
-                      editingContainerRef.current.element,
-                      editingContainerRef.current.placeholder,
-                    );
-                    editingContainerRef.current.placeholder.remove();
-                    editingContainerRef.current = null;
-                  }
-                }}
-                onCancel=${() => {
-                  // Unmount editor and restore original element
-                  if (editingContainerRef.current) {
-                    render(null, editorContainer);
-                    editorContainer.remove();
-                    editingContainerRef.current.placeholder.parentElement?.insertBefore(
-                      editingContainerRef.current.element,
-                      editingContainerRef.current.placeholder,
-                    );
-                    editingContainerRef.current.placeholder.remove();
-                    editingContainerRef.current = null;
-                  }
-                }}
-              />`,
-              editorContainer,
-            );
-          }
-        }
-        return;
-      }
-
       // Handle rule-id badge clicks - open spec source in editor
       const ruleBadge = target.closest(
         "a.rule-badge.rule-id[data-source-file][data-source-line]",
@@ -1151,12 +1054,6 @@ export function SpecView({
           />
         </div>
       </div>
-      ${editorState &&
-      html`<${MarkdownEditor}
-        filePath=${editorState.filePath}
-        byteRange=${editorState.byteRange}
-        onClose=${() => setEditorState(null)}
-      />`}
       ${previewModal &&
       html`<${ImplementationPreviewModal}
         fileData=${previewModal.fileData}

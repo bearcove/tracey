@@ -190,22 +190,14 @@ fn build_dashboard() {
     let out_dir = std::env::var("OUT_DIR").unwrap();
     let dashboard_src = Path::new("src/bridge/http/dashboard");
     let dashboard_out = Path::new(&out_dir).join("dashboard");
-    let dist_dir = dashboard_out.join("dist");
 
     // Re-run if dashboard source changes
     println!("cargo:rerun-if-changed=src/bridge/http/dashboard/src");
     println!("cargo:rerun-if-changed=src/bridge/http/dashboard/index.html");
     println!("cargo:rerun-if-changed=src/bridge/http/dashboard/package.json");
+    println!("cargo:rerun-if-changed=src/bridge/http/dashboard/pnpm-lock.yaml");
     println!("cargo:rerun-if-changed=src/bridge/http/dashboard/pnpm-workspace.yaml");
     println!("cargo:rerun-if-changed=src/bridge/http/dashboard/vite.config.ts");
-
-    // Skip build if dist already exists in OUT_DIR (for faster incremental builds)
-    if dist_dir.join("index.html").exists()
-        && dist_dir.join("assets/index.js").exists()
-        && dist_dir.join("assets/index.css").exists()
-    {
-        return;
-    }
 
     // Copy dashboard source into OUT_DIR so pnpm/vite run entirely outside the source tree
     copy_dir_recursive(dashboard_src, &dashboard_out);

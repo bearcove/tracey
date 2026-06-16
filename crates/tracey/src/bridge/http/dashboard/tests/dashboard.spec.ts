@@ -99,7 +99,7 @@ test.describe('Sources View', () => {
     if (await fileLink.isVisible({ timeout: 2000 }).catch(() => false)) {
       await fileLink.click();
       // Should see code content
-      await expect(page.locator('pre, code, .cm-editor')).toBeVisible({ timeout: 5000 });
+      await expect(page.locator('pre, code')).toBeVisible({ timeout: 5000 });
     }
   });
 

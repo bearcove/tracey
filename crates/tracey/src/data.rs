@@ -420,29 +420,14 @@ impl ReqHandler for TraceyRuleHandler {
                 }
             }
 
-            // r[impl dashboard.editing.byte-range.attribute]
-            // r[impl dashboard.editing.badge.display]
-            // r[impl dashboard.editing.badge.appearance]
-            // Edit badge - separate group on the right
-            let edit_badge_html = format!(
-                r#"<button class="req-badge req-edit" data-br="{}-{}" data-source-file="{}" title="Edit this requirement"><svg class="req-edit-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg> Edit</button>"#,
-                rule.span.offset,
-                rule.span.offset + rule.span.length,
-                source_file
-            );
-
             // Render the opening of the req container
             Ok(format!(
-                r#"<div class="req-container req-{status}" id="{anchor}" data-br="{br_start}-{br_end}">
+                r#"<div class="req-container req-{status}" id="{anchor}">
 <div class="req-badges-left">{badges}</div>
-<div class="req-badges-right">{edit_badge}</div>
 <div class="req-content">"#,
                 status = status,
                 anchor = rule.anchor_id,
-                br_start = rule.span.offset,
-                br_end = rule.span.offset + rule.span.length,
                 badges = badges_html,
-                edit_badge = edit_badge_html,
             ))
         })
     }

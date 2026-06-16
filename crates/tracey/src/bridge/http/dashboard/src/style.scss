@@ -1862,23 +1862,15 @@
         }
     }
 
-    .req-badges-left,
-    .req-badges-right {
+    .req-badges-left {
         position: absolute;
         top: -0.7rem;
+        inset-inline-start: var(--space-3);
         display: flex;
         align-items: center;
         gap: var(--space-1);
         background: var(--bg);
         padding: 0 var(--space-1);
-    }
-
-    .req-badges-left {
-        inset-inline-start: var(--space-3);
-    }
-
-    .req-badges-right {
-        inset-inline-end: var(--space-4);
     }
 
     .req-badge {
@@ -1920,23 +1912,6 @@
             border: 1px solid var(--ref-verify-border);
         }
 
-        &.req-edit {
-            background: var(--fg-8);
-            color: var(--fg-muted);
-            border: 1px solid var(--fg-20);
-            cursor: pointer;
-            display: inline-flex;
-            align-items: center;
-            gap: var(--space-1);
-            transition: all 0.15s;
-
-            &:hover {
-                background: var(--accent-12);
-                color: var(--accent);
-                border-color: var(--accent-30);
-            }
-        }
-
         &.req-copy {
             background: var(--req-badge-bg);
             color: var(--req-badge-color);
@@ -1960,7 +1935,6 @@
         }
     }
 
-    .req-edit-icon,
     .req-copy-icon {
         flex-shrink: 0;
     }
@@ -2369,27 +2343,6 @@
             font-weight: var(--ui-weight);
         }
 
-        &.is-complete > .toc-row {
-            & .toc-link {
-                color: var(--fg-dim);
-                opacity: 0.7;
-            }
-
-            & .toc-badges {
-                opacity: 0.5;
-            }
-        }
-
-        &.is-incomplete > .toc-row {
-            & .toc-link {
-                color: var(--fg-muted);
-            }
-
-            & .toc-badges {
-                opacity: 1;
-            }
-        }
-
         &.is-active > .toc-row {
             background: var(--accent-12);
 
@@ -2439,7 +2392,6 @@
         gap: var(--space-1);
         flex: 0 0 auto;
         margin-inline-start: auto;
-        opacity: 0.5;
     }
 
     .toc-children {
@@ -2874,9 +2826,6 @@
         flex-direction: column;
         box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 
-        &.editor-modal {
-            width: 1200px;
-        }
     }
 
     .modal-header {
@@ -2892,18 +2841,6 @@
             font-weight: var(--weight-semibold);
             color: var(--fg);
         }
-    }
-
-    .modal-vim-indicator {
-        font-size: var(--text-2xs);
-        padding: var(--space-1) var(--space-2);
-        background: var(--green-dim);
-        color: var(--green);
-        border-radius: 3px;
-        font-weight: var(--weight-semibold);
-        letter-spacing: var(--label-tracking);
-        margin-inline-start: auto;
-        margin-inline-end: var(--space-2);
     }
 
     .modal-close {
@@ -2953,30 +2890,6 @@
         }
     }
 
-    .modal-loading,
-    .modal-error {
-        flex: 1;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: var(--fg-muted);
-        font-size: var(--text-sm);
-    }
-
-    .modal-error {
-        color: var(--red);
-    }
-
-    .markdown-editor-wrapper {
-        flex: 1;
-        background: var(--bg);
-        overflow: hidden;
-
-        & .cm-editor {
-            height: 100%;
-        }
-    }
-
     .modal-footer {
         display: flex;
         align-items: center;
@@ -2984,37 +2897,6 @@
         padding: var(--space-4) var(--space-6);
         border-top: 1px solid var(--border);
         gap: var(--space-4);
-    }
-
-    .modal-info {
-        display: flex;
-        align-items: center;
-        gap: var(--space-3);
-        font-size: var(--text-sm);
-        color: var(--fg-muted);
-        flex: 1;
-        min-width: 0;
-
-        & code {
-            background: var(--bg);
-            padding: var(--space-1) var(--space-1-5);
-            border-radius: 3px;
-            font-size: var(--text-xs);
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-    }
-
-    .modal-range {
-        color: var(--fg-dim);
-        font-family: var(--font-mono);
-        font-size: var(--text-xs);
-    }
-
-    .modal-actions {
-        display: flex;
-        gap: var(--space-3);
     }
 
     .modal-btn {
@@ -3040,16 +2922,6 @@
             }
         }
 
-        &-save {
-            background: var(--accent);
-            color: white;
-            border-color: var(--accent);
-
-            &:hover:not(:disabled) {
-                filter: brightness(1.1);
-            }
-        }
-
         &-primary {
             background: var(--accent);
             color: var(--bg);
@@ -3059,127 +2931,6 @@
             &:hover:not(:disabled) {
                 filter: brightness(0.95);
             }
-        }
-    }
-
-    /* ==========================================================================
-   Inline Editor
-   ========================================================================== */
-
-    .inline-editor {
-        border: 2px solid var(--accent);
-        border-radius: 6px;
-        background: var(--bg-secondary);
-        margin: var(--space-4) 0;
-        overflow: hidden;
-
-        &-header {
-            display: flex;
-            align-items: center;
-            gap: var(--space-3);
-            padding: var(--space-2) var(--space-3);
-            background: var(--accent-dim);
-            border-bottom: 1px solid var(--border);
-            font-size: var(--text-sm);
-        }
-
-        &-label {
-            font-weight: var(--weight-semibold);
-            color: var(--accent);
-        }
-
-        &-vim {
-            font-size: var(--text-2xs);
-            padding: var(--space-0-5) var(--space-1-5);
-            background: var(--green-dim);
-            color: var(--green);
-            border-radius: 3px;
-            font-weight: var(--weight-semibold);
-            letter-spacing: var(--label-tracking);
-        }
-
-        &-path {
-            color: var(--fg-dim);
-            font-family: var(--font-mono);
-            font-size: var(--text-xs);
-            margin-inline-start: auto;
-        }
-
-        &-content {
-            min-height: 400px;
-            max-height: 600px;
-            overflow: auto;
-            background: var(--bg);
-        }
-
-        &-code {
-            height: 100%;
-            background: var(--bg);
-
-            & .cm-editor {
-                height: 100%;
-            }
-        }
-
-        &-preview {
-            padding: var(--space-6);
-            background: var(--bg);
-            min-height: 400px;
-        }
-
-        &-footer {
-            display: flex;
-            justify-content: flex-end;
-            gap: var(--space-2);
-            padding: var(--space-3);
-            border-top: 1px solid var(--border);
-            background: var(--bg-secondary);
-        }
-
-        &-btn {
-            padding: var(--space-1-5) var(--space-3);
-            border-radius: 4px;
-            border: 1px solid var(--border);
-            font-family: inherit;
-            font-size: var(--text-sm);
-            cursor: pointer;
-            transition: all 0.15s;
-
-            &:disabled {
-                opacity: 0.5;
-                cursor: not-allowed;
-            }
-        }
-
-        &-cancel {
-            background: var(--bg);
-            color: var(--fg);
-
-            &:hover:not(:disabled) {
-                background: var(--hover);
-            }
-        }
-
-        &-save {
-            background: var(--accent);
-            color: white;
-            border-color: var(--accent);
-
-            &:hover:not(:disabled) {
-                filter: brightness(1.1);
-            }
-        }
-
-        &-loading,
-        &-error {
-            padding: var(--space-4);
-            text-align: center;
-            color: var(--fg-muted);
-            font-size: var(--text-sm);
-        }
-
-        &-error {
-            color: var(--red);
         }
     }
 
