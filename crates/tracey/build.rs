@@ -200,6 +200,9 @@ fn build_dashboard() {
     println!("cargo:rerun-if-changed=src/bridge/http/dashboard/vite.config.ts");
 
     // Copy dashboard source into OUT_DIR so pnpm/vite run entirely outside the source tree
+    if dashboard_out.exists() {
+        fs::remove_dir_all(&dashboard_out).expect("Failed to remove stale dashboard output");
+    }
     copy_dir_recursive(dashboard_src, &dashboard_out);
     let dashboard_dir = &dashboard_out;
 
