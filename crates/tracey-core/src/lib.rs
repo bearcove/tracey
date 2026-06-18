@@ -5,6 +5,7 @@
 //! - Computing coverage statistics
 
 mod coverage;
+mod languages;
 mod lexer;
 mod markdown;
 mod positions;
@@ -16,6 +17,7 @@ pub mod spec;
 pub mod code_units;
 
 pub use coverage::CoverageReport;
+pub use languages::{arborium_for_ext, devicon_for_ext};
 pub use lexer::{ParseWarning, RefVerb, ReqReference, Reqs, SourceSpan, WarningKind};
 pub use rule_id::{
     RuleId, RuleIdMatch, classify_reference_for_rule, classify_reference_for_rule_str,
