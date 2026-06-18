@@ -262,6 +262,16 @@ fn create_rebuild_test_project(
     spec_content: &str,
     source_files: &[(&str, &str)],
 ) -> (tempfile::TempDir, std::path::PathBuf) {
+    create_rebuild_test_project_with_spec("spec.md", spec_content, source_files)
+}
+
+/// Like [`create_rebuild_test_project`] but lets the caller pick the spec filename
+/// (e.g. `spec.typ`). The config `include` pattern is set to that filename.
+fn create_rebuild_test_project_with_spec(
+    spec_name: &str,
+    spec_content: &str,
+    source_files: &[(&str, &str)],
+) -> (tempfile::TempDir, std::path::PathBuf) {
     let temp = tempfile::tempdir().expect("Failed to create temp dir");
     let root = temp.path();
 
@@ -270,12 +280,14 @@ fn create_rebuild_test_project(
     let config_path = root.join(".config/tracey/config.styx");
     std::fs::write(
         &config_path,
-        "specs (\n  {\n    name test\n    include (spec.md)\n    impls (\n      {\n        name rust\n        include (src/**/*.rs)\n      }\n    )\n  }\n)\n",
+        format!(
+            "specs (\n  {{\n    name test\n    include ({spec_name})\n    impls (\n      {{\n        name rust\n        include (src/**/*.rs)\n      }}\n    )\n  }}\n)\n"
+        ),
     )
     .expect("write config");
 
     // Write spec
-    std::fs::write(root.join("spec.md"), spec_content).expect("write spec");
+    std::fs::write(root.join(spec_name), spec_content).expect("write spec");
 
     // Write source files
     std::fs::create_dir_all(root.join("src")).expect("create src dir");
@@ -370,6 +382,64 @@ async fn test_rebuild_add_rule_to_spec_resolves_orphan() {
     assert!(
         has_rule_in_forward(&data, "payment.checkout"),
         "Expected payment.checkout in forward data after adding rule to spec"
+    );
+    assert!(
+        !has_diagnostic_with_code(&data.workspace_diagnostics, "orphaned", "payment.checkout"),
+        "Expected no orphaned diagnostic for payment.checkout after adding rule"
+    );
+}
+
+/// Typst spec: add a rule → an orphaned reference becomes valid after rebuild.
+///
+/// Spec changes always trigger a full reparse (not incremental), so this
+/// exercises the same path as the markdown variant above but for `.typ` files.
+#[tokio::test]
+async fn test_rebuild_typst_spec_resolves_orphan() {
+    use tracey::daemon::Engine;
+
+    // Use `#r(...)` so the typst marker prefix matches source-side `r[impl ...]`.
+    let (temp, config_path) = create_rebuild_test_project_with_spec(
+        "spec.typ",
+        "= Spec\n\n#r(\"auth.login\")[Users must log in.]\n",
+        &[(
+            "src/lib.rs",
+            "/// r[impl auth.login]\n/// r[impl payment.checkout]\npub fn handler() {}\n",
+        )],
+    );
+    let root = temp.path().to_path_buf();
+
+    let engine = Arc::new(
+        Engine::new(root.clone(), config_path)
+            .await
+            .expect("Failed to create engine"),
+    );
+
+    // Before: payment.checkout should be orphaned
+    let data = engine.data().await;
+    assert!(
+        has_diagnostic_with_code(&data.workspace_diagnostics, "orphaned", "payment.checkout"),
+        "Expected orphaned diagnostic for payment.checkout before adding rule; got {:#?}",
+        data.workspace_diagnostics
+    );
+
+    // Add payment.checkout to the typst spec
+    let spec_path = root.join("spec.typ");
+    std::fs::write(
+        &spec_path,
+        "= Spec\n\n#r(\"auth.login\")[Users must log in.]\n\n#r(\"payment.checkout\")[Users can check out.]\n",
+    )
+    .expect("update spec");
+
+    engine
+        .rebuild_with_changes(&[spec_path])
+        .await
+        .expect("rebuild failed");
+
+    // After: payment.checkout should exist in forward data and orphan diagnostic should be gone
+    let data = engine.data().await;
+    assert!(
+        has_rule_in_forward(&data, "payment.checkout"),
+        "Expected payment.checkout in forward data after adding rule to typst spec"
     );
     assert!(
         !has_diagnostic_with_code(&data.workspace_diagnostics, "orphaned", "payment.checkout"),
