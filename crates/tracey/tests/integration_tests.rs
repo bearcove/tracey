@@ -425,6 +425,115 @@ specs (
         vec!["Weighted", "Alpha", "Beta"],
         "Expected order by weight, then lexicographically by path for equal weights"
     );
+
+    // Each source file should produce its own section
+    assert_eq!(
+        spec_content.sections.len(),
+        3,
+        "Multi-file spec should produce one section per file"
+    );
+    let section_files: Vec<&str> = spec_content
+        .sections
+        .iter()
+        .map(|s| s.source_file.as_str())
+        .collect();
+    assert_eq!(
+        section_files,
+        vec![
+            "spec-order/00-weighted.md",
+            "spec-order/01-alpha.md",
+            "spec-order/02-beta.md"
+        ],
+        "Sections should be ordered by weight then path"
+    );
+
+    // Each section should have its own HTML content
+    for section in &spec_content.sections {
+        assert!(
+            !section.html.is_empty(),
+            "Section {} should have non-empty HTML",
+            section.source_file
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_multi_file_spec_cross_links_in_sections() {
+    let temp = common::create_temp_project();
+    let spec_dir = temp.path().join("docs");
+    std::fs::create_dir_all(&spec_dir).expect("Failed to create docs dir");
+
+    // File 1: links to file 2
+    std::fs::write(
+        spec_dir.join("01-intro.md"),
+        r#"# Introduction
+
+r[intro.overview]
+This is the intro. See [References](references.md) for more.
+"#,
+    )
+    .expect("write 01-intro.md");
+
+    // File 2: linked from file 1
+    std::fs::write(
+        spec_dir.join("references.md"),
+        r#"# References
+
+r[refs.list]
+This is the references section. See [Introduction](01-intro.md).
+"#,
+    )
+    .expect("write references.md");
+
+    std::fs::write(
+        temp.path().join("config.styx"),
+        r#"
+specs (
+  {
+    name test
+    include (docs/*.md)
+    impls (
+      {
+        name rust
+        include (src/**/*.rs)
+      }
+    )
+  }
+)
+"#,
+    )
+    .expect("write config");
+
+    let engine = Arc::new(
+        tracey::daemon::Engine::new(temp.path().to_path_buf(), temp.path().join("config.styx"))
+            .await
+            .expect("Failed to create engine"),
+    );
+    let service = tracey::daemon::TraceyService::new(engine);
+    let rpc_service = common::create_test_rpc_service(service).await;
+
+    let spec_content = rpc(rpc_service
+        .client
+        .spec_content("test".to_string(), "rust".to_string())
+        .await)
+    .expect("Expected spec content");
+
+    // Should have 2 sections (one per file)
+    assert_eq!(spec_content.sections.len(), 2, "Should have 2 sections");
+
+    // Each section should contain the cross-link to the other file
+    let intro_html = &spec_content.sections[0].html;
+    let refs_html = &spec_content.sections[1].html;
+
+    // The links should be present (marq resolves them to absolute paths)
+    assert!(
+        intro_html.contains("references"),
+        "intro should link to references: {intro_html}"
+    );
+    assert!(
+        refs_html.contains("01-intro"),
+        "references should link to intro: {refs_html}"
+    );
 }
 
 // ============================================================================
