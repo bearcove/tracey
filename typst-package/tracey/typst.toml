@@ -1,0 +1,8 @@
+[package]
+name = "tracey"
+version = "0.1.0"
+entrypoint = "lib.typ"
+authors = ["tracey contributors"]
+license = "MIT OR Apache-2.0"
+description = "Requirement markers for tracey-traced specifications"
+repository = "https://github.com/bearcove/tracey"
