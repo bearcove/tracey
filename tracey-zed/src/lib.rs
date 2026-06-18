@@ -196,6 +196,13 @@ impl zed::Extension for TraceyExtension {
     /// Returns the command used to start the tracey MCP context server.
     /// Zed will spawn this process and communicate with it over stdio using
     /// the Model Context Protocol.
+    ///
+    /// Note: zed_extension_api 0.5 exposes `Project::worktree_ids()` but no
+    /// resolver back to a `Worktree`, so `which()` is unreachable here and the
+    /// `$PATH` probe in `ensure_binary` is skipped. If the MCP server starts
+    /// before the LSP, a `tracey` in `$PATH` is ignored in favour of the
+    /// downloaded/extension-dir binary. Dev users wanting their local build
+    /// should open a source file first so the LSP path caches the `$PATH` hit.
     fn context_server_command(
         &mut self,
         _context_server_id: &ContextServerId,
