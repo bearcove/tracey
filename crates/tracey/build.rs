@@ -125,7 +125,6 @@ fn generate_typescript_types() {
     let mut generator = TypeScriptGenerator::new();
 
     // Add all API types
-    generator.add_type::<GitStatus>();
     generator.add_type::<ApiConfig>();
     generator.add_type::<ApiSpecInfo>();
     generator.add_type::<ApiForwardData>();

@@ -147,6 +147,11 @@ export interface ApiRule {
   status?: string;
   level?: string;
   sourceFile?: string;
+  /**
+   * Spec dialect of `source_file`. Carried so downstream consumers don't
+   * re-derive it from the path on every access.
+   */
+  format?: SpecFormat;
   sourceLine?: number;
   sourceColumn?: number;
   /** Section slug (heading ID) that this rule belongs to */
@@ -172,6 +177,9 @@ export interface ApiStaleRef {
   /** The rule ID referenced in code (older version) */
   reference_id: RuleId;
 }
+
+/** Which spec dialect a file is written in. */
+export type SpecFormat = "markdown" | "typst" | "sdoc";
 
 export interface ApiSpecForward {
   name: string;
@@ -203,8 +211,5 @@ export interface ApiConfig {
   projectRoot: string;
   specs: ApiSpecInfo[];
 }
-
-/** Git status for a file */
-export type GitStatus = "dirty" | "staged" | "clean" | "unknown";
 
 

@@ -1,0 +1,15 @@
+// Tracey configuration for typst integration tests
+
+specs (
+  {
+    name test
+    include (spec.typ)
+    impls (
+      {
+        name rust
+        include (src/**/*.rs)
+        test_include (src/tests.rs)
+      }
+    )
+  }
+)

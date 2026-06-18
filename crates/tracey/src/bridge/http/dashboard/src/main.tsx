@@ -4,7 +4,7 @@ import { useCallback, useContext, useEffect, useRef, useState } from "preact/hoo
 import { LocationProvider, Route, Router, useLocation, useRoute } from "preact-iso";
 import "./style.scss";
 
-import { getDeviconClass, modKey, TAB_ICON_NAMES } from "./config";
+import { getDeviconClass, modKey, REQ_ANCHOR_PREFIX, TAB_ICON_NAMES } from "./config";
 
 // Modules
 import { type UseApiResult, useApi } from "./hooks";
@@ -887,8 +887,8 @@ function SpecViewRoute() {
   const impl = params.impl;
   // Hash can be a heading (e.g., #my-heading) or a requirement (e.g., #r--my.rule)
   const hash = window.location.hash ? window.location.hash.slice(1) : null;
-  const rule = hash?.startsWith("r--") ? hash.slice(3) : null;
-  const heading = hash && !hash.startsWith("r--") ? hash : null;
+  const rule = hash?.startsWith(REQ_ANCHOR_PREFIX) ? hash.slice(REQ_ANCHOR_PREFIX.length) : null;
+  const heading = hash && !hash.startsWith(REQ_ANCHOR_PREFIX) ? hash : null;
 
   const [scrollPosition, setScrollPosition] = useState(0);
 

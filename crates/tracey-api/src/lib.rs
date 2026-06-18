@@ -5,22 +5,7 @@
 //! definitions via facet-typescript.
 
 use facet::Facet;
-use tracey_core::RuleId;
-
-/// Git status for a file
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Facet)]
-#[facet(rename_all = "lowercase")]
-#[repr(u8)]
-pub enum GitStatus {
-    /// File has uncommitted changes
-    Dirty,
-    /// File has staged changes
-    Staged,
-    /// File is clean (no changes)
-    Clean,
-    /// Not in a git repo or error checking
-    Unknown,
-}
+use tracey_core::{RuleId, SpecFormat};
 
 /// Project configuration info
 #[derive(Debug, Clone, Facet)]
@@ -77,6 +62,10 @@ pub struct ApiRule {
     pub level: Option<String>,
     #[facet(default)]
     pub source_file: Option<String>,
+    /// Spec dialect of `source_file`. Carried so downstream consumers don't
+    /// re-derive it from the path on every access.
+    #[facet(default)]
+    pub format: SpecFormat,
     #[facet(default)]
     pub source_line: Option<usize>,
     #[facet(default)]
