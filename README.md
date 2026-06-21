@@ -2,13 +2,14 @@
 
 > **Note:** Looking for Tracy, the frame profiler? That's a different project: [wolfpld/tracy](https://github.com/wolfpld/tracy)
 
-Spec coverage for codebases. Tracks traceability between requirements (in markdown or StrictDoc) and implementations/tests (in source code). Catches spec drift before it becomes a problem.
+Spec coverage for codebases. Tracks traceability between requirements written in markdown or StrictDoc, and implementations/tests in source code.
+Catches spec drift before it becomes a problem.
 
 ## What it does
 
 Specs, implementations, and tests drift apart — code changes without updating specs, specs describe unimplemented features, tests cover different scenarios than requirements specify.
 
-Tracey uses lightweight annotations in source code comments to link specification requirements — written in markdown or StrictDoc (`.sdoc`) — with the implementing code and tests. This enables:
+Tracey uses lightweight annotations in markdown or StrictDoc file and source code comments to link specification requirements with the implementing code and tests. This enables:
 
 - Verifying multiple implementations (different languages, platforms) match the same spec
 - Finding which requirements lack implementation or tests
@@ -34,7 +35,7 @@ Pre-built binaries are available for `aarch64-apple-darwin`, `aarch64-unknown-li
 
 ### 1. Define requirements in your spec
 
-Use the `r[req.id]` syntax to define requirements in a markdown specification document:
+Use the `r[req.id]` syntax to define requirements in your specification documents:
 
 ```markdown
 # Channel Management
