@@ -179,7 +179,7 @@ export interface ApiStaleRef {
 }
 
 /** Which spec dialect a file is written in. */
-export type SpecFormat = "markdown" | "typst" | "sdoc";
+export type SpecFormat = "markdown" | "typst" | "sdoc" | "asciidoc";
 
 export interface ApiSpecForward {
   name: string;

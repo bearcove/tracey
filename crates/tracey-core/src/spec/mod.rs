@@ -11,6 +11,7 @@ use std::ffi::OsStr;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 
+mod asciidoc;
 mod markdown;
 mod registry;
 mod sdoc;
@@ -107,6 +108,8 @@ pub enum SpecFormat {
     Typst,
     /// StrictDoc requirements (`.sdoc`).
     Sdoc,
+    /// AsciiDoc with `r[id]` marker syntax, parsed via `asciidork`.
+    AsciiDoc,
 }
 
 impl SpecFormat {

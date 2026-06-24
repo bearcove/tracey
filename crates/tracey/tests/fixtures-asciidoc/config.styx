@@ -1,0 +1,15 @@
+// Tracey configuration for AsciiDoc integration tests
+
+specs (
+  {
+    name test
+    include (spec.adoc)
+    impls (
+      {
+        name rust
+        include (src/**/*.rs)
+        test_include (src/tests.rs)
+      }
+    )
+  }
+)

@@ -67,6 +67,11 @@ arborium-tree-sitter = { workspace = true }
 arborium-typst = { workspace = true }
 html-escape = { workspace = true }
 async-trait = { workspace = true }
+asciidork-core = { workspace = true }
+asciidork-parser = { workspace = true }
+asciidork-ast = { workspace = true }
+asciidork-dr-html-backend = { workspace = true }
+bumpalo = { workspace = true }
 
 # Optional
 ignore = { workspace = true, optional = true }
