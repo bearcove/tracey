@@ -183,6 +183,117 @@ async fn test_uncovered_with_prefix_filter() {
 }
 
 #[tokio::test]
+async fn test_all_returns_every_rule_with_text() {
+    let service = create_test_service().await;
+    let req = AllRequest {
+        spec: Some("test".to_string()),
+        impl_name: Some("rust".to_string()),
+        prefix: None,
+    };
+
+    let response = rpc(service.client.all(req).await);
+
+    assert_eq!(response.spec, "test");
+    assert_eq!(response.impl_name, "rust");
+
+    // spec.md defines 8 rules across 3 sections.
+    let total: usize = response.by_section.iter().map(|s| s.rules.len()).sum();
+    assert_eq!(total, 8, "expected 8 rules from fixture spec.md");
+    assert_eq!(response.total_rules, 8);
+
+    // Every rule must have a non-empty body — this is the whole point of `all`.
+    for section in &response.by_section {
+        for rule in &section.rules {
+            let text = rule
+                .text
+                .as_ref()
+                .unwrap_or_else(|| panic!("rule {} missing text", rule.id));
+            assert!(!text.is_empty(), "rule {} has empty text", rule.id);
+        }
+    }
+
+    // Content fidelity: a known rule's body must match the spec markdown.
+    let login = response
+        .by_section
+        .iter()
+        .flat_map(|s| &s.rules)
+        .find(|r| r.id.base == "auth.login")
+        .expect("auth.login should be present");
+    assert!(
+        login.text.as_ref().unwrap().contains("valid credentials"),
+        "auth.login body should contain 'valid credentials', got: {:?}",
+        login.text
+    );
+}
+
+#[tokio::test]
+async fn test_all_json_serialization() {
+    // Mirror the `tracey query all --json` path: call the RPC and serialize
+    // the response with facet_json, asserting the wire shape downstream
+    // consumers depend on.
+    let service = create_test_service().await;
+    let req = AllRequest {
+        spec: Some("test".to_string()),
+        impl_name: Some("rust".to_string()),
+        prefix: None,
+    };
+
+    let response = rpc(service.client.all(req).await);
+    let json = facet_json::to_string_pretty(&response).expect("JSON serialization failed");
+
+    // Top-level shape (camelCase per #[facet(rename_all = "camelCase")]).
+    assert!(json.contains("\"spec\""), "missing `spec` field: {json}");
+    assert!(
+        json.contains("\"implName\""),
+        "expected camelCase `implName`: {json}"
+    );
+    assert!(
+        json.contains("\"totalRules\""),
+        "expected camelCase `totalRules`: {json}"
+    );
+    assert!(
+        json.contains("\"bySection\""),
+        "expected camelCase `bySection`: {json}"
+    );
+
+    // Body text round-trips for at least one known rule.
+    assert!(
+        json.contains("valid credentials"),
+        "expected `auth.login` body text in JSON output: {json}"
+    );
+}
+
+#[tokio::test]
+async fn test_all_with_prefix_filter() {
+    let service = create_test_service().await;
+    let req = AllRequest {
+        spec: Some("test".to_string()),
+        impl_name: Some("rust".to_string()),
+        prefix: Some("auth".to_string()),
+    };
+
+    let response = rpc(service.client.all(req).await);
+
+    let returned: Vec<_> = response.by_section.iter().flat_map(|s| &s.rules).collect();
+
+    assert!(!returned.is_empty(), "prefix `auth` should match >= 1 rule");
+    assert_eq!(response.total_rules, returned.len());
+
+    for rule in &returned {
+        assert!(
+            rule.id.base.starts_with("auth."),
+            "rule {} does not match prefix `auth`",
+            rule.id
+        );
+        let text = rule
+            .text
+            .as_ref()
+            .unwrap_or_else(|| panic!("rule {} missing text", rule.id));
+        assert!(!text.is_empty(), "rule {} has empty text", rule.id);
+    }
+}
+
+#[tokio::test]
 async fn test_untested_returns_rules() {
     let service = create_test_service().await;
     let req = UntestedRequest {

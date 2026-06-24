@@ -194,6 +194,7 @@ tracey query uncovered           # rules with no impl references
 tracey query untested            # rules with impl but no verify references
 tracey query stale               # references pointing to older rule versions
 tracey query unmapped            # source tree with coverage percentages
+tracey query all                 # list every rule (use --json for full bodies)
 tracey query rule auth.login     # full details for a specific rule
 tracey query validate            # check for broken refs, naming issues
 tracey query validate --deny warnings # also fail on warnings

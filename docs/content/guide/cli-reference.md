@@ -154,6 +154,14 @@ List references pointing to older rule versions.
 tracey query stale [--spec_impl SPEC/IMPL] [--prefix PREFIX] [ROOT]
 ```
 
+### `tracey query all`
+
+List every requirement in a spec/impl, grouped by section. In `--json` mode each rule also includes its full body text — designed for exporting requirements to external trackers.
+
+```
+tracey query all [--spec_impl SPEC/IMPL] [--prefix PREFIX] [ROOT]
+```
+
 ### `tracey query unmapped`
 
 Show source tree with coverage percentages. Code units (functions, structs, etc.) without requirement references are "unmapped."
