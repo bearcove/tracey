@@ -14,6 +14,7 @@
 //! - Code added without updating the spec
 //! - Potential dead code or technical debt
 
+use crate::lexer::is_valid_req_char;
 use crate::positions::{ByteOffset, LineNumber, RefLocation};
 use crate::{RuleId, parse_rule_id};
 use arborium::tree_sitter::{Node, Parser};
@@ -1850,7 +1851,7 @@ fn try_parse_full_ref(
         end_idx = idx;
         if c == ']' || c == ' ' {
             break;
-        } else if c.is_ascii_alphanumeric() || c == '-' || c == '.' || c == '+' {
+        } else if is_valid_req_char(c) {
             first_word.push(c);
             chars.next();
         } else {
@@ -1884,12 +1885,7 @@ fn try_parse_full_ref(
                     if c == ']' {
                         chars.next();
                         break;
-                    } else if c.is_ascii_alphanumeric()
-                        || c == '-'
-                        || c == '_'
-                        || c == '+'
-                        || c == '.'
-                    {
+                    } else if is_valid_req_char(c) {
                         req_id.push(c);
                         chars.next();
                     } else {
@@ -1928,78 +1924,10 @@ fn try_parse_full_ref(
 fn try_parse_req_ref(
     chars: &mut std::iter::Peekable<impl Iterator<Item = (usize, char)>>,
 ) -> Option<RuleId> {
-    // First char must be an ASCII letter. Case is preserved.
-    let first_char = chars.peek().map(|(_, c)| *c)?;
-    if !first_char.is_ascii_alphabetic() {
+    let Some(ParsedFullRef::Parsed { verb: _, req_id, end_idx: _ }) = try_parse_full_ref(chars) else {
         return None;
-    }
-
-    let mut first_word = String::new();
-    first_word.push(first_char);
-    chars.next();
-
-    // Read the first word
-    while let Some(&(_, c)) = chars.peek() {
-        if c == ']' || c == ' ' {
-            break;
-        } else if c.is_ascii_alphanumeric() || c == '-' || c == '.' || c == '+' {
-            first_word.push(c);
-            chars.next();
-        } else {
-            return None;
-        }
-    }
-
-    // Check what follows
-    match chars.peek().map(|(_, c)| *c) {
-        Some(' ') => {
-            // Might be [verb req.id]
-            let verbs = ["impl", "verify", "define", "depends", "related"];
-            if verbs.contains(&first_word.as_str()) {
-                chars.next(); // consume space
-
-                // Read the requirement ID
-                let mut req_id = String::new();
-
-                // First char of rule ID must be an ASCII letter (case preserved).
-                if let Some(&(_, c)) = chars.peek() {
-                    if c.is_ascii_alphabetic() {
-                        req_id.push(c);
-                        chars.next();
-                    } else {
-                        return None;
-                    }
-                }
-
-                while let Some(&(_, c)) = chars.peek() {
-                    if c == ']' {
-                        chars.next();
-                        break;
-                    } else if c.is_ascii_alphanumeric() || c == '-' || c == '+' || c == '.' {
-                        req_id.push(c);
-                        chars.next();
-                    } else {
-                        return None;
-                    }
-                }
-
-                if is_valid_req_id(&req_id) {
-                    return parse_rule_id(&req_id);
-                }
-            }
-            None
-        }
-        Some(']') => {
-            chars.next(); // consume ]
-            // [req.id] format
-            if is_valid_req_id(&first_word) {
-                parse_rule_id(&first_word)
-            } else {
-                None
-            }
-        }
-        _ => None,
-    }
+    };
+    Some(req_id)
 }
 
 fn is_valid_req_id(req_id: &str) -> bool {
