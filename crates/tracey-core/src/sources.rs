@@ -81,6 +81,9 @@ pub const SUPPORTED_EXTENSIONS: &[&str] = &[
     "bash",   // Bash
     "zsh",    // Zsh
     "nix",    // Nix
+    "yml",    // YAML
+    "yaml",   // YAML (alternate extension)
+    "json5",  // JSON5
 ];
 
 /// Check if a file extension is supported for scanning
@@ -506,6 +509,97 @@ mod tests {
     }
 
     #[test]
+    fn test_memory_sources_yaml() {
+        let result = Reqs::extract(
+            MemorySources::new()
+                .add("config.yml", "# r[impl yaml.req.one]")
+                .add(
+                    "pipeline.yaml",
+                    "# r[impl yaml.req.two]\nsteps:\n  - name: build # r[verify yaml.req.three]",
+                ),
+        )
+        .unwrap();
+
+        assert_eq!(result.reqs.len(), 3);
+        assert_eq!(result.reqs.references[0].req_id, "yaml.req.one");
+        assert_eq!(result.reqs.references[1].req_id, "yaml.req.two");
+        assert_eq!(result.reqs.references[2].req_id, "yaml.req.three");
+        assert!(result.warnings.is_empty());
+    }
+
+    #[test]
+    fn test_memory_sources_yaml_all_verbs() {
+        let content = "# r[impl feat.one]\n# r[verify feat.two]\n# r[depends feat.three]\n# r[related feat.four]\n# r[define feat.five]\n";
+        let result = Reqs::extract(MemorySources::new().add("spec.yml", content)).unwrap();
+
+        assert_eq!(result.reqs.len(), 5);
+        assert_eq!(
+            result.reqs.references[0].verb,
+            crate::lexer::RefVerb::Impl
+        );
+        assert_eq!(
+            result.reqs.references[1].verb,
+            crate::lexer::RefVerb::Verify
+        );
+        assert_eq!(
+            result.reqs.references[2].verb,
+            crate::lexer::RefVerb::Depends
+        );
+        assert_eq!(
+            result.reqs.references[3].verb,
+            crate::lexer::RefVerb::Related
+        );
+        assert_eq!(
+            result.reqs.references[4].verb,
+            crate::lexer::RefVerb::Define
+        );
+    }
+
+    #[test]
+    fn test_memory_sources_json5() {
+        let result = Reqs::extract(
+            MemorySources::new()
+                .add("config.json5", "// r[impl json5.req.one]")
+                .add("settings.json5", "// r[verify json5.req.two]")
+                .add("other.json5", "/* r[impl json5.req.three] */"),
+        )
+        .unwrap();
+
+        assert_eq!(result.reqs.len(), 3);
+        assert_eq!(result.reqs.references[0].req_id, "json5.req.one");
+        assert_eq!(result.reqs.references[1].req_id, "json5.req.two");
+        assert_eq!(result.reqs.references[2].req_id, "json5.req.three");
+        assert!(result.warnings.is_empty());
+    }
+
+    #[cfg(feature = "reverse")]
+    #[test]
+    fn test_memory_sources_json5_reverse() {
+        let result = Reqs::extract(
+            MemorySources::new()
+                .add("config.json5", "// r[impl json5.one]")
+                .add(
+                    "settings.json5",
+                    "{ key: 'value' /* r[verify json5.two] */ }",
+                ),
+        )
+        .unwrap();
+
+        assert_eq!(result.reqs.len(), 2);
+        assert_eq!(result.reqs.references[0].req_id, "json5.one");
+        assert_eq!(
+            result.reqs.references[0].verb,
+            crate::lexer::RefVerb::Impl
+        );
+        assert_eq!(result.reqs.references[1].req_id, "json5.two");
+        assert_eq!(
+            result.reqs.references[1].verb,
+            crate::lexer::RefVerb::Verify
+        );
+        assert!(result.warnings.is_empty());
+    }
+
+    #[test]
     fn test_memory_sources_mixed_languages() {
         let result = Reqs::extract(
             MemorySources::new()
@@ -534,6 +628,33 @@ mod tests {
         assert!(result.warnings.is_empty());
     }
 
+    #[cfg(feature = "reverse")]
+    #[test]
+    fn test_memory_sources_yaml_reverse() {
+        let result = Reqs::extract(
+            MemorySources::new()
+                .add("config.yml", "# r[impl yaml.one]")
+                .add(
+                    "pipeline.yaml",
+                    "steps:\n  - name: build # r[verify yaml.two]\n",
+                ),
+        )
+        .unwrap();
+
+        assert_eq!(result.reqs.len(), 2);
+        assert_eq!(result.reqs.references[0].req_id, "yaml.one");
+        assert_eq!(
+            result.reqs.references[0].verb,
+            crate::lexer::RefVerb::Impl
+        );
+        assert_eq!(result.reqs.references[1].req_id, "yaml.two");
+        assert_eq!(
+            result.reqs.references[1].verb,
+            crate::lexer::RefVerb::Verify
+        );
+        assert!(result.warnings.is_empty());
+    }
+
     #[test]
     fn test_supported_extensions() {
         use std::ffi::OsStr;
@@ -546,6 +667,10 @@ mod tests {
         assert!(is_supported_extension(OsStr::new("go")));
         assert!(is_supported_extension(OsStr::new("php")));
         assert!(is_supported_extension(OsStr::new("nix")));
+
+        assert!(is_supported_extension(OsStr::new("yml")));
+        assert!(is_supported_extension(OsStr::new("yaml")));
+        assert!(is_supported_extension(OsStr::new("json5")));
 
         assert!(!is_supported_extension(OsStr::new("md")));
         assert!(!is_supported_extension(OsStr::new("txt")));

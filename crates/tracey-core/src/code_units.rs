@@ -1499,7 +1499,11 @@ pub fn extract_refs_with_warnings(path: &Path, source: &str) -> ExtractedRefs {
         "go" => arborium_go::language(),
         "java" => arborium_java::language(),
         "py" => arborium_python::language(),
-        "ts" | "tsx" | "js" | "jsx" | "mts" | "cts" => arborium_typescript::language(),
+        // json5 shares // and /* */ comment syntax with JS/TS; reuse the TS grammar
+        // so that tree-sitter can identify comment nodes in the reverse path.
+        "ts" | "tsx" | "js" | "jsx" | "mts" | "cts" | "json5" => {
+            arborium_typescript::language()
+        }
         "php" => arborium_php::language(),
         "c" | "h" => arborium_c::language(),
         "cpp" | "cc" | "cxx" | "hpp" => arborium_cpp::language(),
@@ -1523,6 +1527,7 @@ pub fn extract_refs_with_warnings(path: &Path, source: &str) -> ExtractedRefs {
         "ml" | "mli" => arborium_ocaml::language(),
         "sh" | "bash" | "zsh" => arborium_bash::language(),
         "nix" => arborium_nix::language(),
+        "yml" | "yaml" => arborium_yaml::language(),
         _ => return ExtractedRefs::default(),
     };
 

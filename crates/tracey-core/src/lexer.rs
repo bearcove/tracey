@@ -282,6 +282,35 @@ fn check_ignore_directives(text: &str, line: LineNumber, state: &mut IgnoreState
     true
 }
 
+/// Find the byte position where a YAML line comment starts.
+///
+/// Per the YAML spec a `#` opens a comment only when it is at the start of the
+/// line (possibly after leading whitespace) or is immediately preceded by at
+/// least one whitespace character, AND is not inside a single- or double-quoted
+/// scalar.  A bare `#` embedded in a plain scalar — e.g. `url: http://x/#frag`
+/// — is NOT a comment.
+#[cfg(not(feature = "reverse"))]
+fn find_yaml_comment_start(line: &str) -> Option<usize> {
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut prev: Option<char> = None;
+
+    for (idx, ch) in line.char_indices() {
+        match ch {
+            '\'' if !in_double => in_single = !in_single,
+            '"' if !in_single => in_double = !in_double,
+            '#' if !in_single && !in_double => {
+                if idx == 0 || prev.is_some_and(|p| p.is_whitespace()) {
+                    return Some(idx);
+                }
+            }
+            _ => {}
+        }
+        prev = Some(ch);
+    }
+    None
+}
+
 #[cfg(not(feature = "reverse"))]
 fn extract_from_content_text_based(path: &Path, content: &str, reqs: &mut Reqs) {
     // Track line starts for computing line numbers from byte offsets
@@ -293,64 +322,89 @@ fn extract_from_content_text_based(path: &Path, content: &str, reqs: &mut Reqs) 
 
     let mut ignore_state = IgnoreState::default();
 
+    let is_yaml = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| matches!(e, "yml" | "yaml"));
+
     // Scan for comments and extract references
     for (line_idx, line) in content.lines().enumerate() {
         let line_num = LineNumber::from_zero_based(line_idx);
         let line_start = line_starts.line_start_for_index(line_idx);
 
-        // Check for line comments (// or ///)
-        if let Some(comment_pos) = line.find("//") {
-            let comment = &line[comment_pos..];
-            let comment_start = line_start.add(comment_pos);
+        if is_yaml {
+            // YAML uses # as its only comment syntax; skip // and /* */ scanning
+            // entirely to avoid false positives (e.g. URLs containing //).
+            if let Some(comment_pos) = find_yaml_comment_start(line) {
+                let comment = &line[comment_pos..];
+                let comment_start = line_start.add(comment_pos);
 
-            // Check ignore directives before extracting
-            if check_ignore_directives(comment, line_num, &mut ignore_state) {
-                extract_references_from_text(
-                    path,
-                    comment,
-                    comment_start,
-                    line_num,
-                    &file_code_mask,
-                    reqs,
-                );
-            }
-        }
-    }
-
-    // Handle block comments /* */
-    let mut in_block_comment = false;
-    let mut block_start = 0;
-    let mut block_line = LineNumber::from_one_based(1);
-    let mut i = 0;
-    let bytes = content.as_bytes();
-
-    while i < bytes.len() {
-        if in_block_comment {
-            if i + 1 < bytes.len() && bytes[i] == b'*' && bytes[i + 1] == b'/' {
-                let block_content = &content[block_start..i];
-                // Check ignore directives for block comments too
-                if check_ignore_directives(block_content, block_line, &mut ignore_state) {
+                if check_ignore_directives(comment, line_num, &mut ignore_state) {
                     extract_references_from_text(
                         path,
-                        block_content,
-                        ByteOffset::from_usize(block_start),
-                        block_line,
+                        comment,
+                        comment_start,
+                        line_num,
                         &file_code_mask,
                         reqs,
                     );
                 }
-                in_block_comment = false;
+            }
+        } else {
+            // Check for line comments (// or ///)
+            if let Some(comment_pos) = line.find("//") {
+                let comment = &line[comment_pos..];
+                let comment_start = line_start.add(comment_pos);
+
+                if check_ignore_directives(comment, line_num, &mut ignore_state) {
+                    extract_references_from_text(
+                        path,
+                        comment,
+                        comment_start,
+                        line_num,
+                        &file_code_mask,
+                        reqs,
+                    );
+                }
+            }
+        }
+    }
+
+    // Handle block comments /* */ — not applicable to YAML.
+    if !is_yaml {
+        let mut in_block_comment = false;
+        let mut block_start = 0;
+        let mut block_line = LineNumber::from_one_based(1);
+        let mut i = 0;
+        let bytes = content.as_bytes();
+
+        while i < bytes.len() {
+            if in_block_comment {
+                if i + 1 < bytes.len() && bytes[i] == b'*' && bytes[i + 1] == b'/' {
+                    let block_content = &content[block_start..i];
+                    if check_ignore_directives(block_content, block_line, &mut ignore_state) {
+                        extract_references_from_text(
+                            path,
+                            block_content,
+                            ByteOffset::from_usize(block_start),
+                            block_line,
+                            &file_code_mask,
+                            reqs,
+                        );
+                    }
+                    in_block_comment = false;
+                    i += 2;
+                    continue;
+                }
+            } else if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'*' {
+                in_block_comment = true;
+                block_start = i + 2;
+                block_line = line_starts.line_number_for_offset(ByteOffset::from_usize(i));
                 i += 2;
                 continue;
             }
-        } else if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'*' {
-            in_block_comment = true;
-            block_start = i + 2;
-            block_line = line_starts.line_number_for_offset(ByteOffset::from_usize(i));
-            i += 2;
-            continue;
+            i += 1;
         }
-        i += 1;
     }
 }
 
@@ -1112,5 +1166,47 @@ pub fn reconnect() {}
         assert_eq!(reqs.len(), 5, "expected 5 references, got: {ids:?}");
         // Refines produces a warning
         assert_eq!(reqs.warnings.len(), 1);
+    }
+
+    #[test]
+    fn test_yaml_only_scans_hash_comments() {
+        // URLs with // must not produce false positives in YAML files.
+        let content = "url: https://example.com/api\n# r[impl yaml.endpoint]\npath: /v1\n";
+        let reqs = Reqs::extract_from_content(Path::new("config.yaml"), content);
+        assert_eq!(reqs.len(), 1, "only the # comment should be extracted");
+        assert_eq!(reqs.references[0].req_id, "yaml.endpoint");
+    }
+
+    #[test]
+    fn test_yaml_block_comment_syntax_not_scanned() {
+        // /* */ is not valid YAML comment syntax; must not be parsed as one.
+        let content = "/* r[impl yaml.false-positive] */\n";
+        let reqs = Reqs::extract_from_content(Path::new("config.yml"), content);
+        assert_eq!(reqs.len(), 0, "/* */ should not be treated as a comment in YAML");
+    }
+
+    #[test]
+    fn test_yaml_hash_in_scalar_not_parsed() {
+        // '#' embedded in a plain scalar (no preceding whitespace) is not a comment.
+        let content = "url: https://example.com/#frag r[impl should.not.parse]\n";
+        let reqs = Reqs::extract_from_content(Path::new("config.yaml"), content);
+        assert_eq!(reqs.len(), 0, "# inside a scalar value must not be treated as a comment");
+    }
+
+    #[test]
+    fn test_yaml_hash_after_space_is_comment() {
+        // '#' preceded by whitespace is a valid YAML comment.
+        let content = "key: value # r[impl yaml.inline]\n";
+        let reqs = Reqs::extract_from_content(Path::new("config.yaml"), content);
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs.references[0].req_id, "yaml.inline");
+    }
+
+    #[test]
+    fn test_yaml_hash_in_quoted_scalar_not_parsed() {
+        // '#' inside a quoted string is not a comment.
+        let content = "msg: \"hello # r[impl yaml.false-positive]\"\n";
+        let reqs = Reqs::extract_from_content(Path::new("config.yaml"), content);
+        assert_eq!(reqs.len(), 0, "# inside a double-quoted scalar must not be a comment");
     }
 }

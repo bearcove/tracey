@@ -127,6 +127,7 @@ arborium-ocaml = "2.16.0"
 arborium-bash = "2.16.0"
 arborium-nix = "2.16.0"
 arborium-lean = "2.16.0"
+arborium-yaml = "2.16.0"
 
 # HTTP server for serve command
 axum = { version = "0.8", features = ["ws"] }
