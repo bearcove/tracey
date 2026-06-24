@@ -15,91 +15,12 @@ pub struct ExtractionResult {
     pub warnings: Vec<String>,
 }
 
-/// File extensions that tracey knows how to scan for requirement references.
-pub const SUPPORTED_EXTENSIONS: &[&str] = &[
-    "rs",     // Rust
-    "swift",  // Swift
-    "ts",     // TypeScript
-    "tsx",    // TypeScript JSX
-    "js",     // JavaScript
-    "jsx",    // JavaScript JSX
-    "go",     // Go
-    "c",      // C
-    "h",      // C headers
-    "cpp",    // C++
-    "hpp",    // C++ headers
-    "cc",     // C++
-    "cxx",    // C++
-    "m",      // Objective-C
-    "mm",     // Objective-C++
-    "java",   // Java
-    "kt",     // Kotlin
-    "kts",    // Kotlin script
-    "scala",  // Scala
-    "groovy", // Groovy
-    "cs",     // C#
-    "zig",    // Zig
-    "php",    // PHP
-    "py",     // Python
-    "rb",     // Ruby
-    "r",      // R
-    "R",      // R (uppercase)
-    "dart",   // Dart
-    "lua",    // Lua
-    "asm",    // Assembly
-    "s",      // Assembly
-    "S",      // Assembly (uppercase)
-    "pl",     // Perl
-    "pm",     // Perl module
-    "hs",     // Haskell
-    "lhs",    // Literate Haskell
-    "ex",     // Elixir
-    "exs",    // Elixir script
-    "erl",    // Erlang
-    "hrl",    // Erlang header
-    "clj",    // Clojure
-    "cljs",   // ClojureScript
-    "cljc",   // Clojure common
-    "edn",    // EDN
-    "fs",     // F#
-    "fsi",    // F# script
-    "fsx",    // F# script
-    "vb",     // Visual Basic
-    "vbs",    // VBScript
-    "cob",    // COBOL
-    "cbl",    // COBOL
-    "cpy",    // COBOL copybook
-    "jl",     // Julia
-    "d",      // D
-    "ps1",    // PowerShell
-    "psm1",   // PowerShell module
-    "psd1",   // PowerShell data
-    "cmake",  // CMake
-    "ml",     // OCaml
-    "mli",    // OCaml interface
-    "sh",     // Shell/Bash
-    "bash",   // Bash
-    "zsh",    // Zsh
-    "nix",    // Nix
-    "yml",    // YAML
-    "yaml",   // YAML (alternate extension)
-    "json5",  // JSON5
-    "lean",   // Lean
-    "svelte", // Svelte
-];
+pub use crate::languages::SUPPORTED_EXTENSIONS;
 
 /// Check if a file extension is supported for scanning
 pub fn is_supported_extension(ext: &OsStr) -> bool {
     ext.to_str()
-        .map(|e| SUPPORTED_EXTENSIONS.contains(&e))
-        .unwrap_or(false)
-}
-
-/// Check if a file extension identifies a specification source tracey can load.
-///
-/// Currently `md` (marq markdown) and `sdoc` (StrictDoc).
-pub fn is_spec_extension(ext: &OsStr) -> bool {
-    matches!(ext.to_str(), Some("md") | Some("sdoc"))
+        .is_some_and(|e| SUPPORTED_EXTENSIONS.contains(&e))
 }
 
 /// Trait for providing source files to extract requirements from
@@ -645,15 +566,25 @@ mod tests {
 
         assert_eq!(result.reqs.len(), 2);
         assert_eq!(result.reqs.references[0].req_id, "yaml.one");
-        assert_eq!(
-            result.reqs.references[0].verb,
-            crate::lexer::RefVerb::Impl
-        );
+        assert_eq!(result.reqs.references[0].verb, crate::lexer::RefVerb::Impl);
         assert_eq!(result.reqs.references[1].req_id, "yaml.two");
-        assert_eq!(
-            result.reqs.references[1].verb,
-            crate::lexer::RefVerb::Verify
-        );
+        assert_eq!(result.reqs.references[1].verb, crate::lexer::RefVerb::Verify);
+        assert!(result.warnings.is_empty());
+    }
+
+    #[cfg(feature = "reverse")]
+    #[test]
+    fn test_memory_sources_lean() {
+        let result = Reqs::extract(
+            MemorySources::new()
+                .add("Basic.lean", "-- r[impl lean.req.one]")
+                .add("Proof.lean", "/- r[verify lean.req.two] -/\ntheorem t : True := trivial"),
+        )
+        .unwrap();
+
+        assert_eq!(result.reqs.len(), 2);
+        assert_eq!(result.reqs.references[0].req_id, "lean.req.one");
+        assert_eq!(result.reqs.references[1].req_id, "lean.req.two");
         assert!(result.warnings.is_empty());
     }
 

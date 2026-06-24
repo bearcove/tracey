@@ -8,7 +8,7 @@ repository = "https://github.com/bearcove/tracey"
 
 [language_servers.tracey-lsp]
 name = "Tracey LSP"
-languages = ["Rust", "Swift", "Go", "Java", "Python", "TypeScript", "TSX", "JavaScript", "Markdown"]
+languages = ["Rust", "Swift", "Go", "Java", "Python", "TypeScript", "TSX", "JavaScript", "Markdown", "Typst"]
 
 [context_servers.tracey]
 name = "Tracey"

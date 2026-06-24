@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tracey_core::{RuleId, RuleIdMatch, classify_reference_for_rule, parse_rule_id};
+use tracey_core::{SpecFormat, diff_inline, is_spec_extension, parse_spec};
 use tracey_proto::*;
 
 use super::engine::Engine;
@@ -134,85 +135,38 @@ fn html_escape(s: &str) -> String {
 }
 
 /// Get arborium language name from file extension.
+///
+/// Consults the central [`tracey_core`] language registry first; the residual
+/// match below covers only extensions the registry doesn't (or can't) carry —
+/// non-source file types and the ts/js row whose extensions map to *different*
+/// highlight names.
 fn arborium_language(path: &str) -> Option<&'static str> {
     let ext = path.rsplit('.').next()?;
+    if let Some(name) = tracey_core::arborium_for_ext(ext) {
+        return Some(name);
+    }
     match ext {
-        // Rust
-        "rs" => Some("rust"),
-        // Go
-        "go" => Some("go"),
-        // C/C++
-        "c" | "h" => Some("c"),
-        "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => Some("cpp"),
-        // Web
-        "js" | "mjs" | "cjs" => Some("javascript"),
+        // C++ headers not in the registry row.
+        "hh" | "hxx" => Some("cpp"),
+        // ts/js row leaves arborium=None because the names differ per ext.
+        "js" | "mjs" | "cjs" | "jsx" => Some("javascript"),
         "ts" | "mts" | "cts" => Some("typescript"),
-        "jsx" => Some("javascript"),
         "tsx" => Some("tsx"),
-        // Python
-        "py" => Some("python"),
-        // Ruby
-        "rb" => Some("ruby"),
-        // Java/JVM
-        "java" => Some("java"),
+        // Lexer-only languages (no full registry row yet).
         "kt" | "kts" => Some("kotlin"),
         "scala" => Some("scala"),
-        // Shell
-        "sh" | "bash" | "zsh" => Some("bash"),
-        // Config
+        "zig" => Some("zig"),
+        // Config / markup / docs (never source-scanned).
         "json" => Some("json"),
         "yaml" | "yml" => Some("yaml"),
         "toml" => Some("toml"),
         "xml" => Some("xml"),
-        // Web markup
         "html" | "htm" => Some("html"),
         "css" => Some("css"),
         "scss" | "sass" => Some("scss"),
-        // Markdown
         "md" | "markdown" => Some("markdown"),
-        // SQL
+        "typ" => Some("typst"),
         "sql" => Some("sql"),
-        // Zig
-        "zig" => Some("zig"),
-        // Swift
-        "swift" => Some("swift"),
-        // Elixir
-        "ex" | "exs" => Some("elixir"),
-        // Haskell
-        "hs" | "lhs" => Some("haskell"),
-        // OCaml
-        "ml" | "mli" => Some("ocaml"),
-        // Lua
-        "lua" => Some("lua"),
-        // PHP
-        "php" => Some("php"),
-        // R
-        "r" | "R" => Some("r"),
-        // Dart
-        "dart" => Some("dart"),
-        // Assembly
-        "asm" | "s" | "S" => Some("asm"),
-        // Perl
-        "pl" | "pm" => Some("perl"),
-        // Erlang
-        "erl" | "hrl" => Some("erlang"),
-        // Clojure
-        "clj" | "cljs" | "cljc" | "edn" => Some("clojure"),
-        // F#
-        "fs" | "fsi" | "fsx" => Some("fsharp"),
-        // Visual Basic
-        "vb" | "vbs" => Some("vb"),
-        // COBOL
-        "cob" | "cbl" | "cpy" => Some("cobol"),
-        // Julia
-        "jl" => Some("julia"),
-        // D
-        "d" => Some("d"),
-        // PowerShell
-        "ps1" | "psm1" | "psd1" => Some("powershell"),
-        // CMake
-        "cmake" => Some("cmake"),
-        // MATLAB
         "mat" => Some("matlab"),
         // Svelte
         "svelte" => Some("svelte"),
@@ -436,9 +390,7 @@ impl TraceyDaemon for TraceyService {
                 .expect("version - 1 >= 1 since version > 1");
             if let Some(source_file) = info.source_file.as_deref() {
                 let project_root = self.inner.engine.project_root();
-                load_previous_rule_text_from_git(project_root, source_file, &prev_id)
-                    .await
-                    .map(|historical| marq::diff_markdown_inline(&historical.text, &info.raw))
+                diff_against_git(info.format, project_root, source_file, &prev_id, &info.raw).await
             } else {
                 None
             }
@@ -717,15 +669,29 @@ impl TraceyDaemon for TraceyService {
             .forward_by_impl
             .get(&(spec.clone(), impl_name.clone()))?;
         let include_patterns = data.spec_includes_by_name.get(&spec)?;
-        crate::data::render_spec_content_for_impl(
+        let format = data.format_config_by_spec.get(&spec)?;
+        let mut deps = std::collections::HashSet::new();
+        let result = crate::data::render_spec_content_for_impl(
             self.inner.engine.project_root(),
             include_patterns,
             &spec,
             &impl_name,
+            format,
             forward,
+            &mut deps,
         )
-        .await
-        .ok()
+        .await;
+        // Surface transitive typst `#import` deps to the watcher regardless of
+        // whether the compile succeeded — a helper with a syntax error is the
+        // file most in need of watching, so saving the fix re-renders.
+        self.inner.engine.record_spec_file_deps(deps).await;
+        match result {
+            Ok(v) => Some(v),
+            Err(e) => {
+                tracing::warn!("spec render failed for {spec}/{impl_name}: {e:#}");
+                None
+            }
+        }
     }
 
     /// Search rules and files
@@ -746,15 +712,20 @@ impl TraceyDaemon for TraceyService {
                 ResultKind::Source => "source",
             };
 
-            // For rules, render the markdown snippet to HTML
+            // For rules, render the snippet to HTML according to its source
+            // format. The search index emits raw text with PUA sentinels (see
+            // `crate::search::MARK_OPEN`); convert those to `<mark>` *after*
+            // escaping/rendering so a literal "<mark>" in user content can't
+            // inject a highlight.
             let highlighted = if r.kind == ResultKind::Rule {
-                let opts = marq::RenderOptions::default();
-                match marq::render(&r.highlighted, &opts).await {
-                    Ok(doc) => doc.html,
-                    Err(_) => r.highlighted.clone(),
-                }
+                // Render via the spec backend (markdown → marq, typst → escape,
+                // …); PUA sentinels survive every backend's render_inline path
+                // so the `<mark>` substitution stays here, search-side.
+                let fmt = r.format.unwrap_or(SpecFormat::Markdown);
+                let rendered = tracey_core::render_spec_inline(fmt, &r.highlighted).await;
+                crate::search::pua_to_mark(&rendered)
             } else {
-                r.highlighted.clone()
+                crate::search::marks_to_html(&r.highlighted)
             };
 
             results.push(SearchResult {
@@ -921,9 +892,8 @@ impl TraceyDaemon for TraceyService {
                     .expect("version - 1 >= 1 since version > 1");
                 if let Some(source_file) = rule.source_file.as_deref() {
                     let project_root = self.inner.engine.project_root();
-                    load_previous_rule_text_from_git(project_root, source_file, &prev_id)
+                    diff_against_git(rule.format, project_root, source_file, &prev_id, &rule.raw)
                         .await
-                        .map(|historical| marq::diff_markdown_inline(&historical.text, &rule.raw))
                 } else {
                     None
                 }
@@ -932,9 +902,14 @@ impl TraceyDaemon for TraceyService {
             RuleIdMatch::Stale => {
                 if let Some(source_file) = rule.source_file.as_deref() {
                     let project_root = self.inner.engine.project_root();
-                    load_previous_rule_text_from_git(project_root, source_file, &rule_at_pos.req_id)
-                        .await
-                        .map(|historical| marq::diff_markdown_inline(&historical.text, &rule.raw))
+                    diff_against_git(
+                        rule.format,
+                        project_root,
+                        source_file,
+                        &rule_at_pos.req_id,
+                        &rule.raw,
+                    )
+                    .await
                 } else {
                     None
                 }
@@ -1179,8 +1154,8 @@ impl TraceyDaemon for TraceyService {
         let path = PathBuf::from(&req.path);
         let mut symbols = Vec::new();
 
-        // For spec files (markdown), return requirement definitions
-        if path.extension().is_some_and(|ext| ext == "md") {
+        // For spec files, return requirement definitions
+        if path.extension().is_some_and(is_spec_extension) {
             let data = self.inner.engine.data().await;
             let project_root = self.inner.engine.project_root();
 
@@ -1287,10 +1262,9 @@ impl TraceyDaemon for TraceyService {
 
         let mut tokens = Vec::new();
 
-        // For markdown spec files, tokenize requirement definitions
-        if path.extension().is_some_and(|ext| ext == "md") {
-            let options = marq::RenderOptions::default();
-            if let Ok(doc) = marq::render(&req.content, &options).await {
+        // For spec files, tokenize requirement definitions
+        if let Some(fmt) = SpecFormat::from_path(&path) {
+            if let Ok(doc) = parse_spec(fmt, &req.content).await {
                 for def in &doc.reqs {
                     // Use marker_span for semantic tokens (only color the marker)
                     let (start_line, start_char, _, _) =
@@ -1347,10 +1321,9 @@ impl TraceyDaemon for TraceyService {
 
         let mut lenses = Vec::new();
 
-        // For markdown spec files, show code lenses for requirement definitions
-        if path.extension().is_some_and(|ext| ext == "md") {
-            let options = marq::RenderOptions::default();
-            if let Ok(doc) = marq::render(&req.content, &options).await {
+        // For spec files, show code lenses for requirement definitions
+        if let Some(fmt) = SpecFormat::from_path(&path) {
+            if let Ok(doc) = parse_spec(fmt, &req.content).await {
                 for def in &doc.reqs {
                     // Use marker_span for code lens positioning
                     let (start_line, start_char, _, end_char) =
@@ -1431,10 +1404,9 @@ impl TraceyDaemon for TraceyService {
 
         let mut hints = Vec::new();
 
-        // For markdown spec files, show hints for requirement definitions
-        if path.extension().is_some_and(|ext| ext == "md") {
-            let options = marq::RenderOptions::default();
-            if let Ok(doc) = marq::render(&req.content, &options).await {
+        // For spec files, show hints for requirement definitions
+        if let Some(fmt) = SpecFormat::from_path(&path) {
+            if let Ok(doc) = parse_spec(fmt, &req.content).await {
                 for def in &doc.reqs {
                     // Use marker_span for inlay hint positioning (after the marker)
                     let (line, _, _, end_char) =
@@ -1679,10 +1651,9 @@ impl TraceyDaemon for TraceyService {
             return vec![];
         };
 
-        // For markdown files, highlight all definitions of the same rule (typically just one)
-        if path.extension().is_some_and(|ext| ext == "md") {
-            let options = marq::RenderOptions::default();
-            if let Ok(doc) = marq::render(&req.content, &options).await {
+        // For spec files, highlight all definitions of the same rule (typically just one)
+        if let Some(fmt) = SpecFormat::from_path(&path) {
+            if let Ok(doc) = parse_spec(fmt, &req.content).await {
                 return doc
                     .reqs
                     .iter()
@@ -1852,12 +1823,11 @@ async fn find_rule_at_position(
     line: u32,
     character: u32,
 ) -> Option<RuleAtPosition> {
-    if path.extension().is_some_and(|ext| ext == "md") {
+    if let Some(fmt) = SpecFormat::from_path(path) {
         let target_offset = line_col_to_offset(content, line, character)?;
 
-        // Parse markdown to find requirement definitions first.
-        let options = marq::RenderOptions::default();
-        let doc = marq::render(content, &options).await.ok()?;
+        // Parse spec doc to find requirement definitions first.
+        let doc = parse_spec(fmt, content).await.ok()?;
         if let Some(rule) = doc.reqs.iter().find_map(|r| {
             let start = r.span.offset;
             let end = r.span.offset + r.span.length;
@@ -2019,9 +1989,12 @@ fn run_git_capture(project_root: &Path, args: &[&str]) -> Option<String> {
     String::from_utf8(output.stdout).ok()
 }
 
-async fn find_rule_text_in_markdown(content: &str, rule_id: &RuleId) -> Option<String> {
-    let options = marq::RenderOptions::default();
-    let doc = marq::render(content, &options).await.ok()?;
+async fn find_rule_text_in_spec(
+    fmt: SpecFormat,
+    content: &str,
+    rule_id: &RuleId,
+) -> Option<String> {
+    let doc = parse_spec(fmt, content).await.ok()?;
     let rule_id = rule_id.to_string();
     doc.reqs
         .iter()
@@ -2029,12 +2002,38 @@ async fn find_rule_text_in_markdown(content: &str, rule_id: &RuleId) -> Option<S
         .map(|req| req.raw.clone())
 }
 
+/// Load `prev_id`'s text from git history and inline-diff it against
+/// `current_raw`. Returns `None` when no historical version is found; falls
+/// back to `current_raw` verbatim when the diff itself is empty.
+///
+/// r[impl validation.stale.diff]
+///
+/// Known limitation: `fmt` is the format of the *current* file. If a spec
+/// file was renamed across formats (e.g. `spec.md` → `spec.typ`) the
+/// historical blob will be parsed with the wrong dialect and the lookup
+/// will silently miss. Cross-format renames are rare; a full fix needs git
+/// rename detection (`--follow` + per-commit path mapping).
+async fn diff_against_git(
+    fmt: SpecFormat,
+    project_root: &Path,
+    source_file: &str,
+    prev_id: &RuleId,
+    current_raw: &str,
+) -> Option<String> {
+    let historical = load_previous_rule_text_from_git(fmt, project_root, source_file, prev_id).await?;
+    Some(diff_inline(fmt, &historical.text, current_raw).unwrap_or_else(|| {
+        // Backend has no format-aware diff (e.g. sdoc). Show both texts so the
+        // hover still satisfies "previous + current + diff" semantics.
+        format!("~~{}~~\n\n{}", historical.text, current_raw)
+    }))
+}
+
 async fn load_previous_rule_text_from_git(
+    fmt: SpecFormat,
     project_root: &Path,
     source_file: &str,
     previous_rule_id: &RuleId,
 ) -> Option<HistoricalRuleText> {
-    // r[impl validation.stale.diff]
     let commits = run_git_capture(project_root, &["log", "--format=%H", "--", source_file])?;
 
     for commit in commits.lines() {
@@ -2044,7 +2043,7 @@ async fn load_previous_rule_text_from_git(
             continue;
         };
 
-        if let Some(text) = find_rule_text_in_markdown(&content, previous_rule_id).await {
+        if let Some(text) = find_rule_text_in_spec(fmt, &content, previous_rule_id).await {
             return Some(HistoricalRuleText { text });
         }
     }

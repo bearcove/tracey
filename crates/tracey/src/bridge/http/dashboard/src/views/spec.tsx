@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { EDITORS, SIDEBAR_COLLAPSED_STORAGE_KEY } from "../config";
-import { useSpec } from "../hooks";
+import { useResponsiveSidebar, useSpec } from "../hooks";
 import { CoverageArc, html, showRefsPopup } from "../main";
 import type { OutlineEntry, SpecViewProps, FileContent } from "../types";
 import { CodeView } from "./sources";
@@ -244,23 +244,7 @@ export function SpecView({
   scrollPosition,
   onScrollChange,
 }: SpecViewProps) {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    if (typeof window === "undefined") return false;
-    if (window.innerWidth < 1200) return true;
-    return window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "1";
-  });
-
-  useEffect(() => {
-    window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, sidebarCollapsed ? "1" : "0");
-  }, [sidebarCollapsed]);
-
-  useEffect(() => {
-    const handleResize = () => {
-      if (window.innerWidth < 1200) setSidebarCollapsed(true);
-    };
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
+  const [sidebarCollapsed, toggleSidebar] = useResponsiveSidebar(SIDEBAR_COLLAPSED_STORAGE_KEY);
 
   // Use selectedSpec or default to first spec
   const specName = selectedSpec || config.specs?.[0]?.name || null;
@@ -1011,7 +995,7 @@ export function SpecView({
           <button
             class="sidebar-collapse-btn"
             type="button"
-            onClick=${() => setSidebarCollapsed((collapsed) => !collapsed)}
+            onClick=${toggleSidebar}
             title=${sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
             aria-label=${sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
             aria-expanded=${!sidebarCollapsed}

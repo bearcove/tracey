@@ -8,7 +8,7 @@ use eyre::{Result, WrapErr, bail};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use marq::{RenderOptions, render};
+use tracey_core::{SpecFormat, id_range_in_marker, parse_spec, rewrite_marker};
 
 use crate::config::Config;
 
@@ -17,6 +17,8 @@ use crate::config::Config;
 pub struct ChangedRule {
     /// Spec file path, relative to project root.
     pub file: PathBuf,
+    /// Spec dialect of `file`.
+    pub format: SpecFormat,
     /// Rule ID as it appears in the index (version not yet bumped).
     /// Uses `marq::RuleId` since it comes directly from spec parsing.
     pub rule_id: marq::RuleId,
@@ -71,21 +73,12 @@ pub fn git_cat_file(project_root: &Path, revision: &str, path: &str) -> Result<O
         .wrap_err_with(|| format!("content of {spec} is not valid UTF-8"))
 }
 
-/// Parse a spec file's contents (markdown or `.sdoc`) and return a map from
-/// rule **base** ID → `ReqDefinition`.
+/// Parse a spec document string and return a map from rule **base** ID → `ReqDefinition`.
 async fn parse_spec_rules(
+    fmt: SpecFormat,
     content: &str,
-    path: &str,
 ) -> Result<HashMap<String, marq::ReqDefinition>> {
-    if path.ends_with(".sdoc") {
-        let rules = crate::sdoc::extract_rules_from_sdoc(content, path).await?;
-        return Ok(rules
-            .into_iter()
-            .map(|r| (r.def.id.base.clone(), r.def))
-            .collect());
-    }
-
-    let doc = render(content, &RenderOptions::default())
+    let doc = parse_spec(fmt, content)
         .await
         .map_err(|e| eyre::eyre!("failed to parse spec: {e}"))?;
 
@@ -148,6 +141,12 @@ pub async fn detect_changed_rules(
             continue;
         }
 
+        // Skip files whose extension is not a recognised spec format. A glob
+        // like `docs/spec/**/*` could otherwise match images / data files.
+        let Some(fmt) = SpecFormat::from_path(Path::new(staged_file)) else {
+            continue;
+        };
+
         let old_content = git_cat_file(project_root, "HEAD", staged_file)?;
         let new_content = match git_cat_file(project_root, "", staged_file)? {
             Some(c) => c,
@@ -155,10 +154,10 @@ pub async fn detect_changed_rules(
         };
 
         let old_rules = match old_content {
-            Some(ref c) => parse_spec_rules(c, staged_file).await?,
+            Some(ref c) => parse_spec_rules(fmt, c).await?,
             None => HashMap::new(), // new file
         };
-        let new_rules = parse_spec_rules(&new_content, staged_file).await?;
+        let new_rules = parse_spec_rules(fmt, &new_content).await?;
 
         for (base, new_req) in &new_rules {
             let Some(old_req) = old_rules.get(base) else {
@@ -169,6 +168,7 @@ pub async fn detect_changed_rules(
             if new_req.raw != old_req.raw && new_req.id.version == old_req.id.version {
                 changed_rules.push(ChangedRule {
                     file: PathBuf::from(staged_file),
+                    format: fmt,
                     rule_id: new_req.id.clone(),
                     old_raw: old_req.raw.clone(),
                     new_raw: new_req.raw.clone(),
@@ -228,6 +228,8 @@ pub async fn bump(project_root: &Path, config: &Config) -> Result<Vec<marq::Rule
 
     for (file, indices) in &by_file {
         let file_str = file.to_string_lossy();
+        // All changes in `indices` share the same file, hence the same format.
+        let fmt = changes[indices[0]].format;
         let content = git_cat_file(project_root, "", &file_str)?
             .ok_or_else(|| eyre::eyre!("file disappeared from index: {}", file.display()))?;
 
@@ -246,18 +248,16 @@ pub async fn bump(project_root: &Path, config: &Config) -> Result<Vec<marq::Rule
             let change = &changes[idx];
             let new_version = change.rule_id.version + 1;
 
-            // Extract the prefix (chars before `[`) from the current marker bytes.
+            // Extract the current marker text and rebuild it with the new version.
             let span = change.marker_span;
             let marker_bytes = &bytes[span.offset..span.offset + span.length];
             let marker_str =
                 std::str::from_utf8(marker_bytes).wrap_err("marker is not valid UTF-8")?;
-            let bracket = marker_str
-                .find('[')
-                .ok_or_else(|| eyre::eyre!("malformed marker: {}", marker_str))?;
-            let prefix = &marker_str[..bracket];
 
             // Build the new marker, e.g. `r[auth.login+2]`.
-            let new_marker = format!("{}[{}+{}]", prefix, change.rule_id.base, new_version);
+            let id_range = id_range_in_marker(fmt, marker_str)?;
+            let new_marker =
+                rewrite_marker(marker_str, id_range, &change.rule_id.base, new_version)?;
 
             let start = span.offset;
             let end = start + span.length;

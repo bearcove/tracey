@@ -1,112 +1,68 @@
 //! Tests for marq markdown rendering behavior.
 
 use marq::{RenderOptions, render};
+use tracey::search::{MARK_CLOSE, MARK_OPEN, pua_to_mark};
 
-/// Test that marq correctly handles markdown with `<mark>` tags injected.
-/// This simulates what tantivy's SnippetGenerator produces for search highlighting.
+/// Test that marq passes PUA highlight sentinels through untouched, so the
+/// post-render `pua_to_mark` step yields proper `<mark>` elements. This
+/// simulates the search-result rendering pipeline for markdown rule bodies.
 #[tokio::test]
-async fn test_marq_renders_markdown_with_mark_tags() {
-    // Simulate tantivy snippet output: raw markdown with <mark> tags for highlighting
-    let markdown_with_marks = r#"> Removing an input record <mark>MUST</mark> behave as follows:
->
-> 1. If the record does not exist, return an error"#;
+async fn test_marq_passes_pua_sentinels_through_blockquote() {
+    let markdown_with_marks = format!(
+        "> Removing an input record {MARK_OPEN}MUST{MARK_CLOSE} behave as follows:\n\
+         >\n\
+         > 1. If the record does not exist, return an error"
+    );
 
     let opts = RenderOptions::default();
-    let result = render(markdown_with_marks, &opts).await;
+    let doc = render(&markdown_with_marks, &opts).await.expect("render");
+    let html = pua_to_mark(&doc.html);
 
-    assert!(result.is_ok(), "marq::render failed: {:?}", result.err());
-
-    let doc = result.unwrap();
-    let html = &doc.html;
-
-    // Print for inspection
     eprintln!("Input markdown:\n{}\n", markdown_with_marks);
     eprintln!("Output HTML:\n{}\n", html);
 
-    // Check that the blockquote was rendered (not literal '>' characters)
     assert!(
         html.contains("<blockquote"),
-        "Expected blockquote tag, got: {}",
-        html
+        "Expected blockquote tag, got: {html}"
     );
-
-    // Check that the <mark> tag survived
-    assert!(
-        html.contains("<mark>") && html.contains("</mark>"),
-        "Expected <mark> tags to be preserved, got: {}",
-        html
-    );
-
-    // Check that MUST is inside the mark tag
     assert!(
         html.contains("<mark>MUST</mark>"),
-        "Expected MUST to be wrapped in mark tags, got: {}",
-        html
+        "Expected MUST wrapped in mark tags, got: {html}"
     );
 }
 
-/// Test inline code with mark tags
+/// PUA sentinels inside `**emphasis**` survive marq and convert cleanly.
 #[tokio::test]
-async fn test_marq_renders_inline_code_with_mark_tags() {
-    let markdown = "Use the `<mark>foo</mark>` function to do things.";
+async fn test_marq_passes_pua_sentinels_through_emphasis() {
+    let markdown = format!("This is **{MARK_OPEN}important{MARK_CLOSE}** text.");
 
     let opts = RenderOptions::default();
-    let result = render(markdown, &opts).await;
+    let doc = render(&markdown, &opts).await.expect("render");
+    let html = pua_to_mark(&doc.html);
 
-    assert!(result.is_ok(), "marq::render failed: {:?}", result.err());
-
-    let doc = result.unwrap();
-    eprintln!("Input: {}\nOutput: {}", markdown, doc.html);
+    eprintln!("Input: {}\nOutput: {}", markdown, html);
+    assert!(html.contains("<strong>"), "Expected strong tag, got: {html}");
+    assert!(
+        html.contains("<mark>important</mark>"),
+        "Expected mark inside strong, got: {html}"
+    );
 }
 
-/// Test emphasis with mark tags
+/// Multiple highlight runs in one snippet.
 #[tokio::test]
-async fn test_marq_renders_emphasis_with_mark_tags() {
-    let markdown = "This is **<mark>important</mark>** text.";
+async fn test_marq_real_search_snippet() {
+    let markdown = format!(
+        "Within a view, revisions {MARK_OPEN}MUST{MARK_CLOSE} {MARK_OPEN}form{MARK_CLOSE} \
+         a total order consistent with the \"happens-after\" relation."
+    );
 
     let opts = RenderOptions::default();
-    let result = render(markdown, &opts).await;
+    let doc = render(&markdown, &opts).await.expect("render");
+    let html = pua_to_mark(&doc.html);
 
-    assert!(result.is_ok(), "marq::render failed: {:?}", result.err());
-
-    let doc = result.unwrap();
-    eprintln!("Input: {}\nOutput: {}", markdown, doc.html);
-
-    // Strong tag should be present
-    assert!(
-        doc.html.contains("<strong>"),
-        "Expected strong tag, got: {}",
-        doc.html
-    );
-}
-
-/// Test a real-world search result snippet
-#[tokio::test]
-async fn test_marq_renders_real_search_snippet() {
-    // This is what a real search result might look like
-    let markdown = r#"Within a view, revisions <mark>MUST</mark> <mark>form</mark> a total order consistent with the "happens-after" relation."#;
-
-    let opts = RenderOptions::default();
-    let result = render(markdown, &opts).await;
-
-    assert!(result.is_ok(), "marq::render failed: {:?}", result.err());
-
-    let doc = result.unwrap();
-    eprintln!("Input: {}\nOutput: {}", markdown, doc.html);
-
-    // Both mark tags should survive
-    assert!(
-        html_contains_mark_around(&doc.html, "MUST"),
-        "Expected MUST in mark tags"
-    );
-    assert!(
-        html_contains_mark_around(&doc.html, "form"),
-        "Expected form in mark tags"
-    );
-}
-
-fn html_contains_mark_around(html: &str, word: &str) -> bool {
-    html.contains(&format!("<mark>{}</mark>", word))
+    eprintln!("Input: {}\nOutput: {}", markdown, html);
+    assert!(html.contains("<mark>MUST</mark>"), "got: {html}");
+    assert!(html.contains("<mark>form</mark>"), "got: {html}");
 }
 
 /// Test what tantivy's SnippetGenerator actually produces
@@ -165,7 +121,7 @@ async fn test_tantivy_snippet_output() {
     eprintln!("Original markdown:\n{}\n", markdown);
     eprintln!("OLD (to_html, escapes content):\n{}\n", old_way);
 
-    // NEW WAY: use highlighted() ranges and insert marks ourselves
+    // NEW WAY: use highlighted() ranges and insert PUA sentinels ourselves
     let ranges = snippet.highlighted();
     let new_way = insert_mark_tags_test(content, ranges);
 
@@ -178,46 +134,48 @@ async fn test_tantivy_snippet_output() {
         new_way
     );
     assert!(
-        new_way.contains("<mark>MUST</mark>"),
-        "Should have mark tags around MUST, got: {}",
+        new_way.contains(&format!("{MARK_OPEN}MUST{MARK_CLOSE}")),
+        "Should have PUA sentinels around MUST, got: {}",
         new_way
     );
 
-    // Now render through marq
+    // Now render through marq, then swap sentinels for real <mark> tags.
     let opts = marq::RenderOptions::default();
-    let result = marq::render(&new_way, &opts).await.unwrap();
+    let rendered = marq::render(&new_way, &opts).await.unwrap();
+    let result_html = pua_to_mark(&rendered.html);
 
-    eprintln!("Marq output:\n{}\n", result.html);
+    eprintln!("Marq output:\n{}\n", result_html);
 
     // Should have blockquote now!
     assert!(
-        result.html.contains("<blockquote"),
+        result_html.contains("<blockquote"),
         "Should render blockquote, got: {}",
-        result.html
+        result_html
     );
     assert!(
-        result.html.contains("<mark>MUST</mark>"),
-        "Should preserve mark tags, got: {}",
-        result.html
+        result_html.contains("<mark>MUST</mark>"),
+        "Should yield mark tags after pua_to_mark, got: {}",
+        result_html
     );
 }
 
-/// Test helper that mirrors the actual implementation
+/// Test helper that mirrors `crate::search::tantivy_impl::insert_mark_tags`
+/// (which is private to the `search` module).
 fn insert_mark_tags_test(content: &str, ranges: &[std::ops::Range<usize>]) -> String {
     if ranges.is_empty() {
         return content.to_string();
     }
 
-    let mut result = String::with_capacity(content.len() + ranges.len() * 13);
+    let mut result = String::with_capacity(content.len() + ranges.len() * 6);
     let mut last_end = 0;
 
     for range in ranges {
         if range.start > last_end {
             result.push_str(&content[last_end..range.start]);
         }
-        result.push_str("<mark>");
+        result.push(MARK_OPEN);
         result.push_str(&content[range.start..range.end]);
-        result.push_str("</mark>");
+        result.push(MARK_CLOSE);
         last_end = range.end;
     }
 

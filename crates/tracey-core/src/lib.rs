@@ -5,27 +5,35 @@
 //! - Computing coverage statistics
 
 mod coverage;
+mod languages;
 mod lexer;
 mod markdown;
 mod positions;
 mod rule_id;
 mod sources;
-mod spec;
+pub mod spec;
 
 #[cfg(feature = "reverse")]
 pub mod code_units;
 
 pub use coverage::CoverageReport;
+pub use languages::{arborium_for_ext, devicon_for_ext};
 pub use lexer::{ParseWarning, RefVerb, ReqReference, Reqs, SourceSpan, WarningKind};
 pub use rule_id::{
     RuleId, RuleIdMatch, classify_reference_for_rule, classify_reference_for_rule_str,
     parse_rule_id,
 };
 pub use sources::{
-    ExtractionResult, MemorySources, PathSources, SUPPORTED_EXTENSIONS, Sources, is_spec_extension,
+    ExtractionResult, MemorySources, PathSources, SUPPORTED_EXTENSIONS, Sources,
     is_supported_extension,
 };
-pub use spec::ReqDefinition;
+pub use spec::{
+    BadgeFn, ErasedConfig, NoConfig, REQ_ANCHOR_PREFIX, RenderInput, RenderOutput, RenderSource,
+    RenderedSection, ReqDefinition, SlugAllocator, SpecBackend, SpecConfigs, SpecDoc, SpecFormat,
+    TypstConfig, diff_inline, extract_marker_prefix, id_range_in_marker, is_spec_extension,
+    parse_spec, parse_weight, render_spec_html, render_spec_inline, req_anchor_id,
+    req_anchor_to_id, rewrite_marker,
+};
 
 #[cfg(feature = "walk")]
 pub use sources::WalkSources;

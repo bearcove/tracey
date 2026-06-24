@@ -50,6 +50,14 @@ The prefix (`r` in this case) can be any lowercase alphanumeric marker. Tracey i
 
 Specs authored in [StrictDoc](https://strictdoc.readthedocs.io/) (`.sdoc`) are loaded the same way — see [Writing Specs](docs/content/guide/writing-specs.md) for the syntax. Pick whichever format fits your project; they don't mix per spec.
 
+Specs can also be written in [Typst](https://typst.app/) — use `#PREFIX("id")[body]` and include `*.typ` files in your config:
+
+```typst
+== Channel Management
+
+#r("channel.id.allocation")[Channel IDs MUST be allocated sequentially starting from 0.]
+```
+
 ### 2. Reference requirements in your code
 
 Add references in source code comments using `PREFIX[VERB REQ]`:

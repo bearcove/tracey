@@ -9,7 +9,7 @@
 //! data and provides query methods + formatting.
 
 use std::collections::BTreeMap;
-use tracey_core::RuleId;
+use tracey_core::{RuleId, SpecFormat};
 
 use crate::data::{ApiCodeRef, ApiFileEntry, ApiRule, DashboardData, ImplKey};
 
@@ -480,6 +480,7 @@ impl<'a> QueryEngine<'a> {
                         raw: rule.raw.clone(),
                         html: rule.html.clone(),
                         source_file: rule.source_file.clone(),
+                        format: rule.format,
                         source_line: rule.source_line,
                         status: rule.status.clone(),
                         level: rule.level.clone(),
@@ -614,6 +615,8 @@ pub struct RuleInfo {
     pub raw: String,
     pub html: String,
     pub source_file: Option<String>,
+    /// Spec dialect of `source_file`.
+    pub format: SpecFormat,
     pub source_line: Option<usize>,
     pub status: Option<String>,
     pub level: Option<String>,

@@ -33,16 +33,47 @@ pub struct SpecConfig {
     #[facet(default)]
     pub source_url: Option<String>,
 
-    /// Glob patterns for markdown spec files containing requirement definitions
-    /// e.g., "docs/spec/**/*.md"
+    /// Glob patterns for spec files containing requirement definitions
+    /// e.g., "docs/spec/**/*.md" or "docs/spec/**/*.typ"
     /// r[impl config.spec.include]
     #[facet(default)]
     pub include: Vec<String>,
+
+    /// Per-format render options. Only set when a spec format you use needs
+    /// configuration (currently only typst).
+    #[facet(default)]
+    pub format: FormatConfig,
 
     /// Implementations of this spec (by language)
     /// Each impl block specifies which source files to scan
     #[facet(default)]
     pub impls: Vec<Impl>,
+}
+
+/// Per-format render options for a [`SpecConfig`].
+///
+/// One field per spec backend that needs configuration. `tracey-config` cannot
+/// reference `tracey-core` (would invert the dependency direction), so the
+/// schema lives here and the `crates/tracey` glue converts each field into the
+/// matching `tracey_core::*Config` at build time. Adding a backend with config
+/// = +1 field here + +1 arm in `tracey::data::build_spec_configs`.
+#[derive(Debug, Clone, Default, Facet)]
+pub struct FormatConfig {
+    #[facet(default)]
+    pub typst: TypstFormatConfig,
+}
+
+/// Typst-backend options. Mirrors `tracey_core::TypstConfig` (string paths;
+/// resolved against the project root at load time).
+#[derive(Debug, Clone, Default, Facet)]
+pub struct TypstFormatConfig {
+    /// Directory containing vendored Typst packages, laid out as
+    /// `<path>/<namespace>/<name>/<version>/` (e.g.
+    /// `vendor/typst-packages/preview/cetz/0.2.0/`). Relative paths resolve
+    /// against the project root. When set, package imports look here before
+    /// falling back to the system typst cache. Tracey never downloads packages.
+    #[facet(default)]
+    pub package_path: Option<String>,
 }
 
 /// Configuration for a single implementation of a spec

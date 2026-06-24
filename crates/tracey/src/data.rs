@@ -10,11 +10,8 @@ use owo_colors::OwoColorize;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
-use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::time::Instant;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracey_core::code_units::CodeUnit;
@@ -23,15 +20,15 @@ use tracey_core::{
     classify_reference_for_rule, parse_rule_id,
 };
 use tracey_core::{SUPPORTED_EXTENSIONS, is_supported_extension};
+use tracey_core::{
+    SlugAllocator, SpecFormat, is_spec_extension, parse_spec, parse_weight, req_anchor_id,
+};
 use tracing::info;
 
 // Markdown rendering
-use marq::{
-    AasvgHandler, ArboriumHandler, CompareHandler, InlineCodeHandler, MermaidHandler, PikruHandler,
-    RenderOptions, ReqHandler, parse_frontmatter, render,
-};
+use marq::InlineCodeHandler;
 
-use crate::config::Config;
+use crate::config::{Config, FormatConfig};
 use crate::rule_suggestions::suggest_similar_rule_ids;
 use crate::search;
 
@@ -42,7 +39,7 @@ use crate::search;
 // Re-export API types from tracey-api crate
 pub use tracey_api::{
     ApiCodeRef, ApiCodeUnit, ApiConfig, ApiFileData, ApiFileEntry, ApiForwardData, ApiReverseData,
-    ApiRule, ApiSpecData, ApiSpecForward, ApiSpecInfo, ApiStaleRef, GitStatus, OutlineCoverage,
+    ApiRule, ApiSpecData, ApiSpecForward, ApiSpecInfo, ApiStaleRef, OutlineCoverage,
     OutlineEntry, SpecSection, ValidationError, ValidationErrorCode, ValidationResult,
 };
 use tracey_proto::{LspDiagnostic, LspFileDiagnostics};
@@ -67,6 +64,9 @@ pub struct DashboardData {
     pub specs_content_by_impl: BTreeMap<ImplKey, ApiSpecData>,
     /// Spec include patterns by spec name
     pub spec_includes_by_name: BTreeMap<String, Vec<String>>,
+    /// Per-format render options by spec name. Converted into
+    /// [`tracey_core::SpecConfigs`] on demand via [`build_spec_configs`].
+    pub format_config_by_spec: BTreeMap<String, FormatConfig>,
     /// Source files for full-text index construction
     pub search_files: BTreeMap<PathBuf, String>,
     /// Parsed requirement references and warnings by source file, captured during rebuild.
@@ -94,7 +94,7 @@ pub struct BuildCache {
     source_files: HashMap<PathBuf, CachedSourceFile>,
     impl_scan_paths: HashMap<ImplScanKey, CachedScanPaths>,
     spec_scan_paths: HashMap<SpecScanKey, CachedScanPaths>,
-    markdown_files: HashMap<PathBuf, CachedMarkdownFile>,
+    spec_files: HashMap<PathBuf, CachedSpecFile>,
 }
 
 #[derive(Clone)]
@@ -135,7 +135,7 @@ struct CachedScanPaths {
 }
 
 #[derive(Clone)]
-struct CachedMarkdownFile {
+struct CachedSpecFile {
     content_hash: u64,
     file_len: u64,
     modified_nanos: Option<u128>,
@@ -168,41 +168,6 @@ struct RuleCoverage {
     status: &'static str, // "covered", "partial", "stale", "uncovered"
     impl_refs: Vec<ApiCodeRef>,
     verify_refs: Vec<ApiCodeRef>,
-}
-
-/// Custom rule handler that renders rules with coverage status and refs
-struct TraceyRuleHandler {
-    coverage: BTreeMap<String, RuleCoverage>,
-    /// Current source file being rendered (shared with rendering loop)
-    current_source_file: Arc<Mutex<String>>,
-    /// Spec name for URL generation
-    spec_name: String,
-    /// Implementation name for URL generation
-    impl_name: String,
-    /// Project root for absolute paths
-    project_root: PathBuf,
-    /// Git status for files
-    git_status: HashMap<String, GitStatus>,
-}
-
-impl TraceyRuleHandler {
-    fn new(
-        coverage: BTreeMap<String, RuleCoverage>,
-        current_source_file: Arc<Mutex<String>>,
-        spec_name: String,
-        impl_name: String,
-        project_root: PathBuf,
-        git_status: HashMap<String, GitStatus>,
-    ) -> Self {
-        Self {
-            coverage,
-            current_source_file,
-            spec_name,
-            impl_name,
-            project_root,
-            git_status,
-        }
-    }
 }
 
 /// @tracey:ignore-next-line
@@ -246,9 +211,8 @@ impl InlineCodeHandler for TraceyInlineCodeHandler {
             return None;
         }
 
-        // Generate link: /{spec}/{impl}/spec#r-{rule_id}
-        // The anchor format matches what TraceyRuleHandler generates (r-{rule_id})
-        let anchor = format!("r-{}", rule_id);
+        // Generate link: /{spec}/{impl}/spec#{REQ_ANCHOR_PREFIX}{rule_id}
+        let anchor = req_anchor_id(rule_id);
         Some(format!(
             r#"<code><a href="/{}/{}/spec#{}" class="rule-ref">{}</a></code>"#,
             self.spec_name,
@@ -259,241 +223,129 @@ impl InlineCodeHandler for TraceyInlineCodeHandler {
     }
 }
 
-/// Get devicon class for a file path based on extension
+/// Get devicon class for a file path based on extension.
+///
+/// Consults the central [`tracey_core`] language registry first; the residual
+/// match below covers only extensions the registry doesn't (or can't) carry —
+/// non-source file types and the ts/js row whose extensions map to *different*
+/// icons.
 fn devicon_class(path: &str) -> Option<&'static str> {
     let ext = path.rsplit('.').next()?;
+    if let Some(class) = tracey_core::devicon_for_ext(ext) {
+        return Some(class);
+    }
     match ext {
-        // Systems languages
-        "rs" => Some("devicon-rust-original"),
-        "go" => Some("devicon-go-plain"),
-        "zig" => Some("devicon-zig-original"),
-        "c" => Some("devicon-c-plain"),
-        "h" => Some("devicon-c-plain"),
-        "cpp" | "cc" | "cxx" => Some("devicon-cplusplus-plain"),
-        "hpp" | "hh" | "hxx" => Some("devicon-cplusplus-plain"),
-        // Web/JS ecosystem
-        "js" | "mjs" | "cjs" => Some("devicon-javascript-plain"),
-        "ts" | "mts" | "cts" => Some("devicon-typescript-plain"),
-        "jsx" => Some("devicon-javascript-plain"),
-        "tsx" => Some("devicon-typescript-plain"),
+        // C++ headers not in the registry row.
+        "hh" | "hxx" => Some("devicon-cplusplus-plain"),
+        // ts/js row leaves devicon=None because the icons differ per ext.
+        "js" | "mjs" | "cjs" | "jsx" => Some("devicon-javascript-plain"),
+        "ts" | "mts" | "cts" | "tsx" => Some("devicon-typescript-plain"),
         "vue" => Some("devicon-vuejs-plain"),
         "svelte" => Some("devicon-svelte-plain"),
-        // Mobile
-        "swift" => Some("devicon-swift-plain"),
+        // Lexer-only languages (no full registry row yet).
         "kt" | "kts" => Some("devicon-kotlin-plain"),
-        "dart" => Some("devicon-dart-plain"),
-        // JVM
-        "java" => Some("devicon-java-plain"),
         "scala" => Some("devicon-scala-plain"),
-        "clj" | "cljs" | "cljc" => Some("devicon-clojure-plain"),
         "groovy" => Some("devicon-groovy-plain"),
-        // Scripting
-        "py" => Some("devicon-python-plain"),
-        "rb" => Some("devicon-ruby-plain"),
-        "php" => Some("devicon-php-plain"),
-        "lua" => Some("devicon-lua-plain"),
-        "pl" | "pm" => Some("devicon-perl-plain"),
-        "r" => Some("devicon-r-plain"),
-        "jl" => Some("devicon-julia-plain"),
-        // Functional
-        "hs" | "lhs" => Some("devicon-haskell-plain"),
-        "ml" | "mli" => Some("devicon-ocaml-plain"),
-        "ex" | "exs" => Some("devicon-elixir-plain"),
-        "erl" | "hrl" => Some("devicon-erlang-plain"),
-        "fs" | "fsi" | "fsx" => Some("devicon-fsharp-plain"),
-        // Shell
-        "sh" | "bash" | "zsh" => Some("devicon-bash-plain"),
-        "ps1" | "psm1" => Some("devicon-powershell-plain"),
-        // Config/data
+        "zig" => Some("devicon-zig-original"),
+        // Config / data / markup / docs (never source-scanned).
         "json" => Some("devicon-json-plain"),
         "yaml" | "yml" => Some("devicon-yaml-plain"),
         "toml" => Some("devicon-toml-plain"),
         "xml" => Some("devicon-xml-plain"),
         "sql" => Some("devicon-postgresql-plain"),
-        // Web
         "html" | "htm" => Some("devicon-html5-plain"),
         "css" => Some("devicon-css3-plain"),
         "scss" | "sass" => Some("devicon-sass-original"),
-        // Docs
         "md" | "markdown" => Some("devicon-markdown-original"),
+        "typ" => Some("devicon-latex-original"),
         _ => None,
     }
 }
 
 // r[impl markdown.html.div] - rule wrapped in <div class="rule-container">
-// r[impl markdown.html.anchor] - div has id="r-{rule.id}"
+// r[impl markdown.html.anchor] - div has id="{REQ_ANCHOR_PREFIX}{rule.id}"
 // r[impl markdown.html.link] - rule-badge links to the rule
-impl ReqHandler for TraceyRuleHandler {
-    fn start<'a>(
-        &'a self,
-        rule: &'a ReqDefinition,
-    ) -> Pin<Box<dyn Future<Output = marq::Result<String>> + Send + 'a>> {
-        Box::pin(async move {
-            let rule_id = rule.id.to_string();
-            let coverage = self.coverage.get(&rule_id);
-            let status = coverage.map(|c| c.status).unwrap_or("uncovered");
+//
+/// Render the opening HTML for a requirement container with its coverage
+/// badges. Shared between the markdown `ReqHandler` path and the typst HTML
+/// pipeline (Phase 8). The close half is `tracey_core::REQ_CONTAINER_CLOSE`.
+///
+/// `source_file` must be an absolute path so editor-open links resolve.
+fn rule_coverage_badge_html(
+    rule: &ReqDefinition,
+    coverage: Option<&RuleCoverage>,
+    source_file: &str,
+    spec_name: &str,
+    impl_name: &str,
+) -> String {
+    let rule_id = rule.id.to_string();
+    let status = coverage.map(|c| c.status).unwrap_or("uncovered");
 
-            // Insert <wbr> after dots for better line breaking
-            let display_id = rule_id.replace('.', ".<wbr>");
+    // Insert <wbr> after dots for better line breaking
+    let display_id = rule_id.replace('.', ".<wbr>");
 
-            // Get current source file for this rule (make it absolute)
-            let relative_source = self.current_source_file.lock().unwrap().clone();
-            let absolute_source = self.project_root.join(&relative_source);
-            let source_file = absolute_source.display().to_string();
+    // Build the badges that pierce the top border
+    let mut badges_html = String::new();
 
-            // Build the badges that pierce the top border
-            let mut badges_html = String::new();
+    // r[impl dashboard.editing.copy.button]
+    // r[impl dashboard.links.req-links]
+    // Segmented badge group: copy button + requirement ID
+    let anchor = &rule.anchor_id;
+    badges_html.push_str(&format!(
+        r#"<div class="req-badge-group"><button class="req-badge req-copy req-segment-left" data-req-id="{}" title="Copy requirement ID"><svg class="req-copy-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button><a class="req-badge req-id req-segment-right" href="/{}/{}/spec#{}" data-rule="{}" data-source-file="{}" data-source-line="{}" title="{}">{}</a></div>"#,
+        &rule_id,
+        spec_name, impl_name, anchor, &rule_id, source_file, rule.line, &rule_id, display_id
+    ));
 
-            // r[impl dashboard.editing.copy.button]
-            // r[impl dashboard.links.req-links]
-            // Segmented badge group: copy button + requirement ID
-            badges_html.push_str(&format!(
-                r#"<div class="req-badge-group"><button class="req-badge req-copy req-segment-left" data-req-id="{}" title="Copy requirement ID"><svg class="req-copy-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button><a class="req-badge req-id req-segment-right" href="/{}/{}/spec#r--{}" data-rule="{}" data-source-file="{}" data-source-line="{}" title="{}">{}</a></div>"#,
-                &rule_id,
-                self.spec_name, self.impl_name, &rule_id, &rule_id, source_file, rule.line, &rule_id, display_id
-            ));
+    // Implementation / verification badges share identical rendering — only
+    // the source slice, CSS class, and title prefix differ.
+    let mut push_ref_badge = |refs: &[ApiCodeRef], class: &str, title: &str| {
+        let Some(r) = refs.first() else { return };
+        let filename = r.file.rsplit('/').next().unwrap_or(&r.file);
+        let icon = devicon_class(&r.file)
+            .map(|c| format!(r#"<i class="{c}"></i> "#))
+            .unwrap_or_default();
+        let count_suffix = if refs.len() > 1 {
+            format!(" +{}", refs.len() - 1)
+        } else {
+            String::new()
+        };
+        // Serialize all refs as JSON for popup (manual, no serde)
+        let all_refs_json = refs
+            .iter()
+            .map(|r| {
+                format!(
+                    r#"{{"file":"{}","line":{}}}"#,
+                    r.file.replace('\\', "\\\\").replace('"', "\\\""),
+                    r.line
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        let all_refs_json = format!("[{}]", all_refs_json).replace('"', "&quot;");
+        badges_html.push_str(&format!(
+            r#"<a class="req-badge {class}" href="/{}/{}/sources/{}:{}" data-file="{}" data-line="{}" data-all-refs="{}" title="{title}: {}:{}">{icon}{}:{}{}</a>"#,
+            spec_name, impl_name, r.file, r.line, r.file, r.line, all_refs_json, r.file, r.line, filename, r.line, count_suffix
+        ));
+    };
+    if let Some(cov) = coverage {
+        // r[impl dashboard.links.impl-refs]
+        push_ref_badge(&cov.impl_refs, "req-impl", "Implementation");
+        // r[impl dashboard.links.verify-refs]
+        push_ref_badge(&cov.verify_refs, "req-test", "Test");
+    }
 
-            // Implementation badge
-            if let Some(cov) = coverage {
-                if !cov.impl_refs.is_empty() {
-                    let r = &cov.impl_refs[0];
-                    let filename = r.file.rsplit('/').next().unwrap_or(&r.file);
-                    let icon = devicon_class(&r.file)
-                        .map(|c| format!(r#"<i class="{c}"></i> "#))
-                        .unwrap_or_default();
-                    let count_suffix = if cov.impl_refs.len() > 1 {
-                        format!(" +{}", cov.impl_refs.len() - 1)
-                    } else {
-                        String::new()
-                    };
-                    // Serialize all refs as JSON for popup (manual, no serde)
-                    let all_refs_json = cov
-                        .impl_refs
-                        .iter()
-                        .map(|r| {
-                            format!(
-                                r#"{{"file":"{}","line":{}}}"#,
-                                r.file.replace('\\', "\\\\").replace('"', "\\\""),
-                                r.line
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                        .join(",");
-                    let all_refs_json = format!("[{}]", all_refs_json).replace('"', "&quot;");
-                    // r[impl dashboard.links.impl-refs]
-                    badges_html.push_str(&format!(
-                        r#"<a class="req-badge req-impl" href="/{}/{}/sources/{}:{}" data-file="{}" data-line="{}" data-all-refs="{}" title="Implementation: {}:{}">{icon}{}:{}{}</a>"#,
-                        self.spec_name, self.impl_name, r.file, r.line, r.file, r.line, all_refs_json, r.file, r.line, filename, r.line, count_suffix
-                    ));
-                }
-
-                // r[impl dashboard.links.verify-refs]
-                if !cov.verify_refs.is_empty() {
-                    let r = &cov.verify_refs[0];
-                    let filename = r.file.rsplit('/').next().unwrap_or(&r.file);
-                    let icon = devicon_class(&r.file)
-                        .map(|c| format!(r#"<i class="{c}"></i> "#))
-                        .unwrap_or_default();
-                    let count_suffix = if cov.verify_refs.len() > 1 {
-                        format!(" +{}", cov.verify_refs.len() - 1)
-                    } else {
-                        String::new()
-                    };
-                    // Serialize all refs as JSON for popup (manual, no serde)
-                    let all_refs_json = cov
-                        .verify_refs
-                        .iter()
-                        .map(|r| {
-                            format!(
-                                r#"{{"file":"{}","line":{}}}"#,
-                                r.file.replace('\\', "\\\\").replace('"', "\\\""),
-                                r.line
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                        .join(",");
-                    let all_refs_json = format!("[{}]", all_refs_json).replace('"', "&quot;");
-                    badges_html.push_str(&format!(
-                        r#"<a class="req-badge req-test" href="/{}/{}/sources/{}:{}" data-file="{}" data-line="{}" data-all-refs="{}" title="Test: {}:{}">{icon}{}:{}{}</a>"#,
-                        self.spec_name, self.impl_name, r.file, r.line, r.file, r.line, all_refs_json, r.file, r.line, filename, r.line, count_suffix
-                    ));
-                }
-            }
-
-            // Render the opening of the req container
-            Ok(format!(
-                r#"<div class="req-container req-{status}" id="{anchor}">
+    // Render the opening of the req container; the close half is the constant
+    // `tracey_core::spec::REQ_CONTAINER_CLOSE` (`</div></div>`) emitted by the
+    // spec backend.
+    format!(
+        r#"<div class="req-container req-{status}" id="{anchor}">
 <div class="req-badges-left">{badges}</div>
 <div class="req-content">"#,
-                status = status,
-                anchor = rule.anchor_id,
-                badges = badges_html,
-            ))
-        })
-    }
-
-    fn end<'a>(
-        &'a self,
-        _rule: &'a ReqDefinition,
-    ) -> Pin<Box<dyn Future<Output = marq::Result<String>> + Send + 'a>> {
-        Box::pin(async move {
-            // Close the rule container
-            Ok("</div>\n</div>".to_string())
-        })
-    }
-}
-
-// ============================================================================
-// Git Status
-// ============================================================================
-
-/// Get git status for all files in the repository
-/// Returns a map of file path -> GitStatus
-fn get_git_status(project_root: &Path) -> HashMap<String, GitStatus> {
-    let mut status_map = HashMap::new();
-
-    // Run git status --porcelain to get file statuses
-    let output = match std::process::Command::new("git")
-        .arg("status")
-        .arg("--porcelain")
-        .current_dir(project_root)
-        .output()
-    {
-        Ok(output) => output,
-        Err(_) => return status_map, // Not a git repo or git not available
-    };
-
-    if !output.status.success() {
-        return status_map;
-    }
-
-    let status_text = String::from_utf8_lossy(&output.stdout);
-    for line in status_text.lines() {
-        if line.len() < 4 {
-            continue;
-        }
-
-        // Git status --porcelain format: "XY filename"
-        // X = index status, Y = working tree status
-        let index_status = line.chars().next().unwrap_or(' ');
-        let worktree_status = line.chars().nth(1).unwrap_or(' ');
-        let filename = line[3..].trim().to_string();
-
-        let status = if worktree_status != ' ' && worktree_status != '?' {
-            // Working tree has changes (dirty)
-            GitStatus::Dirty
-        } else if index_status != ' ' && index_status != '?' {
-            // Changes staged in index
-            GitStatus::Staged
-        } else {
-            // Clean or unknown
-            GitStatus::Clean
-        };
-
-        status_map.insert(filename, status);
-    }
-
-    status_map
+        status = status,
+        anchor = rule.anchor_id,
+        badges = badges_html,
+    )
 }
 
 // ============================================================================
@@ -557,27 +409,6 @@ fn file_modified_nanos(modified: SystemTime) -> Option<u128> {
 
 fn compute_content_hash(content: &str) -> u64 {
     simple_hash(content)
-}
-
-fn compute_column_for_content(content: &str, byte_offset: usize) -> usize {
-    let before = &content[..byte_offset.min(content.len())];
-    let line_start = before.rfind('\n').map(|i| i + 1).unwrap_or(0);
-    before[line_start..].chars().count() + 1
-}
-
-fn extract_marker_prefix_from_content(
-    content: &str,
-    marker_span: marq::SourceSpan,
-) -> Option<String> {
-    let start = marker_span.offset;
-    let end = start.checked_add(marker_span.length)?;
-    let marker = content.get(start..end)?;
-    let bracket = marker.find('[')?;
-    let prefix = marker[..bracket].trim();
-    if prefix.is_empty() {
-        return None;
-    }
-    Some(prefix.to_string())
 }
 
 async fn get_cached_source_file(
@@ -796,7 +627,7 @@ fn path_matches_excludes(path: &Path, roots: &[ScanRootPattern], exclude: &[Stri
 fn full_walk_for_roots(
     roots: &[ScanRootPattern],
     include_supported_ext_only: bool,
-    include_markdown_only: bool,
+    include_spec_only: bool,
     exclude: &[String],
 ) -> BTreeSet<PathBuf> {
     let mut out = BTreeSet::new();
@@ -815,11 +646,7 @@ fn full_walk_for_roots(
             if !ft.is_file() {
                 continue;
             }
-            if include_markdown_only
-                && path
-                    .extension()
-                    .is_none_or(|ext| !tracey_core::is_spec_extension(ext))
-            {
+            if include_spec_only && path.extension().is_none_or(|ext| !is_spec_extension(ext)) {
                 continue;
             }
             if include_supported_ext_only
@@ -847,15 +674,13 @@ fn update_cached_scan_paths(
     roots: &[ScanRootPattern],
     changed_files: &[PathBuf],
     include_supported_ext_only: bool,
-    include_markdown_only: bool,
+    include_spec_only: bool,
     exclude: &[String],
 ) {
     for changed in changed_files {
         let exists = changed.exists();
-        let ext_ok = if include_markdown_only {
-            changed
-                .extension()
-                .is_some_and(tracey_core::is_spec_extension)
+        let ext_ok = if include_spec_only {
+            changed.extension().is_some_and(is_spec_extension)
         } else if include_supported_ext_only {
             changed.extension().is_some_and(is_supported_extension)
         } else {
@@ -930,7 +755,7 @@ fn get_cached_spec_scan_paths(
     (entry.files.clone(), warnings, did_full_walk)
 }
 
-async fn extract_markdown_rules_cached(
+async fn extract_spec_rules_cached(
     project_root: &Path,
     path: &Path,
     overlay: &FileOverlay,
@@ -962,7 +787,7 @@ async fn extract_markdown_rules_cached(
     };
 
     let content_hash = compute_content_hash(&content);
-    if let Some(entry) = cache.markdown_files.get(&canonical) {
+    if let Some(entry) = cache.spec_files.get(&canonical) {
         if !overlay_is_present
             && entry.file_len == file_len
             && entry.modified_nanos == modified_nanos
@@ -971,13 +796,13 @@ async fn extract_markdown_rules_cached(
             return Ok(entry.extracted_rules.clone());
         }
         if entry.content_hash == content_hash {
-            let updated = CachedMarkdownFile {
+            let updated = CachedSpecFile {
                 content_hash,
                 file_len,
                 modified_nanos,
                 extracted_rules: entry.extracted_rules.clone(),
             };
-            cache.markdown_files.insert(canonical, updated.clone());
+            cache.spec_files.insert(canonical, updated.clone());
             stats.hash_hits += 1;
             return Ok(updated.extracted_rules);
         }
@@ -989,135 +814,12 @@ async fn extract_markdown_rules_cached(
         compute_relative_path(project_root, &canonical)
     };
 
-    let doc = render(&content, &RenderOptions::default())
+    let fmt = SpecFormat::from_path(&canonical).unwrap_or(SpecFormat::Markdown);
+    let doc = parse_spec(fmt, &content)
         .await
         .map_err(|e| eyre::eyre!("Failed to process {}: {}", canonical.display(), e))?;
 
-    if !quiet && !doc.reqs.is_empty() {
-        eprintln!(
-            "   {} {} requirements from {}",
-            "Found".green(),
-            doc.reqs.len(),
-            relative_display
-        );
-    }
-
-    let mut extracted = Vec::new();
-    if !doc.reqs.is_empty() {
-        use marq::DocElement;
-        let mut rule_sections: HashMap<String, (Option<String>, Option<String>)> = HashMap::new();
-        let mut current_section: Option<(String, String)> = None;
-        for element in &doc.elements {
-            match element {
-                DocElement::Heading(h) => current_section = Some((h.id.clone(), h.title.clone())),
-                DocElement::Req(r) => {
-                    if let Some((slug, title)) = &current_section {
-                        rule_sections
-                            .insert(r.id.to_string(), (Some(slug.clone()), Some(title.clone())));
-                    }
-                }
-                DocElement::Paragraph(_) => {}
-            }
-        }
-
-        for req in doc.reqs {
-            let column = Some(compute_column_for_content(&content, req.span.offset));
-            let prefix =
-                extract_marker_prefix_from_content(&content, req.marker_span).ok_or_else(|| {
-                    eyre::eyre!(
-                        "Failed to determine requirement marker prefix in {} at line {}",
-                        relative_display,
-                        req.line
-                    )
-                })?;
-            let (section, section_title) = rule_sections
-                .remove(&req.id.to_string())
-                .unwrap_or((None, None));
-            extracted.push(crate::ExtractedRule {
-                def: req,
-                source_file: relative_display.clone(),
-                prefix,
-                column,
-                section,
-                section_title,
-            });
-        }
-    }
-
-    cache.markdown_files.insert(
-        canonical,
-        CachedMarkdownFile {
-            content_hash,
-            file_len,
-            modified_nanos,
-            extracted_rules: extracted.clone(),
-        },
-    );
-    stats.misses += 1;
-    stats.reparsed += 1;
-    Ok(extracted)
-}
-
-async fn extract_sdoc_rules_cached(
-    project_root: &Path,
-    path: &Path,
-    overlay: &FileOverlay,
-    cache: &mut BuildCache,
-    quiet: bool,
-    stats: &mut CacheStats,
-) -> Result<Vec<crate::ExtractedRule>> {
-    let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    let overlay_content = overlay
-        .get(path)
-        .or_else(|| overlay.get(&canonical))
-        .cloned();
-    let overlay_is_present = overlay_content.is_some();
-
-    let (content, file_len, modified_nanos) = if let Some(content) = overlay_content {
-        (content.clone(), content.len() as u64, None)
-    } else {
-        let metadata = tokio::fs::metadata(&canonical).await.ok();
-        let file_len = metadata.as_ref().map_or(0, std::fs::Metadata::len);
-        let modified_nanos = metadata
-            .as_ref()
-            .and_then(|m| m.modified().ok())
-            .and_then(file_modified_nanos);
-        (
-            read_file_with_overlay(&canonical, overlay).await?,
-            file_len,
-            modified_nanos,
-        )
-    };
-
-    let content_hash = compute_content_hash(&content);
-    if let Some(entry) = cache.markdown_files.get(&canonical) {
-        if !overlay_is_present
-            && entry.file_len == file_len
-            && entry.modified_nanos == modified_nanos
-        {
-            stats.metadata_hits += 1;
-            return Ok(entry.extracted_rules.clone());
-        }
-        if entry.content_hash == content_hash {
-            let updated = CachedMarkdownFile {
-                content_hash,
-                file_len,
-                modified_nanos,
-                extracted_rules: entry.extracted_rules.clone(),
-            };
-            cache.markdown_files.insert(canonical, updated.clone());
-            stats.hash_hits += 1;
-            return Ok(updated.extracted_rules);
-        }
-    }
-
-    let relative_display = if let Ok(rel) = canonical.strip_prefix(project_root) {
-        rel.display().to_string()
-    } else {
-        compute_relative_path(project_root, &canonical)
-    };
-
-    let extracted = crate::sdoc::extract_rules_from_sdoc(&content, &relative_display).await?;
+    let extracted = crate::doc_to_extracted_rules(doc, &content, fmt, &relative_display)?;
 
     if !quiet && !extracted.is_empty() {
         eprintln!(
@@ -1128,9 +830,9 @@ async fn extract_sdoc_rules_cached(
         );
     }
 
-    cache.markdown_files.insert(
+    cache.spec_files.insert(
         canonical,
-        CachedMarkdownFile {
+        CachedSpecFile {
             content_hash,
             file_len,
             modified_nanos,
@@ -1155,10 +857,7 @@ async fn load_rules_from_includes_cached(
         get_cached_spec_scan_paths(project_root, include_patterns, changed_files, cache);
     let (spec_roots, _) = build_scan_roots(project_root, include_patterns);
     for overlay_path in overlay.keys() {
-        if overlay_path
-            .extension()
-            .is_none_or(|ext| !tracey_core::is_spec_extension(ext))
-        {
+        if overlay_path.extension().is_none_or(|ext| !is_spec_extension(ext)) {
             continue;
         }
         if path_matches_any_root(overlay_path, &spec_roots) {
@@ -1170,15 +869,8 @@ async fn load_rules_from_includes_cached(
     let mut seen_ids: BTreeSet<String> = BTreeSet::new();
     let collected_paths: Vec<PathBuf> = spec_paths.into_iter().collect();
     for path in &collected_paths {
-        let extracted = if path
-            .extension()
-            .and_then(|e| e.to_str())
-            .is_some_and(|e| e == "sdoc")
-        {
-            extract_sdoc_rules_cached(project_root, path, overlay, cache, quiet, stats).await?
-        } else {
-            extract_markdown_rules_cached(project_root, path, overlay, cache, quiet, stats).await?
-        };
+        let extracted =
+            extract_spec_rules_cached(project_root, path, overlay, cache, quiet, stats).await?;
         for rule in extracted {
             let id = rule.def.id.to_string();
             if seen_ids.contains(&id) {
@@ -2056,9 +1748,9 @@ async fn compute_spec_file_diagnostics(
     for (path, content) in spec_file_contents {
         let mut diagnostics = Vec::new();
 
-        // Coverage diagnostics: parse the markdown to get requirement definitions
-        let options = RenderOptions::default();
-        if let Ok(doc) = render(content, &options).await {
+        // Coverage diagnostics: parse the spec doc to get requirement definitions
+        let fmt = SpecFormat::from_path(path).unwrap_or(SpecFormat::Markdown);
+        if let Ok(doc) = parse_spec(fmt, content).await {
             for def in &doc.reqs {
                 let (start_line, start_char, end_line, end_char) =
                     span_to_range(content, def.marker_span.offset, def.marker_span.length);
@@ -2321,6 +2013,7 @@ fn compute_impl_output(
                 .map(|s| s.as_str().to_string()),
             level: extracted.def.metadata.level.map(|l| l.as_str().to_string()),
             source_file: Some(extracted.source_file.clone()),
+            format: extracted.format,
             source_line: Some(extracted.def.line),
             source_column: extracted.column,
             section: extracted.section.clone(),
@@ -2333,11 +2026,12 @@ fn compute_impl_output(
         });
     }
     api_rules.sort_by(|a, b| a.id.cmp(&b.id));
-    let all_search_rules = api_rules
+    let all_search_rules = extracted_rules
         .iter()
-        .map(|r| search::RuleEntry {
-            id: r.id.to_string(),
-            raw: r.raw.clone(),
+        .map(|extracted| search::RuleEntry {
+            id: extracted.def.id.to_string(),
+            raw: extracted.def.raw.clone(),
+            format: extracted.format,
         })
         .collect::<Vec<_>>();
     let forward_elapsed_ms = forward_start.elapsed().as_millis();
@@ -2466,6 +2160,7 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
         BTreeMap::new();
     let specs_content_by_impl: BTreeMap<ImplKey, ApiSpecData> = BTreeMap::new();
     let mut spec_includes_by_name: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut format_config_by_spec: BTreeMap<String, FormatConfig> = BTreeMap::new();
     let mut all_file_contents: BTreeMap<PathBuf, String> = BTreeMap::new();
     let mut all_spec_file_contents: BTreeMap<PathBuf, String> = BTreeMap::new();
     let mut all_source_reqs_by_file: BTreeMap<PathBuf, Reqs> = BTreeMap::new();
@@ -2555,7 +2250,7 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
                 Add at least one impl block to your config:\n\n\
                 spec {{\n    \
                     name \"{}\"\n    \
-                    include \"docs/spec/**/*.md\"\n\n    \
+                    include \"docs/spec/**/*.{{md,typ}}\"\n\n    \
                     impl {{\n        \
                         name \"main\"\n        \
                         include \"src/**/*.rs\"\n    \
@@ -2634,6 +2329,7 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
             implementations: spec_config.impls.iter().map(|i| i.name.clone()).collect(),
         });
         spec_includes_by_name.insert(spec_name.clone(), include_patterns.clone());
+        format_config_by_spec.insert(spec_name.clone(), spec_config.format.clone());
 
         // Build data for each implementation
         struct ImplComputeTaskMeta {
@@ -2909,6 +2605,7 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
         code_units_by_impl,
         specs_content_by_impl,
         spec_includes_by_name,
+        format_config_by_spec,
         search_files: all_file_contents,
         source_reqs_by_file: all_source_reqs_by_file,
         search_rules: all_search_rules,
@@ -2931,45 +2628,60 @@ fn simple_hash(s: &str) -> u64 {
     hash
 }
 
+/// Convert the per-spec [`FormatConfig`] schema into the type-erased
+/// [`tracey_core::SpecConfigs`] used by `render_spec_html`.
+///
+/// `facet-styx` is string→struct only (no raw subtree value type), so this
+/// is the irreducible per-format coupling: each backend with config gets one
+/// arm here translating its `tracey_config` schema (string paths, relative)
+/// into its `tracey_core::*Config` (resolved `PathBuf`). Backends with
+/// `NoConfig` need no arm — `SpecConfigs::default()` already covers them.
+pub fn build_spec_configs(format: &FormatConfig, root: &Path) -> tracey_core::SpecConfigs {
+    let mut cfgs = tracey_core::SpecConfigs::default();
+    cfgs.insert::<tracey_core::spec::typst::Typst>(tracey_core::TypstConfig {
+        package_path: format.typst.package_path.as_ref().map(|p| root.join(p)),
+    });
+    cfgs
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn load_spec_content(
     root: &Path,
     patterns: &[&str],
     spec_name: &str,
     impl_name: &str,
+    format: &FormatConfig,
     coverage: &BTreeMap<String, RuleCoverage>,
     specs_content: &mut BTreeMap<String, ApiSpecData>,
     overlay: &FileOverlay,
+    spec_file_deps: &mut std::collections::HashSet<PathBuf>,
 ) -> Result<()> {
     use ignore::WalkBuilder;
 
-    // Shared source file tracker for rule handler
-    let current_source_file = Arc::new(Mutex::new(String::new()));
-
-    // Get git status for files in the project
-    let git_status = get_git_status(root);
-
-    // Set up marq handlers for consistent rendering with coverage-aware rule rendering
-    let rule_handler = TraceyRuleHandler::new(
-        coverage.clone(),
-        Arc::clone(&current_source_file),
+    // The diagram / code-block handler chain is constant and now lives in the
+    // markdown backend; only the inline-code handler depends on caller data
+    // (spec/impl names for cross-spec link URLs).
+    let inline_code: marq::BoxedInlineCodeHandler = Arc::new(TraceyInlineCodeHandler::new(
         spec_name.to_string(),
         impl_name.to_string(),
-        root.to_path_buf(),
-        git_status,
-    );
-    let inline_code_handler =
-        TraceyInlineCodeHandler::new(spec_name.to_string(), impl_name.to_string());
-    let opts = RenderOptions::new()
-        .with_default_handler(ArboriumHandler::new().with_language_header(true))
-        .with_handler(&["aasvg"], AasvgHandler::new())
-        .with_handler(&["pikchr"], PikruHandler::new())
-        .with_handler(&["compare"], CompareHandler::new())
-        .with_handler(&["mermaid"], MermaidHandler::new())
-        .with_req_handler(rule_handler)
-        .with_inline_code_handler(inline_code_handler);
+    ));
 
-    // Collect all matching files with their content and weight
-    let mut files: Vec<(String, String, i32)> = Vec::new(); // (relative_path, content, weight)
+    // Coverage-badge callback shared by every backend. `'static` because the
+    // markdown backend boxes it into a `marq::ReqHandler`.
+    let badge_for: tracey_core::BadgeFn = {
+        let coverage = coverage.clone();
+        let spec_name = spec_name.to_string();
+        let impl_name = impl_name.to_string();
+        Arc::new(move |def: &ReqDefinition, source_file: &str| {
+            let cov = coverage.get(&def.id.to_string());
+            rule_coverage_badge_html(def, cov, source_file, &spec_name, &impl_name)
+        })
+    };
+
+    let spec_cfgs = build_spec_configs(format, root);
+
+    // Collect all matching files with their content, weight, and format
+    let mut files: Vec<(String, String, i32, SpecFormat)> = Vec::new();
 
     let walker = WalkBuilder::new(root)
         .follow_links(true)
@@ -2980,9 +2692,9 @@ async fn load_spec_content(
     for entry in walker.flatten() {
         let path = entry.path();
 
-        if path.extension().is_none_or(|ext| ext != "md") {
+        let Some(fmt) = SpecFormat::from_path(path) else {
             continue;
-        }
+        };
 
         let relative = path.strip_prefix(root).unwrap_or(path);
 
@@ -2997,54 +2709,92 @@ async fn load_spec_content(
         }
 
         if let Ok(content) = read_file_with_overlay(path, overlay).await {
-            // Parse frontmatter to get weight
-            let weight = match parse_frontmatter(&content) {
-                Ok((fm, _)) => fm.weight,
-                Err(_) => 0, // Default weight if no frontmatter
-            };
-            files.push((relative.to_string_lossy().to_string(), content, weight));
+            // Parse frontmatter / metadata to get weight
+            let weight = parse_weight(fmt, &content);
+            files.push((relative.to_string_lossy().to_string(), content, weight, fmt));
         }
     }
 
     // Sort by weight first, then lexicographically by path for deterministic order.
-    files.sort_by(|(path_a, _, weight_a), (path_b, _, weight_b)| {
+    files.sort_by(|(path_a, _, weight_a, _), (path_b, _, weight_b, _)| {
         weight_a.cmp(weight_b).then_with(|| path_a.cmp(path_b))
     });
 
-    // Concatenate all markdown files to render as one document
-    // This ensures heading IDs are hierarchical across all files
-    let mut combined_markdown = String::new();
-    let mut first_source_file = String::new();
+    // Partition the sorted file list into runs of consecutive same-format files
+    // and render each run with the appropriate backend.
+    //
+    // Markdown runs are concatenated and rendered once via marq so that the
+    // heading-slug stack and hierarchical IDs span the whole run (matching the
+    // pre-multi-format behaviour). Typst files are rendered individually.
+    //
+    // A single `SlugAllocator` is threaded through every run so heading anchors
+    // are unique across the whole spec, with the rendered HTML and the outline
+    // always agreeing on the final slug.
+    let mut sections: Vec<SpecSection> = Vec::new();
+    let mut all_elements: Vec<marq::DocElement> = Vec::new();
+    let mut head_injections: Vec<String> = Vec::new();
+    let mut slug_alloc = SlugAllocator::default();
+    // First render error is held until every run has had a chance to write
+    // into `spec_file_deps`; bailing early would leave later runs' helpers
+    // unwatched, so fixing them would not trigger a rebuild.
+    let mut first_err: Option<eyre::Report> = None;
 
-    for (i, (source_file, content, _weight)) in files.iter().enumerate() {
-        if i == 0 {
-            first_source_file = source_file.clone();
+    for run in files.chunk_by(|a, b| a.3 == b.3) {
+        let run_fmt = run[0].3;
+
+        let sources: Vec<tracey_core::RenderSource<'_>> = run
+            .iter()
+            .map(|(path, content, _, _)| tracey_core::RenderSource {
+                path: Path::new(path),
+                content,
+            })
+            .collect();
+
+        let out = match tracey_core::render_spec_html(
+            run_fmt,
+            tracey_core::RenderInput {
+                sources: &sources,
+                root,
+                badge_for: badge_for.clone(),
+                slugs: &mut slug_alloc,
+                deps: spec_file_deps,
+                inline_code: Some(inline_code.clone()),
+            },
+            &spec_cfgs,
+        )
+        .await
+        {
+            Ok(out) => out,
+            Err(e) => {
+                first_err.get_or_insert(e);
+                continue;
+            }
+        };
+
+        for sec in out.sections {
+            let (source_file, _, weight, _) = &run[sec.source_idx];
+            sections.push(SpecSection {
+                source_file: source_file.clone(),
+                html: sec.html,
+                weight: *weight,
+            });
+            all_elements.extend(sec.elements);
+            head_injections.extend(sec.head_injections);
         }
-        combined_markdown.push_str(content);
-        combined_markdown.push_str("\n\n"); // Ensure separation between files
     }
 
-    // Render the combined document once (so heading_stack works across files)
-    // Set source_path so paragraphs get data-source-file attributes for click-to-edit
-    // Must use absolute path for editor navigation to work correctly
-    *current_source_file.lock().unwrap() = first_source_file.clone();
-    let absolute_source_path = root.join(&first_source_file).display().to_string();
-    let opts = opts.with_source_path(&absolute_source_path);
-    let doc = render(&combined_markdown, &opts).await?;
-
-    // Create a single section with all content
-    // (Frontend concatenates sections anyway, this just simplifies tracking)
-    let mut sections = Vec::new();
-    if !files.is_empty() {
-        sections.push(SpecSection {
-            source_file: first_source_file,
-            html: doc.html,
-            weight: files[0].2,
-        });
+    if let Some(e) = first_err {
+        return Err(e);
     }
 
-    let all_elements = doc.elements;
-    let head_injections = doc.head_injections;
+    // head_injections from multiple runs may repeat (e.g. mermaid loader); the
+    // frontend already keys by content hash but dedup here too to keep payload
+    // small. Order-preserving so a single-run markdown spec is byte-identical
+    // to the pre-refactor output.
+    {
+        let mut seen = std::collections::HashSet::<u64>::new();
+        head_injections.retain(|h| seen.insert(simple_hash(h)));
+    }
 
     // Build outline from elements
     let outline = build_outline(&all_elements, coverage);
@@ -3064,12 +2814,24 @@ async fn load_spec_content(
     Ok(())
 }
 
+/// Render the spec HTML for a single (spec, impl) pair on demand.
+///
+/// `deps` receives the project-relative path of every file the typst compiler
+/// read while resolving `#import` / `#include`. The caller (the daemon)
+/// records these so edits to a transitively-included helper trigger a rebuild
+/// even when the helper does not match any spec `include` glob. It is an
+/// out-param (not part of the return value) so deps reach the caller even
+/// when compilation fails — fixing a syntax error in a helper must trigger a
+/// rebuild. Markdown specs and the `typst-spec`-disabled fallback leave it
+/// untouched.
 pub async fn render_spec_content_for_impl(
     project_root: &Path,
     include_patterns: &[String],
     spec_name: &str,
     impl_name: &str,
+    format: &FormatConfig,
     forward: &ApiSpecForward,
+    deps: &mut std::collections::HashSet<PathBuf>,
 ) -> Result<ApiSpecData> {
     let mut coverage: BTreeMap<String, RuleCoverage> = BTreeMap::new();
     for rule in &forward.rules {
@@ -3098,16 +2860,35 @@ pub async fn render_spec_content_for_impl(
 
     let include_pattern_refs: Vec<&str> = include_patterns.iter().map(|s| s.as_str()).collect();
     let mut map = BTreeMap::new();
-    load_spec_content(
+    let mut abs_deps = std::collections::HashSet::new();
+    let load_result = load_spec_content(
         project_root,
         &include_pattern_refs,
         spec_name,
         impl_name,
+        format,
         &coverage,
         &mut map,
         &FileOverlay::new(),
+        &mut abs_deps,
     )
-    .await?;
+    .await;
+    // Relativize deps into the out-param BEFORE propagating any error: a
+    // helper that broke the compile is exactly the file the watcher needs to
+    // know about. The watcher filter compares project-relative paths; paths
+    // that don't live under the project root (shouldn't happen for
+    // non-package imports, which resolve under the spec file's directory) are
+    // dropped.
+    let canon_root = project_root
+        .canonicalize()
+        .unwrap_or_else(|_| project_root.to_path_buf());
+    deps.extend(abs_deps.into_iter().filter_map(|p| {
+        p.strip_prefix(project_root)
+            .or_else(|_| p.strip_prefix(&canon_root))
+            .ok()
+            .map(Path::to_path_buf)
+    }));
+    load_result?;
     map.remove(spec_name)
         .ok_or_else(|| eyre::eyre!("Spec content not found for {spec_name}/{impl_name}"))
 }
