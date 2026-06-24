@@ -19,14 +19,7 @@ pub(crate) fn markdown_code_mask(text: &str) -> Vec<bool> {
                     false
                 }
             }
-            Event::End(TagEnd::CodeBlock) => {
-                if in_fenced_code_block {
-                    in_fenced_code_block = false;
-                    true
-                } else {
-                    false
-                }
-            }
+            Event::End(TagEnd::CodeBlock) => std::mem::take(&mut in_fenced_code_block),
             _ => in_fenced_code_block,
         };
 
