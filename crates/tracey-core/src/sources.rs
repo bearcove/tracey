@@ -84,6 +84,8 @@ pub const SUPPORTED_EXTENSIONS: &[&str] = &[
     "yml",    // YAML
     "yaml",   // YAML (alternate extension)
     "json5",  // JSON5
+    "lean",   // Lean
+    "svelte", // Svelte
 ];
 
 /// Check if a file extension is supported for scanning
@@ -667,6 +669,8 @@ mod tests {
         assert!(is_supported_extension(OsStr::new("go")));
         assert!(is_supported_extension(OsStr::new("php")));
         assert!(is_supported_extension(OsStr::new("nix")));
+        assert!(is_supported_extension(OsStr::new("lean")));
+        assert!(is_supported_extension(OsStr::new("svelte")));
 
         assert!(is_supported_extension(OsStr::new("yml")));
         assert!(is_supported_extension(OsStr::new("yaml")));
