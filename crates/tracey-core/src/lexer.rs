@@ -299,10 +299,11 @@ fn find_yaml_comment_start(line: &str) -> Option<usize> {
         match ch {
             '\'' if !in_double => in_single = !in_single,
             '"' if !in_single => in_double = !in_double,
-            '#' if !in_single && !in_double => {
-                if idx == 0 || prev.is_some_and(|p| p.is_whitespace()) {
-                    return Some(idx);
-                }
+            '#' if !in_single
+                && !in_double
+                && (idx == 0 || prev.is_some_and(|p| p.is_whitespace())) =>
+            {
+                return Some(idx);
             }
             _ => {}
         }

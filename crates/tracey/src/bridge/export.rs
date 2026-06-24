@@ -613,11 +613,7 @@ fn render_sources_index(
         .files
         .iter()
         .map(|f| {
-            let cov_pct = if f.total_units > 0 {
-                f.covered_units * 100 / f.total_units
-            } else {
-                0
-            };
+            let cov_pct = (f.covered_units * 100).checked_div(f.total_units).unwrap_or(0);
             let fill_class = match cov_pct {
                 80..=100 => "high",
                 50..=79 => "med",

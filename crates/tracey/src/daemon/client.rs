@@ -396,7 +396,7 @@ impl DaemonConnector {
                 return Ok(None);
             }
 
-            match vox::transport::local::LocalLink::connect(&endpoint).await {
+            match vox::transport::local::LocalLink::connect(endpoint).await {
                 Ok(stream) => return Ok(Some(stream)),
                 Err(e) => {
                     last_error = Some(e.to_string());

@@ -366,10 +366,12 @@ pub async fn run(project_root: PathBuf, config_path: PathBuf) -> Result<()> {
                                 is_dir,
                                 &project_root_for_rebuild,
                                 &spec_deps,
-                                &gitignore,
-                                &exclude_set,
-                                &include_set,
-                                include_configured,
+                                &PathFilter {
+                                    gitignore: &gitignore,
+                                    exclude_set: &exclude_set,
+                                    include_set: &include_set,
+                                    include_configured,
+                                },
                             )
                         })
                         .collect();
@@ -568,15 +570,21 @@ fn is_temporary_edit_artifact(path: &Path) -> bool {
 ///
 /// `is_dir` is hoisted to the caller so this function performs no
 /// filesystem I/O and can be unit-tested in isolation.
+/// The gitignore + glob filters that decide whether a changed path is watched.
+/// Bundled because they always travel together through the watcher.
+struct PathFilter<'a> {
+    gitignore: &'a ignore::gitignore::Gitignore,
+    exclude_set: &'a GlobSet,
+    include_set: &'a GlobSet,
+    include_configured: bool,
+}
+
 fn accept_changed_path(
     rel: &Path,
     is_dir: bool,
     project_root: &Path,
     spec_deps: &HashSet<PathBuf>,
-    gitignore: &ignore::gitignore::Gitignore,
-    exclude_set: &GlobSet,
-    include_set: &GlobSet,
-    include_configured: bool,
+    filter: &PathFilter<'_>,
 ) -> bool {
     // (1) spec deps trump everything: a gitignored helper that the spec
     // `#import`s must still cause a re-render.
@@ -586,7 +594,8 @@ fn accept_changed_path(
 
     // (2) gitignore
     let full_path = project_root.join(rel);
-    if gitignore
+    if filter
+        .gitignore
         .matched_path_or_any_parents(&full_path, is_dir)
         .is_ignore()
     {
@@ -594,14 +603,14 @@ fn accept_changed_path(
     }
 
     // (3) exclude globs
-    if exclude_set.is_match(rel) {
+    if filter.exclude_set.is_match(rel) {
         return false;
     }
 
     // (4) include globs — accept-all only when *no* include patterns were
     // configured. If patterns were configured but all failed to compile, the
     // set is empty and this correctly rejects everything.
-    !include_configured || include_set.is_match(rel)
+    !filter.include_configured || filter.include_set.is_match(rel)
 }
 
 /// Compile a list of glob patterns into a single [`GlobSet`]. Invalid
@@ -815,7 +824,7 @@ pub async fn connect(project_root: &Path) -> Result<vox::transport::local::Local
 
 #[cfg(test)]
 mod tests {
-    use super::{accept_changed_path, build_globset, path_triggers_reconfigure};
+    use super::{PathFilter, accept_changed_path, build_globset, path_triggers_reconfigure};
     use globset::GlobSet;
     use std::collections::HashSet;
     use std::path::{Path, PathBuf};
@@ -840,10 +849,12 @@ mod tests {
             false,
             root,
             &spec_deps,
-            &gi,
-            &GlobSet::empty(),
-            &build_globset(["**/*.typ"]),
-            true,
+            &PathFilter {
+                gitignore: &gi,
+                exclude_set: &GlobSet::empty(),
+                include_set: &build_globset(["**/*.typ"]),
+                include_configured: true,
+            },
         ));
     }
 
@@ -858,10 +869,12 @@ mod tests {
             false,
             root,
             &HashSet::new(),
-            &gi,
-            &GlobSet::empty(),
-            &build_globset(["**/*.typ"]),
-            true,
+            &PathFilter {
+                gitignore: &gi,
+                exclude_set: &GlobSet::empty(),
+                include_set: &build_globset(["**/*.typ"]),
+                include_configured: true,
+            },
         ));
     }
 
@@ -876,10 +889,12 @@ mod tests {
             false,
             root,
             &HashSet::new(),
-            &gi,
-            &GlobSet::empty(),
-            &build_globset(["**/*.typ"]),
-            true,
+            &PathFilter {
+                gitignore: &gi,
+                exclude_set: &GlobSet::empty(),
+                include_set: &build_globset(["**/*.typ"]),
+                include_configured: true,
+            },
         ));
     }
 
@@ -895,10 +910,12 @@ mod tests {
             false,
             root,
             &spec_deps,
-            &gi,
-            &build_globset(["**/_generated/**"]),
-            &build_globset(["**/*.typ"]),
-            true,
+            &PathFilter {
+                gitignore: &gi,
+                exclude_set: &build_globset(["**/_generated/**"]),
+                include_set: &build_globset(["**/*.typ"]),
+                include_configured: true,
+            },
         ));
     }
 

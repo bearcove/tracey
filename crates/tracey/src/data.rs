@@ -2481,10 +2481,7 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
             });
         }
 
-        for (task, meta) in impl_compute_tasks
-            .into_iter()
-            .zip(impl_compute_meta.into_iter())
-        {
+        for (task, meta) in impl_compute_tasks.into_iter().zip(impl_compute_meta) {
             let out = task
                 .await
                 .map_err(|err| eyre::eyre!("Implementation compute task failed: {err}"))?;
