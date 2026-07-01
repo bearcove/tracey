@@ -120,6 +120,7 @@ dependencies = [
  "arborium-powershell",
  "arborium-python",
  "arborium-r",
+ "arborium-rego",
  "arborium-ruby",
  "arborium-rust",
  "arborium-scala",
@@ -632,6 +633,17 @@ name = "arborium-r"
 version = "2.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "305294a9e5742a0228800118e6460dd6fb1ac61b0ba76316141fcfbef3016ccc"
+dependencies = [
+ "arborium-sysroot",
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "arborium-rego"
+version = "2.18.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c878ffc4dfa1c5b6e94e01d0dd0796bc943096af90bef563b8306766a3e3f518"
 dependencies = [
  "arborium-sysroot",
  "cc",
@@ -6030,6 +6042,7 @@ dependencies = [
  "arborium-powershell",
  "arborium-python",
  "arborium-r",
+ "arborium-rego",
  "arborium-ruby",
  "arborium-rust",
  "arborium-svelte",
