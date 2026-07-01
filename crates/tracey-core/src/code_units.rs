@@ -1127,6 +1127,188 @@ fn svelte_node_kind(kind: &str) -> Option<CodeUnitKind> {
     }
 }
 
+/// Extract code units from Rego source code.
+///
+/// Only `rule` nodes become units: the grammar's `package` node is just the
+/// keyword (its name `ref` is a sibling), and `module` spans the whole file —
+/// emitting either would add a noise unit per file.
+///
+/// Known limitations — the tree-sitter-rego grammar predates OPA v1 syntax:
+/// it parses a v1 dangling-if rule (`x := 1 if { ... }`) as the value head
+/// plus a separate phantom rule whose head variable is `if`
+/// (<https://github.com/FallenAngel97/tree-sitter-rego/issues/20>). The
+/// common shapes are merged back below; complex `else` chains and rules
+/// following an `else := value` clause may still yield imperfect extents.
+/// The grammar also lexes `#` inside string literals as a comment start
+/// (<https://github.com/FallenAngel97/tree-sitter-rego/issues/21>), which
+/// can corrupt the parse of everything after the string — requirement
+/// references are still collected from real comments, but code units in
+/// such files may be wrong or missing.
+pub fn extract_rego(path: &Path, source: &str) -> CodeUnits {
+    let mut parser = Parser::new();
+    parser
+        .set_language(&arborium_rego::language().into())
+        .expect("Failed to load Rego grammar");
+
+    let Some(tree) = parser.parse(source, None) else {
+        return CodeUnits::new();
+    };
+
+    let mut units = CodeUnits::new();
+    extract_rego_recursive(path, source, tree.root_node(), &mut units);
+    units
+}
+
+fn extract_rego_recursive(path: &Path, source: &str, node: Node, units: &mut CodeUnits) {
+    if node.kind() == "rule" {
+        if let Some(prev_unit) = rego_dangling_if_target(source, node, units) {
+            // This node is the phantom guard of the preceding value head —
+            // one rule in the source, so one unit.
+            prev_unit.end_line = node.end_position().row + 1;
+            prev_unit.end_byte = node.end_byte();
+        } else {
+            let (req_refs, comment_line) = rego_preceding_comments(source, node);
+            // r[impl code-unit.boundary.include-comments]
+            let start_line = comment_line.unwrap_or(node.start_position().row + 1);
+            let start_byte = match comment_line {
+                Some(line) => find_line_start_byte(source, line),
+                None => node.start_byte(),
+            };
+            units.units.push(CodeUnit {
+                kind: CodeUnitKind::Function,
+                name: rego_rule_name(source, node),
+                file: path.to_path_buf(),
+                start_line,
+                end_line: node.end_position().row + 1,
+                start_byte,
+                end_byte: node.end_byte(),
+                req_refs,
+            });
+        }
+        // Rules never nest; nothing inside one is a unit of its own.
+        return;
+    }
+
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        extract_rego_recursive(path, source, child, units);
+    }
+}
+
+/// First `fn_name` or `var` in document order — the grammar has no fields
+/// and no `identifier` kind, so this is how a rule head is found.
+fn rego_head_ident<'a>(node: Node<'a>) -> Option<Node<'a>> {
+    if matches!(node.kind(), "fn_name" | "var") {
+        return Some(node);
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if let Some(found) = rego_head_ident(child) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// A rule's name: the head identifier extended across `.` segments
+/// (`aws.iam.deny` is one dotted name, but the grammar splits it into
+/// separate nodes).
+fn rego_rule_name(source: &str, rule: Node) -> Option<String> {
+    let ident = rego_head_ident(rule)?;
+    let start = ident.start_byte();
+    let bytes = source.as_bytes();
+    let mut end = ident.end_byte();
+    while end < bytes.len()
+        && (bytes[end] == b'.' || bytes[end] == b'_' || bytes[end].is_ascii_alphanumeric())
+    {
+        end += 1;
+    }
+    Some(source[start..end].trim_end_matches('.').to_string())
+}
+
+/// Own-line comments directly above a rule, chained by line adjacency.
+/// The first rule's comments sit outside the token-less `policy` wrapper in
+/// the parse tree, so when a level has no preceding siblings the walk
+/// continues above the wrapper.
+fn rego_preceding_comments(source: &str, node: Node) -> (Vec<RuleId>, Option<usize>) {
+    let mut refs = Vec::new();
+    let mut earliest_line = None;
+    let mut expected_row = node.start_position().row;
+    let mut cursor = node;
+    loop {
+        match cursor.prev_named_sibling() {
+            Some(prev) if prev.kind() == "comment" => {
+                let line_start = prev.start_byte() - prev.start_position().column;
+                let own_line = source[line_start..prev.start_byte()]
+                    .bytes()
+                    .all(|b| b == b' ' || b == b'\t');
+                if !own_line || prev.end_position().row + 1 < expected_row {
+                    break; // trailer of the previous construct, or a gap
+                }
+                collect_comment_refs(source, prev, &mut refs);
+                expected_row = prev.start_position().row;
+                earliest_line = Some(expected_row + 1);
+                cursor = prev;
+            }
+            Some(_) => break,
+            None => match cursor.parent() {
+                Some(parent) if parent.kind() == "policy" => cursor = parent,
+                _ => break,
+            },
+        }
+    }
+    (refs, earliest_line)
+}
+
+/// When `rule` is the phantom `if` guard the grammar splits off a v1
+/// dangling-if rule, return the unit of the value head it continues.
+fn rego_dangling_if_target<'u>(
+    source: &str,
+    rule: Node,
+    units: &'u mut CodeUnits,
+) -> Option<&'u mut CodeUnit> {
+    // The head must be the bare `if` var: anything with arguments
+    // (`if["k"]`, `if(x)`) or a bound value (`if := v`) is a legacy rule
+    // that happens to be named `if`.
+    let head = rego_head_ident(rule)?;
+    if &source[head.byte_range()] != "if" {
+        return None;
+    }
+    let after = source[head.end_byte()..].trim_start_matches([' ', '\t']);
+    if after.starts_with(['[', '(', '.']) || after.starts_with(":=") {
+        return None;
+    }
+    if after.starts_with('=') && !after.starts_with("==") {
+        return None;
+    }
+
+    // The predecessor must be an adjacent head this guard can continue: a
+    // rule (not `default`, which never takes a body) without a braced body
+    // of its own.
+    let p = rule.prev_named_sibling()?;
+    let p_text = &source[p.byte_range()];
+    let is_default_decl = p_text
+        .strip_prefix("default")
+        .is_some_and(|rest| rest.starts_with([' ', '\t']));
+    if p.kind() != "rule"
+        || rule.start_position().row > p.end_position().row + 1
+        || is_default_decl
+    {
+        return None;
+    }
+    // The grammar also parses a bound value (`:= true`) as a rule_body, so
+    // only a body that actually opens a brace makes the rule complete.
+    let mut cursor = p.walk();
+    if p.children(&mut cursor).any(|c| {
+        c.kind() == "rule_body" && source[c.byte_range()].trim_start().starts_with('{')
+    }) {
+        return None; // already a complete braced rule
+    }
+
+    let last = units.units.last_mut()?;
+    (last.end_byte == p.end_byte()).then_some(last)
+}
+
 fn extract_units_recursive<F>(
     path: &Path,
     source: &str,
@@ -3272,6 +3454,144 @@ function helper {
             .filter(|u| u.kind == CodeUnitKind::Function)
             .collect();
         assert!(!funcs.is_empty(), "Should find function expressions in Nix");
+    }
+
+    #[test]
+    fn test_rego_code_units() {
+        let source = r#"package authz
+
+# r[impl authz.allow.admin]
+allow {
+    input.user.role == "admin"
+}
+
+# r[impl authz.is_admin]
+is_admin(user) {
+    user.role == "admin"
+}
+"#;
+        let units = extract_rego(Path::new("policy.rego"), source);
+        let names: Vec<_> = units
+            .units
+            .iter()
+            .filter_map(|u| u.name.as_deref())
+            .collect();
+        assert!(names.contains(&"allow"), "rules should be named: {names:?}");
+        assert!(
+            names.contains(&"is_admin"),
+            "function rules should be named: {names:?}"
+        );
+
+        // The first rule's comment attaches outside the `policy` wrapper in
+        // the parse tree; the second's is a plain preceding sibling. Both
+        // association paths must work.
+        for name in ["allow", "is_admin"] {
+            let rule = units
+                .units
+                .iter()
+                .find(|u| u.name.as_deref() == Some(name))
+                .unwrap();
+            assert_eq!(
+                rule.req_refs.len(),
+                1,
+                "annotated rule {name} should carry its req ref"
+            );
+        }
+    }
+
+    #[test]
+    fn test_rego_refs() {
+        let source = r#"package authz
+
+# r[impl authz.deny.unauthenticated]
+deny[msg] {
+    not input.user.authenticated
+    msg := "unauthenticated"
+}
+"#;
+        let refs = extract_refs(Path::new("policy.rego"), source);
+        assert_eq!(refs.len(), 1, "Should find the ref in the # comment");
+        assert_eq!(refs[0].req_id, "authz.deny.unauthenticated");
+    }
+
+    #[test]
+    fn test_rego_code_not_treated_as_refs() {
+        // `r[x]` is valid Rego (a rule/set lookup); outside comments it must
+        // not be picked up as an annotation or produce warnings.
+        let source = "package authz\n\nallow {\n    r[input.user]\n}\n";
+        let extracted = extract_refs_with_warnings(Path::new("policy.rego"), source);
+        assert_eq!(extracted.references.len(), 0);
+        assert_eq!(extracted.warnings.len(), 0);
+    }
+
+    #[test]
+    fn test_rego_v1_dangling_if_merged() {
+        // The grammar splits `allow := true if { ... }` into a value head
+        // plus a phantom rule named `if`; extraction merges them back.
+        for source in [
+            "package p\n\n# r[impl p.allow]\nallow := true if {\n    input.admin\n}\n",
+            "package p\n\n# r[impl p.allow]\nallow := true if input.admin\n",
+        ] {
+            let units = extract_rego(Path::new("policy.rego"), source);
+            let names: Vec<_> = units
+                .units
+                .iter()
+                .filter_map(|u| u.name.as_deref())
+                .collect();
+            assert_eq!(units.units.len(), 1, "for {source:?} got {names:?}");
+            assert_eq!(units.units[0].name.as_deref(), Some("allow"));
+            assert_eq!(units.units[0].req_refs.len(), 1);
+            assert_eq!(
+                units.units[0].end_line as usize,
+                source.lines().count(),
+                "unit spans the guard"
+            );
+        }
+    }
+
+    #[test]
+    fn test_rego_default_prefixed_name_merges() {
+        // A rule NAMED default_ttl is not a `default` declaration; its
+        // dangling if must still merge.
+        let source = "package p\n\ndefault_ttl := 60 if {\n    input.override\n}\n";
+        let units = extract_rego(Path::new("policy.rego"), source);
+        let names: Vec<_> = units
+            .units
+            .iter()
+            .filter_map(|u| u.name.as_deref())
+            .collect();
+        assert_eq!(units.units.len(), 1, "got {names:?}");
+        assert_eq!(units.units[0].name.as_deref(), Some("default_ttl"));
+    }
+
+    #[test]
+    fn test_rego_v0_braced_rule_then_if_rule_kept() {
+        // A legacy rule literally named `if` after a complete braced rule is
+        // its own unit, not a continuation.
+        let source = "package p\n\na { input.x }\nif { input.y }\n";
+        let units = extract_rego(Path::new("policy.rego"), source);
+        assert_eq!(units.units.len(), 2);
+    }
+
+    #[test]
+    fn test_rego_dotted_head_name() {
+        let source = "package p\n\nfoo.bar := 1\n";
+        let units = extract_rego(Path::new("policy.rego"), source);
+        assert_eq!(units.units[0].name.as_deref(), Some("foo.bar"));
+    }
+
+    #[test]
+    fn test_rego_trailing_comment_not_attributed() {
+        // A trailer on the previous rule's closing line is not a leading
+        // annotation for the next rule.
+        let source = "package p\n\na := 1 # r[impl p.a]\nb := 2\n";
+        let units = extract_rego(Path::new("policy.rego"), source);
+        let b = units
+            .units
+            .iter()
+            .find(|u| u.name.as_deref() == Some("b"))
+            .unwrap();
+        assert!(b.req_refs.is_empty(), "trailer stolen by b");
     }
 
     #[test]
