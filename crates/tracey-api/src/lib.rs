@@ -24,6 +24,12 @@ pub struct ApiSpecInfo {
     /// Prefix used in annotations (e.g., "r" for r[req.id])
     pub prefix: String,
 
+    /// Spec dialect, used to describe the correct code-annotation style:
+    /// `{prefix}[...]` markers for markdown/typst/asciidoc specs, or
+    /// `@relation(...)` for StrictDoc `.sdoc` specs.
+    #[facet(default)]
+    pub format: SpecFormat,
+
     /// Path to spec file(s) if local
     #[facet(default)]
     pub source: Option<String>,

@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::{collections::BTreeMap, collections::BTreeSet};
 
 use crate::daemon::{DaemonClient, new_client};
-use tracey_core::parse_rule_id;
+use tracey_core::{SpecFormat, parse_rule_id};
 use tracey_proto::*;
 
 /// Who is calling the query client — affects hint formatting.
@@ -173,8 +173,6 @@ impl QueryClient {
                 // so agents and new users understand what is being analyzed.
                 if let Ok(config) = config_result {
                     for spec in &config.specs {
-                        let example_rule =
-                            format!("{}[{}.some-requirement]", spec.prefix, spec.name);
                         output.push_str(&format!(
                             "This project tracks requirements for \"{}\". ",
                             spec.name
@@ -183,11 +181,26 @@ impl QueryClient {
                             output
                                 .push_str(&format!("The requirements are defined in {} ", source));
                         }
-                        output.push_str(&format!(
-                            "and are referenced in code using {}[...] annotations \
-                             (for example, {}).\n",
-                            spec.prefix, example_rule
-                        ));
+                        match spec.format {
+                            SpecFormat::Sdoc => {
+                                output.push_str(
+                                    "and are referenced in code using @relation(...) annotations. \
+                                     Use `// @relation(<UID>, scope=function)` to record an \
+                                     implementation, and \
+                                     `// @relation(<UID>, scope=function, role=Verifies)` for a \
+                                     verification.\n",
+                                );
+                            }
+                            _ => {
+                                output.push_str(&format!(
+                                    "and are referenced in code using {p}[...] annotations. Use \
+                                     `{p}[impl {n}.some-requirement]` to record an implementation, \
+                                     and `{p}[verify {n}.some-requirement]` for a verification.\n",
+                                    p = spec.prefix,
+                                    n = spec.name
+                                ));
+                            }
+                        }
                         output.push_str(&format!(
                             "The implementation{} being checked: {}.\n",
                             if spec.implementations.len() == 1 {
@@ -898,6 +911,7 @@ mod tests {
                 ApiSpecInfo {
                     name: "ship".to_string(),
                     prefix: "r".to_string(),
+                    format: SpecFormat::Markdown,
                     source: None,
                     source_url: None,
                     implementations: vec!["rust".to_string(), "typescript".to_string()],
@@ -905,6 +919,7 @@ mod tests {
                 ApiSpecInfo {
                     name: "other".to_string(),
                     prefix: "r".to_string(),
+                    format: SpecFormat::Markdown,
                     source: None,
                     source_url: None,
                     implementations: vec!["rust".to_string()],

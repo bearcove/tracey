@@ -198,6 +198,12 @@ export interface ApiSpecInfo {
    * Prefix used in annotations (e.g., "r" for r[req.id])
    */
   prefix: string;
+  /**
+   * Spec dialect, used to describe the correct code-annotation style:
+   * `{prefix}[...]` markers for markdown/typst/asciidoc specs, or
+   * `@relation(...)` for StrictDoc `.sdoc` specs.
+   */
+  format?: SpecFormat;
   /** Path to spec file(s) if local */
   source?: string;
   /** Canonical URL for the specification (e.g., a GitHub repository) */
