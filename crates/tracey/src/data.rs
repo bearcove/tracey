@@ -2321,9 +2321,17 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
             spec_start.elapsed().as_millis()
         );
 
+        // All rules in a spec share one dialect; take it from the first rule
+        // (extraction above already guaranteed at least one rule exists).
+        let spec_format = extracted_rules
+            .first()
+            .map(|r| r.format)
+            .unwrap_or_default();
+
         api_config.specs.push(ApiSpecInfo {
             name: spec_name.clone(),
             prefix: inferred_prefix.clone(),
+            format: spec_format,
             source: Some(include_patterns.join(", ")),
             source_url: spec_config.source_url.clone(),
             implementations: spec_config.impls.iter().map(|i| i.name.clone()).collect(),
