@@ -39,8 +39,8 @@ use crate::search;
 // Re-export API types from tracey-api crate
 pub use tracey_api::{
     ApiCodeRef, ApiCodeUnit, ApiConfig, ApiFileData, ApiFileEntry, ApiForwardData, ApiReverseData,
-    ApiRule, ApiSpecData, ApiSpecForward, ApiSpecInfo, ApiStaleRef, OutlineCoverage,
-    OutlineEntry, SpecSection, ValidationError, ValidationErrorCode, ValidationResult,
+    ApiRule, ApiSpecData, ApiSpecForward, ApiSpecInfo, ApiStaleRef, OutlineCoverage, OutlineEntry,
+    SpecSection, ValidationError, ValidationErrorCode, ValidationResult,
 };
 use tracey_proto::{LspDiagnostic, LspFileDiagnostics};
 
@@ -857,7 +857,10 @@ async fn load_rules_from_includes_cached(
         get_cached_spec_scan_paths(project_root, include_patterns, changed_files, cache);
     let (spec_roots, _) = build_scan_roots(project_root, include_patterns);
     for overlay_path in overlay.keys() {
-        if overlay_path.extension().is_none_or(|ext| !is_spec_extension(ext)) {
+        if overlay_path
+            .extension()
+            .is_none_or(|ext| !is_spec_extension(ext))
+        {
             continue;
         }
         if path_matches_any_root(overlay_path, &spec_roots) {
@@ -2718,11 +2721,8 @@ async fn load_spec_content(
     });
 
     // Partition the sorted file list into runs of consecutive same-format files
-    // and render each run with the appropriate backend.
-    //
-    // Markdown runs are concatenated and rendered once via marq so that the
-    // heading-slug stack and hierarchical IDs span the whole run (matching the
-    // pre-multi-format behaviour). Typst files are rendered individually.
+    // and render each run with the appropriate backend. Every backend emits
+    // one section per source file.
     //
     // A single `SlugAllocator` is threaded through every run so heading anchors
     // are unique across the whole spec, with the rendered HTML and the outline

@@ -1,0 +1,244 @@
+/* ── Static export extras ─────────────────────────────────────── */
+
+/* Small offset so anchors don't land flush against the top edge */
+.export-content :is(h1, h2, h3, h4, h5, h6)[id],
+.export-content .req-container[id] {
+    scroll-margin-top: var(--space-4);
+}
+
+/* r[impl export.style.max-width] */
+.export-content {
+    max-width: 900px;
+    padding: var(--space-6) var(--space-8);
+    overflow: visible;
+}
+
+/* ── Header ─────────────────────────────────────────────────── */
+
+.export-header-title {
+    font-size: var(--text-base);
+    font-weight: 600;
+    color: var(--fg);
+    text-decoration: none;
+    padding: var(--space-3) var(--space-5);
+}
+
+.export-header-title:hover {
+    color: var(--accent);
+}
+
+/* ── Layout overrides for static export ─────────────────────── */
+/* The dashboard uses overflow:hidden on .content and .sidebar
+   (scrolling is handled by inner React components). For the static
+   export we need native scrolling on these panels. */
+
+.content {
+    display: block;
+    overflow-y: auto;
+}
+
+.sidebar {
+    overflow-y: auto;
+}
+
+.outline-tree {
+    padding-bottom: var(--space-2);
+}
+
+/* ── Footer ─────────────────────────────────────────────────── */
+
+.export-footer {
+    padding: var(--space-4) var(--space-8);
+    border-top: 1px solid var(--border);
+    font-size: var(--text-sm);
+    color: var(--fg-dim);
+}
+
+.export-footer a {
+    color: var(--accent);
+    text-decoration: none;
+}
+
+.export-footer a:hover {
+    text-decoration: underline;
+}
+
+/* ── Sidebar (export-only additions to dashboard TOC) ── */
+/* r[impl export.sidebar.structure] */
+
+/* Sidebar scrollable content area */
+.sidebar-content {
+    flex: 1;
+    overflow-y: auto;
+}
+
+/* ── Mobile sidebar ─────────────────────────────────────────── */
+/* r[impl export.sidebar.mobile] */
+
+.sidebar-toggle {
+    display: none;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--fg);
+    font-size: var(--text-lg);
+    padding: var(--space-1);
+    line-height: 1;
+}
+
+.sidebar-toggle:hover {
+    color: var(--accent);
+}
+
+@media (max-width: 768px) {
+    .sidebar-toggle {
+        display: inline-flex;
+    }
+
+    .sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        z-index: 100;
+        width: 300px;
+        max-width: 85vw;
+        height: 100vh;
+        transform: translateX(-100%);
+        transition: transform 0.2s ease;
+    }
+    .sidebar.open {
+        transform: translateX(0);
+    }
+
+    .sidebar-backdrop {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 99;
+        background: rgba(0, 0, 0, 0.4);
+    }
+    .sidebar-backdrop.open {
+        display: block;
+    }
+
+    .export-content {
+        padding: var(--space-4) var(--space-3);
+    }
+}
+
+/* ── Requirement blocks (export-specific) ───────────────────── */
+/* r[impl export.spec-page.req-solid] */
+/* Override dashboard styles: make req blocks solid and readable */
+
+.req-container.export-req-covered {
+    border-color: 1px solid var(--green);
+    opacity: 1;
+}
+
+.req-container.export-req-partial {
+    border-width: 1px;
+    opacity: 1;
+}
+
+.req-container.export-req-uncovered {
+    border-style: dashed;
+    border-width: 1px;
+    opacity: 0.5;
+}
+
+/* r[impl export.spec-page.req-ids] */
+.export-req-badges {
+    margin-bottom: var(--space-2);
+}
+
+/* r[impl export.spec-page.coverage-inline] */
+.export-req-refs {
+    margin-top: var(--space-2);
+    font-size: var(--text-xs);
+    color: var(--fg-muted);
+    font-family: var(--font-mono);
+    font-variation-settings:
+        "MONO" 1,
+        "CASL" 0;
+}
+
+.export-req-refs-label {
+    font-family: var(--font-sans);
+    font-weight: 500;
+    color: var(--fg-dim);
+    margin-right: var(--space-1);
+}
+
+.export-req-ref {
+    display: inline;
+}
+
+.export-req-ref + .export-req-ref::before {
+    content: ", ";
+}
+
+/* r[impl export.spec-page.uncovered-icons] */
+/* TODO: replace emoji with proper icons later */
+.export-uncovered-badge {
+    display: inline-block;
+    font-size: var(--text-xs);
+    margin-left: var(--space-2);
+}
+
+/* ── Landing page ───────────────────────────────────────────── */
+
+.landing-page {
+    padding: var(--space-6) var(--space-8);
+    max-width: 1000px;
+}
+
+.landing-readme {
+    margin-bottom: var(--space-8);
+}
+
+.landing-specs h2 {
+    font-size: var(--text-lg);
+    margin-bottom: var(--space-4);
+    color: var(--fg);
+}
+
+.spec-card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: var(--space-4);
+}
+
+.spec-card {
+    display: block;
+    text-decoration: none;
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: var(--space-4);
+    transition:
+        border-color 0.15s,
+        box-shadow 0.15s;
+}
+
+.spec-card:hover {
+    border-color: var(--accent);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.spec-card-name {
+    font-size: var(--text-base);
+    font-weight: 600;
+    margin-bottom: var(--space-2);
+}
+
+.spec-card-impl {
+    font-size: var(--text-sm);
+    color: var(--fg-muted);
+    margin-bottom: var(--space-2);
+}
+
+.spec-card-stats {
+    font-size: var(--text-sm);
+    color: var(--fg-muted);
+}
