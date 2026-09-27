@@ -95,6 +95,12 @@ Checks staged spec files for requirements whose text changed without a version b
 tracey pre-commit
 ```
 
+By default the check compares `HEAD` against the index. Pass `--from` and/or `--to` to compare other git revisions, for example to check every commit on a branch in CI:
+
+```bash
+tracey pre-commit --from main --to HEAD
+```
+
 ### Auto-bump
 
 ```bash
@@ -108,6 +114,13 @@ Automatically increments the version number of staged requirements whose text ch
 git add docs/spec/api.md
 tracey bump              # auto-bumps versions, re-stages
 git commit -m "Update auth requirements"
+```
+
+Pass `--from` to compare against a revision other than `HEAD`, and `--unstaged` to bump requirements changed in the working tree instead of only staged changes. With `--unstaged` the modified files are written but not re-staged:
+
+```bash
+# Edit your spec, then:
+tracey bump --unstaged   # auto-bumps versions, leaves files unstaged
 ```
 
 ## Viewing diffs

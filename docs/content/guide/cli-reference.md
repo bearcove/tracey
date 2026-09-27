@@ -200,16 +200,28 @@ Exit code behavior:
 Check staged spec files for requirements whose text changed without a version bump. Exits with an error if any are found. Designed to be used as a git pre-commit hook.
 
 ```
-tracey pre-commit [--config PATH] [ROOT]
+tracey pre-commit [--config PATH] [--from REV] [--to REV] [ROOT]
 ```
+
+| Flag | Description |
+|------|-------------|
+| `--from REV` | Git revision to compare from (default: `HEAD`) |
+| `--to REV` | Git revision to compare to (default: the index, i.e. staged changes) |
+
+An explicit `--from` or `--to` that does not resolve to a commit is an error.
 
 ### `tracey bump`
 
 Auto-bump version numbers of staged requirements whose text changed, then re-stage the modified files.
 
 ```
-tracey bump [--config PATH] [ROOT]
+tracey bump [--config PATH] [--from REV] [--unstaged] [ROOT]
 ```
+
+| Flag | Description |
+|------|-------------|
+| `--from REV` | Git revision to compare from (default: `HEAD`). An explicit revision that does not resolve to a commit is an error. |
+| `--unstaged` | Bump requirements changed in the working tree instead of only staged changes. Modified files are not re-staged. |
 
 See [Versioning](versioning.md) for the full workflow.
 

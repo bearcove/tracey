@@ -162,9 +162,18 @@ enum Command {
         /// Path to config file
         #[facet(args::named, args::short = 'c', default = ".config/tracey/config.styx")]
         config: PathBuf,
+
+        /// Git revision to compare from (default: HEAD)
+        #[facet(args::named, default)]
+        from: Option<String>,
+
+        /// Git revision to compare to (default: the index, i.e. staged changes)
+        #[facet(args::named, default)]
+        to: Option<String>,
     },
 
     /// Bump version numbers of staged rules whose text changed, then re-stage the files.
+    /// With --unstaged, bump rules changed in the working tree and do not re-stage.
     Bump {
         /// Project root directory (default: current directory)
         #[facet(args::positional, default)]
@@ -173,6 +182,14 @@ enum Command {
         /// Path to config file
         #[facet(args::named, args::short = 'c', default = ".config/tracey/config.styx")]
         config: PathBuf,
+
+        /// Git revision to compare from (default: HEAD)
+        #[facet(args::named, default)]
+        from: Option<String>,
+
+        /// Bump rules changed in the working tree instead of only staged changes, without re-staging
+        #[facet(args::named, default)]
+        unstaged: bool,
     },
 
     /// Remove orphaned state directories whose projects no longer exist on disk
@@ -443,11 +460,18 @@ async fn main() -> Result<()> {
         Command::Ai { claude, codex } => setup_ai_clients(codex, claude),
 
         // r[impl cli.pre-commit]
-        Command::PreCommit { root, config } => {
+        Command::PreCommit {
+            root,
+            config,
+            from,
+            to,
+        } => {
             let project_root = root.unwrap_or_else(|| find_project_root().unwrap_or_default());
             let config_path = project_root.join(&config);
             let cfg = load_bump_config(&config_path);
-            let passed = tracey::bump::pre_commit(&project_root, &cfg).await?;
+            let passed =
+                tracey::bump::pre_commit(&project_root, &cfg, from.as_deref(), to.as_deref())
+                    .await?;
             if !passed {
                 std::process::exit(1);
             }
@@ -455,20 +479,35 @@ async fn main() -> Result<()> {
         }
 
         // r[impl cli.bump]
-        Command::Bump { root, config } => {
+        Command::Bump {
+            root,
+            config,
+            from,
+            unstaged,
+        } => {
             let project_root = root.unwrap_or_else(|| find_project_root().unwrap_or_default());
             let config_path = project_root.join(&config);
             let cfg = load_bump_config(&config_path);
-            let bumped = tracey::bump::bump(&project_root, &cfg).await?;
+            let bumped = tracey::bump::bump(&project_root, &cfg, from.as_deref(), unstaged).await?;
             if bumped.is_empty() {
-                println!("No staged rule changes require a version bump.");
+                if unstaged {
+                    println!("No rule changes require a version bump.");
+                } else {
+                    println!("No staged rule changes require a version bump.");
+                }
             } else {
                 println!("Bumped {} rule(s):", bumped.len());
                 for id in &bumped {
                     println!("  {id}");
                 }
                 println!();
-                println!("Affected spec files have been re-staged. Review and commit.");
+                if unstaged {
+                    println!(
+                        "Affected spec files have been updated but not staged. Review and commit."
+                    );
+                } else {
+                    println!("Affected spec files have been re-staged. Review and commit.");
+                }
             }
             Ok(())
         }

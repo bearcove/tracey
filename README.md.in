@@ -215,6 +215,8 @@ tracey skill install --codex     # install to ~/.codex/skills/tracey
 ```bash
 tracey pre-commit   # fail if rule text changed without a version bump
 tracey bump         # auto-bump version numbers of changed rules, re-stage
+tracey pre-commit --from main --to HEAD  # compare specific git revisions
+tracey bump --unstaged  # also bump working tree changes, don't re-stage
 ```
 
 ## Version Tracking
