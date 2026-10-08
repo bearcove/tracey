@@ -220,7 +220,7 @@ TITLE: Parity rule
 STATEMENT: Client-initiated channels MUST use odd IDs, server-initiated channels MUST use even IDs.
 ```
 
-Requirements without a `UID:` field are skipped silently; tracey can't reference a requirement it can't name.
+Every node with a `UID:` field becomes a requirement: `[REQUIREMENT]`, elements from a custom grammar (`[FEATURE]`, `[LOW_LEVEL_REQUIREMENT]`, …), and composite nodes (`[[COMPOSITE_REQUIREMENT]]` … `[[/COMPOSITE_REQUIREMENT]]`) together with the nodes nested inside them. Nodes without a `UID:` field are skipped silently; tracey can't reference a requirement it can't name. `[TEXT]` nodes are never requirements, but their text is shown in the rendered spec, and `[[SECTION]]`s become headings.
 
 **Source-side prefix.** `.sdoc` has no `PREFIX[…]` marker, so tracey uses the synthetic prefix `r` for these requirements. References from your code use the same `r[…]` syntax that markdown specs use, or — if you'd rather match StrictDoc's own conventions — the [`@relation(...)`](annotating-code.md#strictdoc-style-markers-relation) form.
 
@@ -228,4 +228,6 @@ Requirements without a `UID:` field are skipped silently; tracey can't reference
 
 **STATEMENT rendering.** When the document declares `OPTIONS: MARKUP: Markdown`, tracey renders STATEMENT fields through its markdown pipeline. Other `MARKUP:` values (`Text`, `RST`, or absent) are HTML-escaped and wrapped in `<p>`; an RST renderer is not bundled.
 
-Refer to the StrictDoc documentation for the full grammar; tracey reads the common subset (`[DOCUMENT]`, `[[SECTION]]`, `[REQUIREMENT]`, single-line and heredoc field values, and the document-level `OPTIONS:` block).
+**Mixing formats.** A spec's `include` globs may cover both `.md` and `.sdoc` files. Because `.sdoc` requirements use the prefix `r`, the markdown files of that spec must use `r[…]` as well.
+
+Tracey parses `.sdoc` files with the [`strictdoc-parser`](https://crates.io/crates/strictdoc-parser) crate, which is tested against StrictDoc's own test corpus. It does not validate documents against their grammar, and does not follow `[DOCUMENT_FROM_FILE]` includes — add the included files to the spec's `include` globs instead. Refer to the StrictDoc documentation for the full syntax.

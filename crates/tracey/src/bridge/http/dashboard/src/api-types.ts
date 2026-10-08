@@ -204,6 +204,8 @@ export interface ApiSpecInfo {
   sourceUrl?: string;
   /** Available implementations for this spec */
   implementations: string[];
+  /** Formats the spec's requirements are written in (e.g. markdown, sdoc) */
+  formats?: SpecFormat[];
 }
 
 /** Project configuration info */
