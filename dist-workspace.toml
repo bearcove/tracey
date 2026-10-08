@@ -17,10 +17,10 @@ targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-unknown-
 install-path = "CARGO_HOME"
 # Whether to install an updater program
 install-updater = false
-# Use bearcove for x64 Linux release jobs, but GitHub-hosted ARM for Linux ARM.
+# Use Blacksmith for x64 Linux release jobs, but GitHub-hosted ARM for Linux ARM.
 allow-dirty = ["ci"]
 
 [dist.github-custom-runners]
-global = "bearcove-ubuntu-24.04"
+global = "blacksmith-2vcpu-ubuntu-2404"
 aarch64-unknown-linux-gnu = "ubuntu-24.04-arm"
-x86_64-unknown-linux-gnu = "bearcove-ubuntu-24.04"
+x86_64-unknown-linux-gnu = "blacksmith-2vcpu-ubuntu-2404"

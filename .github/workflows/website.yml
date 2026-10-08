@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: bearcove-ubuntu-24.04
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v6
 
@@ -46,7 +46,7 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: bearcove-ubuntu-24.04
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     needs: build
     steps:
       - name: Deploy to GitHub Pages
