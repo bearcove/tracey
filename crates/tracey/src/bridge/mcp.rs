@@ -47,7 +47,7 @@ pub struct StatusTool {
 /// Get rules without implementation references
 #[mcp_tool(
     name = "tracey_uncovered",
-    description = "List rules that have no implementation references ([impl ...] comments). Optionally filter by spec/impl or rule ID prefix. Requires `cwd` (absolute workspace path)."
+    description = "List rules that have no implementation references (`r[impl ...]` comments, or StrictDoc `@relation(UID, ...)` markers for .sdoc specs). Optionally filter by spec/impl or rule ID prefix. Requires `cwd` (absolute workspace path)."
 )]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct UncoveredTool {
@@ -62,7 +62,7 @@ pub struct UncoveredTool {
 /// Get rules without verification references
 #[mcp_tool(
     name = "tracey_untested",
-    description = "List rules that have implementation but no verification references ([verify ...] comments). These rules are implemented but not tested. Requires `cwd` (absolute workspace path)."
+    description = "List rules that have implementation but no verification references (`r[verify ...]` comments, or StrictDoc `@relation(UID, ..., role=Verifies)` markers for .sdoc specs). These rules are implemented but not tested. Requires `cwd` (absolute workspace path)."
 )]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct UntestedTool {

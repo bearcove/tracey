@@ -1,6 +1,6 @@
 ---
 name: tracey
-description: Add proper Tracey spec annotations to code, find requirements, and check coverage. Use when working with projects that have Tracey configuration (.config/tracey/config.styx), when adding spec references to code, or when checking requirement coverage.
+description: Add proper Tracey spec annotations to code, find requirements, and check coverage. Use when working with projects that have Tracey configuration (.config/tracey/config.styx), when adding spec references to code, or when checking requirement coverage — including projects whose requirements are StrictDoc (.sdoc) files referenced with @relation(...) markers.
 ---
 
 # Tracey
@@ -9,7 +9,7 @@ Add proper spec annotations to code using Tracey's requirement tracking system.
 
 ## Overview
 
-Tracey maintains traceability between specification requirements and code. This skill helps add proper `r[impl req.id]` and `r[verify req.id]` annotations to code, find which requirements need implementation or testing, and understand Tracey annotation syntax.
+Tracey maintains traceability between specification requirements and code. Specs can be markdown, Typst, AsciiDoc, or [StrictDoc](https://strictdoc.readthedocs.io/) (`.sdoc`) files. This skill helps add proper `r[impl req.id]` and `r[verify req.id]` annotations to code — or StrictDoc `@relation(UID, …)` markers for `.sdoc` specs — find which requirements need implementation or testing, and understand Tracey annotation syntax.
 
 **Primary Interface:** Use Tracey MCP tools (`tracey_status`, `tracey_uncovered`, `tracey_untested`, `tracey_stale`, `tracey_rule`, `tracey_unmapped`, `tracey_validate`, `tracey_config`) to discover requirements and validate coverage. The MCP tools provide self-documenting output showing which prefixes to use and what requirements need work.
 
@@ -35,7 +35,7 @@ Use this skill when:
 | `tracey_validate` | Validate references and naming for a spec/impl |
 | `tracey_config` | Display configured specs, impls, include/exclude globs |
 
-**Tip:** Start with `tracey_status` to see what prefix to use (e.g., `r[...]` vs `shm[...]`), then use `tracey_uncovered` or `tracey_untested` to find work that needs doing.
+**Tip:** Start with `tracey_status` to see what prefix to use (e.g., `r[...]` vs `shm[...]`) — or whether the spec is StrictDoc, in which case see [StrictDoc specs](#strictdoc-sdoc-specs) — then use `tracey_uncovered` or `tracey_untested` to find work that needs doing.
 
 ## Workflow: Adding Annotations
 
@@ -117,6 +117,35 @@ tracey_status
 ```
 
 Check that the implementation/verification percentages increased for your target spec/impl combination.
+
+## StrictDoc (`.sdoc`) specs
+
+Tracey reads StrictDoc `.sdoc` files natively — no conversion step, no markdown copy of the spec. You are looking at a StrictDoc project when `tracey_status` says the requirements are in "StrictDoc .sdoc files", or the spec `include` globs in `.config/tracey/config.styx` match `*.sdoc`.
+
+**Requirement IDs are the `UID:` fields, verbatim.** A node with `UID: BR-001` is the rule `BR-001` — uppercase, case-sensitive, not lowercased, no `spec.` namespace. Any node with a `UID:` counts: `[REQUIREMENT]`, custom-grammar elements like `[FEATURE]`, and composite `[[…]]` nodes and their children. `[TEXT]` and sections are not requirements. Look requirements up with `tracey_rule` using the UID (`tracey_rule "BR-001"`).
+
+**Annotate with StrictDoc's own markers** so both StrictDoc and tracey see them:
+
+```rust
+// @relation(BR-001, scope=function)
+fn connect() { ... }
+
+// @relation(BR-001, BR-002, scope=function, role=Verifies)
+#[test]
+fn test_connect_and_heartbeat() { ... }
+```
+
+```python
+# @relation(BR-003, scope=class)
+class Reconnector: ...
+```
+
+- **Verb from `role=`:** no role (or `Implements` / `Implementation`) → impl; `Verifies` / `Verification` / `Test` → verify. Other roles such as `Refines` are not counted and produce a warning.
+- **`scope=`:** `file`, `class`, `function`, `line`, or a `range_start` … `range_end` pair around a block. Tracey doesn't use it for matching, but StrictDoc does, so pick the one that describes the annotated code.
+- **Syntax is strict, as in StrictDoc:** UIDs first, then `scope=`, then `role=`, separated by `, ` (comma *and* space). `@relation{…}` also works.
+- **The marker must start a comment line** (after `//`, `#`, `*`, …). A mention in prose (`// see @relation(BR-001) for details`) is ignored.
+- `r[impl BR-001]` / `r[verify BR-001]` also work against `.sdoc` specs (the prefix is always `r`), but prefer `@relation` in a StrictDoc project, and don't add an `r[...]` marker next to an existing `@relation` for the same UID — it's already counted.
+- Malformed markers show up in `tracey_validate`; fix them rather than adding a second marker.
 
 ## Annotation Syntax
 
@@ -213,7 +242,6 @@ Typical `.config/tracey/config.styx`:
 specs (
     {
         name my-project
-        prefix r
         include (docs/spec/**/*.md)
         impls (
             {
@@ -233,11 +261,11 @@ specs (
 ```
 
 Key fields:
-- `prefix` - Used in annotations (e.g., `r[...]`)
-- `include` (spec) - Glob patterns for spec markdown files, as a sequence `(...)`
+- `include` (spec) - Glob patterns for spec files (`.md`, `.typ`, `.adoc`, `.sdoc`), as a sequence `(...)`. The annotation prefix (e.g. `r` in `r[...]`) is inferred from the spec's requirement markers; StrictDoc specs always use `r`.
 - `impls` - Sequence of implementation blocks
 - `include` (impl) - Glob patterns for source files to scan, as a sequence `(...)`
-- `exclude` (impl) - Glob patterns to exclude, as a sequence `(...)`
+- `exclude` (impl) - Glob patterns to exclude, relative to the project root, as a sequence `(...)`. Also applies to `test_include` files.
+- `test_include` (impl) - Glob patterns for test files, which may only contain `verify` references
 
 ## Troubleshooting
 
@@ -246,12 +274,13 @@ Key fields:
 - Ensure annotations use the correct prefix
 
 **Requirements not found**
-- Verify requirement IDs match exactly (case-sensitive, dot-separated)
-- Check that spec markdown files are in the configured `include` paths
+- Verify requirement IDs match exactly (case-sensitive). Markdown IDs are usually dot-separated (`auth.login`); StrictDoc IDs are the `UID:` values as written (`BR-001`)
+- Check that spec files are in the configured `include` paths
 
 **Annotations not detected**
 - Ensure annotations are in comments (not strings)
 - Check that source files match the `include` patterns in config
+- For `@relation`: check that the marker starts the comment line, uses `, ` between arguments, and has UIDs before `scope=` and `role=`; `tracey_validate` reports malformed markers
 
 ## Reference Documentation
 
