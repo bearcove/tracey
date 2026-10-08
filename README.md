@@ -48,7 +48,14 @@ Client-initiated channels MUST use odd IDs, server-initiated channels MUST use e
 
 The prefix (`r` in this case) can be any lowercase alphanumeric marker. Tracey infers it from the spec files.
 
-Specs authored in [StrictDoc](https://strictdoc.readthedocs.io/) (`.sdoc`) are loaded the same way — see [Writing Specs](docs/content/guide/writing-specs.md) for the syntax. Pick whichever format fits your project; they don't mix per spec.
+Specs authored in [StrictDoc](https://strictdoc.readthedocs.io/) (`.sdoc`) are loaded the same way: every node with a `UID:` field — `[REQUIREMENT]`, custom-grammar elements, composite nodes — becomes a requirement whose ID is the UID exactly as written (e.g. `CH-001`). See [Writing Specs](docs/content/guide/writing-specs.md#strictdoc-format-sdoc) for details.
+
+```sdoc
+[REQUIREMENT]
+UID: CH-001
+TITLE: Sequential ID allocation
+STATEMENT: Channel IDs MUST be allocated sequentially starting from 0.
+```
 
 Specs can also be written in [Typst](https://typst.app/) — use `#PREFIX("id")[body]` and include `*.typ` files in your config:
 
@@ -84,6 +91,19 @@ fn client_channels_are_odd() {
     // ...
 }
 ```
+
+For StrictDoc specs you can also use StrictDoc's own `@relation` markers, so the same annotations work with both tools:
+
+```rust
+// @relation(CH-001, scope=function)
+fn allocate_channel_id(&mut self) -> u32 { /* ... */ }
+
+// @relation(CH-001, scope=function, role=Verifies)
+#[test]
+fn channels_are_sequential() { /* ... */ }
+```
+
+No role, or `role=Implements` / `Implementation`, means `impl`; `role=Verifies` / `Verification` / `Test` means `verify`. See [StrictDoc-style markers](docs/content/guide/annotating-code.md#strictdoc-style-markers-relation).
 
 Verbs:
 

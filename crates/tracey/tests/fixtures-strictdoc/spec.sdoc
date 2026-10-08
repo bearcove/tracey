@@ -22,3 +22,25 @@ STATEMENT: The bridge MUST emit a heartbeat every 1000 milliseconds.
 UID: BR-003
 TITLE: Reconnect
 STATEMENT: The bridge MUST attempt reconnection on link loss.
+
+[TEXT]
+STATEMENT: >>>
+Prose between requirements. Not a requirement itself.
+<<<
+
+[[COMPOSITE_REQUIREMENT]]
+UID: BR-004
+TITLE: Session handling
+STATEMENT: The bridge MUST manage sessions.
+
+[REQUIREMENT]
+UID: BR-005
+TITLE: Session expiry
+STATEMENT: Sessions MUST expire after 24 hours.
+
+[[/COMPOSITE_REQUIREMENT]]
+
+[FEATURE]
+UID: BR-006
+TITLE: Status page
+STATEMENT: The bridge MUST serve a status page.

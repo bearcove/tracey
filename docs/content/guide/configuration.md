@@ -104,6 +104,8 @@ exclude (
 )
 ```
 
+Exclude patterns are written relative to the project root, like `include` patterns, and apply to `test_include` files too: with `test_include (tests/**/*.rs)`, `exclude (tests/fixtures/**)` keeps fixture files from being treated as tests.
+
 File walking respects `.gitignore` automatically, so you usually don't need to exclude things like `target/` or `node_modules/` if they're already gitignored.
 
 ## Multiple implementations
