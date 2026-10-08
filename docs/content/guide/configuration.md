@@ -106,6 +106,8 @@ exclude (
 
 Exclude patterns are written relative to the project root, like `include` patterns, and apply to `test_include` files too: with `test_include (tests/**/*.rs)`, `exclude (tests/fixtures/**)` keeps fixture files from being treated as tests.
 
+Earlier releases matched exclude patterns relative to the include pattern's directory (`fixtures/**` for `tests/**/*.rs`). That form still works but is deprecated: tracey prints a warning naming the project-relative pattern to use instead (`tests/fixtures/**`), and a future release will stop matching it.
+
 File walking respects `.gitignore` automatically, so you usually don't need to exclude things like `target/` or `node_modules/` if they're already gitignored.
 
 ## Multiple implementations
