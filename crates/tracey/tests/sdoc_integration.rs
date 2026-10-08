@@ -42,6 +42,13 @@ async fn sdoc_spec_yields_uppercase_uids_and_html() {
         ids.contains(&"BR-003".to_string()),
         "expected BR-003, got {ids:?}"
     );
+    for uid in ["BR-004", "BR-005", "BR-006"] {
+        assert!(
+            ids.contains(&uid.to_string()),
+            "expected {uid} (composite / nested / custom element), got {ids:?}"
+        );
+    }
+    assert_eq!(ids.len(), 6, "[TEXT] nodes must not become rules: {ids:?}");
 
     let br001 = rules
         .iter()
@@ -108,27 +115,13 @@ async fn engine_status_covers_sdoc_rules() {
             )
         });
 
-    // Three requirements parsed from spec.sdoc; one (BR-001) implemented via
-    // @relation(BR-001,...), one (BR-002) verified via role=Verifies,
-    // BR-001 also covered by the multi-uid annotation, BR-003 implemented via
-    // legacy r[impl BR-003].
-    assert_eq!(
-        br.total_rules, 3,
-        "expected 3 rules from spec.sdoc; impl_status = total={} covered={} verified={}",
-        br.total_rules, br.covered_rules, br.verified_rules
-    );
-    assert!(
-        br.covered_rules >= 2,
-        "expected at least BR-001 and BR-003 covered; impl_status = total={} covered={} verified={}",
-        br.total_rules,
-        br.covered_rules,
-        br.verified_rules
-    );
-    assert!(
-        br.verified_rules >= 1,
-        "expected at least BR-002 verified; impl_status = total={} covered={} verified={}",
-        br.total_rules,
-        br.covered_rules,
-        br.verified_rules
-    );
+    // Six requirements parsed from spec.sdoc: BR-001..003 [REQUIREMENT]s,
+    // the composite BR-004 and its nested BR-005, and the custom [FEATURE]
+    // BR-006; the [TEXT] node is not a requirement.
+    //
+    // Implemented: BR-001 (@relation, no role), BR-003 (legacy r[impl]),
+    // BR-004 (role=Implementation), BR-005 (scope=range_start).
+    // Verified: BR-001 and BR-002 (role=Verifies), BR-006 (role=Test).
+    let counts = (br.total_rules, br.covered_rules, br.verified_rules);
+    assert_eq!(counts, (6, 4, 3), "(total, covered, verified)");
 }
