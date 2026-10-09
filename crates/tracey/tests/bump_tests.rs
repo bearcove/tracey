@@ -8,7 +8,7 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use tracey::bump::{bump, detect_changed_rules, pre_commit};
+use tracey::bump::{CompareTarget, bump, detect_changed_rules, pre_commit};
 use tracey::config::{Config, SpecConfig};
 
 // ============================================================================
@@ -111,7 +111,9 @@ async fn test_no_changes_detects_nothing() {
     git_add(root, "spec.md");
 
     let config = simple_config();
-    let changes = detect_changed_rules(root, &config).await.unwrap();
+    let changes = detect_changed_rules(root, &config, None, &CompareTarget::Index)
+        .await
+        .unwrap();
     assert!(
         changes.is_empty(),
         "expected no changes, got {}",
@@ -138,7 +140,9 @@ async fn test_text_change_without_bump_is_detected() {
     git_add(root, "spec.md");
 
     let config = simple_config();
-    let changes = detect_changed_rules(root, &config).await.unwrap();
+    let changes = detect_changed_rules(root, &config, None, &CompareTarget::Index)
+        .await
+        .unwrap();
 
     assert_eq!(changes.len(), 1, "expected exactly one changed rule");
     assert_eq!(changes[0].rule_id.base, "auth.login");
@@ -166,7 +170,9 @@ async fn test_text_change_with_bump_is_clean() {
     git_add(root, "spec.md");
 
     let config = simple_config();
-    let changes = detect_changed_rules(root, &config).await.unwrap();
+    let changes = detect_changed_rules(root, &config, None, &CompareTarget::Index)
+        .await
+        .unwrap();
     assert!(changes.is_empty(), "bumped rule should not be flagged");
 }
 
@@ -189,7 +195,7 @@ async fn test_bump_increments_version_in_file() {
     git_add(root, "spec.md");
 
     let config = simple_config();
-    let bumped = bump(root, &config).await.unwrap();
+    let bumped = bump(root, &config, None, false).await.unwrap();
 
     assert_eq!(bumped.len(), 1);
     assert_eq!(bumped[0].base, "auth.login");
@@ -228,11 +234,13 @@ async fn test_bump_typst_spec_file() {
     git_add(root, "spec.typ");
 
     let config = simple_typst_config();
-    let changes = detect_changed_rules(root, &config).await.unwrap();
+    let changes = detect_changed_rules(root, &config, None, &CompareTarget::Index)
+        .await
+        .unwrap();
     assert_eq!(changes.len(), 1, "expected exactly one changed rule");
     assert_eq!(changes[0].rule_id.base, "test.rule");
 
-    let bumped = bump(root, &config).await.unwrap();
+    let bumped = bump(root, &config, None, false).await.unwrap();
     assert_eq!(bumped.len(), 1);
     assert_eq!(bumped[0].base, "test.rule");
     assert_eq!(bumped[0].version, 2);
@@ -271,7 +279,7 @@ async fn test_bump_from_existing_version() {
     git_add(root, "spec.md");
 
     let config = simple_config();
-    let bumped = bump(root, &config).await.unwrap();
+    let bumped = bump(root, &config, None, false).await.unwrap();
 
     assert_eq!(bumped.len(), 1);
     assert_eq!(bumped[0].version, 3);
@@ -303,7 +311,7 @@ async fn test_bump_multiple_rules_in_one_file() {
     git_add(root, "spec.md");
 
     let config = simple_config();
-    let bumped = bump(root, &config).await.unwrap();
+    let bumped = bump(root, &config, None, false).await.unwrap();
 
     assert_eq!(bumped.len(), 2);
     let bases: Vec<&str> = bumped.iter().map(|r| r.base.as_str()).collect();
@@ -332,7 +340,7 @@ async fn test_pre_commit_passes_when_clean() {
     git_add(root, "spec.md");
 
     let config = simple_config();
-    let passed = pre_commit(root, &config).await.unwrap();
+    let passed = pre_commit(root, &config, None, None).await.unwrap();
     assert!(passed, "pre-commit should pass with no changes");
 }
 
@@ -354,7 +362,7 @@ async fn test_pre_commit_fails_on_unbumped_change() {
     git_add(root, "spec.md");
 
     let config = simple_config();
-    let passed = pre_commit(root, &config).await.unwrap();
+    let passed = pre_commit(root, &config, None, None).await.unwrap();
     assert!(
         !passed,
         "pre-commit should fail when rule text changed without bump"
@@ -377,7 +385,9 @@ async fn test_non_spec_staged_files_are_ignored() {
     git_add(root, "README.md");
 
     let config = simple_config();
-    let changes = detect_changed_rules(root, &config).await.unwrap();
+    let changes = detect_changed_rules(root, &config, None, &CompareTarget::Index)
+        .await
+        .unwrap();
     assert!(
         changes.is_empty(),
         "changes in non-spec files should be ignored"
@@ -402,7 +412,9 @@ async fn test_no_config_is_noop() {
     git_add(root, "spec.md");
 
     let empty_config = Config { specs: vec![] };
-    let changes = detect_changed_rules(root, &empty_config).await.unwrap();
+    let changes = detect_changed_rules(root, &empty_config, None, &CompareTarget::Index)
+        .await
+        .unwrap();
     assert!(changes.is_empty(), "empty config should produce no changes");
 }
 
@@ -424,7 +436,9 @@ async fn test_spec_file_with_no_rules() {
     git_add(root, "spec.md");
 
     let config = simple_config();
-    let changes = detect_changed_rules(root, &config).await.unwrap();
+    let changes = detect_changed_rules(root, &config, None, &CompareTarget::Index)
+        .await
+        .unwrap();
     assert!(
         changes.is_empty(),
         "file with no rules should produce no changes"
@@ -443,7 +457,9 @@ async fn test_initial_commit_no_head() {
     git_add(root, "spec.md");
 
     let config = simple_config();
-    let changes = detect_changed_rules(root, &config).await.unwrap();
+    let changes = detect_changed_rules(root, &config, None, &CompareTarget::Index)
+        .await
+        .unwrap();
     assert!(
         changes.is_empty(),
         "with no HEAD there is nothing to compare against; expected no changes, got {}",
@@ -488,7 +504,9 @@ async fn test_renamed_spec_file_not_flagged() {
             impls: vec![],
         }],
     };
-    let changes = detect_changed_rules(root, &wildcard_config).await.unwrap();
+    let changes = detect_changed_rules(root, &wildcard_config, None, &CompareTarget::Index)
+        .await
+        .unwrap();
     assert!(
         changes.is_empty(),
         "renamed spec file should not be flagged as having unbumped changes"
@@ -516,12 +534,12 @@ async fn test_bump_idempotency() {
 
     let config = simple_config();
 
-    let first = bump(root, &config).await.unwrap();
+    let first = bump(root, &config, None, false).await.unwrap();
     assert_eq!(first.len(), 1, "first bump should fix one rule");
 
     // Second call: the staged file now has the bumped marker, so version
     // differs from HEAD and the rule is not flagged again.
-    let second = bump(root, &config).await.unwrap();
+    let second = bump(root, &config, None, false).await.unwrap();
     assert!(
         second.is_empty(),
         "second bump with no new changes should be a no-op"
@@ -545,7 +563,7 @@ async fn test_non_utf8_staged_content_returns_error() {
     git_add(root, "spec.md");
 
     let config = simple_config();
-    let result = detect_changed_rules(root, &config).await;
+    let result = detect_changed_rules(root, &config, None, &CompareTarget::Index).await;
     assert!(
         result.is_err(),
         "non-UTF-8 staged content should return an error"
@@ -577,10 +595,390 @@ async fn test_bump_then_pre_commit_passes() {
     let config = simple_config();
 
     // Bump first.
-    let bumped = bump(root, &config).await.unwrap();
+    let bumped = bump(root, &config, None, false).await.unwrap();
     assert_eq!(bumped.len(), 1);
 
     // Now pre-commit should pass.
-    let passed = pre_commit(root, &config).await.unwrap();
+    let passed = pre_commit(root, &config, None, None).await.unwrap();
     assert!(passed, "pre-commit should pass after bump");
+}
+
+// ============================================================================
+// --from / --to / --unstaged
+// ============================================================================
+
+/// Run a git command and return its stdout.
+fn git_stdout(dir: &Path, args: &[&str]) -> String {
+    let out = Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("git not found");
+    assert!(out.status.success(), "git {args:?} failed");
+    String::from_utf8(out.stdout).expect("git output is not valid UTF-8")
+}
+
+/// `INITIAL_SPEC` with the `auth.login` text changed but not bumped.
+fn unbumped_login_change() -> String {
+    INITIAL_SPEC.replace(
+        "Users MUST provide valid credentials to log in.",
+        "Users MUST provide valid credentials and MFA to log in.",
+    )
+}
+
+/// Create a repo with two commits: `INITIAL_SPEC`, then an unbumped change to
+/// `auth.login`. The index and working tree match the second commit.
+fn repo_with_committed_unbumped_change(root: &Path) {
+    git_init(root);
+    fs::write(root.join("spec.md"), INITIAL_SPEC).unwrap();
+    git_commit_all(root, "initial");
+    fs::write(root.join("spec.md"), unbumped_login_change()).unwrap();
+    git_commit_all(root, "unbumped change");
+}
+
+/// An explicit `from` revision is compared against the index instead of HEAD.
+#[tokio::test]
+async fn test_from_revision_compares_against_index() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    repo_with_committed_unbumped_change(root);
+
+    let config = simple_config();
+
+    // Default (HEAD vs index): nothing staged, nothing flagged.
+    let default = detect_changed_rules(root, &config, None, &CompareTarget::Index)
+        .await
+        .unwrap();
+    assert!(default.is_empty(), "HEAD vs index should have no changes");
+
+    let changes = detect_changed_rules(root, &config, Some("HEAD~1"), &CompareTarget::Index)
+        .await
+        .unwrap();
+    assert_eq!(changes.len(), 1, "expected exactly one changed rule");
+    assert_eq!(changes[0].rule_id.base, "auth.login");
+}
+
+/// An explicit `to` revision is read from the commit, not the index or working tree.
+#[tokio::test]
+async fn test_to_revision_ignores_index_and_working_tree() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    repo_with_committed_unbumped_change(root);
+
+    // Stage a fix and leave a different edit in the working tree; neither
+    // should affect a comparison between two commits.
+    let fixed = unbumped_login_change().replace("r[auth.login]", "r[auth.login+2]");
+    fs::write(root.join("spec.md"), &fixed).unwrap();
+    git_add(root, "spec.md");
+    fs::write(root.join("spec.md"), INITIAL_SPEC).unwrap();
+
+    let config = simple_config();
+    let changes = detect_changed_rules(
+        root,
+        &config,
+        Some("HEAD~1"),
+        &CompareTarget::Revision("HEAD".to_string()),
+    )
+    .await
+    .unwrap();
+    assert_eq!(changes.len(), 1, "expected exactly one changed rule");
+    assert_eq!(changes[0].rule_id.base, "auth.login");
+    assert_eq!(changes[0].rule_id.version, 1);
+}
+
+/// With only `to` given, the comparison is from HEAD to that revision.
+#[tokio::test]
+async fn test_to_revision_defaults_from_to_head() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    repo_with_committed_unbumped_change(root);
+
+    let config = simple_config();
+
+    // HEAD vs HEAD: no changes.
+    let same = detect_changed_rules(
+        root,
+        &config,
+        None,
+        &CompareTarget::Revision("HEAD".to_string()),
+    )
+    .await
+    .unwrap();
+    assert!(same.is_empty(), "HEAD vs HEAD should have no changes");
+
+    // Move HEAD back so the unbumped change is only in the `to` revision.
+    let tip = git_stdout(root, &["rev-parse", "HEAD"]).trim().to_string();
+    git_stdout(root, &["reset", "--hard", "HEAD~1"]);
+    let changes = detect_changed_rules(root, &config, None, &CompareTarget::Revision(tip))
+        .await
+        .unwrap();
+    assert_eq!(changes.len(), 1, "expected exactly one changed rule");
+    assert_eq!(changes[0].rule_id.base, "auth.login");
+}
+
+/// `pre_commit` honours `from` and `to`.
+#[tokio::test]
+async fn test_pre_commit_from_and_to() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    repo_with_committed_unbumped_change(root);
+
+    let config = simple_config();
+    assert!(
+        pre_commit(root, &config, None, None).await.unwrap(),
+        "default pre-commit should pass with nothing staged"
+    );
+    assert!(
+        !pre_commit(root, &config, Some("HEAD~1"), None)
+            .await
+            .unwrap(),
+        "pre-commit from HEAD~1 should fail"
+    );
+    assert!(
+        !pre_commit(root, &config, Some("HEAD~1"), Some("HEAD"))
+            .await
+            .unwrap(),
+        "pre-commit from HEAD~1 to HEAD should fail"
+    );
+    assert!(
+        pre_commit(root, &config, Some("HEAD"), Some("HEAD"))
+            .await
+            .unwrap(),
+        "pre-commit from HEAD to HEAD should pass"
+    );
+}
+
+/// An explicit `from` that does not resolve is an error.
+#[tokio::test]
+async fn test_unresolvable_from_is_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    repo_with_committed_unbumped_change(root);
+
+    let config = simple_config();
+    let result =
+        detect_changed_rules(root, &config, Some("no-such-rev"), &CompareTarget::Index).await;
+    let msg = result
+        .expect_err("unresolvable from should error")
+        .to_string();
+    assert!(
+        msg.contains("no-such-rev"),
+        "error should name the revision, got: {msg}"
+    );
+
+    assert!(
+        pre_commit(root, &config, Some("no-such-rev"), None)
+            .await
+            .is_err()
+    );
+    assert!(
+        bump(root, &config, Some("no-such-rev"), false)
+            .await
+            .is_err()
+    );
+}
+
+/// An explicit `to` that does not resolve is an error.
+#[tokio::test]
+async fn test_unresolvable_to_is_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    repo_with_committed_unbumped_change(root);
+
+    let config = simple_config();
+    let result = pre_commit(root, &config, None, Some("no-such-rev")).await;
+    let msg = result
+        .expect_err("unresolvable to should error")
+        .to_string();
+    assert!(
+        msg.contains("no-such-rev"),
+        "error should name the revision, got: {msg}"
+    );
+}
+
+/// Explicit revisions are an error in a repo with no HEAD, unlike the default.
+#[tokio::test]
+async fn test_explicit_revisions_error_without_head() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+
+    git_init(root);
+    fs::write(root.join("spec.md"), INITIAL_SPEC).unwrap();
+    git_add(root, "spec.md");
+
+    let config = simple_config();
+    assert!(
+        pre_commit(root, &config, Some("HEAD"), None).await.is_err(),
+        "explicit from should error without HEAD"
+    );
+    assert!(
+        pre_commit(root, &config, None, Some("HEAD")).await.is_err(),
+        "explicit to should error without HEAD"
+    );
+    assert!(
+        bump(root, &config, Some("HEAD"), false).await.is_err(),
+        "explicit from should error without HEAD"
+    );
+}
+
+/// Revisions that look like options are rejected rather than passed to git.
+#[tokio::test]
+async fn test_option_like_revision_is_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    repo_with_committed_unbumped_change(root);
+
+    let config = simple_config();
+    assert!(
+        pre_commit(root, &config, Some("--all"), None)
+            .await
+            .is_err()
+    );
+    assert!(
+        pre_commit(root, &config, None, Some("--all"))
+            .await
+            .is_err()
+    );
+}
+
+/// `bump` with `from` bumps rules changed since that revision and re-stages them.
+#[tokio::test]
+async fn test_bump_from_revision() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    repo_with_committed_unbumped_change(root);
+
+    let config = simple_config();
+    let bumped = bump(root, &config, Some("HEAD~1"), false).await.unwrap();
+    assert_eq!(bumped.len(), 1);
+    assert_eq!(bumped[0].base, "auth.login");
+    assert_eq!(bumped[0].version, 2);
+
+    let expected = unbumped_login_change().replace("r[auth.login]", "r[auth.login+2]");
+    assert_eq!(fs::read_to_string(root.join("spec.md")).unwrap(), expected);
+    assert_eq!(
+        git_stdout(root, &["show", ":spec.md"]),
+        expected,
+        "bumped file should be re-staged"
+    );
+
+    assert!(
+        pre_commit(root, &config, Some("HEAD~1"), None)
+            .await
+            .unwrap(),
+        "pre-commit from HEAD~1 should pass after bump from HEAD~1"
+    );
+}
+
+/// `bump` with `unstaged` bumps working tree changes and does not stage them.
+#[tokio::test]
+async fn test_unstaged_bump_does_not_restage() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+
+    git_init(root);
+    fs::write(root.join("spec.md"), INITIAL_SPEC).unwrap();
+    git_commit_all(root, "initial");
+
+    fs::write(root.join("spec.md"), unbumped_login_change()).unwrap();
+
+    let config = simple_config();
+
+    // The default (index) comparison sees nothing.
+    assert!(bump(root, &config, None, false).await.unwrap().is_empty());
+
+    let bumped = bump(root, &config, None, true).await.unwrap();
+    assert_eq!(bumped.len(), 1);
+    assert_eq!(bumped[0].base, "auth.login");
+    assert_eq!(bumped[0].version, 2);
+
+    assert_eq!(
+        fs::read_to_string(root.join("spec.md")).unwrap(),
+        unbumped_login_change().replace("r[auth.login]", "r[auth.login+2]")
+    );
+    assert_eq!(
+        git_stdout(root, &["show", ":spec.md"]),
+        INITIAL_SPEC,
+        "index should not be updated by an unstaged bump"
+    );
+}
+
+/// `bump` with `unstaged` keeps both staged and unstaged edits.
+#[tokio::test]
+async fn test_unstaged_bump_preserves_staged_and_unstaged_edits() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+
+    git_init(root);
+    fs::write(root.join("spec.md"), INITIAL_SPEC).unwrap();
+    git_commit_all(root, "initial");
+
+    let staged = unbumped_login_change();
+    fs::write(root.join("spec.md"), &staged).unwrap();
+    git_add(root, "spec.md");
+
+    let working = staged.replace(
+        "Sessions MUST expire after 24 hours of inactivity.",
+        "Sessions MUST expire after 12 hours of inactivity.",
+    );
+    fs::write(root.join("spec.md"), &working).unwrap();
+
+    let config = simple_config();
+    let bumped = bump(root, &config, None, true).await.unwrap();
+    let mut bases: Vec<&str> = bumped.iter().map(|r| r.base.as_str()).collect();
+    bases.sort();
+    assert_eq!(bases, ["auth.login", "auth.session"]);
+
+    assert_eq!(
+        fs::read_to_string(root.join("spec.md")).unwrap(),
+        working
+            .replace("r[auth.login]", "r[auth.login+2]")
+            .replace("r[auth.session]", "r[auth.session+2]")
+    );
+    assert_eq!(git_stdout(root, &["show", ":spec.md"]), staged);
+}
+
+/// Running `bump` with `unstaged` twice is a no-op on the second call.
+#[tokio::test]
+async fn test_unstaged_bump_idempotency() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+
+    git_init(root);
+    fs::write(root.join("spec.md"), INITIAL_SPEC).unwrap();
+    git_commit_all(root, "initial");
+    fs::write(root.join("spec.md"), unbumped_login_change()).unwrap();
+
+    let config = simple_config();
+    assert_eq!(bump(root, &config, None, true).await.unwrap().len(), 1);
+    assert!(
+        bump(root, &config, None, true).await.unwrap().is_empty(),
+        "second unstaged bump should be a no-op"
+    );
+}
+
+/// `bump` with `unstaged` and `from` compares the working tree against `from`.
+#[tokio::test]
+async fn test_unstaged_bump_from_revision() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    repo_with_committed_unbumped_change(root);
+
+    let working = unbumped_login_change().replace(
+        "Sessions MUST expire after 24 hours of inactivity.",
+        "Sessions MUST expire after 12 hours of inactivity.",
+    );
+    fs::write(root.join("spec.md"), &working).unwrap();
+
+    let config = simple_config();
+    let bumped = bump(root, &config, Some("HEAD~1"), true).await.unwrap();
+    let mut bases: Vec<&str> = bumped.iter().map(|r| r.base.as_str()).collect();
+    bases.sort();
+    assert_eq!(bases, ["auth.login", "auth.session"]);
+
+    assert_eq!(
+        git_stdout(root, &["show", ":spec.md"]),
+        unbumped_login_change(),
+        "index should not be updated by an unstaged bump"
+    );
 }
