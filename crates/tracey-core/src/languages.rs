@@ -136,6 +136,7 @@ define_languages! {
     ["nix"]                                 => arborium_nix::language,        code_units::extract_nix,        arborium = "nix";
     ["lean"]                                => arborium_lean::language,       code_units::extract_lean,       arborium = "lean";
     ["svelte"]                              => arborium_svelte::language,     code_units::extract_svelte,     arborium = "svelte";
+    ["rego"]                                => arborium_rego::language,       code_units::extract_rego,       arborium = "rego";
     // YAML and JSON5 are config/data formats: they carry requirement refs in
     // comments (scanned via the grammar) but expose no structural code units,
     // so they share the no-op `extract_config`. JSON5 reuses the TS grammar for
@@ -199,6 +200,9 @@ mod tests {
     fn meta_lookups() {
         assert_eq!(arborium_for_ext("rs"), Some("rust"));
         assert_eq!(devicon_for_ext("rs"), Some("devicon-rust-original"));
+        // rego carries a highlight name but no devicon (none exists for OPA).
+        assert_eq!(arborium_for_ext("rego"), Some("rego"));
+        assert_eq!(devicon_for_ext("rego"), None);
         // ts row deliberately leaves both None.
         assert_eq!(arborium_for_ext("tsx"), None);
         assert_eq!(devicon_for_ext("jsx"), None);

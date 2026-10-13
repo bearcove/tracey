@@ -96,6 +96,7 @@ arborium = { version = "2.16.0", features = [
   "lang-nix",
   "lang-lean",
   "lang-svelte",
+  "lang-rego",
 ] }
 arborium-rust = "2.16.0"
 arborium-swift = "2.16.0"
@@ -130,6 +131,7 @@ arborium-nix = "2.16.0"
 arborium-lean = "2.16.0"
 arborium-yaml = "2.16.0"
 arborium-svelte = "2.17.0"
+arborium-rego = "2.16.0"
 arborium-typst = "2.16.0"
 arborium-tree-sitter = "2.16.0"
 
