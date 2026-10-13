@@ -39,8 +39,8 @@ use crate::search;
 // Re-export API types from tracey-api crate
 pub use tracey_api::{
     ApiCodeRef, ApiCodeUnit, ApiConfig, ApiFileData, ApiFileEntry, ApiForwardData, ApiReverseData,
-    ApiRule, ApiSpecData, ApiSpecForward, ApiSpecInfo, ApiStaleRef, OutlineCoverage,
-    OutlineEntry, SpecSection, ValidationError, ValidationErrorCode, ValidationResult,
+    ApiRule, ApiSpecData, ApiSpecForward, ApiSpecInfo, ApiStaleRef, OutlineCoverage, OutlineEntry,
+    SpecSection, ValidationError, ValidationErrorCode, ValidationResult,
 };
 use tracey_proto::{LspDiagnostic, LspFileDiagnostics};
 
@@ -2802,11 +2802,8 @@ async fn load_spec_content(
     });
 
     // Partition the sorted file list into runs of consecutive same-format files
-    // and render each run with the appropriate backend.
-    //
-    // Markdown runs are concatenated and rendered once via marq so that the
-    // heading-slug stack and hierarchical IDs span the whole run (matching the
-    // pre-multi-format behaviour). Typst files are rendered individually.
+    // and render each run with the appropriate backend. Every backend emits
+    // one section per source file.
     //
     // A single `SlugAllocator` is threaded through every run so heading anchors
     // are unique across the whole spec, with the rendered HTML and the outline
