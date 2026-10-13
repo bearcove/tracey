@@ -265,7 +265,7 @@ impl<'a> QueryEngine<'a> {
             .collect();
 
         // Build section mapping from outline
-        let by_section = group_rules_by_section(&uncovered_rules);
+        let by_section = group_rules_by_section(&uncovered_rules, |_| None);
 
         Some(UncoveredResult {
             spec: spec.to_string(),
@@ -302,7 +302,7 @@ impl<'a> QueryEngine<'a> {
             })
             .collect();
 
-        let by_section = group_rules_by_section(&untested_rules);
+        let by_section = group_rules_by_section(&untested_rules, |_| None);
 
         Some(UntestedResult {
             spec: spec.to_string(),
@@ -310,6 +310,43 @@ impl<'a> QueryEngine<'a> {
             stats,
             by_section,
             total_untested: untested_rules.len(),
+            prefix_filter: prefix_filter.map(|s| s.to_string()),
+        })
+    }
+
+    /// Get every rule for a spec/impl, grouped by section.
+    ///
+    /// Unlike `uncovered`/`untested`, this also populates each `RuleRef.text`
+    /// with the rule's raw markdown body — intended for machine-readable
+    /// export (e.g. syncing requirements to an external tracker) where the
+    /// caller wants every rule's body without issuing a follow-up `rule()`
+    /// call per rule.
+    pub fn all(
+        &self,
+        spec: &str,
+        impl_name: &str,
+        prefix_filter: Option<&str>,
+    ) -> Option<AllResult> {
+        let key: ImplKey = (spec.to_string(), impl_name.to_string());
+        let forward = self.data.forward_by_impl.get(&key)?;
+
+        let rules: Vec<&ApiRule> = forward
+            .rules
+            .iter()
+            .filter(|r| {
+                prefix_filter
+                    .map(|p| r.id.base.to_lowercase().starts_with(&p.to_lowercase()))
+                    .unwrap_or(true)
+            })
+            .collect();
+
+        let by_section = group_rules_by_section(&rules, |r| Some(r.raw.clone()));
+
+        Some(AllResult {
+            spec: spec.to_string(),
+            impl_name: impl_name.to_string(),
+            total_rules: rules.len(),
+            by_section,
             prefix_filter: prefix_filter.map(|s| s.to_string()),
         })
     }
@@ -533,9 +570,22 @@ pub struct UntestedResult {
 }
 
 #[derive(Debug, Clone)]
+pub struct AllResult {
+    pub spec: String,
+    pub impl_name: String,
+    pub by_section: BTreeMap<String, Vec<RuleRef>>,
+    pub total_rules: usize,
+    pub prefix_filter: Option<String>,
+}
+
+#[derive(Debug, Clone)]
 pub struct RuleRef {
     pub id: RuleId,
     pub impl_refs: Vec<ApiCodeRef>,
+    /// Raw markdown body of the rule. Populated only when the caller asks for it
+    /// (e.g. `all()` for machine-readable export); `None` for the lightweight
+    /// summary commands (`uncovered`, `untested`).
+    pub text: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -647,7 +697,10 @@ impl RuleInfo {
 // Helpers
 // ============================================================================
 
-fn group_rules_by_section(rules: &[&ApiRule]) -> BTreeMap<String, Vec<RuleRef>> {
+fn group_rules_by_section(
+    rules: &[&ApiRule],
+    extract_text: impl Fn(&ApiRule) -> Option<String>,
+) -> BTreeMap<String, Vec<RuleRef>> {
     let mut result: BTreeMap<String, Vec<RuleRef>> = BTreeMap::new();
 
     for rule in rules {
@@ -660,6 +713,7 @@ fn group_rules_by_section(rules: &[&ApiRule]) -> BTreeMap<String, Vec<RuleRef>> 
         result.entry(section).or_default().push(RuleRef {
             id: rule.id.clone(),
             impl_refs: rule.impl_refs.clone(),
+            text: extract_text(rule),
         });
     }
 
