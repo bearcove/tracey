@@ -169,7 +169,7 @@ strictdoc-parser = "0.1.1"
 asciidork-core = "0.37"
 asciidork-parser = "0.38"
 asciidork-ast = "0.38"
-asciidork-dr-html-backend = "0.38"
+asciidork-dr-html-backend = "0.39"
 bumpalo = "3"
 
 # Typst HTML rendering (343 transitive crates — feature-gated as `typst-spec`)

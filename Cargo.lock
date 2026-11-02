@@ -997,9 +997,9 @@ dependencies = [
 
 [[package]]
 name = "asciidork-dr-html-backend"
-version = "0.38.1"
+version = "0.39.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "58ab2fb64fd67bdd2e3001bdf7c3d67d84ab4f41caa7e87f003430c684fdc721"
+checksum = "078e929e66ee352a8bdea073f0e53b861a116bace263c458c5d5588d21690d57"
 dependencies = [
  "asciidork-ast",
  "asciidork-backend",
