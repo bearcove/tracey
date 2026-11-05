@@ -6020,6 +6020,7 @@ dependencies = [
  "arborium-haskell",
  "arborium-java",
  "arborium-julia",
+ "arborium-kotlin",
  "arborium-lean",
  "arborium-lua",
  "arborium-matlab",

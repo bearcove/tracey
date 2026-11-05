@@ -588,12 +588,30 @@ mod tests {
         assert!(result.warnings.is_empty());
     }
 
+    #[cfg(feature = "reverse")]
+    #[test]
+    fn test_memory_sources_kotlin() {
+        let result = Reqs::extract(
+            MemorySources::new()
+                .add("Main.kt", "// r[impl kotlin.req.one]\nfun main() {}\n")
+                .add("build.gradle.kts", "/* r[verify kotlin.req.two] */\nplugins {}\n"),
+        )
+        .unwrap();
+
+        assert_eq!(result.reqs.len(), 2);
+        assert_eq!(result.reqs.references[0].req_id, "kotlin.req.one");
+        assert_eq!(result.reqs.references[1].req_id, "kotlin.req.two");
+        assert!(result.warnings.is_empty());
+    }
+
     #[test]
     fn test_supported_extensions() {
         use std::ffi::OsStr;
 
         assert!(is_supported_extension(OsStr::new("rs")));
         assert!(is_supported_extension(OsStr::new("swift")));
+        assert!(is_supported_extension(OsStr::new("kt")));
+        assert!(is_supported_extension(OsStr::new("kts")));
         assert!(is_supported_extension(OsStr::new("ts")));
         assert!(is_supported_extension(OsStr::new("tsx")));
         assert!(is_supported_extension(OsStr::new("js")));

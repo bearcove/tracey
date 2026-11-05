@@ -39,6 +39,7 @@
   `[[…]]` nodes, together with the requirements nested inside them, are
   loaded as requirements. `[TEXT]` blocks are rendered in the spec view.
 - `tracey_status` explains `@relation` markers for StrictDoc specs.
+- Kotlin files (`.kt`, `.kts`) are now scanned for requirement references.
 
 ### Fixed
 
