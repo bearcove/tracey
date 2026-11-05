@@ -243,7 +243,6 @@ fn devicon_class(path: &str) -> Option<&'static str> {
         "vue" => Some("devicon-vuejs-plain"),
         "svelte" => Some("devicon-svelte-plain"),
         // Lexer-only languages (no full registry row yet).
-        "kt" | "kts" => Some("devicon-kotlin-plain"),
         "scala" => Some("devicon-scala-plain"),
         "groovy" => Some("devicon-groovy-plain"),
         "zig" => Some("devicon-zig-original"),

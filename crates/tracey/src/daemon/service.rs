@@ -153,7 +153,6 @@ fn arborium_language(path: &str) -> Option<&'static str> {
         "ts" | "mts" | "cts" => Some("typescript"),
         "tsx" => Some("tsx"),
         // Lexer-only languages (no full registry row yet).
-        "kt" | "kts" => Some("kotlin"),
         "scala" => Some("scala"),
         "zig" => Some("zig"),
         // Config / markup / docs (never source-scanned).

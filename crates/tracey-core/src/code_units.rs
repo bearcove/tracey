@@ -237,6 +237,23 @@ pub fn extract_java(path: &Path, source: &str) -> CodeUnits {
     units
 }
 
+/// Extract code units from Kotlin source code
+pub fn extract_kotlin(path: &Path, source: &str) -> CodeUnits {
+    let mut parser = Parser::new();
+    parser
+        .set_language(&arborium_kotlin::language().into())
+        .expect("Failed to load Kotlin grammar");
+
+    let Some(tree) = parser.parse(source, None) else {
+        return CodeUnits::new();
+    };
+
+    let mut units = CodeUnits::new();
+    let root = tree.root_node();
+    extract_units_recursive(path, source, root, &mut units, kotlin_node_kind);
+    units
+}
+
 /// Extract code units from Python source code
 pub fn extract_python(path: &Path, source: &str) -> CodeUnits {
     let mut parser = Parser::new();
@@ -317,6 +334,18 @@ fn java_node_kind(kind: &str) -> Option<CodeUnitKind> {
         "class_declaration" => Some(CodeUnitKind::Struct),
         "interface_declaration" => Some(CodeUnitKind::Trait),
         "enum_declaration" => Some(CodeUnitKind::Enum),
+        _ => None,
+    }
+}
+
+fn kotlin_node_kind(kind: &str) -> Option<CodeUnitKind> {
+    match kind {
+        "function_declaration" | "secondary_constructor" => Some(CodeUnitKind::Function),
+        // The Kotlin grammar reuses `class_declaration` for both classes and
+        // interfaces, so we cannot distinguish them at this level.
+        "class_declaration" => Some(CodeUnitKind::Struct),
+        "object_declaration" => Some(CodeUnitKind::Struct),
+        "type_alias" => Some(CodeUnitKind::TypeAlias),
         _ => None,
     }
 }
@@ -1241,7 +1270,12 @@ fn get_node_name(source: &str, node: Node) -> Option<String> {
             // For some languages, the first identifier child is the name
             let mut cursor = node.walk();
             node.children(&mut cursor)
-                .find(|c| c.kind() == "identifier" || c.kind() == "type_identifier")
+                .find(|c| {
+                    matches!(
+                        c.kind(),
+                        "identifier" | "type_identifier" | "simple_identifier"
+                    )
+                })
         })
         .or_else(|| {
             // Julia/similar: name is inside a signature or type_head child
@@ -2378,6 +2412,88 @@ enum MyEnum {
             .iter()
             .find(|u| u.name.as_deref() == Some("MyEnum"));
         assert!(enum_unit.is_some(), "Should find MyEnum");
+    }
+
+    #[test]
+    fn test_kotlin_extract_refs() {
+        let source = r#"
+// r[impl kotlin.feature]
+class MyClass {
+    /* r[verify kotlin.method] */
+    fun doSomething() {}
+
+    /** r[related kotlin.constructor] */
+    constructor() {}
+}
+"#;
+        let refs = extract_refs(Path::new("Test.kt"), source);
+        let ids: Vec<_> = refs.iter().map(|r| r.req_id.to_string()).collect();
+        assert_eq!(
+            ids,
+            vec!["kotlin.feature", "kotlin.method", "kotlin.constructor"],
+            "Kotlin line, block and doc comments should be scanned"
+        );
+    }
+
+    #[test]
+    fn test_kotlin_code_units() {
+        let source = r#"// r[impl kotlin.feature]
+class MyClass {
+    // r[impl kotlin.method]
+    fun doSomething() {
+        println("hello")
+    }
+
+    // r[impl kotlin.constructor]
+    constructor() {}
+}
+
+// r[impl kotlin.alias]
+typealias Alias = String
+
+// r[impl kotlin.object]
+object Singleton
+"#;
+        let units = extract_kotlin(Path::new("Test.kt"), source);
+
+        let class_unit = units
+            .units
+            .iter()
+            .find(|u| u.name.as_deref() == Some("MyClass"))
+            .expect("Should find MyClass");
+        assert_eq!(class_unit.kind, CodeUnitKind::Struct);
+        assert_eq!(class_unit.start_line, 1, "Should include comment");
+        assert_eq!(class_unit.req_refs, vec![rid("kotlin.feature")]);
+
+        let method_unit = units
+            .units
+            .iter()
+            .find(|u| u.name.as_deref() == Some("doSomething"))
+            .expect("Should find doSomething method");
+        assert_eq!(method_unit.kind, CodeUnitKind::Function);
+        assert_eq!(method_unit.start_line, 3, "Should include comment");
+        assert_eq!(method_unit.req_refs, vec![rid("kotlin.method")]);
+
+        let constructor_unit = units
+            .units
+            .iter()
+            .find(|u| u.kind == CodeUnitKind::Function && u.name.is_none())
+            .expect("Should find secondary constructor");
+        assert_eq!(constructor_unit.req_refs, vec![rid("kotlin.constructor")]);
+
+        let alias_unit = units
+            .units
+            .iter()
+            .find(|u| u.name.as_deref() == Some("Alias"))
+            .expect("Should find Alias typealias");
+        assert_eq!(alias_unit.kind, CodeUnitKind::TypeAlias);
+
+        let object_unit = units
+            .units
+            .iter()
+            .find(|u| u.name.as_deref() == Some("Singleton"))
+            .expect("Should find Singleton object");
+        assert_eq!(object_unit.kind, CodeUnitKind::Struct);
     }
 
     // r[verify code-unit.definition]

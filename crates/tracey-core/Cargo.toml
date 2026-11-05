@@ -26,6 +26,7 @@ reverse = [
   "dep:arborium-swift",
   "dep:arborium-go",
   "dep:arborium-java",
+  "dep:arborium-kotlin",
   "dep:arborium-python",
   "dep:arborium-typescript",
   "dep:arborium-php",
@@ -88,6 +89,7 @@ arborium-rust = { workspace = true, optional = true }
 arborium-swift = { workspace = true, optional = true }
 arborium-go = { workspace = true, optional = true }
 arborium-java = { workspace = true, optional = true }
+arborium-kotlin = { workspace = true, optional = true }
 arborium-python = { workspace = true, optional = true }
 arborium-typescript = { workspace = true, optional = true }
 arborium-php = { workspace = true, optional = true }

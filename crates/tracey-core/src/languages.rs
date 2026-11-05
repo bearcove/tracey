@@ -107,6 +107,7 @@ define_languages! {
     ["swift"]                               => arborium_swift::language,      code_units::extract_swift,      arborium = "swift",      devicon = "devicon-swift-plain";
     ["go"]                                  => arborium_go::language,         code_units::extract_go,         arborium = "go",         devicon = "devicon-go-plain";
     ["java"]                                => arborium_java::language,       code_units::extract_java,       arborium = "java",       devicon = "devicon-java-plain";
+    ["kt", "kts"]                           => arborium_kotlin::language,     code_units::extract_kotlin,     arborium = "kotlin",     devicon = "devicon-kotlin-plain";
     ["py"]                                  => arborium_python::language,     code_units::extract_python,     arborium = "python",     devicon = "devicon-python-plain";
     // ts/js/jsx share one grammar but differ in highlight name + icon, so the
     // row leaves both `None` and callers fall through to a residual match.
@@ -146,7 +147,7 @@ define_languages! {
     // Extensions scanned by the text-based lexer fallback only (no tree-sitter
     // grammar wired up yet). Kept for backwards compatibility — promote to a
     // full row above once a grammar + extractor exist.
-    @lexer_only ["m", "mm", "kt", "kts", "scala", "groovy", "cs", "zig"]
+    @lexer_only ["m", "mm", "scala", "groovy", "cs", "zig"]
 }
 
 #[cfg(test)]

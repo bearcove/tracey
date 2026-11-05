@@ -261,6 +261,7 @@ Tracey MUST use tree-sitter for parsing source code to extract comments. This en
 > | Swift      | `.swift`                | `//`, `/* */`                     |
 > | Go         | `.go`                   | `//`, `/* */`                     |
 > | Java       | `.java`                 | `//`, `/* */`, `/** */`           |
+> | Kotlin     | `.kt`, `.kts`           | `//`, `/* */`, `/** */`           |
 > | Python     | `.py`                   | `#`, `""" """`                    |
 > | TypeScript | `.ts`, `.tsx`, `.mts`   | `//`, `/* */`                     |
 > | JavaScript | `.js`, `.jsx`, `.cjs`   | `//`, `/* */`                     |
