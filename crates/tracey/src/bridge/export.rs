@@ -192,28 +192,44 @@ fn page_shell(
     content_html: &str,
     head_extras: &str,
 ) -> String {
-    // Spec/impl selector tabs in the header-pickers area
+    // Group choices by specification, keeping context separate from primary views.
     let spec_links = config
         .specs
         .iter()
-        .flat_map(|s| {
-            s.implementations.iter().map(move |i| {
+        .map(|s| {
+            let choices = s.implementations.iter().map(|i| {
                 let active = if s.name == spec_name && i == impl_name {
                     " active"
                 } else {
                     ""
                 };
                 format!(
-                    r#"<a href="/{}/{}/spec.html" class="spec-tab{active}">{} / {}</a>"#,
-                    s.name,
-                    i,
+                    r#"<a href="/{}/{}/{active_tab}.html" class="context-choice{active}" {}><span>{}</span></a>"#,
                     html_escape(&s.name),
                     html_escape(i),
+                    if active.is_empty() { "" } else { "aria-current=\"page\"" },
+                    html_escape(i),
                 )
-            })
+            }).collect::<String>();
+            format!(r#"<section class="context-group" data-spec="{}"><h3>{}</h3>{choices}</section>"#, html_escape(&s.name), html_escape(&s.name))
         })
         .collect::<Vec<_>>()
         .join("\n");
+    let pair_count: usize = config.specs.iter().map(|s| s.implementations.len()).sum();
+    let context_label = format!(
+        r#"<span class="context-spec">{}</span><span class="context-divider">/</span><span>{}</span>"#,
+        html_escape(spec_name),
+        html_escape(impl_name)
+    );
+    let context_picker = if pair_count > 1 {
+        format!(
+            r#"<div class="context-picker"><button class="context-trigger" aria-expanded="false" aria-controls="context-panel" aria-label="Change specification and implementation">{context_label}<svg class="context-chevron" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button><div id="context-panel" class="context-panel" hidden><label for="context-search">Switch context</label><input id="context-search" type="search" placeholder="Find a specification or implementation…" autocomplete="off"><div class="context-results">{spec_links}<p class="context-empty" hidden>No matching contexts</p></div></div></div>"#
+        )
+    } else {
+        format!(
+            r#"<div class="context-trigger context-static" aria-label="Current specification and implementation">{context_label}</div>"#
+        )
+    };
 
     // Nav tabs
     let tab = |label: &str, icon: &str, href: &str, key: &str| {
@@ -282,7 +298,7 @@ fn page_shell(
       <header class="header">
         <div class="header-inner">
           <div class="header-pickers">
-            {spec_links}
+            {context_picker}
           </div>
           <nav class="nav">
             {nav_tabs}
@@ -309,6 +325,64 @@ fn page_shell(
 // ============================================================================
 // Spec page
 // ============================================================================
+
+#[cfg(test)]
+mod context_tests {
+    use super::*;
+
+    fn config(implementations: &[&str]) -> ApiConfig {
+        ApiConfig {
+            project_root: String::new(),
+            specs: vec![tracey_api::ApiSpecInfo {
+                name: "platform".into(),
+                prefix: "r".into(),
+                source: None,
+                source_url: None,
+                implementations: implementations.iter().map(|i| (*i).into()).collect(),
+            }],
+        }
+    }
+
+    #[test]
+    fn grouped_context_preserves_primary_view() {
+        for view in ["spec", "coverage", "sources"] {
+            let page = page_shell(
+                "",
+                "platform",
+                "rust",
+                view,
+                &config(&["rust", "go"]),
+                true,
+                "",
+                "",
+                "",
+            );
+            assert!(page.contains("class=\"context-group\""));
+            assert!(page.contains("<h3>platform</h3>"));
+            assert!(page.contains(&format!("href=\"/platform/go/{view}.html\"")));
+            assert!(page.contains("class=\"context-choice active\" aria-current=\"page\""));
+            assert!(page.contains("aria-controls=\"context-panel\""));
+        }
+    }
+
+    #[test]
+    fn single_pair_is_static_context() {
+        let page = page_shell(
+            "",
+            "platform",
+            "rust",
+            "spec",
+            &config(&["rust"]),
+            false,
+            "",
+            "",
+            "",
+        );
+        assert!(page.contains("context-static"));
+        assert!(!page.contains("id=\"context-panel\""));
+        assert!(!page.contains(">Sources</span>"));
+    }
+}
 
 fn render_spec_page(
     spec_name: &str,
@@ -986,6 +1060,67 @@ const ENHANCE_JS: &str = r##"(function () {
   document.addEventListener("DOMContentLoaded", function () {
     if (typeof lucide !== "undefined") lucide.createIcons();
     highlightLine();
+    var picker = document.querySelector(".context-picker");
+    if (!picker) return;
+    var trigger = picker.querySelector("button");
+    var panel = picker.querySelector(".context-panel");
+    var search = picker.querySelector("input");
+    function close(restore) {
+      panel.hidden = true;
+      trigger.setAttribute("aria-expanded", "false");
+      if (restore) trigger.focus();
+    }
+    trigger.addEventListener("click", function () {
+      if (!panel.hidden) return close(false);
+      panel.hidden = false;
+      trigger.setAttribute("aria-expanded", "true");
+      search.value = "";
+      search.dispatchEvent(new Event("input"));
+      search.focus({ preventScroll: true });
+      var results = picker.querySelector(".context-results");
+      var current = results.querySelector(".context-choice.active");
+      if (current) {
+        var itemRect = current.getBoundingClientRect();
+        var listRect = results.getBoundingClientRect();
+        results.scrollTop += itemRect.top - listRect.top - (results.clientHeight - itemRect.height) / 2;
+      }
+    });
+    search.addEventListener("input", function () {
+      var query = search.value.trim().toLocaleLowerCase();
+      var total = 0;
+      picker.querySelectorAll(".context-group").forEach(function (group) {
+        var count = 0;
+        group.querySelectorAll("a").forEach(function (link) {
+          link.hidden = !(group.dataset.spec + " " + link.textContent).toLocaleLowerCase().includes(query);
+          if (!link.hidden) count++;
+        });
+        group.hidden = count === 0;
+        total += count;
+      });
+      picker.querySelector(".context-empty").hidden = total !== 0;
+    });
+    picker.addEventListener("keydown", function (event) {
+      if (event.key === "Escape") {
+        close(true);
+        event.preventDefault();
+      }
+      if (panel.hidden) return;
+      var links = Array.from(panel.querySelectorAll("a")).filter(function (a) { return !a.hidden; });
+      var index = links.indexOf(document.activeElement);
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        var next = event.key === "ArrowDown" ? index + 1 : index - 1;
+        if (next < 0) search.focus();
+        else if (links.length) links[Math.min(next, links.length - 1)].focus();
+      }
+      if (event.key === "Enter" && document.activeElement === search && links.length) links[0].click();
+    });
+    document.addEventListener("click", function (event) {
+      if (!picker.contains(event.target)) close(false);
+    });
+    picker.addEventListener("focusout", function (event) {
+      if (!picker.contains(event.relatedTarget)) close(false);
+    });
   });
 
   document.addEventListener("click", function (e) {
@@ -1000,6 +1135,38 @@ const ENHANCE_JS: &str = r##"(function () {
 /// Extra CSS appended to the compiled dashboard CSS.
 /// Only what isn't already covered by the dashboard stylesheet.
 const STATIC_EXTRA_CSS: &str = r#"
+.header-pickers { min-width: 0; border-inline-end: 0; padding-inline: .375rem; }
+.header .logo { margin-inline-start: 0; border-inline-start: 1px solid var(--border); }
+.header .nav { margin-inline-start: auto; border-inline-start: 1px solid var(--border); }
+.context-picker { position: relative; min-width: 0; }
+.context-trigger { display: flex; align-items: center; gap: .65rem; max-width: min(48vw, 42rem); padding: .65rem .75rem; border: 0; border-radius: 0; background: transparent; color: var(--fg); font: inherit; font-size: .85rem; text-align: left; cursor: pointer; }
+.context-trigger:hover, .context-trigger[aria-expanded="true"] { background: var(--bg); }
+.context-trigger span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.context-trigger .context-spec { color: var(--fg-muted, #a7abb2); font-weight: 400; }
+.context-chevron { flex: 0 0 1rem; color: #9298a1; }
+.context-trigger[aria-expanded="true"] .context-chevron { transform: rotate(180deg); }
+.context-divider { color: #73777e; flex-shrink: 0; }
+.context-static, .context-static:hover { cursor: default; background: transparent; }
+.context-panel { position: absolute; z-index: 100; top: calc(100% + .6rem); left: 0; width: min(34rem, calc(100vw - 2rem)); box-sizing: border-box; border: 1px solid var(--border); border-radius: 0; background: var(--bg-secondary); color: var(--fg); box-shadow: 0 12px 40px #0008; }
+.context-panel[hidden], .context-panel [hidden] { display: none !important; }
+.context-panel label { display: block; font-size: .75rem; color: #a6a9af; margin: .75rem .75rem .5rem; }
+.context-panel input { width: calc(100% - 1.5rem); margin: 0 .75rem .5rem; box-sizing: border-box; padding: .65rem; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: var(--bg); color: var(--fg); font: inherit; font-size: .85rem; }
+.context-results { max-height: min(60vh, 28rem); overflow-y: auto; overscroll-behavior: contain; padding-block: .25rem; }
+.context-group h3 { font-size: .78rem; font-weight: 600; color: #a7abb2; padding: .8rem .75rem .4rem; margin: 0; overflow-wrap: anywhere; }
+.context-choice { display: flex; padding: .55rem 1.75rem; border-left: 2px solid transparent; color: var(--fg-muted); text-decoration: none; font-size: .85rem; }
+.context-choice:hover { background: var(--hover-subtle); color: var(--fg); }
+.context-choice.active { background: var(--bg); color: var(--accent); border-left-color: var(--accent); }
+.context-picker :focus-visible { outline: 2px solid #9caebf; outline-offset: 2px; }
+.context-empty { padding: 1rem; color: #a6a9af; }
+@media (max-width: 760px) {
+  .header-inner { flex-wrap: wrap; }
+  .header-pickers { order: -2; flex: 1; box-sizing: border-box; padding: .5rem; border-inline-end: 0; }
+  .header .logo { order: -1; border-inline-start: 0; }
+  .context-trigger { max-width: calc(100vw - 9rem); }
+  .context-panel { position: fixed; top: 4rem; left: 1rem; right: 1rem; width: auto; }
+  .header .nav { flex-basis: 100%; justify-content: flex-end; border-top: 1px solid #383b40; border-inline-start: 0; }
+  .header .nav-tab { padding-inline: .65rem; font-size: .8rem; }
+}
 /* ── Static export extras ─────────────────────────────────────── */
 
 /* spec-tab links (header pickers) */
