@@ -221,8 +221,17 @@ fn walk_body<'a, 'r: 'a>(
                     )
                     .await;
                 }
-                DocumentChild::Requirement(r) => {
-                    if let Some(def) = build_req(r, content, markup_is_markdown).await {
+                DocumentChild::Node(node) => {
+                    if !node.is_normative() {
+                        // `[TEXT]`: prose between requirements. Shown in the
+                        // rendered spec, but not a requirement.
+                        if let (Some(st), Some(stmt)) = (&mut render, node.field_text("STATEMENT"))
+                        {
+                            st.html
+                                .push_str(&render_statement(stmt, markup_is_markdown).await);
+                            st.html.push('\n');
+                        }
+                    } else if let Some(def) = build_req(node, content, markup_is_markdown).await {
                         if let Some(st) = &mut render {
                             st.html.push_str(&(st.badge_for)(&def, st.source_path));
                             st.html.push_str(&def.html);
@@ -232,18 +241,37 @@ fn walk_body<'a, 'r: 'a>(
                         elements.push(DocElement::Req(def.clone()));
                         reqs.push(def);
                     }
+                    // Composite `[[TAG]]` nodes nest further nodes (and
+                    // sections); they don't open a heading level themselves.
+                    if node.composite {
+                        walk_body(
+                            &node.children,
+                            content,
+                            markup_is_markdown,
+                            depth,
+                            reqs,
+                            headings,
+                            elements,
+                            render.as_deref_mut(),
+                        )
+                        .await;
+                    }
                 }
+                // Included documents are not followed; list the included
+                // file in the `include` glob to load it.
+                DocumentChild::DocumentFromFile(_) => {}
             }
         }
     })
 }
 
-/// Build a [`ReqDefinition`] from a `[REQUIREMENT]` block.
+/// Build a [`ReqDefinition`] from a normative node: `[REQUIREMENT]`, a
+/// custom-grammar element such as `[FEATURE]`, or a composite node.
 ///
-/// Returns `None` when the block lacks a `UID:` field or the UID does not
+/// Returns `None` when the node lacks a `UID:` field or the UID does not
 /// parse as a tracey rule id (matches the original behaviour: skip + warn).
 async fn build_req(
-    req: &strictdoc_parser::Requirement,
+    req: &strictdoc_parser::Node,
     content: &str,
     markup_is_markdown: bool,
 ) -> Option<ReqDefinition> {
@@ -261,11 +289,7 @@ async fn build_req(
         .to_string();
 
     let html = match req.field_text("STATEMENT") {
-        Some(stmt) if markup_is_markdown => marq::render(stmt, &marq::RenderOptions::default())
-            .await
-            .map(|d| d.html)
-            .unwrap_or_else(|_| wrap_paragraph(stmt)),
-        Some(stmt) => wrap_paragraph(stmt),
+        Some(stmt) => render_statement(stmt, markup_is_markdown).await,
         None => String::new(),
     };
 
@@ -289,6 +313,19 @@ async fn build_req(
         raw,
         html,
     })
+}
+
+/// Render a `STATEMENT` value: through marq for `MARKUP: Markdown`
+/// documents, otherwise as an escaped `<p>`.
+async fn render_statement(stmt: &str, markup_is_markdown: bool) -> String {
+    if markup_is_markdown {
+        marq::render(stmt, &marq::RenderOptions::default())
+            .await
+            .map(|d| d.html)
+            .unwrap_or_else(|_| wrap_paragraph(stmt))
+    } else {
+        wrap_paragraph(stmt)
+    }
 }
 
 fn wrap_paragraph(text: &str) -> String {
@@ -323,6 +360,19 @@ mod tests {
         // elements: Heading then Req
         assert!(matches!(doc.elements[0], DocElement::Heading(_)));
         assert!(matches!(doc.elements[1], DocElement::Req(_)));
+    }
+
+    #[tokio::test]
+    async fn parse_includes_composite_and_custom_nodes_but_not_text() {
+        let content = "[DOCUMENT]\nTITLE: T\n\n\
+[TEXT]\nSTATEMENT: Intro.\n\n\
+[[COMPOSITE_REQUIREMENT]]\nUID: C-1\nSTATEMENT: parent\n\n\
+[REQUIREMENT]\nUID: C-1.1\nSTATEMENT: child\n\n\
+[[/COMPOSITE_REQUIREMENT]]\n\n\
+[FEATURE]\nUID: F-1\nSTATEMENT: feature\n";
+        let doc = parse(content).await.unwrap();
+        let ids: Vec<String> = doc.reqs.iter().map(|r| r.id.to_string()).collect();
+        assert_eq!(ids, ["C-1", "C-1.1", "F-1"]);
     }
 
     #[test]

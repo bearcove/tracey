@@ -136,6 +136,46 @@ async fn test_status_coverage_percentages() {
 }
 
 // ============================================================================
+// Exclude / test_include glob handling
+// ============================================================================
+
+// r[verify config.impl.exclude]
+// r[verify config.impl.test_include]
+#[tokio::test]
+async fn test_exclude_applies_to_test_include_files() {
+    let service = create_test_service_named("exclude").await;
+
+    // `exclude (tests/vendored/**)` is written relative to the project root,
+    // and must also keep the file out of the `test_include` set.
+    let result = rpc(service
+        .client
+        .validate(ValidateRequest {
+            spec: Some("test".to_string()),
+            impl_name: Some("rust".to_string()),
+        })
+        .await);
+    assert!(
+        result.errors.is_empty(),
+        "excluded file produced validation errors: {:?}",
+        result.errors
+    );
+
+    let status = rpc(service.client.status().await);
+    for impl_name in ["rust", "partial"] {
+        let impl_status = status
+            .impls
+            .iter()
+            .find(|i| i.spec == "test" && i.impl_name == impl_name)
+            .unwrap_or_else(|| panic!("missing test/{impl_name}"));
+        assert_eq!(impl_status.total_rules, 1);
+        assert_eq!(impl_status.covered_rules, 1, "test/{impl_name}");
+        // `tests/auth_*.rs` must find tests/auth_test.rs: the scan root is
+        // `tests`, not the non-existent directory `tests/auth_`.
+        assert_eq!(impl_status.verified_rules, 1, "test/{impl_name}");
+    }
+}
+
+// ============================================================================
 // Uncovered/Untested API Tests
 // ============================================================================
 

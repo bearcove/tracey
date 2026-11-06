@@ -18,3 +18,19 @@ fn refines_placeholder() {}
 // Legacy r[...] marker uses the same prefix and continues to work alongside @relation.
 // r[impl BR-003]
 pub fn reconnect() {}
+
+// Noun-form role and class scope (upstream StrictDoc's own docs use
+// role=Implementation).
+// @relation(BR-004, scope=class, role=Implementation)
+pub struct Sessions;
+
+// Range markers: range_start produces the reference, range_end closes it.
+// @relation(BR-005, scope=range_start)
+pub fn expire_sessions() {}
+// @relation(BR-005, scope=range_end)
+
+// role=Test maps to verify.
+// @relation(BR-006, scope=function, role=Test)
+fn status_page_test() {}
+
+// A mention in prose is not a marker: see @relation(BR-006) for details.

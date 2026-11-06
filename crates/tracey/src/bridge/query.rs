@@ -173,30 +173,7 @@ impl QueryClient {
                 // so agents and new users understand what is being analyzed.
                 if let Ok(config) = config_result {
                     for spec in &config.specs {
-                        let example_rule =
-                            format!("{}[{}.some-requirement]", spec.prefix, spec.name);
-                        output.push_str(&format!(
-                            "This project tracks requirements for \"{}\". ",
-                            spec.name
-                        ));
-                        if let Some(source) = &spec.source {
-                            output
-                                .push_str(&format!("The requirements are defined in {} ", source));
-                        }
-                        output.push_str(&format!(
-                            "and are referenced in code using {}[...] annotations \
-                             (for example, {}).\n",
-                            spec.prefix, example_rule
-                        ));
-                        output.push_str(&format!(
-                            "The implementation{} being checked: {}.\n",
-                            if spec.implementations.len() == 1 {
-                                ""
-                            } else {
-                                "s"
-                            },
-                            spec.implementations.join(", ")
-                        ));
+                        output.push_str(&spec_summary(spec));
                         output.push('\n');
                     }
                 }
@@ -882,9 +859,61 @@ fn format_validation_result(result: &tracey_proto::ValidationResult) -> String {
     }
 }
 
+/// Plain-English summary of one spec for `status`, telling agents and new
+/// users which annotation syntax references its requirements.
+fn spec_summary(spec: &ApiSpecInfo) -> String {
+    use tracey_core::SpecFormat;
+
+    let mut out = format!("This project tracks requirements for \"{}\". ", spec.name);
+    if let Some(source) = &spec.source {
+        out.push_str(&format!("The requirements are defined in {} ", source));
+    }
+    let has_sdoc = spec.formats.contains(&SpecFormat::Sdoc);
+    let only_sdoc = has_sdoc && spec.formats.iter().all(|f| *f == SpecFormat::Sdoc);
+    if only_sdoc {
+        // StrictDoc specs have no `r[...]` definitions; rule IDs are the
+        // requirements' UID fields, used verbatim (case-sensitive).
+        out.push_str(&format!(
+            "(StrictDoc .sdoc files) and are referenced in code with StrictDoc markers: \
+             @relation(UID, scope=function) on implementing code and \
+             @relation(UID, scope=function, role=Verifies) on tests, where UID is the \
+             requirement's UID field exactly as written (for example, \
+             @relation(REQ-001, scope=function)). {p}[impl UID] / {p}[verify UID] \
+             annotations work too.\n",
+            p = spec.prefix
+        ));
+    } else {
+        out.push_str(&format!(
+            "and are referenced in code using {p}[...] annotations (for example, \
+             {p}[{}.some-requirement]).\n",
+            spec.name,
+            p = spec.prefix
+        ));
+        if has_sdoc {
+            out.push_str(
+                "Requirements from StrictDoc .sdoc files can also be referenced with \
+                 @relation(UID, scope=function) markers (add role=Verifies on tests), \
+                 where UID is the requirement's UID field exactly as written.\n",
+            );
+        }
+    }
+    out.push_str(&format!(
+        "The implementation{} being checked: {}.\n",
+        if spec.implementations.len() == 1 {
+            ""
+        } else {
+            "s"
+        },
+        spec.implementations.join(", ")
+    ));
+    out
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{format_rule_info, format_validation_result, validate_spec_impl_selection};
+    use super::{
+        format_rule_info, format_validation_result, spec_summary, validate_spec_impl_selection,
+    };
     use tracey_api::{ApiConfig, ApiSpecInfo};
     use tracey_core::parse_rule_id;
     use tracey_proto::{
@@ -901,6 +930,7 @@ mod tests {
                     source: None,
                     source_url: None,
                     implementations: vec!["rust".to_string(), "typescript".to_string()],
+                    formats: vec![],
                 },
                 ApiSpecInfo {
                     name: "other".to_string(),
@@ -908,9 +938,31 @@ mod tests {
                     source: None,
                     source_url: None,
                     implementations: vec!["rust".to_string()],
+                    formats: vec![],
                 },
             ],
         }
+    }
+
+    #[test]
+    fn spec_summary_explains_relation_markers_for_sdoc_specs() {
+        use tracey_core::SpecFormat;
+
+        let mut spec = sample_config().specs.remove(0);
+        let summary = spec_summary(&spec);
+        assert!(summary.contains("r[ship.some-requirement]"));
+        assert!(!summary.contains("@relation"));
+
+        spec.formats = vec![SpecFormat::Sdoc];
+        let summary = spec_summary(&spec);
+        assert!(summary.contains("@relation(UID, scope=function)"));
+        assert!(summary.contains("role=Verifies"));
+        assert!(!summary.contains("some-requirement"));
+
+        spec.formats = vec![SpecFormat::Markdown, SpecFormat::Sdoc];
+        let summary = spec_summary(&spec);
+        assert!(summary.contains("r[ship.some-requirement]"));
+        assert!(summary.contains("@relation(UID, scope=function)"));
     }
 
     #[test]

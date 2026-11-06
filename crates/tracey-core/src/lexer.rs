@@ -632,11 +632,12 @@ fn extract_references_from_text(
     extract_relation_annotations(path, text, text_offset, base_line, file_code_mask, reqs);
 }
 
-/// Scan `text` for StrictDoc-style `@relation(UID[, UID...][, scope=...][, role=...])`
-/// annotations and emit a [`ReqReference`] for each UID.
+/// Scan `text` for StrictDoc-style `@relation(...)` annotations and emit a
+/// [`ReqReference`] for each UID.
 ///
 /// Multi-UID annotations expand to one reference per UID, all sharing the call's span.
-/// `role=Refines` and unknown roles emit a parse warning and produce no references.
+/// See [`crate::relation::relation_markers`] for how roles and scopes map to verbs;
+/// malformed markers and unmapped roles emit a parse warning.
 #[cfg(not(feature = "reverse"))]
 fn extract_relation_annotations(
     path: &Path,
@@ -646,38 +647,25 @@ fn extract_relation_annotations(
     file_code_mask: &[bool],
     reqs: &mut Reqs,
 ) {
-    let code_mask = crate::markdown::markdown_code_mask(text);
-    let mut search_start = 0;
-    while let Some(rel) = text[search_start..].find("@relation") {
-        let hit_start = search_start + rel;
+    use crate::relation::{RelationMarker, RelationVerb, relation_markers};
 
+    let code_mask = crate::markdown::markdown_code_mask(text);
+    for marker in relation_markers(text) {
         // Honour code-mask: ignore `@relation` inside inline code spans or
         // fenced code blocks, same as `r[...]` markers.
-        if crate::markdown::is_code_index(hit_start, &code_mask)
-            || crate::markdown::is_code_index(text_offset.as_usize() + hit_start, file_code_mask)
+        let start = marker.start();
+        if crate::markdown::is_code_index(start, &code_mask)
+            || crate::markdown::is_code_index(text_offset.as_usize() + start, file_code_mask)
         {
-            search_start = hit_start + "@relation".len();
             continue;
         }
-
-        let Some(ann) = strictdoc_parser::parse_relation_annotation(&text[hit_start..]) else {
-            search_start = hit_start + "@relation".len();
-            continue;
-        };
-
-        let abs_start = hit_start + ann.start;
-        let abs_end = hit_start + ann.end;
-
-        let verb = match ann.role {
-            None | Some(strictdoc_parser::RelationRole::Implements) => RefVerb::Impl,
-            Some(strictdoc_parser::RelationRole::Verifies) => RefVerb::Verify,
-            Some(strictdoc_parser::RelationRole::Refines)
-            | Some(strictdoc_parser::RelationRole::Other(_)) => {
+        let (start, end, verb, uids) = match marker {
+            RelationMarker::Warning { start, end } => {
                 let location = RefLocation::from_relative_indices(
                     base_line,
                     text_offset,
-                    abs_start,
-                    abs_end.saturating_sub(1),
+                    start,
+                    end.saturating_sub(1),
                 );
                 reqs.warnings.push(ParseWarning {
                     file: path.to_path_buf(),
@@ -685,19 +673,28 @@ fn extract_relation_annotations(
                     span: location.span().into(),
                     kind: WarningKind::MalformedReference,
                 });
-                search_start = abs_end;
                 continue;
             }
+            RelationMarker::Refs {
+                start,
+                end,
+                verb,
+                uids,
+            } => (start, end, verb, uids),
+        };
+        let verb = match verb {
+            RelationVerb::Impl => RefVerb::Impl,
+            RelationVerb::Verify => RefVerb::Verify,
         };
 
         let location = RefLocation::from_relative_indices(
             base_line,
             text_offset,
-            abs_start,
-            abs_end.saturating_sub(1),
+            start,
+            end.saturating_sub(1),
         );
 
-        for uid in &ann.uids {
+        for uid in &uids {
             if let Some(rule_id) = parse_rule_id(uid) {
                 reqs.references.push(ReqReference {
                     prefix: "r".to_string(),
@@ -716,8 +713,6 @@ fn extract_relation_annotations(
                 });
             }
         }
-
-        search_start = abs_end;
     }
 }
 

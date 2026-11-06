@@ -1732,8 +1732,8 @@ fn extract_full_refs_from_text(
 
 /// Scan `text` for StrictDoc-style `@relation(...)` annotations and emit one
 /// [`FullReqRef`] per UID in each annotation. Multi-UID annotations share the
-/// call's span. `role=Refines` and unknown roles emit a warning and produce no
-/// references.
+/// call's span. See [`crate::relation::relation_markers`] for how roles and
+/// scopes map to verbs; malformed markers and unmapped roles emit a warning.
 fn extract_full_relation_annotations_from_text(
     text: &str,
     line: LineNumber,
@@ -1743,58 +1743,50 @@ fn extract_full_relation_annotations_from_text(
     refs: &mut Vec<FullReqRef>,
     warnings: &mut Vec<FullReqRefWarning>,
 ) {
-    let mut search_start = 0;
-    while let Some(rel) = text[search_start..].find("@relation") {
-        let hit_start = search_start + rel;
+    use crate::relation::{RelationMarker, relation_markers};
 
-        if crate::markdown::is_code_index(hit_start, code_mask)
-            || crate::markdown::is_code_index(base_offset.as_usize() + hit_start, file_code_mask)
+    for marker in relation_markers(text) {
+        let start = marker.start();
+        if crate::markdown::is_code_index(start, code_mask)
+            || crate::markdown::is_code_index(base_offset.as_usize() + start, file_code_mask)
         {
-            search_start = hit_start + "@relation".len();
             continue;
         }
-
-        let Some(ann) = strictdoc_parser::parse_relation_annotation(&text[hit_start..]) else {
-            search_start = hit_start + "@relation".len();
-            continue;
-        };
-
-        let abs_start = hit_start + ann.start;
-        let abs_end = hit_start + ann.end;
-
-        let verb = match ann.role {
-            None | Some(strictdoc_parser::RelationRole::Implements) => "impl",
-            Some(strictdoc_parser::RelationRole::Verifies) => "verify",
-            Some(strictdoc_parser::RelationRole::Refines)
-            | Some(strictdoc_parser::RelationRole::Other(_)) => {
+        match marker {
+            RelationMarker::Warning { start, end } => {
                 let location = RefLocation::from_relative_indices(
                     line,
                     base_offset,
-                    abs_start,
-                    abs_end.saturating_sub(1),
+                    start,
+                    end.saturating_sub(1),
                 );
                 warnings.push(location.into_warning());
-                search_start = abs_end;
-                continue;
             }
-        };
-
-        let location = RefLocation::from_relative_indices(
-            line,
-            base_offset,
-            abs_start,
-            abs_end.saturating_sub(1),
-        );
-
-        for uid in &ann.uids {
-            if let Some(rule_id) = parse_rule_id(uid) {
-                refs.push(location.into_full_ref("r".to_string(), verb.to_string(), rule_id));
-            } else {
-                warnings.push(location.into_warning());
+            RelationMarker::Refs {
+                start,
+                end,
+                verb,
+                uids,
+            } => {
+                let location = RefLocation::from_relative_indices(
+                    line,
+                    base_offset,
+                    start,
+                    end.saturating_sub(1),
+                );
+                for uid in &uids {
+                    if let Some(rule_id) = parse_rule_id(uid) {
+                        refs.push(location.into_full_ref(
+                            "r".to_string(),
+                            verb.as_str().to_string(),
+                            rule_id,
+                        ));
+                    } else {
+                        warnings.push(location.into_warning());
+                    }
+                }
             }
         }
-
-        search_start = abs_end;
     }
 }
 

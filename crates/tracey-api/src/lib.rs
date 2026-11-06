@@ -34,6 +34,10 @@ pub struct ApiSpecInfo {
 
     /// Available implementations for this spec
     pub implementations: Vec<String>,
+
+    /// Formats the spec's requirements are written in (e.g. markdown, sdoc)
+    #[facet(default)]
+    pub formats: Vec<SpecFormat>,
 }
 
 /// Forward traceability: rules with their code references

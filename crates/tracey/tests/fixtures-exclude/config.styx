@@ -1,0 +1,19 @@
+specs (
+  {
+    name test
+    include (spec.md)
+    impls (
+      {
+        name rust
+        include (src/**/*.rs)
+        exclude (tests/vendored/**)
+        test_include (tests/**/*.rs)
+      }
+      {
+        name partial
+        include (src/**/*.rs)
+        test_include (tests/auth_*.rs)
+      }
+    )
+  }
+)

@@ -2,13 +2,13 @@
 
 > **Note:** Looking for Tracy, the frame profiler? That's a different project: [wolfpld/tracy](https://github.com/wolfpld/tracy)
 
-Spec coverage for codebases. Tracks traceability between requirements (in markdown) and implementations/tests (in source code). Catches spec drift before it becomes a problem.
+Spec coverage for codebases. Tracks traceability between requirements (in markdown or StrictDoc) and implementations/tests (in source code). Catches spec drift before it becomes a problem.
 
 ## What it does
 
 Specs, implementations, and tests drift apart — code changes without updating specs, specs describe unimplemented features, tests cover different scenarios than requirements specify.
 
-Tracey uses lightweight annotations in markdown and source code comments to link specification requirements with implementing code and tests. This enables:
+Tracey uses lightweight annotations in source code comments to link specification requirements — written in markdown or StrictDoc (`.sdoc`) — with the implementing code and tests. This enables:
 
 - Verifying multiple implementations (different languages, platforms) match the same spec
 - Finding which requirements lack implementation or tests
@@ -32,9 +32,9 @@ Pre-built binaries are available for `aarch64-apple-darwin`, `aarch64-unknown-li
 
 ## Quick Start
 
-### 1. Define requirements in your spec (markdown)
+### 1. Define requirements in your spec
 
-Use the `r[req.id]` syntax to define requirements in your specification documents:
+Use the `r[req.id]` syntax to define requirements in a markdown specification document:
 
 ```markdown
 # Channel Management
@@ -47,6 +47,15 @@ Client-initiated channels MUST use odd IDs, server-initiated channels MUST use e
 ```
 
 The prefix (`r` in this case) can be any lowercase alphanumeric marker. Tracey infers it from the spec files.
+
+Specs authored in [StrictDoc](https://strictdoc.readthedocs.io/) (`.sdoc`) are loaded the same way: every node with a `UID:` field — `[REQUIREMENT]`, custom-grammar elements, composite nodes — becomes a requirement whose ID is the UID exactly as written (e.g. `CH-001`). See [Writing Specs](docs/content/guide/writing-specs.md#strictdoc-format-sdoc) for details.
+
+```sdoc
+[REQUIREMENT]
+UID: CH-001
+TITLE: Sequential ID allocation
+STATEMENT: Channel IDs MUST be allocated sequentially starting from 0.
+```
 
 Specs can also be written in [Typst](https://typst.app/) — use `#PREFIX("id")[body]` and include `*.typ` files in your config:
 
@@ -82,6 +91,19 @@ fn client_channels_are_odd() {
     // ...
 }
 ```
+
+For StrictDoc specs you can also use StrictDoc's own `@relation` markers, so the same annotations work with both tools:
+
+```rust
+// @relation(CH-001, scope=function)
+fn allocate_channel_id(&mut self) -> u32 { /* ... */ }
+
+// @relation(CH-001, scope=function, role=Verifies)
+#[test]
+fn channels_are_sequential() { /* ... */ }
+```
+
+No role, or `role=Implements` / `Implementation`, means `impl`; `role=Verifies` / `Verification` / `Test` means `verify`. See [StrictDoc-style markers](docs/content/guide/annotating-code.md#strictdoc-style-markers-relation).
 
 Verbs:
 
@@ -236,7 +258,7 @@ When spec text changes and the version is bumped to `+4`, tracey reports the `+3
 
 ## Supported Languages
 
-Tracey scans comments in: Rust, Swift, TypeScript, TSX, JavaScript, JSX, Go, C, C++, Objective-C, Objective-C++, Java, Kotlin, Scala, Groovy, C#, Zig, PHP.
+Tracey scans comments in: Rust, Swift, TypeScript, TSX, JavaScript, JSX, Go, C, C++, Objective-C, Objective-C++, Java, Kotlin, Scala, Groovy, C#, Zig, PHP, YAML (`.yml`, `.yaml`), JSON5 (`.json5`).
 
 ## License
 

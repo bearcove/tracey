@@ -339,6 +339,7 @@ mod context_tests {
                 source: None,
                 source_url: None,
                 implementations: implementations.iter().map(|i| (*i).into()).collect(),
+                formats: vec![],
             }],
         }
     }

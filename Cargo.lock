@@ -5218,9 +5218,9 @@ dependencies = [
 
 [[package]]
 name = "strictdoc-parser"
-version = "0.1.1"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a87844e382e636cd1b44888b5c06c8644f806d6b697bf39bbaad500b08ac75e"
+checksum = "d57b13ca1c21ef6a8be614b6133507b57fd50d33c43c3dd2185e14f93fba6123"
 
 [[package]]
 name = "strip-ansi-escapes"

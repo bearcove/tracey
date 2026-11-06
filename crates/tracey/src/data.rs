@@ -496,22 +496,31 @@ async fn get_cached_source_file(
 #[derive(Clone)]
 struct ScanRootPattern {
     root: PathBuf,
+    /// `root` as written in the config, relative to the project root (e.g.
+    /// `crates`, `../marq`). Exclude patterns are matched against paths in
+    /// this form.
+    base: PathBuf,
     matcher: globset::GlobMatcher,
 }
 
 /// Split a glob pattern into (directory_prefix, glob_suffix).
 ///
-/// The directory prefix is the longest path before any wildcard characters,
-/// so that the walker can start from a narrowed root instead of scanning
-/// the entire project tree.
+/// The directory prefix is the longest run of whole path components before
+/// the first glob metacharacter (`*`, `?`, `[`, `{`), so that the walker can
+/// start from a narrowed root instead of scanning the entire project tree.
+/// A partial component such as `parse_` in `tests/parse_*.rs` stays in the
+/// suffix.
 fn split_glob_prefix(pattern: &str) -> (&str, &str) {
-    if let Some(wildcard_pos) = pattern.find("**").or_else(|| pattern.find('*')) {
-        let base = pattern[..wildcard_pos].trim_end_matches('/');
-        let suffix = &pattern[wildcard_pos..];
-        (base, suffix)
-    } else {
+    match pattern.find(['*', '?', '[', '{']) {
+        Some(wildcard_pos) => match pattern[..wildcard_pos].rfind('/') {
+            Some(slash) => (
+                pattern[..slash].trim_end_matches('/'),
+                &pattern[slash + 1..],
+            ),
+            None => ("", pattern),
+        },
         // No wildcards — exact path
-        (pattern, "")
+        None => (pattern, ""),
     }
 }
 
@@ -525,6 +534,7 @@ fn build_scan_roots(
     if include.is_empty() {
         roots.push(ScanRootPattern {
             root: project_root.to_path_buf(),
+            base: PathBuf::new(),
             matcher: globset::Glob::new("**/*")
                 .expect("valid glob")
                 .compile_matcher(),
@@ -535,6 +545,7 @@ fn build_scan_roots(
     for pattern in include {
         let (base_path, glob_suffix) = split_glob_prefix(pattern);
 
+        let mut base = PathBuf::from(base_path);
         let mut resolved_root = if base_path.is_empty() {
             project_root.to_path_buf()
         } else {
@@ -563,6 +574,7 @@ fn build_scan_roots(
                     continue;
                 }
             };
+            base = base.parent().map(Path::to_path_buf).unwrap_or_default();
             resolved_root = match resolved_root.parent() {
                 Some(parent) => parent.to_path_buf(),
                 None => {
@@ -593,6 +605,7 @@ fn build_scan_roots(
 
         roots.push(ScanRootPattern {
             root: resolved_root,
+            base,
             matcher,
         });
     }
@@ -611,17 +624,74 @@ fn path_matches_any_root(path: &Path, roots: &[ScanRootPattern]) -> bool {
     roots.iter().any(|r| path_matches_root_pattern(path, r))
 }
 
+/// How a path matched the `exclude` patterns.
+#[derive(Debug, PartialEq, Eq)]
+enum ExcludeMatch {
+    /// A pattern matched the project-relative path, as documented.
+    ProjectRelative,
+    /// Deprecated: a pattern only matched the path relative to an include
+    /// pattern's directory prefix (`fixtures/**` for `tests/**/*.rs`).
+    /// Carries the pattern and the prefix it was resolved against.
+    Legacy { pattern: String, base: PathBuf },
+}
+
+/// Match `path` against the `exclude` patterns.
+///
+/// Patterns are written relative to the project root, like `include`
+/// patterns (`crates/foo/tests/fixtures/**`, `../marq/target/**`). Older
+/// releases matched them relative to the include pattern's directory
+/// prefix instead; that form still matches, as [`ExcludeMatch::Legacy`],
+/// so callers can warn about it.
+fn exclude_match(
+    path: &Path,
+    roots: &[ScanRootPattern],
+    exclude: &[String],
+) -> Option<ExcludeMatch> {
+    if exclude.is_empty() {
+        return None;
+    }
+    let matchers: Vec<(&String, globset::GlobMatcher)> = exclude
+        .iter()
+        .filter_map(|p| Some((p, globset::Glob::new(p).ok()?.compile_matcher())))
+        .collect();
+    let candidates: Vec<(&ScanRootPattern, &Path)> = roots
+        .iter()
+        .filter_map(|r| Some((r, path.strip_prefix(&r.root).ok()?)))
+        .collect();
+
+    for (r, relative) in &candidates {
+        let project_relative = r.base.join(relative);
+        if matchers.iter().any(|(_, m)| m.is_match(&project_relative)) {
+            return Some(ExcludeMatch::ProjectRelative);
+        }
+    }
+    for (r, relative) in &candidates {
+        if let Some((pattern, _)) = matchers.iter().find(|(_, m)| m.is_match(relative)) {
+            return Some(ExcludeMatch::Legacy {
+                pattern: (*pattern).clone(),
+                base: r.base.clone(),
+            });
+        }
+    }
+    None
+}
+
+/// True if `path` matches one of the `exclude` patterns, in either form.
 fn path_matches_excludes(path: &Path, roots: &[ScanRootPattern], exclude: &[String]) -> bool {
-    roots.iter().any(|r| {
-        let Ok(relative) = path.strip_prefix(&r.root) else {
-            return false;
-        };
-        exclude.iter().any(|pattern| {
-            globset::Glob::new(pattern)
-                .map(|g| g.compile_matcher().is_match(relative))
-                .unwrap_or(false)
-        })
-    })
+    exclude_match(path, roots, exclude).is_some()
+}
+
+/// Deprecation warning for an `exclude` pattern that only matched relative
+/// to an include pattern's directory prefix.
+fn legacy_exclude_warning(pattern: &str, base: &Path) -> String {
+    let rewritten = base.join(pattern);
+    format!(
+        "Warning: exclude pattern '{pattern}' only matched relative to the include directory '{}'.\n  \
+         Exclude patterns are relative to the project root; write '{}' instead.\n  \
+         Matching relative to the include directory is deprecated and will be removed.",
+        base.display(),
+        rewritten.display()
+    )
 }
 
 fn full_walk_for_roots(
@@ -629,8 +699,9 @@ fn full_walk_for_roots(
     include_supported_ext_only: bool,
     include_spec_only: bool,
     exclude: &[String],
-) -> BTreeSet<PathBuf> {
+) -> (BTreeSet<PathBuf>, Vec<String>) {
     let mut out = BTreeSet::new();
+    let mut legacy_excludes: BTreeSet<(String, PathBuf)> = BTreeSet::new();
     for root_pattern in roots {
         let walker = ignore::WalkBuilder::new(&root_pattern.root)
             .follow_links(true)
@@ -659,14 +730,23 @@ fn full_walk_for_roots(
             if !path_matches_root_pattern(path, root_pattern) {
                 continue;
             }
-            if path_matches_excludes(path, roots, exclude) {
-                continue;
+            match exclude_match(path, roots, exclude) {
+                Some(ExcludeMatch::ProjectRelative) => continue,
+                Some(ExcludeMatch::Legacy { pattern, base }) => {
+                    legacy_excludes.insert((pattern, base));
+                    continue;
+                }
+                None => {}
             }
             let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
             out.insert(canonical);
         }
     }
-    out
+    let warnings = legacy_excludes
+        .iter()
+        .map(|(pattern, base)| legacy_exclude_warning(pattern, base))
+        .collect();
+    (out, warnings)
 }
 
 fn update_cached_scan_paths(
@@ -713,17 +793,16 @@ fn get_cached_impl_scan_paths(
         include: include.to_vec(),
         exclude: exclude.to_vec(),
     };
-    let (roots, warnings) = build_scan_roots(project_root, include);
+    let (roots, mut warnings) = build_scan_roots(project_root, include);
     let entry = cache.impl_scan_paths.entry(key).or_default();
     let did_full_walk;
-    if entry.files.is_empty() {
-        entry.files = full_walk_for_roots(&roots, false, false, exclude);
-        did_full_walk = true;
-    } else if !changed_files.is_empty() {
+    if !entry.files.is_empty() && !changed_files.is_empty() {
         update_cached_scan_paths(entry, &roots, changed_files, false, false, exclude);
         did_full_walk = false;
     } else {
-        entry.files = full_walk_for_roots(&roots, false, false, exclude);
+        let (files, exclude_warnings) = full_walk_for_roots(&roots, false, false, exclude);
+        entry.files = files;
+        warnings.extend(exclude_warnings);
         did_full_walk = true;
     }
     (entry.files.clone(), warnings, did_full_walk)
@@ -742,14 +821,11 @@ fn get_cached_spec_scan_paths(
     let (roots, warnings) = build_scan_roots(project_root, include);
     let entry = cache.spec_scan_paths.entry(key).or_default();
     let did_full_walk;
-    if entry.files.is_empty() {
-        entry.files = full_walk_for_roots(&roots, false, true, &[]);
-        did_full_walk = true;
-    } else if !changed_files.is_empty() {
+    if !entry.files.is_empty() && !changed_files.is_empty() {
         update_cached_scan_paths(entry, &roots, changed_files, false, true, &[]);
         did_full_walk = false;
     } else {
-        entry.files = full_walk_for_roots(&roots, false, true, &[]);
+        entry.files = full_walk_for_roots(&roots, false, true, &[]).0;
         did_full_walk = true;
     }
     (entry.files.clone(), warnings, did_full_walk)
@@ -857,7 +933,10 @@ async fn load_rules_from_includes_cached(
         get_cached_spec_scan_paths(project_root, include_patterns, changed_files, cache);
     let (spec_roots, _) = build_scan_roots(project_root, include_patterns);
     for overlay_path in overlay.keys() {
-        if overlay_path.extension().is_none_or(|ext| !is_spec_extension(ext)) {
+        if overlay_path
+            .extension()
+            .is_none_or(|ext| !is_spec_extension(ext))
+        {
             continue;
         }
         if path_matches_any_root(overlay_path, &spec_roots) {
@@ -2188,34 +2267,28 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
     let mut test_files: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
     for spec_config in &config.specs {
         for impl_config in &spec_config.impls {
-            let test_patterns: Vec<&str> = impl_config
-                .test_include
-                .iter()
-                .map(|t| t.as_str())
-                .collect();
-            if !test_patterns.is_empty() {
-                // Walk files and match against test patterns
-                let walker = ignore::WalkBuilder::new(project_root)
+            if impl_config.test_include.is_empty() {
+                continue;
+            }
+            // Same root/exclude handling as the file scan itself, so an
+            // excluded file is never treated as a test file.
+            // r[impl config.impl.exclude]
+            let (roots, _) = build_scan_roots(project_root, &impl_config.test_include);
+            for root_pattern in &roots {
+                let walker = ignore::WalkBuilder::new(&root_pattern.root)
                     .follow_links(true)
                     .hidden(false)
                     .git_ignore(true)
                     .build();
                 for entry in walker.flatten() {
-                    let Some(ft) = entry.file_type() else {
+                    if !entry.file_type().is_some_and(|ft| ft.is_file()) {
                         continue;
-                    };
-                    if ft.is_file() {
-                        let path = entry.path();
-                        if let Ok(relative) = path.strip_prefix(project_root) {
-                            for pattern in &test_patterns {
-                                if let Ok(glob) = globset::Glob::new(pattern)
-                                    && glob.compile_matcher().is_match(relative)
-                                {
-                                    test_files.insert(path.to_path_buf());
-                                    break;
-                                }
-                            }
-                        }
+                    }
+                    let path = entry.path();
+                    if path_matches_root_pattern(path, root_pattern)
+                        && !path_matches_excludes(path, &roots, &impl_config.exclude)
+                    {
+                        test_files.insert(path.to_path_buf());
                     }
                 }
             }
@@ -2327,6 +2400,17 @@ pub async fn build_dashboard_data_with_overlay_and_cache(
             source: Some(include_patterns.join(", ")),
             source_url: spec_config.source_url.clone(),
             implementations: spec_config.impls.iter().map(|i| i.name.clone()).collect(),
+            // From the matched files rather than the extracted rules, so a
+            // spec file that yields no rules still counts.
+            formats: spec_file_paths
+                .iter()
+                .filter_map(|p| SpecFormat::from_path(p))
+                .fold(Vec::new(), |mut formats, f| {
+                    if !formats.contains(&f) {
+                        formats.push(f);
+                    }
+                    formats
+                }),
         });
         spec_includes_by_name.insert(spec_name.clone(), include_patterns.clone());
         format_config_by_spec.insert(spec_name.clone(), spec_config.format.clone());
@@ -2966,4 +3050,84 @@ fn build_outline(
     }
 
     entries
+}
+
+#[cfg(test)]
+mod glob_tests {
+    use super::*;
+
+    #[test]
+    fn split_glob_prefix_stops_at_whole_components() {
+        assert_eq!(split_glob_prefix("crates/**/*.rs"), ("crates", "**/*.rs"));
+        assert_eq!(
+            split_glob_prefix("tests/parse_*.rs"),
+            ("tests", "parse_*.rs")
+        );
+        assert_eq!(split_glob_prefix("src/[!f]*.rs"), ("src", "[!f]*.rs"));
+        assert_eq!(split_glob_prefix("docs/{a,b}/*.md"), ("docs", "{a,b}/*.md"));
+        assert_eq!(split_glob_prefix("**/*.rs"), ("", "**/*.rs"));
+        assert_eq!(split_glob_prefix("*.md"), ("", "*.md"));
+        assert_eq!(split_glob_prefix("../marq/**/*.rs"), ("../marq", "**/*.rs"));
+        assert_eq!(split_glob_prefix("spec.md"), ("spec.md", ""));
+    }
+
+    #[test]
+    fn excludes_match_project_relative_paths() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        std::fs::create_dir_all(root.join("crates/foo/tests/fixtures")).unwrap();
+        let (roots, warnings) = build_scan_roots(root, &["crates/**/*.rs".to_string()]);
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let fixture = root.join("crates/foo/tests/fixtures/x.rs");
+        let source = root.join("crates/foo/src/lib.rs");
+
+        let exclude = ["crates/foo/tests/fixtures/**".to_string()];
+        assert!(path_matches_excludes(&fixture, &roots, &exclude));
+        assert!(!path_matches_excludes(&source, &roots, &exclude));
+
+        assert_eq!(
+            exclude_match(&fixture, &roots, &exclude),
+            Some(ExcludeMatch::ProjectRelative)
+        );
+
+        // Patterns relative to the scan root keep working, but are flagged
+        // as deprecated.
+        let legacy = ["foo/tests/fixtures/**".to_string()];
+        assert!(path_matches_excludes(&fixture, &roots, &legacy));
+        assert_eq!(
+            exclude_match(&fixture, &roots, &legacy),
+            Some(ExcludeMatch::Legacy {
+                pattern: "foo/tests/fixtures/**".to_string(),
+                base: PathBuf::from("crates"),
+            })
+        );
+    }
+
+    #[test]
+    fn full_walk_warns_about_legacy_excludes_once() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let fixtures = root.join("crates/foo/tests/fixtures");
+        std::fs::create_dir_all(&fixtures).unwrap();
+        std::fs::write(fixtures.join("a.rs"), "").unwrap();
+        std::fs::write(fixtures.join("b.rs"), "").unwrap();
+        std::fs::create_dir_all(root.join("crates/foo/src")).unwrap();
+        std::fs::write(root.join("crates/foo/src/lib.rs"), "").unwrap();
+        let (roots, _) = build_scan_roots(root, &["crates/**/*.rs".to_string()]);
+
+        let legacy = ["foo/tests/fixtures/**".to_string()];
+        let (files, warnings) = full_walk_for_roots(&roots, false, false, &legacy);
+        assert_eq!(files.len(), 1, "{files:?}");
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(
+            warnings[0].contains("crates/foo/tests/fixtures/**"),
+            "{}",
+            warnings[0]
+        );
+
+        let modern = ["crates/foo/tests/fixtures/**".to_string()];
+        let (files, warnings) = full_walk_for_roots(&roots, false, false, &modern);
+        assert_eq!(files.len(), 1, "{files:?}");
+        assert!(warnings.is_empty(), "{warnings:?}");
+    }
 }

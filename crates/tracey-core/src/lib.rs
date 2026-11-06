@@ -9,6 +9,7 @@ mod languages;
 mod lexer;
 mod markdown;
 mod positions;
+mod relation;
 mod rule_id;
 mod sources;
 pub mod spec;

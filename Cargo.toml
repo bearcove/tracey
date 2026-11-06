@@ -163,7 +163,7 @@ marq = { version = "5.0.0-rc.0", features = ["all-handlers", "lang-vixen"] }
 pulldown-cmark = "0.13"
 
 # StrictDoc parser for .sdoc spec files
-strictdoc-parser = "0.1.1"
+strictdoc-parser = "0.2.0"
 
 # AsciiDoc parsing and HTML rendering (asciidork suite)
 asciidork-core = "0.37"

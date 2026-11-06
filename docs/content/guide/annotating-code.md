@@ -155,21 +155,30 @@ If your spec is authored in [StrictDoc](https://strictdoc.readthedocs.io/) — s
 fn allocate_channel_id(&mut self) -> u32 { /* ... */ }
 ```
 
-`scope=` is accepted (`function`, `file`, or `line`) and forwarded to StrictDoc tooling but is not used by tracey's matcher; it's safe to omit if you're tracey-only.
+The UID is the requirement's `UID:` field exactly as written (case-sensitive). Tracey follows StrictDoc's marker grammar, so markers that work with StrictDoc work with tracey and vice versa:
+
+- `@relation(…)` and the Doxygen-friendly `@relation{…}` are both accepted.
+- Arguments come in order: UIDs, then `scope=`, then `role=`, separated by `, ` (comma and space).
+- A marker must start a comment line — it may be preceded by the comment leader (`//`, `#`, `*`, `--`, …), but a mention in prose (`see @relation(CH-001) for details`) is ignored.
+- A malformed marker (unknown scope, invalid UID, missing `)`, …) produces a warning instead of being silently skipped.
+
+### Scopes
+
+`scope=` is one of `file`, `class`, `function`, `line`, `range_start` or `range_end`. Tracey doesn't use the scope for matching — every marker references its UIDs from where it is written — but StrictDoc does, so pick the one that describes the code. A `range_start` / `range_end` pair counts once (at `range_start`). The scope can be omitted if you only use tracey.
 
 ### Role mapping
 
-The optional `role=` field selects the tracey verb:
+The optional `role=` field selects the tracey verb. StrictDoc treats roles as free-form text, and both the verb and the noun spelling are common, so tracey accepts both (case-insensitively):
 
-| StrictDoc role | Tracey verb | Notes |
-|----------------|-------------|-------|
-| (omitted) | `impl` | Default — same as `role=Implements` |
-| `Implements` | `impl` | |
-| `Verifies` | `verify` | |
-| `Refines` | — | Not yet mapped; emits a warning and is skipped |
+| StrictDoc role | Tracey verb |
+|----------------|-------------|
+| (omitted) | `impl` |
+| `Implements`, `Implementation`, `Implement`, `Impl` | `impl` |
+| `Verifies`, `Verification`, `Verify`, `Test`, `Tests` | `verify` |
+| `Refines`, `Refinement`, or any other role | — not mapped; emits a warning and is skipped |
 
 ```rust
-// @relation(CH-001, role=Verifies)
+// @relation(CH-001, scope=function, role=Verifies)
 #[test]
 fn channels_are_sequential() { /* ... */ }
 ```
