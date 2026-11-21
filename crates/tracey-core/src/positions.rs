@@ -6,8 +6,7 @@ impl LineNumber {
         Self(index + 1)
     }
 
-    #[cfg(not(feature = "reverse"))]
-    pub(crate) fn from_one_based(index: usize) -> Self {
+        pub(crate) fn from_one_based(index: usize) -> Self {
         debug_assert!(index > 0, "line numbers are 1-based");
         Self(index)
     }
@@ -116,11 +115,9 @@ impl RefLocation {
     }
 }
 
-#[cfg(not(feature = "reverse"))]
 #[derive(Debug, Clone)]
 pub(crate) struct LineStarts(Vec<ByteOffset>);
 
-#[cfg(not(feature = "reverse"))]
 impl LineStarts {
     pub(crate) fn from_content(content: &str) -> Self {
         let starts = std::iter::once(ByteOffset::ZERO)
@@ -156,8 +153,7 @@ mod tests {
         assert_eq!(span.length().as_usize(), 5);
     }
 
-    #[cfg(not(feature = "reverse"))]
-    #[test]
+        #[test]
     fn line_starts_maps_offsets_to_one_based_lines() {
         let starts = LineStarts::from_content("a\nbc\ndef");
         assert_eq!(
@@ -180,8 +176,7 @@ mod tests {
         );
     }
 
-    #[cfg(not(feature = "reverse"))]
-    #[test]
+        #[test]
     fn line_number_after_check_is_one_step() {
         let previous = LineNumber::from_one_based(7);
         let next = LineNumber::from_one_based(8);

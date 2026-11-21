@@ -31,6 +31,8 @@
 
 ### Added
 
+- Vix (`.vix`) files are scanned for requirement references in their `//`
+  comments.
 - StrictDoc noun roles: `role=Implementation` counts as `impl`;
   `role=Verification` and `role=Test` count as `verify`.
 - StrictDoc `scope=class`, `scope=range_start` and `scope=range_end`. A
@@ -42,6 +44,9 @@
 
 ### Fixed
 
+- Files whose extension has no grammar (`.m`, `.mm`, `.kt`, `.kts`, `.scala`,
+  `.groovy`, `.cs`, `.zig`, `.vix`) are scanned as text again. The `tracey`
+  binary scanned them and found no reference.
 - An include pattern with a partial file name such as `tests/parse_*.rs`
   now scans `tests/` instead of looking for a directory named
   `tests/parse_`.

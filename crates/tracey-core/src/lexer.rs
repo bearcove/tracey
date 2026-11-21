@@ -4,10 +4,8 @@
 //! It scans comments for patterns like `r[verb rule.id]`.
 
 use crate::RuleId;
-#[cfg(not(feature = "reverse"))]
 use crate::parse_rule_id;
 use crate::positions::ByteSpan;
-#[cfg(not(feature = "reverse"))]
 use crate::positions::{ByteOffset, LineNumber, LineStarts, RefLocation};
 use crate::sources::{ExtractionResult, Sources};
 use eyre::Result;
@@ -183,7 +181,13 @@ impl Reqs {
 /// When the "reverse" feature is enabled, this uses tree-sitter for proper
 /// comment parsing. Otherwise, falls back to text-based scanning.
 pub(crate) fn extract_from_content(path: &Path, content: &str, reqs: &mut Reqs) {
+    // An extension with no grammar (the registry's `@lexer_only` row) is
+    // scanned as text, with or without the `reverse` feature.
     #[cfg(feature = "reverse")]
+    if path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|ext| crate::languages::for_ext(ext).is_some())
     {
         // Use tree-sitter based extraction
         // r[impl ref.comments.line]
@@ -216,13 +220,11 @@ pub(crate) fn extract_from_content(path: &Path, content: &str, reqs: &mut Reqs) 
                 kind: WarningKind::MalformedReference,
             });
         }
+        return;
     }
 
-    #[cfg(not(feature = "reverse"))]
-    {
-        // Fallback: text-based scanning
-        extract_from_content_text_based(path, content, reqs);
-    }
+        // Text-based scanning
+    extract_from_content_text_based(path, content, reqs);
 }
 
 pub(crate) fn is_valid_req_char(c: char) -> bool {
@@ -232,7 +234,6 @@ pub(crate) fn is_valid_req_char(c: char) -> bool {
 /// State for tracking ignore directives across lines.
 ///
 /// r[impl ref.ignore.prefix]
-#[cfg(not(feature = "reverse"))]
 #[derive(Default)]
 struct IgnoreState {
     /// Skip the next line (set by @tracey:ignore-next-line)
@@ -245,7 +246,6 @@ struct IgnoreState {
 /// Check if a comment contains ignore directives and update state accordingly.
 ///
 /// Returns true if the current comment's refs should be extracted (not ignored).
-#[cfg(not(feature = "reverse"))]
 fn check_ignore_directives(text: &str, line: LineNumber, state: &mut IgnoreState) -> bool {
     // Check for ignore directives
     // r[impl ref.ignore.next-line]
@@ -289,7 +289,6 @@ fn check_ignore_directives(text: &str, line: LineNumber, state: &mut IgnoreState
 /// least one whitespace character, AND is not inside a single- or double-quoted
 /// scalar.  A bare `#` embedded in a plain scalar — e.g. `url: http://x/#frag`
 /// — is NOT a comment.
-#[cfg(not(feature = "reverse"))]
 fn find_yaml_comment_start(line: &str) -> Option<usize> {
     let mut in_single = false;
     let mut in_double = false;
@@ -312,7 +311,6 @@ fn find_yaml_comment_start(line: &str) -> Option<usize> {
     None
 }
 
-#[cfg(not(feature = "reverse"))]
 fn extract_from_content_text_based(path: &Path, content: &str, reqs: &mut Reqs) {
     // Track line starts for computing line numbers from byte offsets
     let line_starts = LineStarts::from_content(content);
@@ -410,7 +408,6 @@ fn extract_from_content_text_based(path: &Path, content: &str, reqs: &mut Reqs) 
 }
 
 /// Extract rule references from a piece of text (comment content)
-#[cfg(not(feature = "reverse"))]
 fn extract_references_from_text(
     path: &Path,
     text: &str,
@@ -638,7 +635,6 @@ fn extract_references_from_text(
 /// Multi-UID annotations expand to one reference per UID, all sharing the call's span.
 /// See [`crate::relation::relation_markers`] for how roles and scopes map to verbs;
 /// malformed markers and unmapped roles emit a parse warning.
-#[cfg(not(feature = "reverse"))]
 fn extract_relation_annotations(
     path: &Path,
     text: &str,
@@ -717,7 +713,6 @@ fn extract_relation_annotations(
 }
 
 // r[impl ref.syntax.req-id+3]
-#[cfg(not(feature = "reverse"))]
 fn is_valid_req_id(req_id: &str) -> bool {
     let Some(parsed) = parse_rule_id(req_id) else {
         return false;
@@ -1204,5 +1199,20 @@ pub fn reconnect() {}
         let content = "msg: \"hello # r[impl yaml.false-positive]\"\n";
         let reqs = Reqs::extract_from_content(Path::new("config.yaml"), content);
         assert_eq!(reqs.len(), 0, "# inside a double-quoted scalar must not be a comment");
+    }
+}
+
+#[cfg(test)]
+mod lexer_only_tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn test_vix_line_comment_before_a_rule() {
+        let content = "// r[verify vix.eval.call.early+2]\nrule call_early {\n    test t {\n        1 == 1\n    } expect {\n        must: x is needed\n    }\n}\n";
+        let reqs = Reqs::extract_from_content(Path::new("eval.vix"), content);
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs.references[0].req_id.to_string(), "vix.eval.call.early+2");
+        assert_eq!(reqs.references[0].verb, RefVerb::Verify);
     }
 }
