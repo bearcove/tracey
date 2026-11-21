@@ -44,6 +44,9 @@
 
 ### Fixed
 
+- Files whose extension has no grammar (`.m`, `.mm`, `.kt`, `.kts`, `.scala`,
+  `.groovy`, `.cs`, `.zig`, `.vix`) are scanned as text again. The `tracey`
+  binary scanned them and found no reference.
 - An include pattern with a partial file name such as `tests/parse_*.rs`
   now scans `tests/` instead of looking for a directory named
   `tests/parse_`.
