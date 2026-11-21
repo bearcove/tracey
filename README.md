@@ -258,7 +258,7 @@ When spec text changes and the version is bumped to `+4`, tracey reports the `+3
 
 ## Supported Languages
 
-Tracey scans comments in: Rust, Swift, TypeScript, TSX, JavaScript, JSX, Go, C, C++, Objective-C, Objective-C++, Java, Kotlin, Scala, Groovy, C#, Zig, PHP, YAML (`.yml`, `.yaml`), JSON5 (`.json5`).
+Tracey scans comments in: Rust, Swift, TypeScript, TSX, JavaScript, JSX, Go, C, C++, Objective-C, Objective-C++, Java, Kotlin, Scala, Groovy, C#, Zig, Vix, PHP, YAML (`.yml`, `.yaml`), JSON5 (`.json5`).
 
 ## License
 

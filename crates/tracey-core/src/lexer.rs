@@ -1205,4 +1205,13 @@ pub fn reconnect() {}
         let reqs = Reqs::extract_from_content(Path::new("config.yaml"), content);
         assert_eq!(reqs.len(), 0, "# inside a double-quoted scalar must not be a comment");
     }
+
+    #[test]
+    fn test_vix_line_comment_before_a_rule() {
+        let content = "// r[verify vix.eval.call.early+2]\nrule call_early {\n    test t {\n        1 == 1\n    } expect {\n        must: x is needed\n    }\n}\n";
+        let reqs = Reqs::extract_from_content(Path::new("eval.vix"), content);
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs.references[0].req_id.to_string(), "vix.eval.call.early+2");
+        assert_eq!(reqs.references[0].verb, RefVerb::Verify);
+    }
 }

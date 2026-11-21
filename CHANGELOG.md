@@ -31,6 +31,8 @@
 
 ### Added
 
+- Vix (`.vix`) files are scanned for requirement references in their `//`
+  comments.
 - StrictDoc noun roles: `role=Implementation` counts as `impl`;
   `role=Verification` and `role=Test` count as `verify`.
 - StrictDoc `scope=class`, `scope=range_start` and `scope=range_end`. A

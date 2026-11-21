@@ -146,7 +146,7 @@ define_languages! {
     // Extensions scanned by the text-based lexer fallback only (no tree-sitter
     // grammar wired up yet). Kept for backwards compatibility — promote to a
     // full row above once a grammar + extractor exist.
-    @lexer_only ["m", "mm", "kt", "kts", "scala", "groovy", "cs", "zig"]
+    @lexer_only ["m", "mm", "kt", "kts", "scala", "groovy", "cs", "zig", "vix"]
 }
 
 #[cfg(test)]
